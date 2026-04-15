@@ -15,6 +15,7 @@ from fastapi.responses import ORJSONResponse
 
 from .core.config import settings
 from .core.logging import configure_logging, get_logger
+from .core.queue import close_pool as close_queue_pool
 from .core.redis import close_redis
 from .routes import (
     admin,
@@ -46,6 +47,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     """Startup / shutdown hooks."""
     log.info("api_starting", env=settings.app_env)
     yield
+    await close_queue_pool()
     await close_redis()
     log.info("api_stopped")
 

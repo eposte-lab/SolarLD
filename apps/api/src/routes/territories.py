@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, Query
 
+from ..core.queue import enqueue
 from ..core.security import CurrentUser, require_tenant
 from ..core.supabase_client import get_service_client
 from ..models.territory import TerritoryCreate, TerritoryOut
+from ..services.hunter.grid import estimate_grid_cost
 
 router = APIRouter()
 
@@ -50,15 +52,78 @@ async def delete_territory(ctx: CurrentUser, territory_id: str) -> dict[str, boo
     return {"ok": True}
 
 
-@router.post("/{territory_id}/scan")
-async def trigger_scan(ctx: CurrentUser, territory_id: str) -> dict[str, object]:
-    """Enqueue a Hunter Agent scan for this territory."""
+@router.get("/{territory_id}/scan-estimate")
+async def scan_estimate(
+    ctx: CurrentUser,
+    territory_id: str,
+    step_meters: float = Query(50.0, ge=10.0, le=500.0),
+) -> dict[str, object]:
+    """Pre-flight budget check: points + cost before actually enqueuing."""
     tenant_id = require_tenant(ctx)
-    # TODO: enqueue BullMQ/arq job → hunter agent
+    sb = get_service_client()
+    res = (
+        sb.table("territories")
+        .select("bbox, name")
+        .eq("id", territory_id)
+        .eq("tenant_id", tenant_id)
+        .single()
+        .execute()
+    )
+    if not res.data or not res.data.get("bbox"):
+        raise HTTPException(status_code=404, detail="territory not found or missing bbox")
+    est = estimate_grid_cost(res.data["bbox"], step_meters=step_meters)
+    return {
+        "territory_id": territory_id,
+        "name": res.data.get("name"),
+        "step_meters": step_meters,
+        **est,
+    }
+
+
+@router.post("/{territory_id}/scan")
+async def trigger_scan(
+    ctx: CurrentUser,
+    territory_id: str,
+    max_roofs: int = Query(500, ge=1, le=10_000),
+    start_index: int = Query(0, ge=0),
+    step_meters: float = Query(50.0, ge=10.0, le=500.0),
+) -> dict[str, object]:
+    """Enqueue a Hunter Agent scan for this territory.
+
+    Returns the job id so the dashboard can poll scan progress via
+    `/v1/events?source=agent.hunter&territory_id=...`.
+    """
+    tenant_id = require_tenant(ctx)
+
+    # Quick sanity check the territory exists and belongs to the tenant
+    sb = get_service_client()
+    t = (
+        sb.table("territories")
+        .select("id")
+        .eq("id", territory_id)
+        .eq("tenant_id", tenant_id)
+        .single()
+        .execute()
+    )
+    if not t.data:
+        raise HTTPException(status_code=404, detail="territory not found")
+
+    job = await enqueue(
+        "hunter_task",
+        {
+            "tenant_id": tenant_id,
+            "territory_id": territory_id,
+            "max_roofs": max_roofs,
+            "start_index": start_index,
+            "step_meters": step_meters,
+        },
+        # Idempotency: one in-flight scan per (tenant, territory, start_index)
+        job_id=f"hunter:{tenant_id}:{territory_id}:{start_index}",
+    )
     return {
         "ok": True,
         "tenant_id": tenant_id,
         "territory_id": territory_id,
-        "job_id": "pending",
-        "message": "Scan job queued (stub — hunter agent not yet wired)",
+        "max_roofs": max_roofs,
+        **job,
     }
