@@ -1,0 +1,35 @@
+{
+  "name": "@solarlead/video-renderer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "SolarLead — Remotion sidecar for rendering before/after transition videos",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "render:example": "remotion render src/remotion.tsx SolarTransition out/example.mp4",
+    "test": "vitest run",
+    "lint": "eslint src --ext .ts,.tsx",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@remotion/bundler": "^4.0.237",
+    "@remotion/cli": "^4.0.237",
+    "@remotion/renderer": "^4.0.237",
+    "remotion": "^4.0.237",
+    "react": "19.0.0",
+    "react-dom": "19.0.0",
+    "express": "^4.21.2",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/express": "^5.0.0",
+    "@types/react": "^19.0.1",
+    "@types/react-dom": "^19.0.2",
+    "typescript": "^5.7.2",
+    "tsx": "^4.19.2",
+    "vitest": "^2.1.8",
+    "eslint": "^9.17.0"
+  }
+}

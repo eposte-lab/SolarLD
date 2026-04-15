@@ -1,0 +1,11 @@
+node_modules
+.next
+.turbo
+dist
+build
+.venv
+*.lock
+*.log
+packages/db/migrations
+**/.next
+**/out

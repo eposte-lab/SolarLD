@@ -1,0 +1,16 @@
+{
+  "name": "@solarlead/db",
+  "version": "0.1.0",
+  "private": true,
+  "description": "SolarLead — Supabase schema, migrations, and seed data",
+  "scripts": {
+    "migrate": "supabase db push",
+    "migrate:local": "supabase migration up --local",
+    "reset": "supabase db reset --local",
+    "diff": "supabase db diff",
+    "gen:types": "supabase gen types typescript --project-id ppabjpryzzkksrbnledy --schema public > ../shared-types/src/database.types.ts"
+  },
+  "devDependencies": {
+    "supabase": "^2.2.1"
+  }
+}

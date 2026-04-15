@@ -1,0 +1,39 @@
+{
+  "name": "solarlead",
+  "version": "0.1.0",
+  "private": true,
+  "description": "SolarLead — Agentic Lead Generation Platform for Solar Installers",
+  "author": "Alfonso Gallo",
+  "license": "UNLICENSED",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev --parallel",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "typecheck": "turbo run typecheck",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md}\"",
+    "db:start": "cd infra && docker compose up -d",
+    "db:stop": "cd infra && docker compose down",
+    "db:reset": "cd infra && docker compose down -v && docker compose up -d",
+    "db:migrate": "pnpm --filter @solarlead/db migrate",
+    "api:dev": "pnpm --filter @solarlead/api dev",
+    "dashboard:dev": "pnpm --filter @solarlead/dashboard dev",
+    "lead-portal:dev": "pnpm --filter @solarlead/lead-portal dev"
+  },
+  "devDependencies": {
+    "turbo": "^2.3.3",
+    "prettier": "^3.4.2",
+    "typescript": "^5.7.2",
+    "@types/node": "^22.10.2"
+  },
+  "engines": {
+    "node": ">=20.11.0",
+    "pnpm": ">=10.0.0"
+  },
+  "packageManager": "pnpm@10.26.1"
+}

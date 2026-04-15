@@ -1,0 +1,66 @@
+version: '3.9'
+
+# ============================================================
+# Local dev stack for SolarLead.
+#
+# Supabase (Postgres + Auth + Storage + Studio) is expected
+# to be running via `supabase start` from packages/db.
+# This file only spins up Redis (queue + cache) and optional
+# helpers. When you want a fully-offline setup, set
+# SOLARLEAD_USE_LOCAL_DB=1 and also bring up the postgres service.
+# ============================================================
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: solarlead-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # Optional: local Postgres if you prefer to develop without Supabase CLI.
+  # Enable via:  docker compose --profile local-db up -d
+  postgres:
+    profiles: ['local-db']
+    image: postgis/postgis:16-3.4
+    container_name: solarlead-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: solarlead
+    ports:
+      - '54322:5432'
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ../packages/db/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Optional: BullMQ Board / arq Web UI for job inspection
+  redis-commander:
+    profiles: ['tools']
+    image: rediscommander/redis-commander:latest
+    container_name: solarlead-redis-commander
+    restart: unless-stopped
+    environment:
+      REDIS_HOSTS: local:redis:6379
+    ports:
+      - '8081:8081'
+    depends_on:
+      - redis
+
+volumes:
+  redis_data:
+  pg_data:
