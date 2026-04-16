@@ -43,6 +43,10 @@ from pydantic import BaseModel, Field
 from ..core.logging import get_logger
 from ..core.supabase_client import get_service_client
 from ..models.enums import RoofDataSource, RoofStatus
+from ..services.claude_vision_service import (
+    VISION_COST_PER_CALL_CENTS,
+    estimate_roof_from_image,
+)
 from ..services.google_solar_service import (
     COST_PER_CALL_CENTS,
     RoofInsight,
@@ -55,7 +59,11 @@ from ..services.hunter import (
     classify_roof,
     generate_sampling_grid,
 )
-from ..services.mapbox_service import MapboxError, reverse_geocode
+from ..services.mapbox_service import (
+    MapboxError,
+    build_static_satellite_url,
+    reverse_geocode,
+)
 from .base import AgentBase
 
 log = get_logger(__name__)
@@ -216,19 +224,33 @@ class HunterAgent(AgentBase[HunterInput, HunterOutput]):
 
         # 1) Google Solar
         used_fallback = False
+        vision_calls = 0
+        data_source = RoofDataSource.GOOGLE_SOLAR
         insight: RoofInsight | None = None
         try:
             insight = await fetch_building_insight(lat, lng, client=http_client)
         except SolarApiNotFound:
-            # Mapbox fallback — Sprint 2 wires Claude Vision to estimate
-            # geometry; for Sprint 1 we skip the point entirely unless we
-            # get a reverse-geocode hit that looks like a building address.
+            # Fallback path: ask Claude to estimate geometry from a Mapbox
+            # satellite tile. Returns None if no building is confidently
+            # visible, in which case we skip the point entirely.
             used_fallback = True
             try:
-                _ = await reverse_geocode(lat, lng, client=http_client)
-            except MapboxError as exc:
-                log.debug("mapbox_fallback_unavailable", lat=lat, lng=lng, err=str(exc))
-            return _PointResult(status="no_building", used_fallback=used_fallback, api_calls=1)
+                image_url = build_static_satellite_url(lat, lng, zoom=19)
+                insight = await estimate_roof_from_image(image_url, lat, lng)
+                vision_calls = 1
+                if insight is None:
+                    return _PointResult(
+                        status="no_building",
+                        used_fallback=True,
+                        api_calls=1,
+                        vision_calls=vision_calls,
+                    )
+                data_source = RoofDataSource.MAPBOX_AI_FALLBACK
+            except (MapboxError, RuntimeError) as exc:
+                log.debug("vision_fallback_unavailable", lat=lat, lng=lng, err=str(exc))
+                return _PointResult(
+                    status="no_building", used_fallback=True, api_calls=1
+                )
         except SolarApiError as exc:
             log.warning("solar_point_error", lat=lat, lng=lng, err=str(exc))
             return _PointResult(status="api_error", api_calls=1)
@@ -264,12 +286,14 @@ class HunterAgent(AgentBase[HunterInput, HunterOutput]):
             "exposure": insight.dominant_exposure,
             "pitch_degrees": insight.pitch_degrees,
             "shading_score": insight.shading_score,
-            "data_source": RoofDataSource.GOOGLE_SOLAR.value,
+            "data_source": data_source.value,
             "classification": classification.value,
             "status": (RoofStatus.DISCOVERED if verdict.accepted else RoofStatus.REJECTED).value,
-            "scan_cost_cents": COST_PER_CALL_CENTS,
+            "scan_cost_cents": COST_PER_CALL_CENTS
+            + (VISION_COST_PER_CALL_CENTS * vision_calls),
             "raw_data": {
-                "solar": insight.raw,
+                "solar": insight.raw if data_source == RoofDataSource.GOOGLE_SOLAR else None,
+                "vision": insight.raw if data_source == RoofDataSource.MAPBOX_AI_FALLBACK else None,
                 "filter_reason": verdict.reason,
             },
         }
@@ -288,12 +312,24 @@ class HunterAgent(AgentBase[HunterInput, HunterOutput]):
                     "area_sqm": insight.area_sqm,
                     "estimated_kwp": insight.estimated_kwp,
                     "classification": classification.value,
+                    "data_source": data_source.value,
                 },
                 tenant_id=tenant_id,
             )
-            return _PointResult(status="discovered", api_calls=1)
+            return _PointResult(
+                status="discovered",
+                api_calls=1,
+                vision_calls=vision_calls,
+                used_fallback=used_fallback,
+            )
 
-        return _PointResult(status="filtered", filter_reason=verdict.reason, api_calls=1)
+        return _PointResult(
+            status="filtered",
+            filter_reason=verdict.reason,
+            api_calls=1,
+            vision_calls=vision_calls,
+            used_fallback=used_fallback,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -306,6 +342,7 @@ class _PointResult(BaseModel):
     filter_reason: str | None = None
     used_fallback: bool = False
     api_calls: int = 0
+    vision_calls: int = 0
 
 
 async def _drain_tasks(
@@ -315,7 +352,10 @@ async def _drain_tasks(
     for task in asyncio.as_completed(tasks):
         _, result = await task
         out.api_calls += result.api_calls
-        out.api_cost_cents += result.api_calls * COST_PER_CALL_CENTS
+        out.api_cost_cents += (
+            result.api_calls * COST_PER_CALL_CENTS
+            + result.vision_calls * VISION_COST_PER_CALL_CENTS
+        )
         if result.used_fallback:
             out.used_fallback_count += 1
         if result.status == "discovered":
