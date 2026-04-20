@@ -1,11 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { createBrowserClient } from '@/lib/supabase/client';
 
 export default function LoginPage() {
-  const router = useRouter();
   const supabase = createBrowserClient();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -22,49 +20,75 @@ export default function LoginPage() {
       setError(error.message);
       return;
     }
-    router.push('/leads');
+    // Hard redirect — forces a full page reload so the middleware sees
+    // the newly-set Supabase auth cookie in the next request headers.
+    // router.push() does a soft (client-side) navigation that can race
+    // against the cookie being sent to the server.
+    window.location.href = '/leads';
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center p-4">
-      <form onSubmit={onSubmit} className="w-full max-w-sm space-y-4 rounded-lg border border-border p-6">
-        <div>
-          <h1 className="text-2xl font-bold text-primary">SolarLead</h1>
-          <p className="text-sm text-muted-foreground">Accesso Installatore</p>
+    <main className="flex min-h-screen items-center justify-center bg-surface px-4 py-12">
+      <div className="w-full max-w-sm">
+        {/* Brand mark */}
+        <div className="mb-8 text-center">
+          <span className="font-headline text-4xl font-extrabold tracking-tighter text-primary">
+            SolarLead
+          </span>
+          <p className="mt-1 text-sm text-on-surface-variant">
+            Piattaforma per installatori fotovoltaici
+          </p>
         </div>
 
-        <div>
-          <label className="text-sm font-medium">Email</label>
-          <input
-            type="email"
-            required
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-          />
-        </div>
-
-        <div>
-          <label className="text-sm font-medium">Password</label>
-          <input
-            type="password"
-            required
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-          />
-        </div>
-
-        {error && <p className="text-sm text-destructive">{error}</p>}
-
-        <button
-          type="submit"
-          disabled={loading}
-          className="w-full rounded-md bg-primary px-4 py-2 text-primary-foreground disabled:opacity-50"
+        <form
+          onSubmit={onSubmit}
+          className="space-y-5 rounded-xl bg-surface-container-lowest p-8 shadow-ambient"
         >
-          {loading ? 'Accesso in corso…' : 'Accedi'}
-        </button>
-      </form>
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
+              Accesso Installatore
+            </p>
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-sm font-medium text-on-surface">Email</label>
+            <input
+              type="email"
+              required
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="nome@azienda.it"
+              className="w-full rounded-lg bg-surface-container-low px-3 py-2.5 text-sm text-on-surface placeholder:text-on-surface-variant/60 outline-none focus:ring-2 focus:ring-primary/40"
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-sm font-medium text-on-surface">Password</label>
+            <input
+              type="password"
+              required
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="••••••••"
+              className="w-full rounded-lg bg-surface-container-low px-3 py-2.5 text-sm text-on-surface placeholder:text-on-surface-variant/60 outline-none focus:ring-2 focus:ring-primary/40"
+            />
+          </div>
+
+          {error && (
+            <p className="rounded-lg bg-error-container px-3 py-2 text-sm font-medium text-on-error-container">
+              {error}
+            </p>
+          )}
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full rounded-full bg-gradient-primary px-4 py-3 text-sm font-bold text-on-primary shadow-ambient-sm transition-opacity hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {loading ? 'Accesso in corso…' : 'Accedi'}
+          </button>
+        </form>
+      </div>
     </main>
   );
 }

@@ -5,9 +5,20 @@ version: '3.9'
 #
 # Supabase (Postgres + Auth + Storage + Studio) is expected
 # to be running via `supabase start` from packages/db.
-# This file only spins up Redis (queue + cache) and optional
-# helpers. When you want a fully-offline setup, set
-# SOLARLEAD_USE_LOCAL_DB=1 and also bring up the postgres service.
+# This file spins up Redis (queue + cache), optional local
+# Postgres, and optional containerized API + arq worker.
+#
+# Profiles:
+#   (default)   — redis only              (use with `supabase start`)
+#   local-db    — adds local Postgres     (fully-offline dev)
+#   app         — adds api + worker       (for `pnpm dev:all`)
+#   tools       — adds redis-commander    (Redis inspector UI)
+#
+# Bring up everything for full-container dev:
+#   docker compose --profile app --profile local-db up -d
+#
+# Bring up just redis (default — Next.js + uvicorn run on host):
+#   docker compose up -d
 # ============================================================
 
 services:
@@ -47,6 +58,58 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  # Optional: FastAPI app in container.
+  # Enable via:  docker compose --profile app up -d
+  # For host-side dev (better reload UX) just run `pnpm api:dev` instead.
+  api:
+    profiles: ['app']
+    build:
+      context: ../apps/api
+      dockerfile: Dockerfile
+    container_name: solarlead-api
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    environment:
+      # Override container-internal URLs so service discovery works
+      # regardless of what's in .env (which targets host ports).
+      REDIS_URL: redis://redis:6379/0
+    command: ['uvicorn', 'src.main:app', '--host', '0.0.0.0', '--port', '8000', '--reload']
+    volumes:
+      # Live-reload: mount src/ so edits on the host propagate.
+      - ../apps/api/src:/app/src
+    ports:
+      - '8000:8000'
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'curl', '-fsS', 'http://localhost:8000/health']
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # Optional: arq worker in container.
+  # Same image/volumes as `api`, different command — no port exposed.
+  worker:
+    profiles: ['app']
+    build:
+      context: ../apps/api
+      dockerfile: Dockerfile
+    container_name: solarlead-worker
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+    command: ['arq', 'src.workers.main.WorkerSettings']
+    volumes:
+      - ../apps/api/src:/app/src
+    depends_on:
+      redis:
+        condition: service_healthy
 
   # Optional: BullMQ Board / arq Web UI for job inspection
   redis-commander:

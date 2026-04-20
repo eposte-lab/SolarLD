@@ -1,0 +1,23 @@
+{% extends "_base.html.j2" %}
+
+{% block content %}
+  <h1>Gentile {{ greeting_name }}, il rendering della vostra casa vi aspetta</h1>
+
+  {% if personalized_opener %}
+    <p>{{ personalized_opener }}</p>
+  {% endif %}
+
+  <p>
+    Qualche giorno fa vi abbiamo inviato una <strong>simulazione
+    realistica</strong> di come si presenterebbe il vostro tetto con un
+    impianto fotovoltaico, insieme ai numeri di bolletta e al tempo di
+    rientro. Forse è finita nella cartella spam o in mezzo alle troppe
+    email del lavoro — per questo torniamo con un promemoria breve.
+  </p>
+
+  <p>
+    Se i numeri vi convincono, organizziamo un
+    <strong>sopralluogo gratuito</strong> e un preventivo personalizzato
+    senza impegno.
+  </p>
+{% endblock %}

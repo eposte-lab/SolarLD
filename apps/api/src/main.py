@@ -19,12 +19,18 @@ from .core.queue import close_pool as close_queue_pool
 from .core.redis import close_redis
 from .routes import (
     admin,
+    analytics,
     auth,
+    branding,
     campaigns,
+    crm_webhooks,
     events,
+    experiments,
     health,
     leads,
+    notifications,
     public,
+    tenant_config,
     tenants,
     territories,
     webhooks,
@@ -74,13 +80,25 @@ app.add_middleware(
 app.include_router(health.router)
 app.include_router(auth.router, prefix="/v1/auth", tags=["auth"])
 app.include_router(tenants.router, prefix="/v1/tenants", tags=["tenants"])
+app.include_router(tenant_config.router, prefix="/v1/tenant-config", tags=["tenant-config"])
 app.include_router(territories.router, prefix="/v1/territories", tags=["territories"])
 app.include_router(leads.router, prefix="/v1/leads", tags=["leads"])
 app.include_router(campaigns.router, prefix="/v1/campaigns", tags=["campaigns"])
 app.include_router(events.router, prefix="/v1/events", tags=["events"])
 app.include_router(webhooks.router, prefix="/v1/webhooks", tags=["webhooks"])
 app.include_router(public.router, prefix="/v1/public", tags=["public"])
+app.include_router(analytics.router, prefix="/v1/analytics", tags=["analytics"])
 app.include_router(admin.router, prefix="/v1/admin", tags=["admin"])
+app.include_router(
+    crm_webhooks.router, prefix="/v1/crm-webhooks", tags=["crm-webhooks"]
+)
+app.include_router(
+    notifications.router, prefix="/v1/notifications", tags=["notifications"]
+)
+app.include_router(
+    experiments.router, prefix="/v1/experiments", tags=["experiments"]
+)
+app.include_router(branding.router, prefix="/v1/branding", tags=["branding"])
 
 
 @app.get("/", tags=["meta"])

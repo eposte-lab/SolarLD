@@ -49,10 +49,22 @@ async def update_my_tenant(ctx: CurrentUser, payload: dict[str, object]) -> dict
 
 @router.get("/me/usage")
 async def get_usage(ctx: CurrentUser) -> dict[str, object]:
-    """Return month-to-date usage stats (stub)."""
-    require_tenant(ctx)
-    # TODO: aggregate from api_usage_log
-    return {
+    """Month-to-date usage stats, aggregated server-side.
+
+    Delegates to the ``analytics_usage_mtd`` Postgres function which
+    rolls up roofs/leads/campaigns/api_usage_log for the current
+    calendar month. Keys match the shape the dashboard expects so the
+    pre-existing Settings widget continues to work unchanged.
+    """
+    tenant_id = require_tenant(ctx)
+    sb = get_service_client()
+    try:
+        res = sb.rpc("analytics_usage_mtd", {"p_tenant_id": tenant_id}).execute()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502, detail=f"usage rpc failed: {exc}"
+        ) from exc
+    return res.data or {
         "roofs_scanned_mtd": 0,
         "leads_generated_mtd": 0,
         "emails_sent_mtd": 0,

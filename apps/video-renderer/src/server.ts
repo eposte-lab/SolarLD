@@ -1,51 +1,86 @@
 /**
- * Express sidecar — receives render requests from the FastAPI Creative Agent
- * and returns an mp4 + gif via Supabase Storage upload.
+ * Express sidecar — receives render requests from the FastAPI Creative
+ * Agent, produces a 6s MP4 + GIF pair via Remotion, uploads both to
+ * Supabase Storage, and returns public URLs.
  *
- * POST /render
- *   body: { beforeImageUrl, afterImageUrl, kwp, yearlySavingsEur, paybackYears, tenantName, outputPath }
+ *   POST /render          { ...solarTransitionSchema, outputPath, bucket? }
+ *   GET  /health          { status, service, version }
  *
- * Returns: { mp4Url, gifUrl, durationMs }
+ * Handlers are factored out of the Express bootstrap so vitest can
+ * exercise them without spinning a real HTTP server.
  */
-import express, { type Request, type Response } from 'express';
-import { z } from 'zod';
+import express, { type Request, type Response, type NextFunction } from 'express';
+import type { SupabaseClient } from '@supabase/supabase-js';
 
-const app = express();
-app.use(express.json({ limit: '2mb' }));
+import {
+  type RenderRequest,
+  type RenderResult,
+  buildSupabaseClient,
+  renderRequestSchema,
+  renderTransition,
+} from './render';
 
-const RenderSchema = z.object({
-  beforeImageUrl: z.string().url(),
-  afterImageUrl: z.string().url(),
-  kwp: z.number(),
-  yearlySavingsEur: z.number(),
-  paybackYears: z.number(),
-  tenantName: z.string(),
-  outputPath: z.string(),
-});
+// ---------------------------------------------------------------------------
+// Handlers (pure — accept a `supabase` dep so tests can inject a fake)
+// ---------------------------------------------------------------------------
 
-app.get('/health', (_req: Request, res: Response) => {
-  res.json({ status: 'ok', service: 'video-renderer' });
-});
-
-app.post('/render', async (req: Request, res: Response) => {
-  const parsed = RenderSchema.safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json({ error: parsed.error.flatten() });
-  }
-  // TODO(Sprint 4-5):
-  //  1) call @remotion/renderer renderMedia()
-  //  2) upload mp4 + gif to Supabase Storage
-  //  3) return public URLs
-  return res.json({
-    mp4Url: null,
-    gifUrl: null,
-    durationMs: 0,
-    message: 'Render stub — implementation pending Sprint 4-5',
+export const healthHandler = (_req: Request, res: Response): void => {
+  res.json({
+    status: 'ok',
+    service: 'video-renderer',
+    version: process.env.npm_package_version ?? '0.1.0',
   });
-});
+};
 
-const PORT = Number(process.env.PORT ?? 4000);
-app.listen(PORT, () => {
-  // eslint-disable-next-line no-console
-  console.log(`[video-renderer] listening on :${PORT}`);
-});
+export interface RenderHandlerDeps {
+  supabase: SupabaseClient;
+  /** Override the render function for tests. */
+  render?: (req: RenderRequest) => Promise<RenderResult>;
+}
+
+export const buildRenderHandler =
+  (deps: RenderHandlerDeps) =>
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    const parsed = renderRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.flatten() });
+      return;
+    }
+    try {
+      const runner =
+        deps.render ?? ((r: RenderRequest) => renderTransition(r, { supabase: deps.supabase }));
+      const result = await runner(parsed.data);
+      res.json(result);
+    } catch (err) {
+      next(err);
+    }
+  };
+
+// ---------------------------------------------------------------------------
+// Bootstrap
+// ---------------------------------------------------------------------------
+
+export const buildApp = (deps: RenderHandlerDeps): express.Express => {
+  const app = express();
+  app.use(express.json({ limit: '2mb' }));
+  app.get('/health', healthHandler);
+  app.post('/render', buildRenderHandler(deps));
+  app.use(
+    (err: Error, _req: Request, res: Response, _next: NextFunction): void => {
+      // eslint-disable-next-line no-console
+      console.error('[video-renderer] render failed:', err);
+      res.status(500).json({ error: err.message });
+    },
+  );
+  return app;
+};
+
+// Start only when executed directly (not when imported by tests)
+if (require.main === module) {
+  const PORT = Number(process.env.PORT ?? 4000);
+  const app = buildApp({ supabase: buildSupabaseClient() });
+  app.listen(PORT, () => {
+    // eslint-disable-next-line no-console
+    console.log(`[video-renderer] listening on :${PORT}`);
+  });
+}

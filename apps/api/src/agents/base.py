@@ -57,7 +57,14 @@ class AgentBase(ABC, Generic[TIn, TOut]):
         tenant_id: str | None = None,
         lead_id: str | None = None,
     ) -> None:
-        """Insert an audit event (best-effort, doesn't fail the agent)."""
+        """Insert an audit event (best-effort, doesn't fail the agent).
+
+        Also fans the event out to any active CRM webhook
+        subscriptions when the event type matches the supported
+        catalogue (``lead.created`` / ``lead.scored`` / ...). The
+        fanout runs in a background arq job so a slow receiver can
+        never stall the agent.
+        """
         try:
             sb = get_service_client()
             sb.table("events").insert(
@@ -71,3 +78,25 @@ class AgentBase(ABC, Generic[TIn, TOut]):
             ).execute()
         except Exception as exc:  # noqa: BLE001
             log.warning("event_emit_failed", error=str(exc))
+
+        # CRM webhook fanout — best-effort, never raises upstream.
+        # Imported lazily to avoid a circular import chain:
+        # core.queue → (tests) → agents.base.
+        if tenant_id:
+            try:
+                from ..services.crm_webhook_service import SUPPORTED_EVENTS
+
+                if event_type in SUPPORTED_EVENTS:
+                    from ..core.queue import fire_crm_event
+
+                    await fire_crm_event(
+                        tenant_id=tenant_id,
+                        event_type=event_type,
+                        data={"lead_id": lead_id, **payload},
+                    )
+            except Exception as exc:  # noqa: BLE001
+                log.warning(
+                    "crm_webhook_fanout_failed",
+                    event=event_type,
+                    err=str(exc),
+                )

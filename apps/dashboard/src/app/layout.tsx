@@ -1,8 +1,28 @@
 import type { Metadata } from 'next';
-import { Inter } from 'next/font/google';
+import { Manrope, Plus_Jakarta_Sans } from 'next/font/google';
 import './globals.css';
 
-const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
+/**
+ * Editorial duo per DESIGN.md §3:
+ *   - Plus Jakarta Sans → headlines (geometric, tight tracking)
+ *   - Manrope           → body + labels (tech-focused, dense data)
+ *
+ * Both are wired as CSS variables so Tailwind `font-headline` /
+ * `font-body` resolve without needing to import the classes directly.
+ */
+const headline = Plus_Jakarta_Sans({
+  subsets: ['latin'],
+  weight: ['500', '600', '700', '800'],
+  variable: '--font-headline',
+  display: 'swap',
+});
+
+const body = Manrope({
+  subsets: ['latin'],
+  weight: ['400', '500', '600', '700'],
+  variable: '--font-body',
+  display: 'swap',
+});
 
 export const metadata: Metadata = {
   title: 'SolarLead Dashboard',
@@ -16,8 +36,14 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="it" className={inter.variable} suppressHydrationWarning>
-      <body className="min-h-screen bg-background font-sans">{children}</body>
+    <html
+      lang="it"
+      className={`${headline.variable} ${body.variable}`}
+      suppressHydrationWarning
+    >
+      <body className="min-h-screen bg-surface font-body text-on-surface antialiased">
+        {children}
+      </body>
     </html>
   );
 }

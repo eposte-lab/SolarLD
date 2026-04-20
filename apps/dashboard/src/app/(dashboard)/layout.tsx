@@ -1,34 +1,95 @@
-import Link from 'next/link';
+import { redirect } from 'next/navigation';
 
-const NAV = [
-  { href: '/leads', label: 'Leads' },
-  { href: '/territories', label: 'Territori' },
-  { href: '/campaigns', label: 'Campagne' },
-  { href: '/analytics', label: 'Analytics' },
-  { href: '/settings', label: 'Impostazioni' },
+import { RealtimeToaster } from '@/components/realtime-toaster';
+import { NotificationsBell } from '@/components/ui/notifications-bell';
+import { SideNav, type NavItem } from '@/components/ui/side-nav';
+import {
+  countUnreadNotifications,
+  listRecentNotifications,
+} from '@/lib/data/notifications';
+import { getCurrentTenantContext } from '@/lib/data/tenant';
+import { getTenantConfig, isWizardPending } from '@/lib/data/tenantConfig';
+import { createSupabaseServerClient } from '@/lib/supabase/server';
+
+/**
+ * AppShell — two-column layout: fixed `SideNav` rail + fluid `<main>`.
+ *
+ * Visuals follow DESIGN.md:
+ *   - Body bg: `surface` (#f4f7f6)
+ *   - Content region: 32px external padding, max-width 1400px
+ *   - No 1px borders anywhere — separation is purely tonal
+ */
+
+const NAV: NavItem[] = [
+  { href: '/', label: 'Panoramica', icon: 'dashboard' },
+  { href: '/leads', label: 'Leads', icon: 'leads' },
+  { href: '/campaigns', label: 'Campagne', icon: 'campaigns' },
+  { href: '/territories', label: 'Territori', icon: 'territories' },
+  { href: '/analytics', label: 'Analytics', icon: 'analytics' },
+  { href: '/experiments', label: 'A/B Testing', icon: 'analytics' },
+  { href: '/settings', label: 'Impostazioni', icon: 'settings' },
 ];
 
-export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+export default async function DashboardLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  const ctx = await getCurrentTenantContext();
+
+  if (!ctx) {
+    // Distinguish: no Supabase session at all vs session but no tenant row.
+    // The middleware already redirects un-authed users for protected routes,
+    // but this guard handles the root ("/") and edge cases.
+    const supabase = await createSupabaseServerClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      // Truly unauthenticated → login form.
+      redirect('/login');
+    } else {
+      // Authenticated but no tenant_members row → setup helper page.
+      // Redirecting to /login here would loop: middleware lets them
+      // through (they're logged in) but the layout bounces them back.
+      redirect('/no-tenant');
+    }
+  }
+
+  // Onboarding gate + notifications in parallel — no dependency between
+  // them, so fire both at once. The wizard check must resolve before
+  // rendering (potential redirect), notifications can fall back to zero.
+  let unread = 0;
+  let recent: Awaited<ReturnType<typeof listRecentNotifications>> = [];
+  const [cfg] = await Promise.all([
+    getTenantConfig(ctx.tenant.id),
+    Promise.all([countUnreadNotifications(), listRecentNotifications(20)])
+      .then(([u, r]) => { unread = u; recent = r; })
+      .catch(() => { /* bell degrades gracefully */ }),
+  ]);
+
+  if (isWizardPending(cfg)) {
+    redirect('/onboarding');
+  }
+
   return (
-    <div className="grid min-h-screen grid-cols-[240px_1fr]">
-      <aside className="border-r border-border bg-muted/30 p-4">
-        <div className="mb-6">
-          <h1 className="text-xl font-bold text-primary">SolarLead</h1>
-          <p className="text-xs text-muted-foreground">Dashboard Installatore</p>
+    <div className="flex min-h-screen bg-surface">
+      <SideNav
+        items={NAV}
+        tenant={{ business_name: ctx.tenant.business_name }}
+        user_email={ctx.user_email}
+      />
+      <main className="flex-1 px-6 py-8 md:px-10">
+        <div className="mx-auto max-w-[1400px]">
+          <div className="mb-6 flex justify-end">
+            <NotificationsBell
+              initialUnread={unread}
+              initialItems={recent}
+              tenantId={ctx.tenant.id}
+            />
+          </div>
+          {children}
         </div>
-        <nav className="space-y-1">
-          {NAV.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className="block rounded-md px-3 py-2 text-sm hover:bg-accent"
-            >
-              {item.label}
-            </Link>
-          ))}
-        </nav>
-      </aside>
-      <main className="p-8">{children}</main>
+      </main>
+      <RealtimeToaster tenantId={ctx.tenant.id} />
     </div>
   );
 }

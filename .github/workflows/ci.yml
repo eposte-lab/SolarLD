@@ -127,6 +127,12 @@ jobs:
       - name: Lint
         run: pnpm turbo run lint
 
+      - name: Test (vitest)
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://ppabjpryzzkksrbnledy.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder
+        run: pnpm turbo run test
+
       - name: Build
         env:
           NEXT_PUBLIC_SUPABASE_URL: https://ppabjpryzzkksrbnledy.supabase.co

@@ -12,6 +12,8 @@
   "scripts": {
     "build": "turbo run build",
     "dev": "turbo run dev --parallel",
+    "dev:all": "cd infra && docker compose up -d redis && cd .. && concurrently -n api,worker,dashboard,portal -c blue,magenta,green,yellow \"pnpm --filter @solarlead/api dev\" \"cd apps/api && arq src.workers.main.WorkerSettings\" \"pnpm --filter @solarlead/dashboard dev\" \"pnpm --filter @solarlead/lead-portal dev\"",
+    "dev:full-container": "cd infra && docker compose --profile app --profile local-db up",
     "lint": "turbo run lint",
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",
@@ -29,7 +31,8 @@
     "turbo": "^2.3.3",
     "prettier": "^3.4.2",
     "typescript": "^5.7.2",
-    "@types/node": "^22.10.2"
+    "@types/node": "^22.10.2",
+    "concurrently": "^9.1.0"
   },
   "engines": {
     "node": ">=20.11.0",

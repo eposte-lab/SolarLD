@@ -36,17 +36,20 @@ export async function updateSession(request: NextRequest) {
     pathname.startsWith('/analytics') ||
     pathname.startsWith('/settings');
 
+  // Unauthenticated → protect dashboard routes.
   if (!user && isProtected) {
     const url = request.nextUrl.clone();
     url.pathname = '/login';
     return NextResponse.redirect(url);
   }
 
-  if (user && isAuthPage && pathname === '/login') {
-    const url = request.nextUrl.clone();
-    url.pathname = '/leads';
-    return NextResponse.redirect(url);
-  }
+  // NOTE: we intentionally do NOT redirect logged-in users away from
+  // /login here. The dashboard layout checks `getCurrentTenantContext()`
+  // which can return null for users who have a valid Supabase session but
+  // no `tenant_members` row yet (e.g. mid-signup). If we redirect them
+  // here, the layout's "no tenant → /login" and this "logged-in → /leads"
+  // create an infinite loop. The login form itself handles post-login
+  // navigation via router.push('/leads').
 
   return supabaseResponse;
 }

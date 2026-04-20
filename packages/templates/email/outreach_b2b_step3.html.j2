@@ -1,0 +1,23 @@
+{% extends "_base.html.j2" %}
+
+{% block content %}
+  <h1>{{ greeting_name }}, ultima volta che vi scriviamo</h1>
+
+  {% if personalized_opener %}
+    <p>{{ personalized_opener }}</p>
+  {% endif %}
+
+  <p>
+    Non vogliamo intasare la vostra casella — questo è l'ultimo
+    promemoria. Il rendering personalizzato{% if business_name %} di
+    <strong>{{ business_name }}</strong>{% endif %}, la stima di
+    risparmio annuo e il payback restano disponibili al link in basso.
+  </p>
+
+  <p>
+    Se in questo momento il fotovoltaico non è una priorità, nessun
+    problema: un click su "non voglio più ricevere comunicazioni" e non
+    vi disturbiamo più. In caso contrario, il sopralluogo resta
+    <strong>gratuito e senza impegno</strong>.
+  </p>
+{% endblock %}
