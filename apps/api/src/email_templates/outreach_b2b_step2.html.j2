@@ -1,0 +1,23 @@
+{% extends "_base.html.j2" %}
+
+{% block content %}
+  <h1>{{ greeting_name }}, il rendering {% if business_name %}di {{ business_name }} {% endif %}è ancora disponibile</h1>
+
+  {% if personalized_opener %}
+    <p>{{ personalized_opener }}</p>
+  {% endif %}
+
+  <p>
+    Qualche giorno fa vi abbiamo inviato la <strong>simulazione del tetto
+    con il fotovoltaico</strong> e una stima di risparmio. Ci rendiamo
+    conto che l'operatività quotidiana spesso non lascia tempo per
+    aprire le email commerciali — per questo torniamo con un riepilogo
+    breve dei numeri che contano.
+  </p>
+
+  <p>
+    Se i numeri meritano una mezz'ora di confronto, organizziamo un
+    <strong>sopralluogo gratuito senza impegno</strong>: preventivo
+    formale alla mano entro 48 ore.
+  </p>
+{% endblock %}

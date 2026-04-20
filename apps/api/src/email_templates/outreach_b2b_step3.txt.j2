@@ -1,0 +1,22 @@
+{{ greeting_name }},
+
+ultima volta che vi scriviamo.
+
+{% if personalized_opener %}{{ personalized_opener }}
+
+{% endif %}Il rendering personalizzato{% if business_name %} di {{ business_name }}{% endif %} e la stima di risparmio restano disponibili qui:
+{{ lead_url }}
+
+{% if roi %}
+- Potenza installabile: {{ roi.estimated_kwp }} kWp
+- Risparmio annuo: € {{ roi.yearly_savings_eur | format_money }}
+{% if roi.payback_years %}- Rientro stimato: ~ {{ roi.payback_years }} anni{% endif %}
+{% endif %}
+
+Se il fotovoltaico non è una priorità in questo momento, nessun problema — un click e non vi disturbiamo più:
+{{ optout_url }}
+
+In caso contrario, il sopralluogo è gratuito e senza impegno.
+
+--
+{{ tenant_name }}

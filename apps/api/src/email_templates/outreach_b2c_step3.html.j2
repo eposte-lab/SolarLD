@@ -1,0 +1,22 @@
+{% extends "_base.html.j2" %}
+
+{% block content %}
+  <h1>Gentile {{ greeting_name }}, ultimo promemoria</h1>
+
+  {% if personalized_opener %}
+    <p>{{ personalized_opener }}</p>
+  {% endif %}
+
+  <p>
+    Non vogliamo intasarvi la casella — questo è l'ultimo messaggio.
+    Il rendering personalizzato della vostra casa e la stima di
+    risparmio restano disponibili al link in basso.
+  </p>
+
+  <p>
+    Se in questo momento il fotovoltaico non è nei vostri pensieri,
+    nessun problema: un click su "non voglio più ricevere
+    comunicazioni" e non vi disturbiamo più. In caso contrario, il
+    sopralluogo resta <strong>gratuito e senza impegno</strong>.
+  </p>
+{% endblock %}

@@ -1,0 +1,21 @@
+Gentile {{ greeting_name }},
+
+Ecco come potrebbe essere la vostra casa con un impianto fotovoltaico.
+
+{% if personalized_opener %}{{ personalized_opener }}
+
+{% endif %}
+Stima indicativa:
+{% if roi %}
+- Potenza installabile: {{ roi.estimated_kwp }} kWp
+- Risparmio annuo: € {{ roi.yearly_savings_eur | format_money }}
+{% if roi.payback_years %}- Rientro stimato: ~ {{ roi.payback_years }} anni{% endif %}
+{% if roi.co2_tonnes_25_years %}- CO₂ evitata (25 anni): ~ {{ roi.co2_tonnes_25_years }} t{% endif %}
+{% endif %}
+
+Se i numeri vi convincono, organizziamo un sopralluogo gratuito senza impegno:
+{{ lead_url }}
+
+--
+{{ tenant_name }}
+Non desidero più ricevere comunicazioni: {{ optout_url }}

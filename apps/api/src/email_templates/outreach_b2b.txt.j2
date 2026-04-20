@@ -1,0 +1,21 @@
+{{ greeting_name }},
+
+Ecco come si presenterebbe la sede{% if business_name %} di {{ business_name }}{% endif %} con un impianto fotovoltaico.
+
+{% if personalized_opener %}{{ personalized_opener }}
+
+{% endif %}
+Stima indicativa:
+{% if roi %}
+- Potenza installabile: {{ roi.estimated_kwp }} kWp
+- Risparmio annuo: € {{ roi.yearly_savings_eur | format_money }}
+{% if roi.payback_years %}- Rientro stimato: ~ {{ roi.payback_years }} anni{% endif %}
+{% if roi.co2_tonnes_25_years %}- CO₂ evitata (25 anni): ~ {{ roi.co2_tonnes_25_years }} t{% endif %}
+{% endif %}
+
+Il rendering e i numeri sono indicativi. Per un preventivo formale con sopralluogo gratuito:
+{{ lead_url }}
+
+--
+{{ tenant_name }}
+Non vuoi più ricevere comunicazioni? {{ optout_url }}

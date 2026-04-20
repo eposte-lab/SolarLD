@@ -1,0 +1,34 @@
+{% extends "_base.html.j2" %}
+
+{% block content %}
+  <h1>
+    {%- if headline -%}
+      {{ headline }}
+    {%- else -%}
+      Gentile {{ greeting_name }}, ecco come potrebbe essere la vostra casa con il fotovoltaico
+    {%- endif -%}
+  </h1>
+
+  {% if personalized_opener %}
+    <p>{{ personalized_opener }}</p>
+  {% endif %}
+
+  <p>
+    {% if main_copy_1 %}
+      {{ main_copy_1 }}
+    {% else %}
+      Abbiamo elaborato una <strong>simulazione realistica</strong> di come
+      si presenterebbe il vostro tetto con un impianto fotovoltaico, insieme
+      a una stima indicativa di risparmio annuo e tempo di rientro.
+    {% endif %}
+  </p>
+
+  <p>
+    {% if main_copy_2 %}
+      {{ main_copy_2 }}
+    {% else %}
+      Se il risultato vi convince, organizziamo un <strong>sopralluogo gratuito</strong>
+      e un preventivo personalizzato senza impegno.
+    {% endif %}
+  </p>
+{% endblock %}

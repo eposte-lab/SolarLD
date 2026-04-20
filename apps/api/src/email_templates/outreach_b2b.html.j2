@@ -1,0 +1,42 @@
+{% extends "_base.html.j2" %}
+
+{% block content %}
+  <h1>
+    {%- if headline -%}
+      {{ headline }}
+    {%- else -%}
+      {{ greeting_name }}, ecco come si presenterebbe la vostra sede con il fotovoltaico
+    {%- endif -%}
+  </h1>
+
+  {% if personalized_opener %}
+    <p>{{ personalized_opener }}</p>
+  {% endif %}
+
+  <p>
+    {% if main_copy_1 %}
+      {{ main_copy_1 }}
+    {% else %}
+      Abbiamo analizzato la copertura di
+      {% if business_name %}<strong>{{ business_name }}</strong>{% else %}della vostra sede{% endif %}
+      e preparato una <strong>simulazione realistica dell'impianto fotovoltaico</strong>
+      installabile, insieme a una stima di risparmio e rientro.
+    {% endif %}
+  </p>
+
+  {% if ateco_description %}
+    <p style="color:#64748b;font-size:13px">
+      Stime calibrate sul vostro settore
+      ({{ ateco_description }}, codice {{ ateco_code }}).
+    </p>
+  {% endif %}
+
+  <p>
+    {% if main_copy_2 %}
+      {{ main_copy_2 }}
+    {% else %}
+      Il rendering e i numeri qui sopra sono una <em>prima indicazione</em>.
+      Il preventivo formale — con sopralluogo gratuito — è incluso.
+    {% endif %}
+  </p>
+{% endblock %}

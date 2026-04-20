@@ -33,12 +33,11 @@ from ..core.logging import get_logger
 
 log = get_logger(__name__)
 
-# Resolve the templates dir relative to the repo root. This file lives at
-# ``apps/api/src/services/email_template_service.py`` — parents[0]=services,
-# parents[1]=src, parents[2]=api, parents[3]=apps, parents[4]=repo root.
-_TEMPLATES_DIR = (
-    Path(__file__).resolve().parents[4] / "packages" / "templates" / "email"
-)
+# Templates are bundled inside the Python package at
+# ``apps/api/src/email_templates/`` so they ship with the Docker image
+# via ``COPY src ./src``. ``parents[1]`` resolves to ``/app/src/`` in
+# the container and ``apps/api/src/`` in local dev — both valid.
+_TEMPLATES_DIR = Path(__file__).resolve().parents[1] / "email_templates"
 
 
 @dataclass(slots=True, frozen=True)
