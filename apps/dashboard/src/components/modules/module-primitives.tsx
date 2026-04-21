@@ -180,15 +180,12 @@ export function TagInput({
   onChange: (v: string[]) => void;
   placeholder?: string;
 }) {
-  // Defensive: tolerate a DB row that predates a schema addition and
-  // has this field missing. Same guard in CheckboxGroup below.
-  const safe = Array.isArray(value) ? value : [];
   return (
     <label className="block space-y-1">
       <span className="text-sm text-on-surface">{label}</span>
       <input
         type="text"
-        value={safe.join(', ')}
+        value={value.join(', ')}
         placeholder={placeholder}
         onChange={(e) => {
           const parts = e.target.value
@@ -221,19 +218,16 @@ export function CheckboxGroup<T extends string>({
   value: T[];
   onChange: (v: T[]) => void;
 }) {
-  // Defensive: same reasoning as TagInput — if the DB row is missing
-  // this field, treat it as an empty selection instead of crashing.
-  const safe = Array.isArray(value) ? value : [];
   function toggle(opt: T) {
-    const has = safe.includes(opt);
-    onChange(has ? safe.filter((x) => x !== opt) : [...safe, opt]);
+    const has = value.includes(opt);
+    onChange(has ? value.filter((x) => x !== opt) : [...value, opt]);
   }
   return (
     <div className="space-y-1">
       <span className="text-sm text-on-surface">{label}</span>
       <div className="flex flex-wrap gap-2">
         {options.map((o) => {
-          const active = safe.includes(o);
+          const active = value.includes(o);
           return (
             <button
               key={o}

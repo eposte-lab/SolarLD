@@ -1,13 +1,22 @@
 /**
  * Server-side fetcher for modules — reads directly from Supabase.
  *
- * The client helpers in `modules.ts` go through the FastAPI, which
- * needs a browser JWT. Server components render without a JWT so
- * they talk to Supabase directly (mirrors `tenantConfig.ts`).
+ * The client helpers in `modules.ts` go through the FastAPI (which
+ * runs Pydantic hydration on every read), but server components
+ * render without a browser JWT and so talk to Supabase directly —
+ * mirrors `tenantConfig.ts`.
  *
- * If a tenant has no rows yet, we synthesise the default row
- * structure with empty config `{}` — the client form components
- * render schema defaults when `config` is empty.
+ * Direct-read path means the DB row arrives without the Pydantic
+ * hydration step that guarantees schema completeness on the API. So
+ * we run the TS equivalent — `withModuleDefaults` — here at the data
+ * boundary. The TS defaults mirror the Pydantic defaults in
+ * `apps/api/src/services/tenant_module_service.py`; adding a field to
+ * a module schema is a coordinated edit on both sides.
+ *
+ * Post-migration 0036 every tenant has five rows (with `config='{}'`)
+ * from insertion, so the synth paths below are only reachable if the
+ * trigger was dropped or a partial delete happened. Kept as defence
+ * in depth rather than load-bearing.
  */
 
 import 'server-only';

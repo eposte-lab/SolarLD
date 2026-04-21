@@ -290,6 +290,34 @@ def validate_config(key: ModuleKey, raw: dict[str, Any]) -> dict[str, Any]:
     return schema_for(key)(**raw).model_dump(mode="json")
 
 
+def hydrate_config(key: ModuleKey, raw: dict[str, Any] | None) -> dict[str, Any]:
+    """Fill missing fields in a persisted config with their schema defaults.
+
+    Migration 0036 inserts `config = '{}'` for every new tenant, and a
+    schema addition to one of the module models would leave old rows
+    without the new field. Calling Pydantic in non-strict mode with
+    whatever JSONB is on disk yields a fully-populated dict that the
+    wire format can expose without the frontend having to hydrate
+    defaults itself.
+
+    Unlike `validate_config`, this tolerates extra keys silently (a
+    deprecated field hanging around on an old row shouldn't 500 the
+    read path). Writes still go through `validate_config` which uses
+    `extra='forbid'`.
+    """
+    model = schema_for(key)
+    # Use the "lax" variant by constructing from a shallow-copied dict
+    # and ignoring extras. `extra='forbid'` on the model class would
+    # reject legacy keys — we dump and re-construct to sidestep that on
+    # reads only.
+    data = dict(raw or {})
+    # Build an instance by dropping unknown keys so `extra='forbid'`
+    # doesn't raise. Pydantic fills missing fields from defaults.
+    allowed = set(model.model_fields.keys())
+    filtered = {k: v for k, v in data.items() if k in allowed}
+    return model(**filtered).model_dump(mode="json")
+
+
 # ---------------------------------------------------------------------------
 # Module row — the composite view returned to the API
 # ---------------------------------------------------------------------------
@@ -313,15 +341,47 @@ class TenantModule(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+def _row_to_module(row: dict[str, Any]) -> TenantModule:
+    """Project a raw `tenant_modules` row to the domain/HTTP object,
+    hydrating `config` through the Pydantic schema so callers never
+    see a missing field. See `hydrate_config` for why."""
+    key: ModuleKey = row["module_key"]
+    return TenantModule(
+        tenant_id=UUID(row["tenant_id"]),
+        module_key=key,
+        config=hydrate_config(key, row.get("config")),
+        active=bool(row.get("active", True)),
+        version=int(row.get("version") or 0),
+        updated_at=row.get("updated_at"),
+    )
+
+
+def _synth_module(tenant_id: str, key: ModuleKey) -> TenantModule:
+    """Build a fresh defaulted TenantModule for a tenant that has no row yet.
+
+    After migration 0036 installs a trigger creating the five rows on
+    tenant INSERT, this path is only reachable if something bypassed the
+    trigger (manual SQL test fixtures, a legacy tenant we somehow
+    missed). Keeping the synth here means the API still renders 5 tiles
+    uniformly instead of surfacing a hole to the UI.
+    """
+    return TenantModule(
+        tenant_id=UUID(tenant_id),
+        module_key=key,
+        config=schema_for(key)().model_dump(mode="json"),
+        active=True,
+        version=0,
+    )
+
+
 async def get_module(
     tenant_id: UUID | str, key: ModuleKey
 ) -> TenantModule:
     """Fetch one module row, returning a defaulted instance if missing.
 
-    We never 404 on a missing module — the schema default *is* the
-    answer. This means a brand-new tenant can call `GET /v1/modules/sorgente`
-    before completing the wizard and still get a valid object to
-    render.
+    Migration 0036 makes the "row missing" case unreachable for new
+    tenants, but we still defend — a deleted row or an unreplicated
+    read replica should not 500 the form.
     """
     sb = get_service_client()
     tid = str(tenant_id)
@@ -335,26 +395,17 @@ async def get_module(
     )
     row = getattr(res, "data", None)
     if not row:
-        return TenantModule(
-            tenant_id=UUID(tid),
-            module_key=key,
-            config=schema_for(key)().model_dump(mode="json"),
-            active=True,
-            version=0,
-        )
-    return TenantModule(
-        tenant_id=UUID(row["tenant_id"]),
-        module_key=row["module_key"],
-        config=row.get("config") or {},
-        active=bool(row.get("active", True)),
-        version=int(row.get("version") or 1),
-        updated_at=row.get("updated_at"),
-    )
+        return _synth_module(tid, key)
+    return _row_to_module(row)
 
 
 async def list_modules(tenant_id: UUID | str) -> list[TenantModule]:
-    """Return all 5 modules for a tenant — missing rows are synthesised
-    with defaults so the frontend can always render 5 tiles."""
+    """Return all 5 modules for a tenant, hydrated through Pydantic.
+
+    Post-0036 every tenant has the five rows from insertion, but we
+    still iterate `MODULE_KEYS` and synth any missing one — defence in
+    depth against the trigger being dropped or a partial delete.
+    """
     sb = get_service_client()
     tid = str(tenant_id)
     res = (
@@ -369,27 +420,7 @@ async def list_modules(tenant_id: UUID | str) -> list[TenantModule]:
     out: list[TenantModule] = []
     for key in MODULE_KEYS:
         r = by_key.get(key)
-        if r:
-            out.append(
-                TenantModule(
-                    tenant_id=UUID(r["tenant_id"]),
-                    module_key=r["module_key"],
-                    config=r.get("config") or {},
-                    active=bool(r.get("active", True)),
-                    version=int(r.get("version") or 1),
-                    updated_at=r.get("updated_at"),
-                )
-            )
-        else:
-            out.append(
-                TenantModule(
-                    tenant_id=UUID(tid),
-                    module_key=key,
-                    config=schema_for(key)().model_dump(mode="json"),
-                    active=True,
-                    version=0,
-                )
-            )
+        out.append(_row_to_module(r) if r else _synth_module(tid, key))
     return out
 
 
@@ -442,21 +473,24 @@ async def upsert_module(
 
 
 async def all_completed(tenant_id: UUID | str) -> bool:
-    """Heuristic: has the installer visited every module at least once?
+    """Has the installer saved every module at least once?
 
-    A module counts as 'completed' when its row exists with
-    `version >= 1` — the backfill migration creates version=1 rows for
-    existing tenants, but a newly-provisioned tenant (Phase 3 signup
-    flow) starts empty and only gets rows as the wizard progresses.
+    Since migration 0036 the five rows exist from tenant creation with
+    `version = 0`. The `tenant_modules_touch` trigger bumps `version`
+    only when `config` actually changes, so `version >= 1` on all five
+    keys is a clean marker for "installer walked through the wizard".
+
+    Merely toggling `active` doesn't count — that's a settings tweak,
+    not a wizard step.
     """
     sb = get_service_client()
     tid = str(tenant_id)
     res = (
         sb.table("tenant_modules")
-        .select("module_key", count="exact")
+        .select("module_key, version")
         .eq("tenant_id", tid)
         .execute()
     )
     rows = list(getattr(res, "data", None) or [])
-    present = {r["module_key"] for r in rows}
-    return set(MODULE_KEYS).issubset(present)
+    touched = {r["module_key"] for r in rows if int(r.get("version") or 0) >= 1}
+    return set(MODULE_KEYS).issubset(touched)
