@@ -127,3 +127,104 @@ export const MODULE_DESCRIPTIONS: Record<ModuleKey, string> = {
   crm:
     'Integrazione downstream: webhook di uscita, HMAC, label pipeline, SLA primo contatto.',
 };
+
+// ---------------------------------------------------------------------------
+// Default config per module — MUST match the Pydantic defaults in
+// `apps/api/src/services/tenant_module_service.py` and the backfill
+// in migration 0032. The frontend uses these to hydrate missing keys
+// before rendering a form, so forms never see `undefined` arrays /
+// nested objects when the backend returns `{}` (brand-new tenant).
+// ---------------------------------------------------------------------------
+
+export const DEFAULT_SORGENTE: SorgenteConfig = {
+  ateco_codes: [],
+  min_employees: 20,
+  max_employees: 250,
+  min_revenue_eur: 2_000_000,
+  max_revenue_eur: 50_000_000,
+  province: [],
+  regioni: [],
+  cap: [],
+  reddito_min_eur: 35_000,
+  case_unifamiliari_pct_min: 40,
+};
+
+export const DEFAULT_TECNICO: TecnicoConfig = {
+  min_kwp: 50,
+  min_area_sqm: 500,
+  max_shading: 0.4,
+  min_exposure_score: 0.7,
+  orientamenti_ok: ['S', 'SE', 'SO', 'E', 'O'],
+  solar_gate_pct: 0.2,
+  solar_gate_min_candidates: 20,
+};
+
+export const DEFAULT_ECONOMICO: EconomicoConfig = {
+  ticket_medio_eur: 25_000,
+  roi_target_years: 6,
+  budget_scan_eur: 50,
+  budget_outreach_eur_month: 2_000,
+};
+
+export const DEFAULT_OUTREACH: OutreachConfig = {
+  channels: {
+    email: true,
+    postal: false,
+    whatsapp: false,
+    meta_ads: false,
+  },
+  tone_of_voice: 'professionale-diretto',
+  cta_primary: 'Prenota un sopralluogo gratuito',
+};
+
+export const DEFAULT_CRM: CRMConfig = {
+  webhook_url: null,
+  webhook_secret: null,
+  pipeline_labels: ['nuovo', 'contattato', 'in-valutazione', 'preventivo', 'chiuso'],
+  sla_hours_first_touch: 24,
+};
+
+export const DEFAULT_MODULE_CONFIGS: ModuleConfigByKey = {
+  sorgente: DEFAULT_SORGENTE,
+  tecnico: DEFAULT_TECNICO,
+  economico: DEFAULT_ECONOMICO,
+  outreach: DEFAULT_OUTREACH,
+  crm: DEFAULT_CRM,
+};
+
+/**
+ * Merge a (possibly empty / partial) config with the default for that
+ * module key. Deep merge is intentionally shallow-only: the nested
+ * objects in our schema (e.g. `outreach.channels`) are also merged
+ * with their defaults, but we don't go deeper than one level because
+ * no module config has three-level-deep structure.
+ */
+export function withModuleDefaults<K extends ModuleKey>(
+  key: K,
+  partial: Partial<ModuleConfigByKey[K]> | null | undefined,
+): ModuleConfigByKey[K] {
+  const defaults = DEFAULT_MODULE_CONFIGS[key];
+  if (!partial || typeof partial !== 'object') {
+    return defaults;
+  }
+  const merged: Record<string, unknown> = {
+    ...(defaults as unknown as Record<string, unknown>),
+  };
+  for (const [k, v] of Object.entries(partial)) {
+    if (v === undefined || v === null) continue;
+    const defaultValue = (defaults as unknown as Record<string, unknown>)[k];
+    // One-level deep merge for nested objects like outreach.channels.
+    if (
+      typeof v === 'object' &&
+      !Array.isArray(v) &&
+      typeof defaultValue === 'object' &&
+      defaultValue !== null &&
+      !Array.isArray(defaultValue)
+    ) {
+      merged[k] = { ...(defaultValue as object), ...(v as object) };
+    } else {
+      merged[k] = v;
+    }
+  }
+  return merged as unknown as ModuleConfigByKey[K];
+}

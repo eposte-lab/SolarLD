@@ -33,7 +33,11 @@ import type {
   TecnicoConfig,
   TenantModule,
 } from '@/types/modules';
-import { MODULE_DESCRIPTIONS, MODULE_LABELS } from '@/types/modules';
+import {
+  MODULE_DESCRIPTIONS,
+  MODULE_LABELS,
+  withModuleDefaults,
+} from '@/types/modules';
 
 import { ModuleCRM } from './module-crm';
 import { ModuleEconomico } from './module-economico';
@@ -52,7 +56,15 @@ export function ModulePanel({
   onSaved,
   ctaLabel = 'Salva modulo',
 }: ModulePanelProps) {
-  const [config, setConfig] = useState<unknown>(module.config);
+  // Hydrate with per-module defaults so forms never see `undefined`
+  // arrays / nested objects (brand-new tenant → DB row with `config: {}`
+  // would otherwise crash at e.g. `value.ateco_codes.join(', ')`).
+  const [config, setConfig] = useState<unknown>(() =>
+    withModuleDefaults(
+      module.module_key,
+      module.config as Parameters<typeof withModuleDefaults>[1],
+    ),
+  );
   const [active, setActive] = useState(module.active);
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);

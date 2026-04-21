@@ -14,6 +14,7 @@ import 'server-only';
 
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import type { ModuleKey, TenantModule } from '@/types/modules';
+import { withModuleDefaults } from '@/types/modules';
 
 const MODULE_KEYS: readonly ModuleKey[] = [
   'sorgente',
@@ -22,6 +23,18 @@ const MODULE_KEYS: readonly ModuleKey[] = [
   'outreach',
   'crm',
 ] as const;
+
+/**
+ * Hydrate a DB row's config with the module's default values, so the
+ * client forms never receive `undefined` arrays / nested objects for
+ * freshly created tenants (or rows persisted before a schema addition).
+ */
+function hydrate<K extends ModuleKey>(row: TenantModule<K>): TenantModule<K> {
+  return {
+    ...row,
+    config: withModuleDefaults(row.module_key, row.config),
+  };
+}
 
 export async function getModulesForTenant(
   tenantId: string,
@@ -46,13 +59,12 @@ export async function getModulesForTenant(
   for (const key of MODULE_KEYS) {
     const row = byKey.get(key);
     if (row) {
-      out.push(row);
+      out.push(hydrate(row));
     } else {
       out.push({
         tenant_id: tenantId,
         module_key: key,
-        // biome-ignore lint/suspicious/noExplicitAny: default empty
-        config: {} as any,
+        config: withModuleDefaults(key, null),
         active: true,
         version: 0,
       });
@@ -77,21 +89,19 @@ export async function getModuleForTenant(
     return {
       tenant_id: tenantId,
       module_key: key,
-      // biome-ignore lint/suspicious/noExplicitAny: default empty
-      config: {} as any,
+      config: withModuleDefaults(key, null),
       active: true,
       version: 0,
     };
   }
-  return data as TenantModule;
+  return hydrate(data as TenantModule);
 }
 
 function synthesiseDefaults(tenantId: string): TenantModule[] {
   return MODULE_KEYS.map((k) => ({
     tenant_id: tenantId,
     module_key: k,
-    // biome-ignore lint/suspicious/noExplicitAny: default empty
-    config: {} as any,
+    config: withModuleDefaults(k, null),
     active: true,
     version: 0,
   }));
