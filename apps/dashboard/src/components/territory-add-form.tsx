@@ -77,14 +77,12 @@ async function resolvebbox(
     display_name: string;
   }> = await res.json();
 
-  if (!data.length)
+  const first = data[0];
+  if (!first)
     throw new Error(
       'Nessuna zona trovata per questo codice. Controlla il valore e riprova.',
     );
 
-  // data.length > 0 guaranteed above
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-  const first = data[0]!;
   const bb = first.boundingbox;
   return {
     sw_lat: Number(bb[0]),
