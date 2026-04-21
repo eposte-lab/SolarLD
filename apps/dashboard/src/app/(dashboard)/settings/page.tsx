@@ -1,20 +1,21 @@
 /**
- * Settings → read-only snapshot of the tenant's operational config.
+ * Settings — overview page linking into each focused settings surface.
  *
- * Uses the same data source as the onboarding redirect guard
- * (`getTenantConfig`) so the page always reflects what Hunter actually
- * sees. Editing happens by re-running the wizard for now — Sprint 10
- * will swap the `Modifica configurazione` CTA for inline forms.
+ * Hunter configuration lives entirely in the five modules
+ * (`/settings/modules/{sorgente,tecnico,economico,outreach,crm}`).
+ * This page is the hub: reputation + integrations + plan + module
+ * shortcuts. Everything Hunter-related clicks through to the module
+ * editors — we don't try to summarize module config here because the
+ * shape changes per-module and the module pages already own that UI.
  */
 
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 
-import { BentoCard, BentoGrid } from '@/components/ui/bento-card';
-import { GradientButton } from '@/components/ui/gradient-button';
+import { BentoCard } from '@/components/ui/bento-card';
 import { cn } from '@/lib/utils';
 import { getCurrentTenantContext } from '@/lib/data/tenant';
-import { getTenantConfig } from '@/lib/data/tenantConfig';
+import { getModulesForTenant } from '@/lib/data/modules.server';
 import { getLatestDomainReputation } from '@/lib/data/reputation';
 import {
   TIER_LABEL,
@@ -23,62 +24,59 @@ import {
   resolveTierSnapshot,
   type CapabilityKey,
 } from '@/lib/data/tier';
+import type { ModuleKey, TenantModule } from '@/types/modules';
 import type {
   DomainReputationRow,
-  ScanMode,
-  TenantConfigRow,
   TenantRow,
   TenantTier,
 } from '@/types/db';
+import { GradientButton } from '@/components/ui/gradient-button';
 
-const SCAN_MODE_LABELS: Record<ScanMode, string> = {
-  b2b_precision: 'B2B Precision',
-  opportunistic: 'Opportunistic',
-  volume: 'Volume Play',
+const MODULE_META: Record<
+  ModuleKey,
+  { title: string; blurb: string; icon: string }
+> = {
+  sorgente: {
+    title: 'Sorgente',
+    blurb: 'ATECO, dimensioni aziendali, geografia. Guida il Livello 1 del funnel.',
+    icon: '🧭',
+  },
+  tecnico: {
+    title: 'Tecnico',
+    blurb: 'Soglie tetto (kWp, ombreggiamento, esposizione) per il Solar gate.',
+    icon: '⚙️',
+  },
+  economico: {
+    title: 'Economico',
+    blurb: 'Ticket medio, budget scan mensile, ROI target.',
+    icon: '💶',
+  },
+  outreach: {
+    title: 'Outreach',
+    blurb: 'Canali attivi (email, postale, WhatsApp), tono di voce, CTA.',
+    icon: '✉️',
+  },
+  crm: {
+    title: 'CRM',
+    blurb: 'Webhook in uscita, label pipeline, criteri di qualifica.',
+    icon: '🔁',
+  },
 };
 
-const SCAN_MODE_DESC: Record<ScanMode, string> = {
-  b2b_precision:
-    'Places whitelist + Atoka. Massima qualità lead, costo per scan alto.',
-  opportunistic: 'Solar grid + filtri ATECO soft. Default equilibrato.',
-  volume: 'Griglia geografica larga, filtri minimi. Massima copertura.',
-};
-
-const ZONE_LABELS: Record<string, string> = {
-  capoluoghi: 'Capoluoghi',
-  costa: 'Costa',
-  zone_industriali: 'Zone industriali',
-  provincia: 'Provincia',
-};
-
-function formatEur(v: number): string {
-  return `€${v.toLocaleString('it-IT', { maximumFractionDigits: 0 })}`;
-}
-
-function formatPercent(v: number): string {
-  return `${Math.round(v * 100)}%`;
-}
-
-function formatCompletedAt(iso: string | null): string {
-  if (!iso) return '—';
-  try {
-    return new Date(iso).toLocaleString('it-IT', {
-      dateStyle: 'medium',
-      timeStyle: 'short',
-    });
-  } catch {
-    return iso;
-  }
-}
+const MODULE_ORDER: readonly ModuleKey[] = [
+  'sorgente',
+  'tecnico',
+  'economico',
+  'outreach',
+  'crm',
+] as const;
 
 export default async function SettingsPage() {
   const ctx = await getCurrentTenantContext();
   if (!ctx) redirect('/login');
 
-  // Fetch config + reputation in parallel — the reputation read is
-  // cheap (one indexed row) and we need it for the banner at the top.
-  const [cfg, reputation] = await Promise.all([
-    getTenantConfig(ctx.tenant.id),
+  const [modules, reputation] = await Promise.all([
+    getModulesForTenant(ctx.tenant.id),
     getLatestDomainReputation(),
   ]);
 
@@ -89,7 +87,7 @@ export default async function SettingsPage() {
 
   return (
     <div className="space-y-8">
-      <Header tenantName={ctx.tenant.business_name} cfg={cfg} />
+      <Header tenantName={ctx.tenant.business_name} />
 
       {reputation && (reputation.alarm_bounce || reputation.alarm_complaint) && !domainSwitched && (
         <ReputationAlarmBanner reputation={reputation} />
@@ -101,58 +99,118 @@ export default async function SettingsPage() {
         domainSwitched={domainSwitched}
       />
 
-      <BentoGrid cols={3}>
-        <BentoCard span="2x1" variant="feature">
-          <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
-            Modalità Hunter
-          </p>
-          <div className="mt-3 flex items-baseline gap-3">
-            <h2 className="font-headline text-3xl font-bold tracking-tighter">
-              {SCAN_MODE_LABELS[cfg.scan_mode]}
-            </h2>
-            <div className="flex gap-2">
-              {cfg.target_segments.map((s) => (
-                <Chip
-                  key={s}
-                  tone={s === 'b2b' ? 'primary' : 'tertiary'}
-                >
-                  {s === 'b2b' ? 'B2B' : 'B2C'}
-                </Chip>
-              ))}
-            </div>
-          </div>
-          <p className="mt-2 max-w-md text-sm text-on-surface-variant">
-            {SCAN_MODE_DESC[cfg.scan_mode]}
-          </p>
-        </BentoCard>
-
-        <BentoCard>
-          <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
-            Soglia scoring
-          </p>
-          <p className="mt-3 font-headline text-5xl font-bold tabular-nums tracking-tighter text-primary">
-            ≥ {cfg.scoring_threshold}
-          </p>
-          <p className="mt-1 text-xs text-on-surface-variant">
-            Sotto questa soglia i lead non entrano in outreach.
-          </p>
-        </BentoCard>
-      </BentoGrid>
-
-      <BentoGrid cols={2}>
-        <TechnicalCard cfg={cfg} />
-        <TerritoryCard cfg={cfg} />
-      </BentoGrid>
-
-      <BentoGrid cols={2}>
-        <BudgetCard cfg={cfg} />
-        <AtecoCard cfg={cfg} />
-      </BentoGrid>
+      <ModulesCard modules={modules} />
 
       <IntegrationsCard tenant={ctx.tenant} />
 
       <PlanCard tenant={ctx.tenant} />
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+function Header({ tenantName }: { tenantName: string }) {
+  return (
+    <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+      <div>
+        <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
+          Impostazioni · {tenantName}
+        </p>
+        <h1 className="mt-1 font-headline text-4xl font-bold tracking-tighter text-on-surface md:text-5xl">
+          Configurazione
+        </h1>
+        <p className="mt-2 max-w-2xl text-sm text-on-surface-variant">
+          Ogni area di Hunter vive in un modulo dedicato. Apri un modulo per
+          modificarne le soglie — la modifica è immediata, nessun wizard da
+          ripetere.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+function ModulesCard({ modules }: { modules: TenantModule[] }) {
+  const byKey = new Map(modules.map((m) => [m.module_key, m]));
+
+  return (
+    <BentoCard span="full">
+      <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
+        Moduli Hunter
+      </p>
+      <h2 className="mt-1 font-headline text-2xl font-bold tracking-tighter">
+        Cinque aree, cinque pagine
+      </h2>
+      <p className="mt-1 max-w-2xl text-sm text-on-surface-variant">
+        Ogni modulo controlla un pezzo del funnel. Puoi disattivare un modulo
+        per escluderlo dalle scansioni senza perdere la configurazione.
+      </p>
+
+      <div className="mt-5 grid gap-3 md:grid-cols-2">
+        {MODULE_ORDER.map((key) => {
+          const row = byKey.get(key);
+          const meta = MODULE_META[key];
+          const configured = (row?.version ?? 0) >= 1;
+          const active = row?.active ?? true;
+          return (
+            <Link
+              key={key}
+              href={{ pathname: `/settings/modules/${key}` }}
+              className={cn(
+                'group flex items-start justify-between gap-4 rounded-lg border border-outline-variant/40 bg-surface-container-lowest px-4 py-4 transition-colors',
+                'hover:border-primary/60 hover:bg-surface-container-low',
+              )}
+            >
+              <div className="flex items-start gap-3">
+                <span aria-hidden className="mt-0.5 text-xl leading-none">
+                  {meta.icon}
+                </span>
+                <div>
+                  <p className="font-semibold text-on-surface">{meta.title}</p>
+                  <p className="mt-1 text-xs text-on-surface-variant">
+                    {meta.blurb}
+                  </p>
+                </div>
+              </div>
+              <div className="flex flex-col items-end gap-1">
+                <ModuleStatusChip configured={configured} active={active} />
+                <span className="text-on-surface-variant group-hover:text-primary">→</span>
+              </div>
+            </Link>
+          );
+        })}
+      </div>
+    </BentoCard>
+  );
+}
+
+function ModuleStatusChip({
+  configured,
+  active,
+}: {
+  configured: boolean;
+  active: boolean;
+}) {
+  if (!configured) {
+    return (
+      <span className="rounded-full border border-outline-variant/60 bg-surface-container-high px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-on-surface-variant">
+        Default
+      </span>
+    );
+  }
+  if (!active) {
+    return (
+      <span className="rounded-full bg-surface-container-high px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-on-surface-variant">
+        Disattivato
+      </span>
+    );
+  }
+  return (
+    <span className="rounded-full bg-primary-container px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-on-primary-container">
+      Attivo
+    </span>
   );
 }
 
@@ -281,215 +339,9 @@ function IntegrationsCard({ tenant }: { tenant: TenantRow }) {
 }
 
 // ---------------------------------------------------------------------------
-
-function Header({
-  tenantName,
-  cfg,
-}: {
-  tenantName: string;
-  cfg: TenantConfigRow;
-}) {
-  return (
-    <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-      <div>
-        <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
-          Impostazioni · {tenantName}
-        </p>
-        <h1 className="mt-1 font-headline text-4xl font-bold tracking-tighter text-on-surface md:text-5xl">
-          Configurazione Hunter
-        </h1>
-        <p className="mt-2 text-sm text-on-surface-variant">
-          Completata il {formatCompletedAt(cfg.wizard_completed_at)}. Per
-          modificare, rilancia il wizard.
-        </p>
-      </div>
-      <GradientButton variant="primary" size="md" href="/onboarding">
-        Modifica configurazione
-      </GradientButton>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-
-function TechnicalCard({ cfg }: { cfg: TenantConfigRow }) {
-  const b2b = cfg.technical_filters.b2b ?? {};
-  const b2c = cfg.technical_filters.b2c ?? {};
-  const hasB2B = cfg.target_segments.includes('b2b');
-  const hasB2C = cfg.target_segments.includes('b2c');
-
-  return (
-    <BentoCard>
-      <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
-        Filtri tecnici
-      </p>
-      <dl className="mt-4 space-y-3 text-sm">
-        {hasB2B && (
-          <FilterRow
-            label="kWp minimo B2B"
-            value={b2b.min_kwp != null ? `${b2b.min_kwp} kWp` : '—'}
-          />
-        )}
-        {hasB2C && (
-          <FilterRow
-            label="kWp minimo B2C"
-            value={b2c.min_kwp != null ? `${b2c.min_kwp} kWp` : '—'}
-          />
-        )}
-        <FilterRow
-          label="Ombreggiamento max"
-          value={formatPercent(
-            b2b.max_shading ?? b2c.max_shading ?? 0.4,
-          )}
-        />
-        <FilterRow
-          label="Esposizione minima"
-          value={formatPercent(
-            b2b.min_exposure_score ?? b2c.min_exposure_score ?? 0.6,
-          )}
-        />
-      </dl>
-    </BentoCard>
-  );
-}
-
-function TerritoryCard({ cfg }: { cfg: TenantConfigRow }) {
-  return (
-    <BentoCard>
-      <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
-        Territorio
-      </p>
-      <p className="mt-1 text-xs text-on-surface-variant">
-        Zone in cui Hunter scansiona per prime.
-      </p>
-      <div className="mt-4 flex flex-wrap gap-2">
-        {cfg.scan_priority_zones.length === 0 ? (
-          <span className="text-sm text-on-surface-variant">Nessuna</span>
-        ) : (
-          cfg.scan_priority_zones.map((z) => (
-            <Chip key={z} tone="primary">
-              {ZONE_LABELS[z] ?? z}
-            </Chip>
-          ))
-        )}
-      </div>
-    </BentoCard>
-  );
-}
-
-function BudgetCard({ cfg }: { cfg: TenantConfigRow }) {
-  return (
-    <BentoCard>
-      <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
-        Budget mensili
-      </p>
-      <dl className="mt-4 grid grid-cols-2 gap-4">
-        <div>
-          <dt className="text-xs text-on-surface-variant">Scansione</dt>
-          <dd className="mt-1 font-headline text-3xl font-bold tabular-nums tracking-tighter">
-            {formatEur(cfg.monthly_scan_budget_eur)}
-          </dd>
-        </div>
-        <div>
-          <dt className="text-xs text-on-surface-variant">Outreach</dt>
-          <dd className="mt-1 font-headline text-3xl font-bold tabular-nums tracking-tighter">
-            {formatEur(cfg.monthly_outreach_budget_eur)}
-          </dd>
-        </div>
-      </dl>
-    </BentoCard>
-  );
-}
-
-function AtecoCard({ cfg }: { cfg: TenantConfigRow }) {
-  return (
-    <BentoCard>
-      <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
-        Codici ATECO whitelist
-      </p>
-      <p className="mt-1 text-xs text-on-surface-variant">
-        Usati solo in modalità B2B Precision.
-      </p>
-      {cfg.ateco_whitelist.length === 0 ? (
-        <p className="mt-4 text-sm text-on-surface-variant">
-          Nessun codice configurato.
-        </p>
-      ) : (
-        <div className="mt-4 flex flex-wrap gap-1.5">
-          {cfg.ateco_whitelist.map((code) => (
-            <span
-              key={code}
-              className="rounded-md bg-surface-container px-2 py-1 font-mono text-xs text-on-surface"
-            >
-              {code}
-            </span>
-          ))}
-        </div>
-      )}
-    </BentoCard>
-  );
-}
-
-// ---------------------------------------------------------------------------
-
-function FilterRow({
-  label,
-  value,
-}: {
-  label: string;
-  value: React.ReactNode;
-}) {
-  return (
-    <div className="flex items-center justify-between">
-      <dt className="text-xs text-on-surface-variant">{label}</dt>
-      <dd className="text-sm font-semibold tabular-nums text-on-surface">
-        {value}
-      </dd>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Inline tonal chip (settings-local — the global `StatusChip` is pinned to
-// the LeadStatus enum, which doesn't match our config taxonomy).
-// ---------------------------------------------------------------------------
-
-const CHIP_TONES = {
-  primary: 'bg-primary-container text-on-primary-container',
-  tertiary: 'bg-tertiary-container text-on-tertiary-container',
-  neutral: 'bg-surface-container-high text-on-surface-variant',
-} as const;
-
-function Chip({
-  tone,
-  children,
-}: {
-  tone: keyof typeof CHIP_TONES;
-  children: React.ReactNode;
-}) {
-  return (
-    <span
-      className={cn(
-        'inline-flex items-center rounded-md px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wider',
-        CHIP_TONES[tone],
-      )}
-    >
-      {children}
-    </span>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Reputation dominio
 // ---------------------------------------------------------------------------
 
-/**
- * Top-of-page red banner when the latest snapshot triggers an
- * alarm flag. Sourced from ``domain_reputation.alarm_{bounce,complaint}``
- * which the nightly cron precomputes against AWS SES thresholds
- * (bounce > 5%, complaint > 0.3%). A single critical value is enough
- * for the banner to appear — the card below shows the breakdown.
- */
 function ReputationAlarmBanner({ reputation }: { reputation: DomainReputationRow }) {
   const problems: string[] = [];
   if (reputation.alarm_bounce) {
@@ -678,7 +530,6 @@ function formatPercentPrecise(v: number | null | undefined): string {
 // Plan / tier card
 // ---------------------------------------------------------------------------
 
-/** Display order + labels for the capability matrix shown to the operator. */
 const CAPABILITY_LABELS: Array<{ key: CapabilityKey; label: string; hint?: string }> = [
   { key: 'email_outreach', label: 'Outreach email' },
   { key: 'postal_outreach', label: 'Outreach cartolina postale' },
@@ -773,7 +624,6 @@ function PlanCard({ tenant }: { tenant: TenantRow }) {
  * exporting from tier.ts) because these labels are UI-only.
  */
 function tierHasCapability(tier: TenantTier, key: CapabilityKey): boolean {
-  // Re-use the exported helper through a stand-in `TenantRow`.
   return resolveTierSnapshot({
     id: '',
     business_name: '',

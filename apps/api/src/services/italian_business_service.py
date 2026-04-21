@@ -122,6 +122,10 @@ async def visura_lookup_by_coords(
 
 ATOKA_BASE = "https://api.atoka.io/v2"
 ATOKA_COST_PER_CALL_CENTS = 15  # €0.15 per company lookup on Business plan
+# Discovery (atoka_search_by_criteria) is billed per company returned rather
+# than per call. The SpazioDati Business contract quotes €3 per 1000 company
+# records in search responses — 0.3 cents/record, rounded up for safety.
+ATOKA_DISCOVERY_COST_PER_RECORD_CENTS = 1
 
 
 @dataclass(slots=True)
@@ -136,6 +140,15 @@ class AtokaProfile:
     decision_maker_name: str | None
     decision_maker_role: str | None
     linkedin_url: str | None
+    # HQ address — populated by discovery search, left empty by single-lookup
+    # for backwards compat. HunterAgent's ATECO-precision pipeline relies on
+    # these to forward-geocode → Solar.
+    hq_address: str | None = None
+    hq_cap: str | None = None
+    hq_city: str | None = None
+    hq_province: str | None = None
+    hq_lat: float | None = None
+    hq_lng: float | None = None
     raw: dict[str, Any] = field(default_factory=dict)
 
 
@@ -182,16 +195,198 @@ async def atoka_lookup_by_vat(
     primary_contact = contacts[0] if contacts else {}
     web = (company.get("web") or [{}])[0] if company.get("web") else {}
 
+    return _atoka_company_to_profile(company, fallback_vat=vat_number)
+
+
+# ---------------------------------------------------------------------------
+# Atoka — multi-criteria discovery (ATECO + geo + firmographics)
+# ---------------------------------------------------------------------------
+#
+# Used by HunterAgent's `b2b_ateco_precision` mode: instead of Google Places
+# Nearby Search, we ask Atoka directly for companies matching the tenant's
+# ideal customer profile (ATECO codes, province, size). Each returned profile
+# comes with the HQ address, which downstream gets forward-geocoded and fed
+# into Google Solar for roof suitability.
+
+
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=10), reraise=True)
+async def atoka_search_by_criteria(
+    *,
+    ateco_codes: list[str],
+    province_code: str | None = None,
+    region_code: str | None = None,
+    employees_min: int | None = None,
+    employees_max: int | None = None,
+    revenue_min_eur: int | None = None,
+    revenue_max_eur: int | None = None,
+    limit: int = 500,
+    offset: int = 0,
+    active_only: bool = True,
+    client: httpx.AsyncClient | None = None,
+    api_key: str | None = None,
+) -> list[AtokaProfile]:
+    """Discovery: restituisce aziende italiane che matchano i criteri.
+
+    Wrapper su ``GET /companies`` Atoka v2. Paginato (Atoka cap 100 per
+    pagina): il chiamante richiede ``limit`` totale e noi facciamo tanti
+    hop di pagina quanti servono. Ordine risultati: Atoka default (nessun
+    ``sort`` esplicito) che tipicamente è per relevance.
+
+    Costo: ~€0.003 per azienda restituita. Una ricerca da 500 aziende ≈
+    €1.50 — pienamente dentro budget discovery di un run Hunter tipico.
+
+    Raises:
+        EnrichmentUnavailable: se la key non è configurata o Atoka risponde
+            con 4xx non recuperabile. Il chiamante (HunterAgent) degrada a
+            modalità ``opportunistic`` o abortisce il run a seconda della
+            politica config.
+    """
+    key = api_key or settings.atoka_api_key
+    if not key:
+        raise EnrichmentUnavailable("ATOKA_API_KEY not configured")
+    if not ateco_codes:
+        raise ValueError("ateco_codes cannot be empty — would return entire Italian market")
+
+    owns_client = client is None
+    if client is None:
+        client = httpx.AsyncClient(timeout=30.0)
+
+    collected: list[AtokaProfile] = []
+    # Atoka v2 paginates with `offset` + `limit`. Page size capped at 100.
+    page_size = min(100, limit)
+    current_offset = offset
+
+    try:
+        while len(collected) < limit:
+            remaining = limit - len(collected)
+            params: dict[str, Any] = {
+                # Atoka accepts comma-separated ATECO codes. Supports both
+                # 6-char (10.11.00) and 4-char prefix (10.11) semantics.
+                "ateco": ",".join(ateco_codes),
+                "limit": min(page_size, remaining),
+                "offset": current_offset,
+                "includeContacts": "true",
+            }
+            if province_code:
+                params["locationAreaProvince"] = province_code
+            if region_code:
+                params["locationAreaRegion"] = region_code
+            if employees_min is not None or employees_max is not None:
+                # Atoka range syntax: "min-max". Open ranges use empty side.
+                lo = "" if employees_min is None else str(employees_min)
+                hi = "" if employees_max is None else str(employees_max)
+                params["employeesRange"] = f"{lo}-{hi}"
+            if revenue_min_eur is not None or revenue_max_eur is not None:
+                lo = "" if revenue_min_eur is None else str(revenue_min_eur)
+                hi = "" if revenue_max_eur is None else str(revenue_max_eur)
+                params["revenueRange"] = f"{lo}-{hi}"
+            if active_only:
+                params["active"] = "true"
+
+            resp = await client.get(
+                f"{ATOKA_BASE}/companies",
+                headers={"Authorization": f"Token {key}"},
+                params=params,
+            )
+
+            if resp.status_code == 404:
+                # No matches — legitimate empty result, not an error.
+                break
+            if resp.status_code == 401:
+                raise EnrichmentUnavailable("atoka_auth_failed")
+            if resp.status_code == 429:
+                # Let tenacity retry with backoff.
+                raise EnrichmentUnavailable("atoka_rate_limited")
+            if resp.status_code >= 400:
+                raise EnrichmentUnavailable(f"atoka_http_{resp.status_code}")
+
+            body = resp.json()
+            items = body.get("items") or []
+            if not items:
+                break
+
+            for company in items:
+                vat = (company.get("vat") or company.get("vatNumber") or "").strip()
+                if not vat:
+                    # Atoka occasionally returns companies without a public
+                    # VAT (e.g. sole proprietorships in probate). Skip —
+                    # downstream keyed by P.IVA.
+                    continue
+                collected.append(_atoka_company_to_profile(company, fallback_vat=vat))
+
+            # If Atoka returned fewer than requested, we've exhausted the
+            # result set — stop paginating.
+            if len(items) < params["limit"]:
+                break
+            current_offset += len(items)
+    finally:
+        if owns_client:
+            await client.aclose()
+
+    log.info(
+        "atoka_discovery_completed",
+        extra={
+            "ateco_count": len(ateco_codes),
+            "province": province_code,
+            "region": region_code,
+            "requested": limit,
+            "returned": len(collected),
+        },
+    )
+    return collected
+
+
+def _atoka_company_to_profile(
+    company: dict[str, Any], *, fallback_vat: str
+) -> AtokaProfile:
+    """Parse one Atoka company payload into our normalized AtokaProfile.
+
+    Robust to field naming drift between Atoka's docs and actual responses:
+    we've seen `vat` vs `vatNumber`, `employeesCount` vs `employees`,
+    `revenues` vs `financials.revenue`. The fallback_vat arg is used when
+    the caller already knows the VAT (e.g. single-lookup path).
+    """
+    financials = company.get("financials") or {}
+    revenue_eur = (
+        financials.get("revenue")
+        or company.get("revenue")
+        or company.get("revenues")
+    )
+    ateco_list = company.get("ateco") or []
+    ateco = ateco_list[0] if ateco_list else {}
+    contacts = company.get("decisionMakers") or []
+    primary_contact = contacts[0] if contacts else {}
+    web = (company.get("web") or [{}])[0] if company.get("web") else {}
+
+    # HQ address can be in a few shapes depending on Atoka plan tier.
+    hq = (
+        company.get("locations", [{}])[0]
+        if company.get("locations")
+        else (company.get("base") or {})
+    )
+    hq_addr = hq.get("address") or hq.get("street")
+    hq_lat = hq.get("lat") or (hq.get("coords") or {}).get("lat")
+    hq_lng = hq.get("lng") or (hq.get("coords") or {}).get("lng")
+
     return AtokaProfile(
-        vat_number=vat_number,
-        legal_name=company.get("name", ""),
+        vat_number=company.get("vat") or company.get("vatNumber") or fallback_vat,
+        legal_name=company.get("name") or company.get("legalName") or "",
         ateco_code=ateco.get("code"),
         ateco_description=ateco.get("description"),
         yearly_revenue_cents=int(revenue_eur * 100) if revenue_eur else None,
-        employees=company.get("employees"),
-        website_domain=(web.get("url") or "").replace("https://", "").replace("http://", "").strip("/"),
+        employees=company.get("employees") or company.get("employeesCount"),
+        website_domain=(web.get("url") or "")
+        .replace("https://", "")
+        .replace("http://", "")
+        .strip("/"),
         decision_maker_name=primary_contact.get("name"),
         decision_maker_role=primary_contact.get("role"),
         linkedin_url=primary_contact.get("linkedin"),
+        hq_address=hq_addr,
+        hq_cap=hq.get("zip") or hq.get("cap"),
+        hq_city=hq.get("city") or hq.get("comune"),
+        hq_province=hq.get("province") or hq.get("provincia"),
+        hq_lat=float(hq_lat) if hq_lat is not None else None,
+        hq_lng=float(hq_lng) if hq_lng is not None else None,
         raw=company,
     )

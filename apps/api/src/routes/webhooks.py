@@ -17,6 +17,7 @@ import re
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Header, HTTPException, Query, Request, status
+from fastapi.responses import PlainTextResponse, Response
 
 from ..core.config import settings
 from ..core.logging import get_logger
@@ -602,6 +603,231 @@ async def whatsapp_webhook(
         processed += 1
 
     return {"ok": "queued", "processed": processed}
+
+
+# ---------------------------------------------------------------------------
+# Meta Lead Ads — inbound lead submissions from Facebook/Instagram ads
+# ---------------------------------------------------------------------------
+#
+# Meta (Facebook Graph) posts lead events to a single URL shared across
+# all tenants. Every tenant that connects their Page has an
+# ``meta_connections`` row holding the Page id, ad-account id and a
+# per-tenant ``webhook_secret``. The incoming payload carries the
+# ``page_id`` in ``entry[].id`` which we use to route the lead to the
+# owning tenant before signature verification (the secret lookup is keyed
+# on page id).
+#
+# Meta's verification flow has two halves:
+#   1. GET /v1/webhooks/meta-leads?hub.mode=subscribe&hub.verify_token=…
+#      &hub.challenge=… — one-time challenge we echo back verbatim when
+#      the verify token matches ``settings.meta_app_verify_token``.
+#   2. POST /v1/webhooks/meta-leads — signed with ``X-Hub-Signature-256``
+#      = ``sha256=<hmac_hex>`` over the raw body using the tenant's
+#      ``meta_connections.webhook_secret`` (a.k.a. the Meta app secret).
+#
+# Meta retries on non-2xx up to ~3 times with exponential backoff, so we
+# upsert by ``(tenant_id, meta_lead_id)`` to make the handler idempotent.
+
+
+@router.get("/meta-leads")
+async def meta_leads_verify(
+    hub_mode: str | None = Query(default=None, alias="hub.mode"),
+    hub_verify_token: str | None = Query(default=None, alias="hub.verify_token"),
+    hub_challenge: str | None = Query(default=None, alias="hub.challenge"),
+) -> Response:
+    """Meta subscription verification challenge.
+
+    Meta sends this once when the webhook is registered. We compare the
+    presented ``hub.verify_token`` against our configured token and echo
+    back ``hub.challenge`` as plain text if they match.
+    """
+    if hub_mode != "subscribe":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Unsupported hub.mode",
+        )
+    expected = settings.meta_app_verify_token or ""
+    if not expected:
+        log.warning("webhook.meta_leads.no_verify_token_configured")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Meta verify token not configured",
+        )
+    if hub_verify_token != expected:
+        log.warning("webhook.meta_leads.verify_token_mismatch")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Verify token mismatch",
+        )
+    return PlainTextResponse(hub_challenge or "")
+
+
+@router.post("/meta-leads")
+async def meta_leads_webhook(
+    request: Request,
+    x_hub_signature_256: str | None = Header(
+        default=None, alias="X-Hub-Signature-256"
+    ),
+) -> dict[str, str | int]:
+    """Meta Lead Ads lead-submission webhook.
+
+    Flow:
+      1. Resolve tenant from ``entry[].id`` (Meta page id) →
+         ``meta_connections`` row.
+      2. Verify HMAC-SHA256 with the row's ``webhook_secret``.
+      3. For each ``changes[].value.leadgen_id`` in the payload, upsert a
+         ``leads`` row with ``source='b2c_meta_ads'``. The actual lead
+         field fetch (name/email/phone via Graph API using the row's
+         access token) is deferred to an async task so the webhook
+         responds in <1s.
+    """
+    import hashlib
+    import hmac as _hmac
+
+    raw_body = await request.body()
+
+    try:
+        payload_json: dict = json.loads(raw_body.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid JSON body",
+        ) from exc
+
+    if payload_json.get("object") != "page":
+        # Meta can also post ``object='instagram'`` but we only opt-in
+        # to page-level lead ads today.
+        log.info(
+            "webhook.meta_leads.ignored_object",
+            obj=payload_json.get("object"),
+        )
+        return {"ok": "ignored", "reason": "non_page_object"}
+
+    entries = payload_json.get("entry") or []
+    if not entries:
+        return {"ok": "ignored", "reason": "no_entries"}
+
+    # ----------------------------------------------------------------
+    # Tenant routing — use the first entry's page id to locate the
+    # connection + webhook_secret. All entries in one POST always
+    # belong to the same app, but Meta doesn't guarantee same page,
+    # so we re-check per entry below.
+    # ----------------------------------------------------------------
+    first_page_id = str(entries[0].get("id") or "")
+    if not first_page_id:
+        return {"ok": "ignored", "reason": "no_page_id"}
+
+    sb = get_service_client()
+    conn_res = (
+        sb.table("meta_connections")
+        .select("tenant_id, webhook_secret, access_token")
+        .eq("meta_page_id", first_page_id)
+        .limit(1)
+        .execute()
+    )
+    conn_rows = conn_res.data or []
+    if not conn_rows:
+        log.warning(
+            "webhook.meta_leads.unknown_page",
+            page_id=first_page_id,
+        )
+        # 200 so Meta doesn't retry — page is not ours (or was
+        # disconnected).
+        return {"ok": "ignored", "reason": "unknown_page"}
+
+    connection = conn_rows[0]
+    secret = connection["webhook_secret"]
+
+    # ----------------------------------------------------------------
+    # HMAC verification — Meta sends "sha256=<hex>" in the header.
+    # ----------------------------------------------------------------
+    if not x_hub_signature_256:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Missing X-Hub-Signature-256",
+        )
+    expected = "sha256=" + _hmac.new(
+        secret.encode("utf-8"), raw_body, hashlib.sha256
+    ).hexdigest()
+    if not _hmac.compare_digest(expected, x_hub_signature_256):
+        log.warning(
+            "webhook.meta_leads.signature_invalid",
+            page_id=first_page_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid signature",
+        )
+
+    tenant_id = connection["tenant_id"]
+
+    # ----------------------------------------------------------------
+    # Upsert each leadgen event. We store the Meta lead id so the
+    # follow-up Graph API field-fetch task can enrich the row.
+    # ----------------------------------------------------------------
+    now_iso = datetime.now(timezone.utc).isoformat()
+    accepted = 0
+    for entry in entries:
+        if str(entry.get("id") or "") != first_page_id:
+            # Mixed-page batches should never happen, but if they do
+            # skip the stray rather than mis-attributing.
+            log.warning(
+                "webhook.meta_leads.mixed_pages",
+                entry_page_id=entry.get("id"),
+            )
+            continue
+        for change in entry.get("changes") or []:
+            if change.get("field") != "leadgen":
+                continue
+            value = change.get("value") or {}
+            leadgen_id = str(value.get("leadgen_id") or "")
+            if not leadgen_id:
+                continue
+
+            # Upsert a bare lead row — enrichment (Graph API
+            # /{leadgen_id}?fields=field_data) happens in the
+            # ``meta_lead_enrich`` arq task added in Phase 3.6 so
+            # the webhook stays fast.
+            sb.table("leads").upsert(
+                {
+                    "tenant_id": tenant_id,
+                    "meta_lead_id": leadgen_id,
+                    "source": "b2c_meta_ads",
+                    "pipeline_status": "new",
+                    "inbound_payload": {
+                        "leadgen_id": leadgen_id,
+                        "form_id": value.get("form_id"),
+                        "ad_id": value.get("ad_id"),
+                        "page_id": value.get("page_id"),
+                        "created_time": value.get("created_time"),
+                        "received_at": now_iso,
+                    },
+                    # public_slug is generated by a DB trigger in
+                    # earlier migrations for b2b rows; for b2c we
+                    # synthesise one here since the trigger keys on
+                    # roof_id. Short, URL-safe.
+                    "public_slug": f"meta_{leadgen_id[-12:]}",
+                },
+                on_conflict="tenant_id,meta_lead_id",
+            ).execute()
+
+            await enqueue(
+                "meta_lead_enrich_task",
+                {
+                    "tenant_id": tenant_id,
+                    "leadgen_id": leadgen_id,
+                },
+                job_id=f"meta_lead_enrich:{tenant_id}:{leadgen_id}",
+            )
+            accepted += 1
+
+    log.info(
+        "webhook.meta_leads.accepted",
+        tenant_id=str(tenant_id),
+        page_id=first_page_id,
+        accepted=accepted,
+    )
+    return {"ok": "queued", "accepted": accepted}
 
 
 @router.post("/stripe")

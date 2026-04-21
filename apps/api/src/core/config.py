@@ -48,6 +48,9 @@ class Settings(BaseSettings):
     # ---- AI ----
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-sonnet-4-5"
+    # Cheap ranker for funnel L3 proxy scoring. Kept as a separate setting
+    # so the default Sonnet can be swapped for newer models independently.
+    anthropic_haiku_model: str = "claude-haiku-4-5"
     replicate_api_token: str = ""
 
     # ---- Remotion sidecar (apps/video-renderer) ----
@@ -84,6 +87,15 @@ class Settings(BaseSettings):
     # ---- WhatsApp ----
     dialog360_api_key: str = ""
     dialog360_webhook_secret: str = ""
+
+    # ---- Meta Marketing / Lead Ads ----
+    # `meta_app_verify_token`: long random string we give Meta when we
+    # register the webhook subscription. Meta echoes it back on the
+    # one-time GET challenge (`hub.verify_token`). Per-tenant HMAC
+    # signing secrets live on `meta_connections.webhook_secret`.
+    meta_app_id: str = ""
+    meta_app_secret: str = ""
+    meta_app_verify_token: str = ""
 
     # ---- Payments ----
     stripe_secret_key: str = ""
@@ -156,6 +168,26 @@ class Settings(BaseSettings):
                 "REDIS_URL must point at the managed Redis instance, "
                 "not localhost."
             )
+        # Meta Marketing checks are conditional — a tenant can run
+        # without the B2C Meta channel. But if they've configured the
+        # app id they've opted into the integration and the other
+        # secrets must be present too, otherwise the webhook handler
+        # rejects every POST in staging.
+        if self.meta_app_id:
+            if not self.meta_app_secret:
+                errors.append(
+                    "META_APP_SECRET must be set when META_APP_ID is."
+                )
+            if not self.meta_app_verify_token:
+                errors.append(
+                    "META_APP_VERIFY_TOKEN must be set when META_APP_ID is."
+                )
+        # Supabase URL sanity — a missing anon key means the public
+        # portal won't boot. The service-role key is checked above.
+        if not self.next_public_supabase_url:
+            errors.append("NEXT_PUBLIC_SUPABASE_URL must be set.")
+        if not self.next_public_supabase_anon_key:
+            errors.append("NEXT_PUBLIC_SUPABASE_ANON_KEY must be set.")
 
         if errors:
             bullets = "\n  - ".join(errors)

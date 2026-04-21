@@ -24,6 +24,7 @@ from ..agents.scoring import ScoringAgent, ScoringInput
 from ..agents.tracking import TrackingAgent, TrackingInput
 from ..core.config import settings
 from ..core.logging import configure_logging
+from ..services.b2c_qualify_service import qualify_b2c_lead
 from ..services.crm_webhook_service import dispatch_event as crm_dispatch
 from .cron import (
     daily_digest_cron,
@@ -85,6 +86,47 @@ async def conversation_task(
     return out.model_dump()
 
 
+async def b2c_post_engagement_qualify_task(
+    _ctx: dict[str, Any], payload: dict[str, Any]
+) -> dict[str, Any]:
+    """Enqueued when a B2C lead signals positive intent (Meta form
+    submission, email reply with positive sentiment, WhatsApp
+    engagement). Runs Mapbox + Solar to attach a roof to the lead.
+
+    Payload: ``{"tenant_id": str, "lead_id": str}``.
+    """
+    return await qualify_b2c_lead(
+        tenant_id=payload["tenant_id"],
+        lead_id=payload["lead_id"],
+    )
+
+
+async def meta_lead_enrich_task(
+    _ctx: dict[str, Any], payload: dict[str, Any]
+) -> dict[str, Any]:
+    """Fetch Meta Graph API field_data for a newly-received leadgen id.
+
+    Today this is a stub that records the intent — the real Graph
+    call lands in Phase 4 once Meta app review is complete. The stub
+    path is important so the webhook enqueues a deterministic task
+    id per leadgen and we have a marker to backfill from later.
+    """
+    from ..core.supabase_client import get_service_client
+
+    tenant_id = payload["tenant_id"]
+    leadgen_id = payload["leadgen_id"]
+    sb = get_service_client()
+    sb.table("leads").update(
+        {
+            "inbound_payload": {
+                "leadgen_id": leadgen_id,
+                "enrich_pending": True,
+            }
+        }
+    ).eq("tenant_id", tenant_id).eq("meta_lead_id", leadgen_id).execute()
+    return {"status": "pending_graph_call", "leadgen_id": leadgen_id}
+
+
 async def crm_webhook_task(
     _ctx: dict[str, Any], payload: dict[str, Any]
 ) -> dict[str, Any]:
@@ -120,6 +162,8 @@ class WorkerSettings:
         replies_task,
         conversation_task,
         crm_webhook_task,
+        b2c_post_engagement_qualify_task,
+        meta_lead_enrich_task,
     ]
     # Scheduled jobs (UTC):
     #   02:30 every day  → reputation_digest_cron  (refresh domain_reputation)

@@ -1,114 +1,51 @@
 /**
- * Tenant operational config — server-side data access (Sprint 9).
+ * Onboarding gate — backed by `tenant_modules`.
  *
- * Mirrors the Python `tenant_config_service` DAO: every caller goes
- * through the typed `TenantConfigRow` + default fallback, never a
- * raw Supabase row.
+ * After the April 2026 v2 cleanup there is no longer a `tenant_configs`
+ * table. The five-module wizard (`tenant_modules`) is the single source
+ * of truth for whether a tenant has finished onboarding.
  *
- * Primary consumers:
- *
- * 1. **Onboarding guard** — the dashboard root layout checks
- *    `wizard_completed_at`: if null, redirect to `/onboarding`.
- *
- * 2. **Settings page** — renders the current config read-only (Phase
- *    C will add editable forms that POST to the API).
+ * Heuristic: a module counts as "touched" once its row exists with
+ * `version >= 1`. The API's modular-wizard endpoints bump version on
+ * every save; the backfill migration (0035) seeds rows at version=1
+ * for pre-existing tenants. So a brand-new signup has zero rows ⇒
+ * onboarding pending; an installer who skipped every step still ends
+ * up with five version=1 rows ⇒ onboarding done.
  */
-
 import 'server-only';
 
 import { createSupabaseServerClient } from '@/lib/supabase/server';
-import type { AtecoOption, TenantConfigRow } from '@/types/db';
+
+const REQUIRED_MODULES = [
+  'sorgente',
+  'tecnico',
+  'economico',
+  'outreach',
+  'crm',
+] as const;
 
 /**
- * Safe defaults used when a tenant has no row yet. This should only
- * happen for brand-new signups before the backfill has run — in
- * practice migration 0013 seeds every existing tenant.
- *
- * Keep in sync with `tenant_config_service._default_for` on the API.
+ * True while the tenant hasn't completed the modular onboarding yet.
+ * Callers redirect to `/onboarding` when this returns true.
  */
-function defaultConfig(tenantId: string): TenantConfigRow {
-  return {
-    tenant_id: tenantId,
-    scan_mode: 'opportunistic',
-    target_segments: ['b2b', 'b2c'],
-    place_type_whitelist: ['establishment'],
-    place_type_priority: {},
-    ateco_whitelist: [],
-    ateco_blacklist: [],
-    ateco_priority: {},
-    min_employees: null,
-    max_employees: null,
-    min_revenue_eur: null,
-    max_revenue_eur: null,
-    technical_filters: {
-      b2b: { min_area_sqm: 500, min_kwp: 50, max_shading: 0.4, min_exposure_score: 0.7 },
-      b2c: { min_area_sqm: 60, min_kwp: 3, max_shading: 0.5, min_exposure_score: 0.6 },
-    },
-    scoring_threshold: 60,
-    scoring_weights: {},
-    monthly_scan_budget_eur: 1500,
-    monthly_outreach_budget_eur: 2000,
-    scan_priority_zones: ['capoluoghi'],
-    scan_grid_density_m: 30,
-    atoka_enabled: false,
-    atoka_monthly_cap_eur: 0,
-    wizard_completed_at: null,
-  };
-}
-
-/**
- * Fetch the tenant's operational config. Returns the safe default
- * (opportunistic, `wizard_completed_at=null`) when the row is missing
- * so callers can always read `.scan_mode` / `.wizard_completed_at`
- * without null-checks on the root object.
- */
-export async function getTenantConfig(tenantId: string): Promise<TenantConfigRow> {
+export async function isOnboardingPending(tenantId: string): Promise<boolean> {
   const supabase = await createSupabaseServerClient();
   const { data, error } = await supabase
-    .from('tenant_configs')
-    .select('*')
-    .eq('tenant_id', tenantId)
-    .maybeSingle();
+    .from('tenant_modules')
+    .select('module_key')
+    .eq('tenant_id', tenantId);
 
   if (error) {
-    // RLS or network error — log and fall back so the dashboard stays
-    // functional. The onboarding redirect guard will still fire because
-    // wizard_completed_at is null in the default.
-    console.error('getTenantConfig.error', { tenantId, error: error.message });
-    return defaultConfig(tenantId);
+    // Fail open: if we can't read we let the user through. The API
+    // endpoints re-check on every write, so a corrupt read here only
+    // skips the redirect, it doesn't bypass any real gate.
+    console.error('isOnboardingPending.error', {
+      tenantId,
+      error: error.message,
+    });
+    return false;
   }
-  if (!data) return defaultConfig(tenantId);
 
-  return data as TenantConfigRow;
-}
-
-/**
- * True when the tenant still needs to run the 5-step wizard.
- *
- * Used by the app-shell layout:
- *
- *   const cfg = await getTenantConfig(tenantId);
- *   if (isWizardPending(cfg)) redirect('/onboarding');
- */
-export function isWizardPending(cfg: TenantConfigRow): boolean {
-  return cfg.wizard_completed_at === null;
-}
-
-/**
- * Wizard dropdown options grouped by `wizard_group`. Server-side
- * read — the client never sees the raw `ateco_google_types` table.
- */
-export async function listAtecoOptions(): Promise<AtecoOption[]> {
-  const supabase = await createSupabaseServerClient();
-  const { data, error } = await supabase
-    .from('ateco_google_types')
-    .select('ateco_code, ateco_label, wizard_group, google_types, priority_hint, target_segment')
-    .order('wizard_group', { ascending: true })
-    .order('priority_hint', { ascending: false });
-
-  if (error) {
-    console.error('listAtecoOptions.error', { error: error.message });
-    return [];
-  }
-  return (data ?? []) as AtecoOption[];
+  const present = new Set((data ?? []).map((r) => r.module_key));
+  return REQUIRED_MODULES.some((k) => !present.has(k));
 }

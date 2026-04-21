@@ -8,7 +8,7 @@ import {
   listRecentNotifications,
 } from '@/lib/data/notifications';
 import { getCurrentTenantContext } from '@/lib/data/tenant';
-import { getTenantConfig, isWizardPending } from '@/lib/data/tenantConfig';
+import { isOnboardingPending } from '@/lib/data/tenantConfig';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 
 /**
@@ -59,14 +59,14 @@ export default async function DashboardLayout({
   // rendering (potential redirect), notifications can fall back to zero.
   let unread = 0;
   let recent: Awaited<ReturnType<typeof listRecentNotifications>> = [];
-  const [cfg] = await Promise.all([
-    getTenantConfig(ctx.tenant.id),
+  const [pending] = await Promise.all([
+    isOnboardingPending(ctx.tenant.id),
     Promise.all([countUnreadNotifications(), listRecentNotifications(20)])
       .then(([u, r]) => { unread = u; recent = r; })
       .catch(() => { /* bell degrades gracefully */ }),
   ]);
 
-  if (isWizardPending(cfg)) {
+  if (pending) {
     redirect('/onboarding');
   }
 

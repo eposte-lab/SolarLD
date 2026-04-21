@@ -96,7 +96,8 @@ class RepliesAgent(AgentBase[RepliesInput, RepliesOutput]):
             sb.table("leads")
             .select(
                 "id, pipeline_status, roi_data, engagement_score, "
-                "outreach_sent_at, outreach_opened_at, outreach_clicked_at"
+                "outreach_sent_at, outreach_opened_at, outreach_clicked_at, "
+                "source, roof_id"
             )
             .eq("id", payload.lead_id)
             .eq("tenant_id", payload.tenant_id)
@@ -174,6 +175,35 @@ class RepliesAgent(AgentBase[RepliesInput, RepliesOutput]):
                     ).eq("id", payload.lead_id).execute()
             except ValueError:
                 pass  # status not in hierarchy (e.g. closed_won) — leave it
+
+        # ------------------------------------------------------------------
+        # 5b) Inverted B2C funnel — positive reply on a Meta / Pixart
+        #     lead triggers Solar qualification. Only B2C sources
+        #     (``b2c_meta_ads`` etc.) qualify here; B2B leads already
+        #     had roofs at scan time.
+        # ------------------------------------------------------------------
+        lead_source = (lead.get("source") or "")
+        has_roof = bool(lead.get("roof_id"))
+        if (
+            lead_source.startswith("b2c_")
+            and not has_roof
+            and sentiment == "positive"
+        ):
+            from ..core.queue import enqueue as _enqueue
+
+            await _enqueue(
+                "b2c_post_engagement_qualify_task",
+                {
+                    "tenant_id": payload.tenant_id,
+                    "lead_id": payload.lead_id,
+                },
+                job_id=f"b2c_qualify:{payload.lead_id}",
+            )
+            log.info(
+                "replies.b2c_qualify_enqueued",
+                lead_id=payload.lead_id,
+                source=lead_source,
+            )
 
         # ------------------------------------------------------------------
         # 6) Emit event (includes CRM webhook fanout via base class)

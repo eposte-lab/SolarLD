@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation';
 
 import { getCurrentTenantContext } from '@/lib/data/tenant';
-import { getTenantConfig, isWizardPending } from '@/lib/data/tenantConfig';
+import { isOnboardingPending } from '@/lib/data/tenantConfig';
 
 /**
  * Onboarding-only shell.
@@ -12,8 +12,8 @@ import { getTenantConfig, isWizardPending } from '@/lib/data/tenantConfig';
  *
  * Behavior:
  *   - No auth session → `/login`
- *   - Already onboarded → `/` (bounce back to dashboard)
- *   - Otherwise → render the wizard on a full-bleed surface
+ *   - Already onboarded (all 5 modules present) → `/`
+ *   - Otherwise → render the modular wizard on a full-bleed surface
  */
 
 export default async function OnboardingLayout({
@@ -24,8 +24,8 @@ export default async function OnboardingLayout({
   const ctx = await getCurrentTenantContext();
   if (!ctx) redirect('/login');
 
-  const cfg = await getTenantConfig(ctx.tenant.id);
-  if (!isWizardPending(cfg)) {
+  const pending = await isOnboardingPending(ctx.tenant.id);
+  if (!pending) {
     redirect('/');
   }
 

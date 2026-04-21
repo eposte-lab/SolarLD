@@ -24,6 +24,11 @@ def _full_valid_kwargs(app_env: str) -> dict[str, str]:
         "app_env": app_env,
         "jwt_secret": "x" * 48,
         "supabase_service_role_key": "srk",
+        # The public Supabase URL + anon key are read by the dashboard
+        # and the portal; without them the frontends don't boot, so
+        # the validator blocks staging too.
+        "next_public_supabase_url": "https://example.supabase.co",
+        "next_public_supabase_anon_key": "anon_key_placeholder",
         "anthropic_api_key": "sk-a",
         "resend_api_key": "re_k",
         "resend_webhook_secret": "rw_s",
@@ -117,6 +122,30 @@ def test_reports_all_errors_in_one_raise() -> None:
     assert "JWT_SECRET" in msg
     assert "ANTHROPIC_API_KEY" in msg
     assert "RESEND_API_KEY" in msg
+
+
+def test_meta_app_id_without_secret_rejected() -> None:
+    """Setting META_APP_ID opts into the Meta Lead Ads integration;
+    without the matching secret + verify token the webhook handler
+    would reject every inbound POST in staging. Block startup."""
+    kw = _full_valid_kwargs("staging")
+    kw["meta_app_id"] = "1234567890"
+    # meta_app_secret + meta_app_verify_token intentionally unset
+    with pytest.raises(ValidationError) as exc:
+        Settings(**kw)  # type: ignore[arg-type]
+    msg = str(exc.value)
+    assert "META_APP_SECRET" in msg
+    assert "META_APP_VERIFY_TOKEN" in msg
+
+
+def test_meta_app_id_unset_no_meta_checks() -> None:
+    """Tenants that haven't enabled the Meta channel should NOT trip
+    the Meta validators. Leaving all three Meta fields blank is the
+    valid "Meta off" posture."""
+    kw = _full_valid_kwargs("staging")
+    # No meta_* keys — baseline passes
+    s = Settings(**kw)  # type: ignore[arg-type]
+    assert s.meta_app_id == ""
 
 
 def test_full_valid_staging_config_passes() -> None:
