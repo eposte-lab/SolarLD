@@ -98,9 +98,16 @@ class Settings(BaseSettings):
     meta_app_verify_token: str = ""
 
     # ---- Payments ----
-    stripe_secret_key: str = ""
-    stripe_webhook_secret: str = ""
-    stripe_publishable_key: str = ""
+    # Stripe integration is intentionally not wired in this release.
+    # Tier activation is manual (see `apps/dashboard/src/lib/data/tier.ts`
+    # and `tier-lock.tsx`): installers contact ops via mailto CTA, ops
+    # flips the tenant's tier in Supabase. When billing is reintroduced
+    # add `stripe_secret_key`, `stripe_webhook_secret`,
+    # `stripe_publishable_key` here together with
+    # `services/billing_service.py` and migration
+    # `0037_tenants_subscription.sql`. Leaving half-wired config fields
+    # here would only tempt callers to assume the webhook route works —
+    # and it doesn't.
 
     # ---- Monitoring ----
     sentry_dsn: str = ""

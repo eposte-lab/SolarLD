@@ -1,8 +1,11 @@
 """Tracking Agent — consumes provider webhook events and progresses leads.
 
-Sprint 6 scope (email only — Resend via Svix webhooks). Pixart, 360dialog,
-Stripe, and the lead-portal self-tracking events land in later sprints but
-already flow through this same agent to keep normalisation centralised.
+Scope as of this release: Resend (email) + Pixart (postal). 360dialog
+WhatsApp webhook is wired at the route layer (see routes/webhooks.py)
+but its provider branch here still returns `provider_unsupported` — the
+outbound/tracking side is the next phase. Stripe events are out of
+scope entirely (tier activation is manual, see
+apps/dashboard/src/lib/data/tier.ts).
 
 Pipeline (Resend):
 
@@ -55,7 +58,7 @@ log = get_logger(__name__)
 
 
 class TrackingInput(BaseModel):
-    provider: str                        # resend | pixart | whatsapp | stripe
+    provider: str                        # resend | pixart | whatsapp
     event_type: str                      # provider-native event type
     raw_payload: dict[str, Any]
 

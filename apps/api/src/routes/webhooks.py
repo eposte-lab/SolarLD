@@ -830,17 +830,12 @@ async def meta_leads_webhook(
     return {"ok": "queued", "accepted": accepted}
 
 
-@router.post("/stripe")
-async def stripe_webhook(
-    request: Request,
-    stripe_signature: str | None = Header(default=None, alias="Stripe-Signature"),
-) -> dict[str, str]:
-    """Stripe subscription + invoice events."""
-    if not stripe_signature:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Missing Stripe-Signature header",
-        )
-    payload = await request.body()
-    log.info("webhook.stripe", size=len(payload))
-    return {"ok": "queued"}
+# Stripe webhook intentionally not registered in this release — tier
+# activation is manual (see apps/dashboard/src/lib/data/tier.ts and
+# tier-lock.tsx). When billing is introduced add a handler here that
+# verifies `Stripe-Signature` via `stripe.Webhook.construct_event` and
+# persists subscription lifecycle to a dedicated `tenant_subscriptions`
+# table. Leaving a stub that accepts signed payloads and does nothing
+# is strictly worse than returning 404 — it makes Stripe's dashboard
+# show healthy deliveries while the system silently ignores upgrades
+# and cancellations.

@@ -73,7 +73,7 @@ solarlead/
 | Email | Resend |
 | Postal | Pixartprinting Direct Mail API |
 | WhatsApp | 360dialog |
-| Payments | Stripe |
+| Payments | Manual for beta (Stripe wiring deferred) |
 | Hosting | Railway (backend), Vercel (frontend), Supabase (DB) |
 | Monitoring | Sentry, PostHog (EU), Better Stack |
 

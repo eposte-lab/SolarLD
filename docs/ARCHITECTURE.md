@@ -52,7 +52,7 @@ lead.pipeline_status: new → sent → delivered → opened → clicked → enga
 
 Transitions happen via:
 - **Agents** mutating their target table at end of `execute()`.
-- **Webhooks** updating status from external providers (Resend, Pixartprinting, 360dialog, Stripe).
+- **Webhooks** updating status from external providers (Resend, Pixartprinting, 360dialog). Stripe is deferred — tier activation is manual for beta.
 
 ## 5. Idempotency
 
