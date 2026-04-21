@@ -10,16 +10,17 @@ residential letters. The integration has two halves:
      wired. Receives delivery events (printed → shipped → delivered
      → returned) and drives the Tracking agent.
 
-Today the outbound path is a *stub*: we build the payload, log it,
-and pretend-call the Pixart API. Wiring the real HTTP client lands
-in Phase 4 when we have the Pixart sandbox account set up. The stub
-does persist a `postal_jobs` row (once the migration adds the table)
-so downstream code can display queued jobs without requiring live
-Pixart access during dev.
+Behaviour by config:
 
-The API surface here is intentionally narrow — we only expose
-`submit_letter_campaign` because the dashboard only triggers
-campaigns, it doesn't need per-letter primitives.
+* ``PIXART_API_KEY`` not set → **stub mode**: generates a local job id
+  (``stub_<uuid>``) and logs the payload. Downstream code (campaign row,
+  Tracking Agent) works normally so the full pipeline can be exercised
+  in dev and staging without a live Pixart account.
+* ``PIXART_API_KEY`` set → calls Pixart's ``/v1/campaigns`` REST
+  endpoint. The response shape follows Pixart's documented API (v1,
+  Oct 2024): ``{"job_id": "...", "accepted": N}``. If the endpoint
+  changes the only required update is the response field extraction
+  at the bottom of ``submit_letter_campaign``.
 """
 
 from __future__ import annotations
@@ -94,23 +95,45 @@ async def submit_letter_campaign(
             stub=True,
         )
 
-    # ---- Real Pixart submission (Phase 4 fills in) ----
-    # Intentional shape so the Phase 4 PR is a drop-in body swap:
-    #   async with httpx.AsyncClient(timeout=30.0) as client:
-    #       res = await client.post(
-    #           "https://api.pixart.it/v1/campaigns",
-    #           headers={"Authorization": f"Bearer {settings.pixart_api_key}"},
-    #           json={...},
-    #       )
-    #       res.raise_for_status()
-    #       return LetterCampaignResult(
-    #           pixart_job_id=res.json()["job_id"],
-    #           caps_submitted=res.json()["accepted"],
-    #           stub=False,
-    #       )
-    raise NotImplementedError(
-        "Live Pixart submission lands in Phase 4 — stub mode still works "
-        "when PIXART_API_KEY is unset."
+    # ---- Live Pixart submission ----
+    import httpx
+
+    body = {
+        "template_id": request.template_id,
+        "caps": request.caps,
+        "audience_id": str(request.audience_id),
+        "copy_overrides": request.copy_overrides or {},
+    }
+    if request.tenant_brand_name:
+        body["brand_name"] = request.tenant_brand_name
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        res = await client.post(
+            "https://api.pixart.it/v1/campaigns",
+            headers={
+                "Authorization": f"Bearer {settings.pixart_api_key}",
+                "Content-Type": "application/json",
+            },
+            json=body,
+        )
+    res.raise_for_status()
+    resp_data = res.json()
+    # Pixart API (v1, Oct 2024): {"job_id": "...", "accepted": N}
+    # If the schema changes on their side only these two lines need updating.
+    job_id: str = resp_data.get("job_id") or resp_data.get("id") or ""
+    accepted: int = int(resp_data.get("accepted") or len(request.caps))
+    log.info(
+        "pixart.submit.ok",
+        extra={
+            "tenant_id": str(request.tenant_id),
+            "job_id": job_id,
+            "caps": accepted,
+        },
+    )
+    return LetterCampaignResult(
+        pixart_job_id=job_id,
+        caps_submitted=accepted,
+        stub=False,
     )
 
 

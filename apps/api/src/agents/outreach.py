@@ -69,6 +69,12 @@ from ..services.email_template_service import (
 )
 from ..services import dialog360_service
 from ..services.dialog360_service import WA_COST_PER_MESSAGE_CENTS
+from ..services.pixart_service import (
+    LetterCampaignRequest,
+    build_copy_overrides,
+    resolve_template_id,
+    submit_letter_campaign,
+)
 from ..services.rate_limit_service import acquire_email_quota
 from ..services.resend_service import (
     RESEND_COST_PER_EMAIL_CENTS,
@@ -238,10 +244,11 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
         # 5) Channel routing
         # ------------------------------------------------------------------
         if payload.channel == OutreachChannel.POSTAL:
-            return await self._record_skip(
+            return await self._execute_postal(
                 payload=payload,
                 lead=lead,
-                reason="postal_not_implemented",
+                subject=subject,
+                tenant_row=tenant_row,
             )
 
         if payload.channel == OutreachChannel.WHATSAPP:
@@ -631,6 +638,142 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
             skipped=True,
             reason=failure_reason,
         )
+
+    async def _execute_postal(
+        self,
+        *,
+        payload: "OutreachInput",
+        lead: dict[str, Any],
+        subject: dict[str, Any],
+        tenant_row: dict[str, Any],
+    ) -> "OutreachOutput":
+        """Postal path — B2C residential letter via Pixart.
+
+        Pixart's product model is per-CAP distribution: we submit the
+        lead's postal code and Pixart distributes via Poste Italiane
+        across all addresses in that zone. This fits the B2C discovery
+        pattern (we've identified the CAP as high-value, not a specific
+        door number).
+
+        In development without ``PIXART_API_KEY`` the service runs in
+        stub mode — it generates a local job ID and logs the payload, so
+        the campaign row is still persisted and the Tracking Agent can
+        process future webhook events normally.
+
+        Only B2C subjects are eligible for postal outreach (B2B gets
+        email). The CAP is required — if the subject has no postal_cap
+        we skip and surface the reason so the dashboard can flag the
+        data gap.
+        """
+        # Postal only makes sense for B2C residential subjects
+        subject_type = subject.get("type") or SubjectType.UNKNOWN.value
+        if subject_type != SubjectType.B2C.value:
+            return await self._record_skip(
+                payload=payload,
+                lead=lead,
+                reason="postal_b2b_not_supported",
+            )
+
+        postal_cap = (subject.get("postal_cap") or "").strip()
+        if not postal_cap:
+            return await self._record_skip(
+                payload=payload,
+                lead=lead,
+                reason="postal_no_cap",
+            )
+
+        t_settings: dict = dict(tenant_row.get("settings") or {})
+        email_copy: dict = dict(t_settings.get("email_copy_overrides") or {})
+
+        request = LetterCampaignRequest(
+            tenant_id=payload.tenant_id,
+            audience_id=payload.lead_id,
+            template_id=resolve_template_id(
+                payload.tenant_id,
+                bucket=_income_bucket_for(subject),
+            ),
+            caps=[postal_cap],
+            tenant_brand_name=tenant_row.get("business_name"),
+            copy_overrides=build_copy_overrides(
+                tenant_brand_name=tenant_row.get("business_name"),
+                cta_primary=email_copy.get("cta_text"),
+            ),
+        )
+
+        try:
+            result = await submit_letter_campaign(request)
+        except Exception as exc:  # noqa: BLE001
+            log.warning(
+                "outreach.postal_submit_failed",
+                lead_id=payload.lead_id,
+                err=str(exc),
+            )
+            return await self._record_failure(
+                payload=payload,
+                lead=lead,
+                tenant_row=tenant_row,
+                subject=subject,
+                failure_reason=f"pixart_submit_error: {str(exc)[:200]}",
+            )
+
+        now_iso = datetime.now(timezone.utc).isoformat()
+        campaign_insert: dict[str, Any] = {
+            "tenant_id": payload.tenant_id,
+            "lead_id": payload.lead_id,
+            "channel": OutreachChannel.POSTAL.value,
+            "template_id": request.template_id,
+            "sequence_step": payload.sequence_step,
+            "postal_provider_order_id": result.pixart_job_id,
+            "scheduled_for": now_iso,
+            "sent_at": now_iso,
+            "cost_cents": 0,   # Pixart invoices monthly; updated on webhook
+            "status": CampaignStatus.SENT.value,
+        }
+        if result.stub:
+            campaign_insert["failure_reason"] = "pixart_stub_mode"
+        sb = get_service_client()
+        campaign_res = sb.table("campaigns").insert(campaign_insert).execute()
+        campaign_id = campaign_res.data[0]["id"] if campaign_res.data else None
+
+        if payload.sequence_step == 1:
+            sb.table("leads").update(
+                {
+                    "outreach_channel": OutreachChannel.POSTAL.value,
+                    "outreach_sent_at": now_iso,
+                    "pipeline_status": LeadStatus.SENT.value,
+                }
+            ).eq("id", payload.lead_id).execute()
+
+        out = OutreachOutput(
+            lead_id=payload.lead_id,
+            campaign_id=campaign_id,
+            provider_id=result.pixart_job_id,
+            status=CampaignStatus.SENT.value,
+        )
+        await self._emit_event(
+            event_type="lead.outreach_sent"
+            if payload.sequence_step == 1
+            else f"lead.followup_sent_step{payload.sequence_step}",
+            payload=out.model_dump()
+            | {
+                "channel": OutreachChannel.POSTAL.value,
+                "sequence_step": payload.sequence_step,
+                "pixart_job_id": result.pixart_job_id,
+                "caps_submitted": result.caps_submitted,
+                "stub": result.stub,
+            },
+            tenant_id=payload.tenant_id,
+            lead_id=payload.lead_id,
+        )
+        log.info(
+            "outreach.postal_submitted",
+            lead_id=payload.lead_id,
+            tenant_id=payload.tenant_id,
+            job_id=result.pixart_job_id,
+            cap=postal_cap,
+            stub=result.stub,
+        )
+        return out
 
     async def _execute_whatsapp(
         self,
@@ -1090,6 +1233,27 @@ async def _check_neverbounce(
             err=str(exc),
         )
         return None
+
+
+def _income_bucket_for(subject: dict[str, Any]) -> str:
+    """Map a B2C subject to one of Pixart's template buckets.
+
+    Pixart templates are provisioned per-bucket so the letter copy can
+    be tuned per income segment. Until the template registry is wired
+    (``tenants.settings.pixart_templates``) we derive a deterministic
+    bucket name from the roof's annual solar potential as a rough proxy
+    for property value.
+
+    Buckets: ``high`` (≥8 kWp proxy), ``standard`` (default).
+    """
+    # The ROI data may carry an estimated kWp derived from roof area
+    # and irradiance — use it as an income proxy.
+    roi = subject.get("roi_data") or {}
+    if isinstance(roi, dict):
+        kwp = float(roi.get("estimated_kwp") or 0)
+        if kwp >= 8:
+            return "high"
+    return "standard"
 
 
 def _build_wa_followup_text(
