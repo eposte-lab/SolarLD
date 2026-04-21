@@ -85,7 +85,18 @@ export function ModularWizardShell({
     <div className="space-y-8">
       <StepIndicator stepIdx={stepIdx} />
 
+      {/*
+        `key` forces React to discard and remount ModulePanel whenever
+        the step changes. Without it, the inner `useState(module.config)`
+        stays frozen on the *first* step's config while `module_key`
+        flips — so the dispatcher renders the new module's form
+        against the previous module's shape (e.g. a Tecnico form reading
+        `value.orientamenti_ok` out of a Sorgente-shaped config), which
+        hits `undefined.includes()` on the first render of step 2.
+        Each step is semantically a distinct form — no shared state.
+      */}
       <ModulePanel
+        key={currentKey}
         module={currentModule}
         onSaved={handleSaved}
         ctaLabel={isLast ? 'Salva e completa' : 'Salva e continua'}

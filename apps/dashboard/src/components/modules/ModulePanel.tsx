@@ -33,7 +33,11 @@ import type {
   TecnicoConfig,
   TenantModule,
 } from '@/types/modules';
-import { MODULE_DESCRIPTIONS, MODULE_LABELS } from '@/types/modules';
+import {
+  MODULE_DESCRIPTIONS,
+  MODULE_LABELS,
+  withModuleDefaults,
+} from '@/types/modules';
 
 import { ModuleCRM } from './module-crm';
 import { ModuleEconomico } from './module-economico';
@@ -52,10 +56,27 @@ export function ModulePanel({
   onSaved,
   ctaLabel = 'Salva modulo',
 }: ModulePanelProps) {
-  // The backend (tenant_module_service.hydrate_config, migration 0036)
-  // guarantees `module.config` is a complete config matching the module
-  // schema on every read — so we can initialise directly from props.
-  const [config, setConfig] = useState<unknown>(module.config);
+  // Boundary hydration — one single shot at the edge of the form tree.
+  //
+  // The server path (`modules.server.ts` for SSR, `hydrate_config` in
+  // `tenant_module_service.py` for the API route) already guarantees a
+  // complete config matching the schema. We run `withModuleDefaults`
+  // once more here because this component is ALSO reachable as a client
+  // boundary from stale bundles, browser cache hits, or tenants whose
+  // five-row backfill predates migration 0036's trigger — and the
+  // contractual cost of an extra shallow merge is trivial compared to
+  // the crash class (`undefined.includes()` etc.) it closes.
+  //
+  // The child form components can therefore legitimately assume
+  // `value.<field>` is always present, and we keep the defensive
+  // guards OUT of the primitives where they'd be noise per call site.
+  const [config, setConfig] = useState<unknown>(() =>
+    withModuleDefaults(
+      module.module_key,
+      // biome-ignore lint/suspicious/noExplicitAny: config shape narrows via module_key
+      module.config as any,
+    ),
+  );
   const [active, setActive] = useState(module.active);
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
