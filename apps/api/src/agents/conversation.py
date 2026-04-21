@@ -34,10 +34,10 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from ..core.config import settings
 from ..core.logging import get_logger
 from ..core.supabase_client import get_service_client
 from ..services.claude_service import complete as claude_complete
+from ..services.dialog360_service import send_wa_message as _send_wa_message_impl
 from .base import AgentBase
 
 log = get_logger(__name__)
@@ -59,10 +59,6 @@ _HANDOFF_MESSAGE = (
     "contatterà al più presto. Rimani in attesa — a breve qualcuno del "
     "team si farà vivo."
 )
-
-# 360dialog send-message endpoint
-_DIALOG360_BASE = "https://waba.360dialog.io/v1/messages"
-
 
 class ConversationInput(BaseModel):
     tenant_id: str
@@ -443,48 +439,14 @@ class ConversationAgent(AgentBase[ConversationInput, ConversationOutput]):
 
 
 async def _send_wa_message(*, phone: str, text: str, tenant_id: str) -> bool:
-    """Send a WhatsApp message via 360dialog REST API.
+    """Thin adapter — delegates to dialog360_service.send_wa_message.
 
-    Returns True on success, False on any error (degrading gracefully so
-    the conversation row is still updated even if the send fails).
+    Returns True on success, False on any error.  The conversation row
+    is always updated even when this returns False, so a degraded send
+    doesn't lose the inbound message.
     """
-    if not settings.dialog360_api_key:
-        log.warning(
-            "conversation.no_dialog360_key",
-            tenant_id=tenant_id,
-        )
-        return False
-
-    import httpx
-
-    payload = {
-        "messaging_product": "whatsapp",
-        "recipient_type": "individual",
-        "to": phone,
-        "type": "text",
-        "text": {"preview_url": False, "body": text},
-    }
-    try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.post(
-                _DIALOG360_BASE,
-                headers={
-                    "D360-API-KEY": settings.dialog360_api_key,
-                    "Content-Type": "application/json",
-                },
-                json=payload,
-            )
-        if resp.status_code in (200, 201):
-            return True
-        log.warning(
-            "conversation.dialog360_send_failed",
-            status=resp.status_code,
-            body=resp.text[:200],
-        )
-        return False
-    except Exception as exc:  # noqa: BLE001
-        log.warning("conversation.dialog360_error", err=str(exc))
-        return False
+    wamid = await _send_wa_message_impl(phone=phone, text=text, tenant_id=tenant_id)
+    return wamid is not None
 
 
 _PIPELINE_ORDER = [

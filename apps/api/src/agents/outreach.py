@@ -1,8 +1,14 @@
-"""Outreach Agent — sends first-contact email (B2B) via Resend.
+"""Outreach Agent — multi-channel first-contact and follow-up sends.
 
-Sprint 6 pipeline (postal B2C deferred to Sprint 8):
+Supported channels
+------------------
+* **email**    — HTML email via Resend (B2B + B2C, sequence steps 1-3).
+* **postal**   — Physical letter via Pixart (Sprint 8, currently skipped).
+* **whatsapp** — WA text via 360dialog (reply-path only, steps ≥ 2).
 
-    lead_id + tenant_id
+Email pipeline (step 1):
+
+    lead_id + tenant_id + channel=email
         ↓
     load lead + subject + roof + tenant (branding)
         ↓
@@ -10,38 +16,36 @@ Sprint 6 pipeline (postal B2C deferred to Sprint 8):
         and outreach_sent_at is set → skip
         ↓
     compliance gate: if subject.pii_hash in global_blacklist → skip
-        (the compliance agent normally cancels pending campaigns when
-        a blacklist entry is added, but we also gate here in case an
-        outreach job is enqueued before the blacklist propagation runs)
+        ↓
+    tier gate: require EMAIL_OUTREACH / POSTAL_OUTREACH / WHATSAPP_OUTREACH
         ↓
     recipient resolution:
-        channel=email  → subject.decision_maker_email
-                        (only send if decision_maker_email_verified)
-        channel=postal → abort with reason='postal_not_implemented'
+        channel=email     → subject.decision_maker_email (verified only)
+        channel=whatsapp  → conversations.whatsapp_phone (lead must have
+                            texted us first — no cold Meta templates)
+        channel=postal    → abort with reason='postal_not_implemented'
         ↓
-    optional: Claude writes a 1-sentence personalised opener
-        (B2B references ATECO / business_name, B2C references address)
+    optional: Claude writes a 1-sentence personalised opener (step 1 only)
         ↓
-    render_outreach_email(ctx) → (subject, html, text)
+    render_outreach_email(ctx) → (subject, html, text) [email only]
+    _build_wa_followup_text(…) → plain Italian text [whatsapp only]
         ↓
-    send_email(...) via Resend HTTP
+    send via Resend / 360dialog
         ↓
-    INSERT campaigns (status='sent', email_message_id, cost_cents)
+    INSERT campaigns (status='sent', provider message ID, cost_cents)
     UPDATE leads SET outreach_channel, outreach_sent_at,
-        pipeline_status='sent'
+        pipeline_status='sent'  [step 1 only]
         ↓
-    emit lead.outreach_sent event
+    emit lead.outreach_sent / lead.followup_sent_stepN event
 
 Degradation:
-  * Missing verified email → we still insert a campaigns row with
-    status='failed' and failure_reason='no_verified_email' so the
-    dashboard can surface the reason. We don't crash the worker.
-  * Claude opener failure → we skip the opener (templates degrade
-    gracefully — the ``personalized_opener`` is optional in Jinja).
-  * Resend 4xx → treated as permanent failure; campaigns row goes in
-    with status='failed' and failure_reason pulled from the exception.
-  * Resend 5xx → bubbles up from the service's tenacity retry. The
-    worker's exponential retry will pick it up later.
+  * Missing verified email → campaigns row status='failed', reason surfaced
+    in dashboard. Worker does not crash.
+  * Claude opener failure → opener skipped; template renders without it.
+  * Resend 4xx → permanent failure recorded in campaigns row.
+  * Resend 5xx → bubbles up; arq worker retries exponentially.
+  * 360dialog failure → campaigns row status='failed', reason='dialog360_send_failed'.
+  * No conversation row → WA skip with reason='no_whatsapp_conversation'.
 """
 
 from __future__ import annotations
@@ -63,6 +67,8 @@ from ..services.email_template_service import (
     default_subject_for,
     render_outreach_email,
 )
+from ..services import dialog360_service
+from ..services.dialog360_service import WA_COST_PER_MESSAGE_CENTS
 from ..services.rate_limit_service import acquire_email_quota
 from ..services.resend_service import (
     RESEND_COST_PER_EMAIL_CENTS,
@@ -229,7 +235,7 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
             )
 
         # ------------------------------------------------------------------
-        # 5) Channel routing — postal is Sprint 8
+        # 5) Channel routing
         # ------------------------------------------------------------------
         if payload.channel == OutreachChannel.POSTAL:
             return await self._record_skip(
@@ -238,8 +244,16 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
                 reason="postal_not_implemented",
             )
 
+        if payload.channel == OutreachChannel.WHATSAPP:
+            return await self._execute_whatsapp(
+                payload=payload,
+                lead=lead,
+                subject=subject,
+                tenant_row=tenant_row,
+            )
+
         # ------------------------------------------------------------------
-        # 6) Recipient resolution
+        # 6) Recipient resolution (email path)
         # ------------------------------------------------------------------
         recipient = _resolve_recipient(subject)
         if not recipient:
@@ -587,7 +601,7 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
         failure_insert = {
             "tenant_id": payload.tenant_id,
             "lead_id": payload.lead_id,
-            "channel": OutreachChannel.EMAIL.value,
+            "channel": payload.channel.value,
             "template_id": _template_id_for(
                 subject_type, sequence_step=payload.sequence_step
             ),
@@ -618,6 +632,144 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
             reason=failure_reason,
         )
 
+    async def _execute_whatsapp(
+        self,
+        *,
+        payload: "OutreachInput",
+        lead: dict[str, Any],
+        subject: dict[str, Any],
+        tenant_row: dict[str, Any],
+    ) -> "OutreachOutput":
+        """WA follow-up path (sequence_step ≥ 2, reply-path only).
+
+        We deliberately block step 1 (cold outbound) because Meta's
+        Business Policy requires pre-approved Message Templates for
+        marketing messages to users who haven't messaged us first.
+        Steps 2+ are safe: the lead already replied on WhatsApp
+        (conversation row exists), putting us inside the 24-hour
+        service-conversation window where free-form text is allowed.
+
+        Phone resolution: we look up ``conversations.whatsapp_phone``
+        by ``lead_id`` — if no conversation row exists the lead has
+        never texted us, so we skip rather than attempt cold outreach.
+        """
+        # Cold outbound guard
+        if payload.sequence_step == 1:
+            return await self._record_skip(
+                payload=payload,
+                lead=lead,
+                reason="wa_cold_outbound_blocked",
+            )
+
+        sb = get_service_client()
+
+        # Resolve phone from existing conversation row
+        conv_res = (
+            sb.table("conversations")
+            .select("whatsapp_phone, state")
+            .eq("lead_id", payload.lead_id)
+            .limit(1)
+            .execute()
+        )
+        if not conv_res.data:
+            return await self._record_skip(
+                payload=payload,
+                lead=lead,
+                reason="no_whatsapp_conversation",
+            )
+
+        wa_phone: str = conv_res.data[0]["whatsapp_phone"]
+        conv_state: str = conv_res.data[0].get("state", "active")
+
+        # Don't send to conversations already handed off or closed —
+        # operator is managing them; injecting an automated message
+        # would be confusing.
+        if conv_state != "active":
+            return await self._record_skip(
+                payload=payload,
+                lead=lead,
+                reason=f"wa_conversation_{conv_state}",
+            )
+
+        # Build short follow-up copy (Italian, plain text)
+        subject_type = subject.get("type") or SubjectType.UNKNOWN.value
+        greeting = _greeting_for(subject, subject_type)
+        lead_url = _public_lead_url(lead.get("public_slug"))
+        wa_text = _build_wa_followup_text(
+            greeting=greeting,
+            step=payload.sequence_step,
+            tenant_name=tenant_row.get("business_name") or "SolarLead",
+            lead_url=lead_url,
+        )
+
+        wamid = await dialog360_service.send_wa_message(
+            phone=wa_phone,
+            text=wa_text,
+            tenant_id=payload.tenant_id,
+        )
+        if not wamid:
+            return await self._record_failure(
+                payload=payload,
+                lead=lead,
+                tenant_row=tenant_row,
+                subject=subject,
+                failure_reason="dialog360_send_failed",
+            )
+
+        # Persist campaign row — reuse email_message_id for the wamid
+        now_iso = datetime.now(timezone.utc).isoformat()
+        campaign_insert: dict[str, Any] = {
+            "tenant_id": payload.tenant_id,
+            "lead_id": payload.lead_id,
+            "channel": OutreachChannel.WHATSAPP.value,
+            "template_id": f"wa_followup_step{payload.sequence_step}",
+            "sequence_step": payload.sequence_step,
+            "email_message_id": wamid,   # provider message ID
+            "scheduled_for": now_iso,
+            "sent_at": now_iso,
+            "cost_cents": WA_COST_PER_MESSAGE_CENTS,
+            "status": CampaignStatus.SENT.value,
+        }
+        campaign_res = sb.table("campaigns").insert(campaign_insert).execute()
+        campaign_id = campaign_res.data[0]["id"] if campaign_res.data else None
+
+        _log_api_cost(
+            sb,
+            tenant_id=payload.tenant_id,
+            endpoint="whatsapp:send",
+            cost_cents=WA_COST_PER_MESSAGE_CENTS,
+            status="success",
+            metadata={"lead_id": payload.lead_id, "wamid": wamid},
+        )
+
+        event_type = f"lead.followup_sent_step{payload.sequence_step}"
+        out = OutreachOutput(
+            lead_id=payload.lead_id,
+            campaign_id=campaign_id,
+            provider_id=wamid,
+            status=CampaignStatus.SENT.value,
+        )
+        await self._emit_event(
+            event_type=event_type,
+            payload=out.model_dump()
+            | {
+                "channel": OutreachChannel.WHATSAPP.value,
+                "sequence_step": payload.sequence_step,
+                "template_id": f"wa_followup_step{payload.sequence_step}",
+                "wa_phone_suffix": wa_phone[-4:] if len(wa_phone) >= 4 else "????",
+            },
+            tenant_id=payload.tenant_id,
+            lead_id=payload.lead_id,
+        )
+        log.info(
+            "outreach.wa_sent",
+            lead_id=payload.lead_id,
+            tenant_id=payload.tenant_id,
+            step=payload.sequence_step,
+            wamid=wamid,
+        )
+        return out
+
 
 # ---------------------------------------------------------------------------
 # Pure helpers (unit-testable)
@@ -632,6 +784,8 @@ def _capability_for_channel(channel: OutreachChannel) -> Capability:
     """
     if channel == OutreachChannel.POSTAL:
         return Capability.POSTAL_OUTREACH
+    if channel == OutreachChannel.WHATSAPP:
+        return Capability.WHATSAPP_OUTREACH
     # Default = email, which is allowed on every tier today but we
     # still run it through the gate for parity / future-proofing (e.g.
     # if we ever decide to rate-limit email on founding).
@@ -938,6 +1092,41 @@ async def _check_neverbounce(
         return None
 
 
+def _build_wa_followup_text(
+    *,
+    greeting: str,
+    step: int,
+    tenant_name: str,
+    lead_url: str | None,
+) -> str:
+    """Build a short Italian WhatsApp follow-up message (plain text).
+
+    Kept intentionally brief and conversational — WA messages that read
+    like marketing emails get flagged by Meta's spam filters. The link to
+    the lead portal is included only when ``lead_url`` is available.
+
+    Step 2 (~3 days after email): remind + invite question.
+    Step 3+ (~11 days after email): last follow-up, soft close.
+    """
+    link_fragment = f"\n👉 {lead_url}" if lead_url else ""
+    if step == 2:
+        return (
+            f"Buongiorno {greeting}! 👋\n"
+            f"Qualche giorno fa le abbiamo inviato un'analisi del potenziale "
+            f"fotovoltaico del suo immobile. Ha avuto modo di darci un'occhiata?\n"
+            f"Sono qui per qualsiasi domanda — rispondo volentieri."
+            f"{link_fragment}"
+        )
+    # step 3 or later
+    return (
+        f"Buongiorno {greeting},\n"
+        f"un ultimo saluto da {tenant_name}. La nostra proposta sul risparmio "
+        f"energetico è ancora attiva — se vuole approfondire o fissare una "
+        f"chiamata, basta rispondere qui."
+        f"{link_fragment}"
+    )
+
+
 def _log_api_cost(
     sb: Any,
     *,
@@ -951,7 +1140,7 @@ def _log_api_cost(
         sb.table("api_usage_log").insert(
             {
                 "tenant_id": tenant_id,
-                "provider": "resend",
+                "provider": endpoint.split(":")[0],  # 'resend' or 'whatsapp'
                 "endpoint": endpoint,
                 "request_count": 1,
                 "cost_cents": cost_cents,

@@ -72,6 +72,7 @@ class LeadStatus(str, Enum):
 class OutreachChannel(str, Enum):
     EMAIL = "email"
     POSTAL = "postal"
+    WHATSAPP = "whatsapp"
 
 
 class InstallerFeedback(str, Enum):
