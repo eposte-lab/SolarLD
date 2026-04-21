@@ -34,6 +34,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from ..core.config import settings
 from ..core.logging import get_logger
 from ..core.supabase_client import get_service_client
 from ..services.claude_service import complete as claude_complete

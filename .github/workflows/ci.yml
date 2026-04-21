@@ -77,7 +77,7 @@ jobs:
         run: ruff format --check src tests
 
       - name: Mypy typecheck
-        run: mypy src || true  # non-blocking until type coverage is complete
+        run: mypy src
 
       - name: Pytest
         run: pytest --cov=src --cov-report=xml

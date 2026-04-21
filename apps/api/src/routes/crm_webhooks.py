@@ -13,6 +13,8 @@ from __future__ import annotations
 import secrets
 from typing import Any
 
+from fastapi import Response as _Response
+
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field, HttpUrl
 
@@ -156,15 +158,16 @@ async def update_webhook(
 
 
 @router.delete("/{webhook_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_webhook(ctx: CurrentUser, webhook_id: str):
+async def delete_webhook(ctx: CurrentUser, webhook_id: str) -> _Response:
     tenant_id = require_tenant(ctx)
     sb = get_service_client()
     sb.table("crm_webhook_subscriptions").delete().eq("id", webhook_id).eq(
         "tenant_id", tenant_id
     ).execute()
-    from fastapi import Response
-
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+    # Return a bare Response so FastAPI skips body serialisation.
+    # Annotating as -> None triggers FastAPI's 204-no-body assertion at route
+    # registration time (fastapi.routing.is_body_allowed_for_status_code).
+    return _Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/{webhook_id}/rotate-secret")

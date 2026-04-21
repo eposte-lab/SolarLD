@@ -120,7 +120,7 @@ async def submit_letter_campaign(
     resp_data = res.json()
     # Pixart API (v1, Oct 2024): {"job_id": "...", "accepted": N}
     # If the schema changes on their side only these two lines need updating.
-    job_id: str = resp_data.get("job_id") or resp_data.get("id") or ""
+    pixart_job_id: str = resp_data.get("job_id") or resp_data.get("id") or ""
     accepted: int = int(resp_data.get("accepted") or len(request.caps))
     log.info(
         "pixart.submit.ok",
@@ -131,7 +131,7 @@ async def submit_letter_campaign(
         },
     )
     return LetterCampaignResult(
-        pixart_job_id=job_id,
+        pixart_job_id=pixart_job_id,
         caps_submitted=accepted,
         stub=False,
     )

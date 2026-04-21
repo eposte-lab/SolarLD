@@ -317,13 +317,16 @@ async def _analyse_with_claude(
         "con il contenuto)"
     )
 
+    import json as _json
+
     return await complete_json(
         prompt=prompt,
         system=(
             "Sei un esperto di CRM e comunicazione commerciale nel settore "
             "energie rinnovabili italiano. Rispondi SOLO con il JSON richiesto."
         ),
-        schema=_REPLY_SCHEMA,
+        schema_hint=_json.dumps(_REPLY_SCHEMA),
         max_tokens=600,
-        temperature=0.3,
+        # temperature is fixed to 0.0 inside complete_json for deterministic
+        # JSON output — remove the override that was causing a TypeError.
     )

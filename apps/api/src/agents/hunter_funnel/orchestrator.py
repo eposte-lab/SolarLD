@@ -18,6 +18,7 @@ levels and still emit a `scan.completed` with the partial cost.
 
 from __future__ import annotations
 
+from typing import Any
 from uuid import uuid4
 
 from ...core.logging import get_logger
@@ -36,8 +37,8 @@ async def run_funnel(
     *,
     agent: HunterAgent,
     payload: HunterInput,
-    config,
-    territory,
+    config: dict[str, Any],
+    territory: dict[str, Any],
 ) -> HunterOutput:
     """Run the four levels in sequence. Returns the populated HunterOutput
     that HunterAgent.execute will log into api_usage_log.

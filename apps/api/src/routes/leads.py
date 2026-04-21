@@ -11,11 +11,14 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 
+from ..core.logging import get_logger
 from ..core.queue import enqueue, fire_crm_event
 from ..core.security import CurrentUser, require_tenant
 from ..core.supabase_client import get_service_client
 from ..models.lead import LeadFeedback, LeadListResponse
 from ..services.audit_service import log_action as audit_log
+
+log = get_logger(__name__)
 
 router = APIRouter()
 

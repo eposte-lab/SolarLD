@@ -1,7 +1,11 @@
 name: Deploy
 
+# Gate on CI workflow completing successfully — prevents deploys on red CI.
+# The workflow_run trigger fires when the named workflow (CI) completes on main.
 on:
-  push:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
     branches: [main]
 
 concurrency:
@@ -12,7 +16,8 @@ jobs:
   deploy-api:
     name: Deploy API → Railway
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
+    # Only deploy when CI passed (not just completed)
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -25,7 +30,7 @@ jobs:
   deploy-frontend:
     name: Vercel deploys (dashboard + lead-portal)
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     steps:
       - run: |
           echo "Vercel auto-deploys from main — no manual action required."

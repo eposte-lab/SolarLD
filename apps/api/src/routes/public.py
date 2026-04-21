@@ -504,7 +504,7 @@ async def _upsert_conversion(
                 row, on_conflict="lead_id,stage"
             ).execute()
         else:
-            sb.table("conversions").insert(
+            sb.table("conversions").insert(  # type: ignore[call-arg]
                 row, ignore_duplicates=True
             ).execute()
     except Exception as exc:  # noqa: BLE001
