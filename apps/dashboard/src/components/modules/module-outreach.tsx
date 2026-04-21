@@ -19,6 +19,14 @@ export interface ModuleOutreachProps {
 }
 
 export function ModuleOutreach({ value, onChange }: ModuleOutreachProps) {
+  // Defensive: if the DB row is stored with a missing `channels` object
+  // (predates a schema addition), don't crash on `value.channels.email`.
+  const channels = value.channels ?? {
+    email: true,
+    postal: false,
+    whatsapp: false,
+    meta_ads: false,
+  };
   return (
     <div className="space-y-4">
       <FieldCard
@@ -28,33 +36,33 @@ export function ModuleOutreach({ value, onChange }: ModuleOutreachProps) {
         <Toggle
           label="Email"
           hint="Nurture + reply agent (Resend)."
-          value={value.channels.email}
+          value={channels.email}
           onChange={(v) =>
-            onChange({ ...value, channels: { ...value.channels, email: v } })
+            onChange({ ...value, channels: { ...channels, email: v } })
           }
         />
         <Toggle
           label="Lettera fisica"
           hint="Pixart personalised letter (B2C residenziale)."
-          value={value.channels.postal}
+          value={channels.postal}
           onChange={(v) =>
-            onChange({ ...value, channels: { ...value.channels, postal: v } })
+            onChange({ ...value, channels: { ...channels, postal: v } })
           }
         />
         <Toggle
           label="WhatsApp"
           hint="Dialog360 outbound (richiede account business)."
-          value={value.channels.whatsapp}
+          value={channels.whatsapp}
           onChange={(v) =>
-            onChange({ ...value, channels: { ...value.channels, whatsapp: v } })
+            onChange({ ...value, channels: { ...channels, whatsapp: v } })
           }
         />
         <Toggle
           label="Meta Lead Ads"
           hint="Campagne Meta per CAP (richiede OAuth Meta)."
-          value={value.channels.meta_ads}
+          value={channels.meta_ads}
           onChange={(v) =>
-            onChange({ ...value, channels: { ...value.channels, meta_ads: v } })
+            onChange({ ...value, channels: { ...channels, meta_ads: v } })
           }
         />
       </FieldCard>
@@ -64,7 +72,7 @@ export function ModuleOutreach({ value, onChange }: ModuleOutreachProps) {
           <span className="text-sm text-on-surface">Tone of voice</span>
           <input
             type="text"
-            value={value.tone_of_voice}
+            value={value.tone_of_voice ?? ''}
             onChange={(e) =>
               onChange({ ...value, tone_of_voice: e.target.value })
             }
@@ -76,7 +84,7 @@ export function ModuleOutreach({ value, onChange }: ModuleOutreachProps) {
           <span className="text-sm text-on-surface">CTA primaria</span>
           <input
             type="text"
-            value={value.cta_primary}
+            value={value.cta_primary ?? ''}
             onChange={(e) =>
               onChange({ ...value, cta_primary: e.target.value })
             }
