@@ -43,11 +43,11 @@ export default async function ModuleEditPage({
   const ctx = await getCurrentTenantContext();
   if (!ctx) redirect('/login');
 
-  const module = await getModuleForTenant(ctx.tenant.id, key);
+  const moduleData = await getModuleForTenant(ctx.tenant.id, key);
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
-      <ModulePanel module={module} />
+      <ModulePanel module={moduleData} />
     </div>
   );
 }
