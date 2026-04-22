@@ -79,21 +79,62 @@ export function EmailDomainManager({
   );
   const [loading, setLoading] = useState(false);
   const [checking, setChecking] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
 
+  /**
+   * Basic domain syntax guard.
+   * Accepts: `agenda-pro.it`, `mail.agenda-pro.it`, `a.b.c.io`.
+   * Rejects: anything with `@` (that's an email), whitespace, protocols,
+   * paths, or labels that don't match RFC-ish shape.
+   */
+  function validateDomain(input: string): string | null {
+    const v = input.trim().toLowerCase();
+    if (!v) return 'Inserisci un dominio.';
+    if (v.includes('@')) {
+      return 'Inserisci solo il dominio, non un indirizzo email. Esempio: mail.agenda-pro.it';
+    }
+    if (/\s/.test(v)) return 'Il dominio non può contenere spazi.';
+    if (v.startsWith('http://') || v.startsWith('https://') || v.includes('/')) {
+      return 'Inserisci solo il dominio, senza http:// o slash. Esempio: mail.agenda-pro.it';
+    }
+    // label.label(.label)+ — each label 1-63 chars, alnum + hyphen, no leading/trailing hyphen
+    const domainRe =
+      /^(?=.{4,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/;
+    if (!domainRe.test(v)) {
+      return 'Formato dominio non valido. Esempio: mail.tuodominio.it';
+    }
+    return null;
+  }
+
   async function handleSetup() {
-    if (!domain.trim()) return;
+    const trimmed = domain.trim().toLowerCase();
+    const validationError = validateDomain(trimmed);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
       const result = await api.post<DomainStatus>('/v1/branding/domain/setup', {
-        domain: domain.trim().toLowerCase(),
+        domain: trimmed,
         email_from_name: fromName.trim() || null,
       });
       setDomainStatus(result);
     } catch (e) {
-      setError((e as Error).message);
+      // `fetch()` network failures surface as TypeError("Failed to fetch") — no
+      // HTTP status involved. Distinguish so the user isn't told to "disconnect
+      // the domain" when the real issue is the API being unreachable.
+      const err = e as Error & { status?: number };
+      if (err.name === 'TypeError' || /failed to fetch/i.test(err.message)) {
+        setError(
+          'Impossibile contattare il server. Verifica la connessione o riprova tra qualche istante.',
+        );
+      } else {
+        setError(err.message);
+      }
     } finally {
       setLoading(false);
     }
@@ -106,9 +147,44 @@ export function EmailDomainManager({
       const result = await api.get<DomainStatus>('/v1/branding/domain/status');
       setDomainStatus(result);
     } catch (e) {
-      setError((e as Error).message);
+      const err = e as Error;
+      if (err.name === 'TypeError' || /failed to fetch/i.test(err.message)) {
+        setError(
+          'Impossibile contattare il server. Verifica la connessione o riprova tra qualche istante.',
+        );
+      } else {
+        setError(err.message);
+      }
     } finally {
       setChecking(false);
+    }
+  }, []);
+
+  const handleDisconnect = useCallback(async () => {
+    if (
+      !confirm(
+        'Disconnettere il dominio? Verrà rimosso da Resend e i record DNS non saranno più attivi. Potrai riconfigurarlo in qualsiasi momento.',
+      )
+    ) {
+      return;
+    }
+    setDisconnecting(true);
+    setError(null);
+    try {
+      await api.delete('/v1/branding/domain');
+      setDomainStatus(null);
+      setDomain('');
+    } catch (e) {
+      const err = e as Error;
+      if (err.name === 'TypeError' || /failed to fetch/i.test(err.message)) {
+        setError(
+          'Impossibile contattare il server. Verifica la connessione o riprova tra qualche istante.',
+        );
+      } else {
+        setError(err.message);
+      }
+    } finally {
+      setDisconnecting(false);
     }
   }, []);
 
@@ -138,9 +214,22 @@ export function EmailDomainManager({
               type="text"
               value={domain}
               placeholder="mail.tuodominio.it"
-              onChange={(e) => setDomain(e.target.value)}
+              autoComplete="off"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              onChange={(e) => {
+                setDomain(e.target.value);
+                if (error) setError(null);
+              }}
               className="mt-2 w-full rounded-lg border border-outline-variant/40 bg-surface-container-lowest px-3 py-2 font-mono text-sm text-on-surface placeholder:text-on-surface-variant/50 focus:outline-none focus:ring-2 focus:ring-primary/60"
             />
+            {domain.includes('@') && (
+              <p className="mt-1 text-xs text-error">
+                Sembra un&apos;email. Inserisci solo il dominio, es.{' '}
+                <span className="font-mono">agenda-pro.it</span>
+              </p>
+            )}
           </div>
           <div>
             <label className="block text-sm font-semibold text-on-surface">
@@ -181,6 +270,17 @@ export function EmailDomainManager({
             </button>
           )}
 
+          {(domainStatus || initialDomain) && (
+            <button
+              type="button"
+              disabled={disconnecting}
+              onClick={handleDisconnect}
+              className="ml-auto rounded-lg border border-error/40 bg-surface-container-lowest px-4 py-2 text-sm font-semibold text-error transition-colors hover:bg-error-container/30 disabled:opacity-40"
+            >
+              {disconnecting ? 'Disconnessione…' : 'Disconnetti dominio'}
+            </button>
+          )}
+
           {badge && (
             <span
               className={cn(
@@ -194,9 +294,15 @@ export function EmailDomainManager({
         </div>
 
         {error && (
-          <p className="rounded-lg border border-error/40 bg-error-container/30 px-3 py-2 text-sm text-on-error-container">
-            {error}
-          </p>
+          <div className="rounded-lg border border-error/40 bg-error-container/30 px-3 py-2 text-sm text-on-error-container">
+            <p>{error}</p>
+            <p className="mt-2 text-xs opacity-80">
+              Se il problema persiste, clicca{' '}
+              <strong>Disconnetti dominio</strong> per resettare la
+              configurazione e riprovare. L&apos;operazione è reversibile e non
+              tocca i tuoi record DNS.
+            </p>
+          </div>
         )}
       </div>
 

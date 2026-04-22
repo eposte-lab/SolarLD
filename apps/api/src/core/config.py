@@ -32,6 +32,18 @@ class Settings(BaseSettings):
     api_port: int = 8000
     api_base_url: str = "http://localhost:8000"
     cors_origins: str = "http://localhost:3000,http://localhost:3001"
+    # Regex for dynamic frontend origins (e.g. Vercel preview URLs whose
+    # subdomain changes per-deploy). Anything matching this regex is
+    # accepted in addition to `cors_origins`. Kept env-driven so prod can
+    # tighten it (e.g. only this team's projects) without a code change.
+    # Default matches:
+    #   - any *.vercel.app      (preview + production)
+    #   - localhost / 127.0.0.1 with any port
+    cors_origin_regex: str = (
+        r"^https://([a-z0-9-]+\.)*vercel\.app$"
+        r"|^http://localhost(:\d+)?$"
+        r"|^http://127\.0\.0\.1(:\d+)?$"
+    )
 
     # ---- Supabase ----
     next_public_supabase_url: str = Field(default="", alias="NEXT_PUBLIC_SUPABASE_URL")

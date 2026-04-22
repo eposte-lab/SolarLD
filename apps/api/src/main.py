@@ -73,6 +73,11 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
+    # Regex catches Vercel preview URLs whose subdomain changes per deploy
+    # (e.g. `solar-ld-dashboard-jhtqfwc7y-alfonsos-projects-...vercel.app`).
+    # Without this the browser blocks the preflight and `fetch()` surfaces
+    # as the generic "Failed to fetch" TypeError.
+    allow_origin_regex=settings.cors_origin_regex or None,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
