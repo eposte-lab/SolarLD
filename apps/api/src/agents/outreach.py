@@ -211,6 +211,30 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
             )
 
         # ------------------------------------------------------------------
+        # 3b) Monthly outreach budget gate
+        #     Read budget_outreach_eur_month from the economico module and
+        #     compare against total campaigns.cost_cents for this calendar
+        #     month.  Skip gracefully when budget is 0 or not configured
+        #     (treat as "unlimited").
+        # ------------------------------------------------------------------
+        budget_eur = await _monthly_outreach_budget(sb, payload.tenant_id)
+        if budget_eur and budget_eur > 0:
+            month_spend_cents = await _monthly_campaign_spend_cents(sb, payload.tenant_id)
+            if month_spend_cents >= int(budget_eur * 100):
+                log.info(
+                    "outreach.monthly_budget_exceeded",
+                    lead_id=payload.lead_id,
+                    tenant_id=payload.tenant_id,
+                    month_spend_cents=month_spend_cents,
+                    budget_eur=budget_eur,
+                )
+                return OutreachOutput(
+                    lead_id=payload.lead_id,
+                    skipped=True,
+                    reason="monthly_budget_exceeded",
+                )
+
+        # ------------------------------------------------------------------
         # 4) Tier gate — founding plan only has email_outreach; postal /
         #    whatsapp are pro+. We check *before* the not-implemented
         #    block so a founding tenant gets the more actionable
@@ -555,6 +579,27 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
             tenant_id=payload.tenant_id,
             lead_id=payload.lead_id,
         )
+
+        # Emit lead.contacted as the unified "first touch" marker.
+        # Distinct from lead.outreach_sent (which is per-send): this event
+        # fires exactly once per lead — when the prospect is contacted for
+        # the first time. Reporting uses it to split scan_candidates (never
+        # contacted) from leads in the active pipeline.
+        if payload.sequence_step == 1:
+            await self._emit_event(
+                event_type="lead.contacted",
+                payload={
+                    "lead_id": payload.lead_id,
+                    "channel": OutreachChannel.EMAIL.value,
+                    "campaign_id": campaign_id,
+                    "recipient_domain": recipient.split("@", 1)[1]
+                    if "@" in recipient
+                    else "",
+                },
+                tenant_id=payload.tenant_id,
+                lead_id=payload.lead_id,
+            )
+
         return out
 
     # ------------------------------------------------------------------
@@ -753,10 +798,13 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
             provider_id=result.pixart_job_id,
             status=CampaignStatus.SENT.value,
         )
-        await self._emit_event(
-            event_type="lead.outreach_sent"
+        postal_event_type = (
+            "lead.outreach_sent"
             if payload.sequence_step == 1
-            else f"lead.followup_sent_step{payload.sequence_step}",
+            else f"lead.followup_sent_step{payload.sequence_step}"
+        )
+        await self._emit_event(
+            event_type=postal_event_type,
             payload=out.model_dump()
             | {
                 "channel": OutreachChannel.POSTAL.value,
@@ -768,6 +816,18 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
             tenant_id=payload.tenant_id,
             lead_id=payload.lead_id,
         )
+        if payload.sequence_step == 1:
+            await self._emit_event(
+                event_type="lead.contacted",
+                payload={
+                    "lead_id": payload.lead_id,
+                    "channel": OutreachChannel.POSTAL.value,
+                    "campaign_id": campaign_id,
+                    "pixart_job_id": result.pixart_job_id,
+                },
+                tenant_id=payload.tenant_id,
+                lead_id=payload.lead_id,
+            )
         log.info(
             "outreach.postal_submitted",
             lead_id=payload.lead_id,
@@ -1317,3 +1377,59 @@ def _log_api_cost(
         ).execute()
     except Exception as exc:  # noqa: BLE001
         log.warning("outreach.api_usage_log_failed", err=str(exc))
+
+
+# ---------------------------------------------------------------------------
+# Monthly budget helpers
+# ---------------------------------------------------------------------------
+
+
+async def _monthly_outreach_budget(sb: Any, tenant_id: str) -> float | None:
+    """Return the tenant's monthly outreach budget (€) from the economico module.
+
+    Returns None (= unlimited) when the module is absent or budget is 0.
+    Uses a direct DB read rather than the async get_for_tenant() to keep
+    the outreach agent's single-event execution path lean.
+    """
+    try:
+        res = (
+            sb.table("tenant_modules")
+            .select("config")
+            .eq("tenant_id", tenant_id)
+            .eq("module_key", "economico")
+            .limit(1)
+            .execute()
+        )
+        if not res.data:
+            return None
+        cfg = res.data[0].get("config") or {}
+        budget = cfg.get("budget_outreach_eur_month")
+        return float(budget) if budget else None
+    except Exception as exc:  # noqa: BLE001
+        log.warning("outreach.budget_lookup_failed", tenant_id=tenant_id, err=str(exc))
+        return None
+
+
+async def _monthly_campaign_spend_cents(sb: Any, tenant_id: str) -> int:
+    """Sum campaigns.cost_cents for the tenant in the current calendar month.
+
+    Returns 0 on any DB error (fail-open: better to send than to permanently
+    block outreach due to a transient DB issue).
+    """
+    from datetime import date
+
+    first_of_month = date.today().replace(day=1).isoformat()
+    try:
+        res = (
+            sb.table("campaigns")
+            .select("cost_cents")
+            .eq("tenant_id", tenant_id)
+            .gte("created_at", first_of_month)
+            .execute()
+        )
+        return sum(int(r.get("cost_cents") or 0) for r in (res.data or []))
+    except Exception as exc:  # noqa: BLE001
+        log.warning(
+            "outreach.monthly_spend_lookup_failed", tenant_id=tenant_id, err=str(exc)
+        )
+        return 0

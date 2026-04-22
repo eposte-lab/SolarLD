@@ -25,6 +25,7 @@ from .routes import (
     b2c_outreach,
     branding,
     campaigns,
+    contatti,
     crm_webhooks,
     events,
     experiments,
@@ -91,6 +92,7 @@ app.include_router(modules.router, prefix="/v1/modules", tags=["modules"])
 app.include_router(territories.router, prefix="/v1/territories", tags=["territories"])
 app.include_router(leads.router, prefix="/v1/leads", tags=["leads"])
 app.include_router(campaigns.router, prefix="/v1/campaigns", tags=["campaigns"])
+app.include_router(contatti.router, prefix="/v1/contatti", tags=["contatti"])
 app.include_router(events.router, prefix="/v1/events", tags=["events"])
 app.include_router(webhooks.router, prefix="/v1/webhooks", tags=["webhooks"])
 app.include_router(public.router, prefix="/v1/public", tags=["public"])

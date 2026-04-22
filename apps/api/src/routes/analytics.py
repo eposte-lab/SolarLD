@@ -129,3 +129,154 @@ async def analytics_spend(
 async def analytics_territories(ctx: CurrentUser) -> list[dict[str, Any]]:
     tenant_id = require_tenant(ctx)
     return _rpc("analytics_territory_roi", {"p_tenant_id": tenant_id}) or []
+
+
+# ---------------------------------------------------------------------------
+# Scan funnel — L1 → L2 → L3 → L4 → leads → outreach waterfall
+#
+# Reads directly from scan_candidates + leads tables (no RPC needed since
+# these are simple counts).  Gives the /funnel page its top-of-funnel
+# numbers, separate from the post-outreach analytics_funnel RPC.
+# ---------------------------------------------------------------------------
+
+
+@router.get("/scan-funnel")
+async def analytics_scan_funnel(ctx: CurrentUser) -> dict[str, Any]:
+    """Full waterfall: scan_candidates stages + leads pipeline stages.
+
+    Returns two blocks:
+      * ``discovery`` — L1/L2/L3/L4 counts from scan_candidates
+      * ``pipeline``  — leads/sent/delivered/opened/clicked/engaged/converted
+      * ``cost``      — total spend cents and derived unit economics
+    """
+    tenant_id = require_tenant(ctx)
+    sb = get_service_client()
+
+    def _sc_count(*, gte_stage: int | None = None, eq_stage: int | None = None,
+                  solar_verdict: str | None = None) -> int:
+        q = (
+            sb.table("scan_candidates")
+            .select("id", count="exact")
+            .eq("tenant_id", tenant_id)
+        )
+        if gte_stage is not None:
+            q = q.gte("stage", gte_stage)
+        if eq_stage is not None:
+            q = q.eq("stage", eq_stage)
+        if solar_verdict is not None:
+            q = q.eq("solar_verdict", solar_verdict)
+        try:
+            return q.execute().count or 0
+        except Exception:  # noqa: BLE001
+            return 0
+
+    def _lead_count(**filters: str) -> int:
+        q = sb.table("leads").select("id", count="exact").eq("tenant_id", tenant_id)
+        for col, val in filters.items():
+            if val is not None:
+                q = q.eq(col, val)
+        try:
+            return q.execute().count or 0
+        except Exception:  # noqa: BLE001
+            return 0
+
+    def _lead_count_not_null(col: str) -> int:
+        try:
+            return (
+                sb.table("leads")
+                .select("id", count="exact")
+                .eq("tenant_id", tenant_id)
+                .not_.is_(col, "null")
+                .execute()
+                .count or 0
+            )
+        except Exception:  # noqa: BLE001
+            return 0
+
+    def _conversion_count(stage: str) -> int:
+        try:
+            return (
+                sb.table("conversions")
+                .select("id", count="exact")
+                .eq("tenant_id", tenant_id)
+                .eq("stage", stage)
+                .execute()
+                .count or 0
+            )
+        except Exception:  # noqa: BLE001
+            return 0
+
+    # Discovery stages (top-of-funnel)
+    l1 = _sc_count(gte_stage=1)
+    l2 = _sc_count(gte_stage=2)
+    l3 = _sc_count(gte_stage=3)
+    l4_qualified = _sc_count(eq_stage=4, solar_verdict="accepted")
+    l4_rejected = _sc_count(eq_stage=4, solar_verdict="rejected_tech")
+    l4_skipped = _sc_count(eq_stage=4, solar_verdict="skipped_below_gate")
+
+    # Pipeline stages (post-discovery)
+    leads_total = _lead_count()
+    leads_sent = _lead_count_not_null("outreach_sent_at")
+    leads_delivered = _lead_count_not_null("outreach_delivered_at")
+    leads_opened = _lead_count_not_null("outreach_opened_at")
+    leads_clicked = _lead_count_not_null("outreach_clicked_at")
+    leads_engaged = _lead_count(pipeline_status="engaged")
+    leads_appointment = _lead_count(pipeline_status="appointment")
+    leads_won = _lead_count(pipeline_status="closed_won")
+    conversions_won = _conversion_count("won")
+
+    # Aggregate scan cost from the events table (last 200 scan.completed events)
+    total_scan_cost_cents = 0
+    try:
+        ev_res = (
+            sb.table("events")
+            .select("payload")
+            .eq("tenant_id", tenant_id)
+            .eq("event_type", "scan.completed")
+            .order("occurred_at", desc=True)
+            .limit(200)
+            .execute()
+        )
+        for ev in (ev_res.data or []):
+            p = ev.get("payload") or {}
+            total_scan_cost_cents += int(p.get("total_cost_cents") or 0)
+    except Exception:  # noqa: BLE001
+        pass
+
+    cost_per_contact = (
+        round(total_scan_cost_cents / l1) if l1 > 0 else None
+    )
+    cost_per_lead = (
+        round(total_scan_cost_cents / leads_total) if leads_total > 0 else None
+    )
+    cost_per_sent = (
+        round(total_scan_cost_cents / leads_sent) if leads_sent > 0 else None
+    )
+
+    return {
+        "discovery": {
+            "l1": l1,
+            "l2": l2,
+            "l3": l3,
+            "l4_qualified": l4_qualified,
+            "l4_rejected": l4_rejected,
+            "l4_skipped": l4_skipped,
+        },
+        "pipeline": {
+            "leads_total": leads_total,
+            "sent": leads_sent,
+            "delivered": leads_delivered,
+            "opened": leads_opened,
+            "clicked": leads_clicked,
+            "engaged": leads_engaged,
+            "appointment": leads_appointment,
+            "won": leads_won,
+            "conversions_won": conversions_won,
+        },
+        "cost": {
+            "total_scan_cost_cents": total_scan_cost_cents,
+            "cost_per_contact_cents": cost_per_contact,
+            "cost_per_lead_cents": cost_per_lead,
+            "cost_per_sent_cents": cost_per_sent,
+        },
+    }

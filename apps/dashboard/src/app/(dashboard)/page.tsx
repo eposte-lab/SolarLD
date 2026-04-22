@@ -21,8 +21,9 @@ import { KpiChipCard } from '@/components/ui/kpi-chip-card';
 import { StatusChip, TierChip } from '@/components/ui/status-chip';
 import { getConversionStats } from '@/lib/data/conversions';
 import { getOverviewKpis, listTopHotLeads } from '@/lib/data/leads';
+import { getContattiSummary, getScanFunnel } from '@/lib/data/contatti';
 import { getCurrentTenantContext } from '@/lib/data/tenant';
-import { cn, formatNumber, relativeTime } from '@/lib/utils';
+import { cn, formatEurPlain, formatNumber, relativeTime } from '@/lib/utils';
 import type { ConversionStats } from '@/types/db';
 
 export const dynamic = 'force-dynamic';
@@ -31,11 +32,14 @@ export default async function DashboardOverview() {
   const ctx = await getCurrentTenantContext();
   if (!ctx) redirect('/login');
 
-  const [kpis, topLeads, conversions] = await Promise.all([
-    getOverviewKpis(),
-    listTopHotLeads(10),
-    getConversionStats(30),
-  ]);
+  const [kpis, topLeads, conversions, contattiSummary, funnel] =
+    await Promise.all([
+      getOverviewKpis(),
+      listTopHotLeads(10),
+      getConversionStats(30),
+      getContattiSummary(),
+      getScanFunnel(),
+    ]);
 
   return (
     <div className="space-y-8">
@@ -52,8 +56,34 @@ export default async function DashboardOverview() {
       </header>
 
       {/* ------------------------------------------------------------------
-           KPI bento strip — 4 chips
+           KPI bento strip — 6 chips (4 pipeline + 2 top-of-funnel)
       ------------------------------------------------------------------ */}
+      <BentoGrid cols={3}>
+        <KpiChipCard
+          label="Contatti scansionati"
+          value={formatNumber(contattiSummary.l1)}
+          hint={contattiSummary.l4_qualified > 0
+            ? `${formatNumber(contattiSummary.l4_qualified)} Solar OK`
+            : 'totali'}
+          accent="neutral"
+        />
+        <KpiChipCard
+          label="Lead in pipeline"
+          value={formatNumber(kpis.hot_leads + (kpis.leads_sent_30d || 0))}
+          hint={`${formatNumber(kpis.hot_leads)} hot`}
+          accent="secondary"
+        />
+        <KpiChipCard
+          label="Costo / lead"
+          value={
+            funnel.cost.cost_per_lead_cents != null
+              ? formatEurPlain(funnel.cost.cost_per_lead_cents / 100)
+              : '—'
+          }
+          hint="scan spend / leads"
+          accent="tertiary"
+        />
+      </BentoGrid>
       <BentoGrid cols={4}>
         <KpiChipCard
           label="Leads inviati"

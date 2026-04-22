@@ -22,11 +22,12 @@ import { createSupabaseServerClient } from '@/lib/supabase/server';
 
 const NAV: NavItem[] = [
   { href: '/', label: 'Panoramica', icon: 'dashboard' },
-  { href: '/leads', label: 'Leads', icon: 'leads' },
-  { href: '/campaigns', label: 'Campagne', icon: 'campaigns' },
+  { href: '/contatti', label: 'Contatti', icon: 'contatti' },
+  { href: '/leads', label: 'Lead Attivi', icon: 'leads' },
+  { href: '/invii', label: 'Invii', icon: 'invii' },
   { href: '/territories', label: 'Territori', icon: 'territories' },
+  { href: '/funnel', label: 'Funnel', icon: 'funnel' },
   { href: '/analytics', label: 'Analytics', icon: 'analytics' },
-  { href: '/experiments', label: 'A/B Testing', icon: 'analytics' },
   { href: '/settings', label: 'Impostazioni', icon: 'settings' },
 ];
 

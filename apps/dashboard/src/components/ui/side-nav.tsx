@@ -62,6 +62,24 @@ function NavIcon({ name }: { name: string }) {
           <path d="M3 10v4h3l5 5V5L6 10H3zm13.5 2a4.5 4.5 0 00-2.5-4v8a4.5 4.5 0 002.5-4zM14 3.2v2.1a7 7 0 010 13.4v2.1a9 9 0 000-17.6z" />
         </svg>
       );
+    case 'contatti':
+      return (
+        <svg viewBox="0 0 24 24" className={common} fill="currentColor">
+          <path d="M15 12a3 3 0 100-6 3 3 0 000 6zm-9-1a2.5 2.5 0 100-5 2.5 2.5 0 000 5zM15 14c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4zm-9 1c-.29 0-.62.02-.97.05C6.19 15.93 7 16.8 7 18v2H0v-2c0-2.21 2.69-3.4 6-3.95z" />
+        </svg>
+      );
+    case 'invii':
+      return (
+        <svg viewBox="0 0 24 24" className={common} fill="currentColor">
+          <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
+        </svg>
+      );
+    case 'funnel':
+      return (
+        <svg viewBox="0 0 24 24" className={common} fill="currentColor">
+          <path d="M4.25 5.61C6.27 8.2 10 13 10 13v6c0 .55.45 1 1 1h2c.55 0 1-.45 1-1v-6s3.72-4.8 5.74-7.39A1 1 0 0018.95 4H5.04a1 1 0 00-.79 1.61z" />
+        </svg>
+      );
     case 'territories':
       return (
         <svg viewBox="0 0 24 24" className={common} fill="currentColor">
