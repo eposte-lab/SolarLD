@@ -19,6 +19,7 @@ import {
   useTransition,
 } from 'react';
 
+import { LogoUpload } from '@/components/ui/logo-upload';
 import { createBrowserClient } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils';
 import type { TenantRow, TenantSettings } from '@/types/db';
@@ -272,33 +273,21 @@ export function BrandingEditor({ tenant }: BrandingEditorProps) {
           </div>
         </div>
 
-        {/* Logo URL */}
+        {/* Logo upload */}
         <div>
           <label className="block text-sm font-semibold text-on-surface">
-            URL logo (opzionale)
+            Logo del brand
           </label>
           <p className="mt-0.5 text-xs text-on-surface-variant">
-            PNG o SVG, min 200&nbsp;×&nbsp;50 px, sfondo trasparente. Appare
-            sopra il contenuto in Classic e come header in Bold/Minimal.
+            PNG, JPG, WebP o SVG con sfondo trasparente. Consigliata un&apos;altezza
+            di almeno 80&nbsp;px. Appare sopra il contenuto in Classic e
+            nell&apos;header in Bold/Minimal.
           </p>
-          <input
-            type="url"
+          <LogoUpload
+            tenantId={tenant.id}
             value={logoUrl}
-            placeholder="https://cdn.tuodominio.it/logo.png"
-            onChange={(e) => setLogoUrl(e.target.value)}
-            className="mt-2 w-full rounded-lg border border-outline-variant/40 bg-surface-container-lowest px-3 py-2 text-sm text-on-surface placeholder:text-on-surface-variant/50 focus:outline-none focus:ring-2 focus:ring-primary/60"
+            onChange={setLogoUrl}
           />
-          {logoUrl && (
-            <div className="mt-2 flex h-12 items-center rounded-md border border-dashed border-outline-variant/40 bg-surface-container px-3">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={logoUrl}
-                alt="anteprima logo"
-                className="max-h-8 max-w-[160px] object-contain"
-                onError={(e) => (e.currentTarget.style.display = 'none')}
-              />
-            </div>
-          )}
         </div>
 
         {/* Email from name */}

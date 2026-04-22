@@ -208,39 +208,99 @@ async def setup_domain(
 
     domain = body.domain.lower().strip()
 
-    # Same domain already configured → just refresh status
+    # Same domain already configured → refresh status from Resend.
+    # If Resend no longer knows this ID (deleted via dashboard) we clear
+    # the stale resend_domain_id and fall through to re-register.
     if existing_id and existing_domain == domain:
         try:
             return await _fetch_domain_status(existing_id)
-        except HTTPException:
-            pass  # fall through to re-create
+        except HTTPException as exc:
+            log.warning(
+                "branding.stale_domain_id",
+                tenant_id=tenant_id,
+                domain=domain,
+                existing_id=existing_id,
+                status_code=exc.status_code,
+            )
+            # Wipe the stale ID so the fall-through path can re-register cleanly.
+            stale_settings = {k: v for k, v in current_settings.items() if k != "resend_domain_id"}
+            sb.table("tenants").update({"settings": stale_settings}).eq("id", tenant_id).execute()
+            existing_id = None
 
     if not settings.resend_api_key:
         raise HTTPException(status_code=503, detail="Resend API key not configured")
 
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        resp = await client.post(
-            f"{_RESEND_API}/domains",
-            headers=_resend_headers(),
-            json={"name": domain},
+    # Pre-flight: look up the domain in our Resend account first. This is
+    # both cheaper (no needless POST) and handles the "orphan from a
+    # previous failed setup" case deterministically — the user never has
+    # to touch the Resend dashboard.
+    pre_existing = await _find_domain_by_name(domain)
+    domain_id: str = ""
+
+    if pre_existing:
+        domain_id = str(pre_existing.get("id") or "")
+        log.info(
+            "branding.domain_linked_from_resend_list",
+            tenant_id=tenant_id,
+            domain=domain,
+            domain_id=domain_id,
         )
 
-    if resp.status_code == 422:
-        # Already registered on Resend — find the ID via list
-        found = await _find_domain_by_name(domain)
-        if not found:
-            raise HTTPException(
-                status_code=409,
-                detail="Domain already on Resend but not linked to this tenant. Contact support.",
+    if not domain_id:
+        # Not in our Resend account — create it fresh.
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                f"{_RESEND_API}/domains",
+                headers=_resend_headers(),
+                json={"name": domain},
             )
-        domain_id = str(found["id"])
-    elif resp.status_code not in (200, 201):
-        raise HTTPException(
-            status_code=502,
-            detail=f"Resend domain creation failed: {resp.status_code} — {resp.text[:200]}",
-        )
-    else:
-        domain_id = str(resp.json().get("id") or resp.json().get("domain_id") or "")
+
+        if resp.status_code == 422:
+            # Two known 422 causes from Resend:
+            #   a) Invalid format (bare TLD, internal hostname, ...)
+            #   b) Race condition — domain created by a concurrent call between
+            #      our pre-flight list and this POST. Re-query to recover.
+            resend_err: dict[str, Any] = {}
+            try:
+                resend_err = resp.json()
+            except Exception:  # noqa: BLE001
+                pass
+            resend_msg = str(resend_err.get("message") or "").lower()
+            log.warning(
+                "branding.domain_resend_422",
+                domain=domain,
+                resend_body=resp.text[:400],
+            )
+
+            if any(kw in resend_msg for kw in ("invalid", "format", "not valid", "reserved")):
+                raise HTTPException(
+                    status_code=422,
+                    detail=(
+                        f"Il dominio '{domain}' non è valido o non è accettato da Resend. "
+                        "Verifica che sia un dominio DNS pubblico reale (es. tuodominio.it)."
+                    ),
+                )
+
+            retry = await _find_domain_by_name(domain)
+            if not retry:
+                raise HTTPException(
+                    status_code=502,
+                    detail=(
+                        f"Resend ha rifiutato il dominio '{domain}' (422) ma non è "
+                        "visibile nella lista dei domini. Riprova tra qualche secondo "
+                        "o usa 'Disconnetti dominio' per ripartire da zero."
+                    ),
+                )
+            domain_id = str(retry["id"])
+            log.info("branding.domain_recovered_race", domain=domain, domain_id=domain_id)
+        elif resp.status_code not in (200, 201):
+            raise HTTPException(
+                status_code=502,
+                detail=f"Resend domain creation failed: {resp.status_code} — {resp.text[:200]}",
+            )
+        else:
+            created = resp.json() or {}
+            domain_id = str(created.get("id") or created.get("domain_id") or "")
 
     if not domain_id:
         raise HTTPException(status_code=502, detail="Resend returned no domain id")
@@ -296,6 +356,87 @@ async def get_domain_status(ctx: CurrentUser) -> DomainStatusResponse:
         log.info("branding.domain_verified", tenant_id=tenant_id, domain=result.domain)
 
     return result
+
+
+@router.delete("/domain")
+async def disconnect_domain(ctx: CurrentUser) -> dict[str, str]:
+    """Fully disconnect the tenant's sending domain.
+
+    Removes the domain from Resend (so it's no longer billed or listed)
+    and wipes every related column/jsonb key on the tenant row. Gives
+    the installer a clean slate they can reach entirely from the
+    dashboard — no Resend console access required.
+
+    Idempotent: if Resend already doesn't know the domain (404) we still
+    wipe the local state and return 204. If the tenant never had a
+    domain configured we also return 204.
+    """
+    tenant_id = require_tenant(ctx)
+    sb = get_service_client()
+
+    t_res = (
+        sb.table("tenants")
+        .select("email_from_domain, settings")
+        .eq("id", tenant_id)
+        .limit(1)
+        .execute()
+    )
+    if not t_res.data:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+    tenant = t_res.data[0]
+    current_settings: dict[str, Any] = dict(tenant.get("settings") or {})
+    domain_id: str | None = current_settings.get("resend_domain_id")
+    domain_name: str | None = tenant.get("email_from_domain")
+
+    # 1) Delete from Resend.
+    # Prefer the known domain_id. If it's missing but we know the name,
+    # look it up — covers the "DB state lost but Resend still has it" case.
+    if not domain_id and domain_name:
+        found = await _find_domain_by_name(domain_name)
+        if found:
+            domain_id = str(found.get("id") or "")
+
+    if domain_id and settings.resend_api_key:
+        try:
+            async with httpx.AsyncClient(timeout=12.0) as client:
+                resp = await client.delete(
+                    f"{_RESEND_API}/domains/{domain_id}",
+                    headers=_resend_headers(),
+                )
+            if resp.status_code not in (200, 202, 204, 404):
+                log.warning(
+                    "branding.domain_delete_resend_non2xx",
+                    tenant_id=tenant_id,
+                    status=resp.status_code,
+                    body=resp.text[:300],
+                )
+            else:
+                log.info(
+                    "branding.domain_deleted_from_resend",
+                    tenant_id=tenant_id,
+                    domain_id=domain_id,
+                )
+        except Exception as exc:  # noqa: BLE001
+            # Don't block the local cleanup on a flaky Resend call — the
+            # user's intent is "reset my state". Log it and continue.
+            log.warning(
+                "branding.domain_delete_resend_failed",
+                tenant_id=tenant_id,
+                err=str(exc),
+            )
+
+    # 2) Wipe local state — column + jsonb key together.
+    cleaned = {k: v for k, v in current_settings.items() if k != "resend_domain_id"}
+    sb.table("tenants").update(
+        {
+            "email_from_domain": None,
+            "email_from_domain_verified_at": None,
+            "settings": cleaned,
+        }
+    ).eq("id", tenant_id).execute()
+
+    log.info("branding.domain_disconnected", tenant_id=tenant_id, domain=domain_name)
+    return {"status": "disconnected"}
 
 
 # ============================================================
@@ -632,24 +773,44 @@ async def _fetch_domain_status(domain_id: str) -> DomainStatusResponse:
 
 
 async def _find_domain_by_name(domain_name: str) -> dict[str, Any] | None:
-    """List all Resend domains and return the one matching `domain_name`."""
+    """List all Resend domains and return the one matching `domain_name`.
+
+    Normalises trailing dots before comparison so that DNS-style names
+    such as ``"example.com."`` still match ``"example.com"``.
+    """
     if not settings.resend_api_key:
         return None
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=12.0) as client:
             resp = await client.get(
                 f"{_RESEND_API}/domains",
                 headers=_resend_headers(),
             )
+        log.debug(
+            "branding.find_domain_list",
+            status=resp.status_code,
+            body_preview=resp.text[:200],
+        )
         if resp.status_code != 200:
+            log.warning("branding.find_domain_list_failed", status=resp.status_code)
             return None
         payload = resp.json()
+        # Resend returns {"data": [...]} — handle both shapes defensively.
         domains: list[Any] = (
             payload.get("data", []) if isinstance(payload, dict) else payload
         ) or []
+        needle = domain_name.lower().rstrip(".")
         for d in domains:
-            if isinstance(d, dict) and d.get("name", "").lower() == domain_name.lower():
+            if not isinstance(d, dict):
+                continue
+            candidate = d.get("name", "").lower().rstrip(".")
+            if candidate == needle:
                 return d
+        log.warning(
+            "branding.find_domain_not_in_list",
+            domain=domain_name,
+            total_domains=len(domains),
+        )
     except Exception as exc:  # noqa: BLE001
         log.warning("branding.find_domain_failed", err=str(exc))
     return None
