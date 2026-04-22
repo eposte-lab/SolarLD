@@ -53,6 +53,34 @@ async def run_level1(ctx: FunnelContext) -> list[L1Candidate]:
 
     province_code, region_code = _derive_geo_filters(ctx.territory)
 
+    # When the territory type can't supply a province code (most CAP
+    # territories don't carry parent-province metadata), fall back to the
+    # first region in sorgente.regioni so the scan isn't accidentally
+    # Italy-wide.  Without this, a "CAP 80017" territory would scan all of
+    # Italy and find thousands of unrelated companies.
+    if not province_code and not region_code and config.geo_regioni:
+        region_code = config.geo_regioni[0]
+        log.info(
+            "funnel_l1_geo_fallback_to_regione",
+            extra={
+                "tenant_id": ctx.tenant_id,
+                "scan_id": ctx.scan_id,
+                "region_code": region_code,
+            },
+        )
+
+    log.info(
+        "funnel_l1_geo_resolved",
+        extra={
+            "tenant_id": ctx.tenant_id,
+            "scan_id": ctx.scan_id,
+            "territory_type": ctx.territory.get("type"),
+            "territory_code": ctx.territory.get("code"),
+            "province_code": province_code,
+            "region_code": region_code,
+        },
+    )
+
     try:
         profiles = await atoka_search_by_criteria(
             ateco_codes=list(config.ateco_whitelist),
@@ -108,34 +136,76 @@ async def run_level1(ctx: FunnelContext) -> list[L1Candidate]:
 # ---------------------------------------------------------------------------
 
 
+# Mapping of the first two digits of an Italian CAP to the dominant
+# province code (ISTAT two-letter abbreviation used by Atoka).
+# Source: official CAP assignments (Poste Italiane).  Where a prefix
+# overlaps two provinces we pick the one with higher population weight.
+_CAP_PREFIX_TO_PROVINCE: dict[str, str] = {
+    "00": "RM", "01": "VT", "02": "RI", "03": "FR", "04": "LT",
+    "05": "TR", "06": "PG", "07": "SS", "08": "NU", "09": "CA",
+    "10": "TO", "11": "AO", "12": "CN", "13": "VC", "14": "AT",
+    "15": "AL", "16": "GE", "17": "SV", "18": "IM", "19": "SP",
+    "20": "MI", "21": "VA", "22": "CO", "23": "SO", "24": "BG",
+    "25": "BS", "26": "CR", "27": "PV", "28": "NO", "29": "PC",
+    "30": "VE", "31": "TV", "32": "BL", "33": "UD", "34": "TS",
+    "35": "PD", "36": "VI", "37": "VR", "38": "TN", "39": "BZ",
+    "40": "BO", "41": "MO", "42": "RE", "43": "PR", "44": "FE",
+    "45": "RO", "46": "MN", "47": "FC", "48": "RA", "49": "BO",
+    "50": "FI", "51": "PT", "52": "AR", "53": "SI", "54": "MS",
+    "55": "LU", "56": "PI", "57": "LI", "58": "GR", "59": "PO",
+    "60": "AN", "61": "PU", "62": "MC", "63": "AP", "64": "TE",
+    "65": "PE", "66": "CH", "67": "AQ", "68": "IS", "69": "CB",
+    "70": "BA", "71": "FG", "72": "BR", "73": "LE", "74": "TA",
+    "75": "MT", "76": "BT", "80": "NA", "81": "CE", "82": "BN",
+    "83": "AV", "84": "SA", "85": "PZ", "86": "CB", "87": "CS",
+    "88": "CZ", "89": "RC", "90": "PA", "91": "TP", "92": "AG",
+    "93": "CL", "94": "EN", "95": "CT", "96": "SR", "97": "RG",
+    "98": "ME",
+}
+
+
 def _derive_geo_filters(territory: dict[str, Any]) -> tuple[str | None, str | None]:
-    """Extract `(province, region)` codes from a territory row.
+    """Extract `(province_code, region_code)` from a territory row.
 
     Atoka's search endpoint accepts either `locationAreaProvince` (IT-NA
     style, 2 letters) or `locationAreaRegion` (e.g. 'Campania') but not
     a free-form bbox. We prefer province when available — it's the narrowest
     filter that still returns usable volume.
 
-    Our `territories` schema stores a free-form code (e.g. "80100" for a
+    Our `territories` schema stores a free-form code (e.g. "80017" for a
     CAP, "NA" for a provincia, "Campania" for a regione). We do a best-effort
-    classification based on `type` + `code` length.
+    classification based on `type` + `code`, with a CAP→province lookup for
+    five-digit codes.
     """
     ttype = (territory.get("type") or "").lower()
     code = (territory.get("code") or "").strip()
 
     if ttype == "provincia" or (ttype == "" and len(code) == 2 and code.isalpha()):
         return code.upper(), None
+
     if ttype == "regione":
         return None, code
-    if ttype == "cap" and len(code) == 5:
-        # A CAP doesn't map cleanly to Atoka — fall back to the territory's
-        # parent provincia if the row carries one in its JSON blob.
+
+    if ttype == "comune":
+        # Comuni don't carry a province code in the territories table.
+        # Fall through to let the caller use sorgente.geo_regioni as fallback.
+        return None, None
+
+    if ttype == "cap" and len(code) == 5 and code.isdigit():
+        # First try the explicit parent province stored in the row
+        # (populated by the territory-add form when available).
         parent_prov = (territory.get("metadata") or {}).get("provincia")
         if parent_prov:
-            return parent_prov.upper(), None
-    # Unknown territory type → no geo narrowing. Atoka will return
-    # country-wide results; the ATECO filter remains in place so this
-    # isn't a "fetch all of Italy" disaster.
+            return str(parent_prov).upper(), None
+
+        # Fall back to the canonical CAP-prefix → province lookup.
+        prefix = code[:2]
+        province = _CAP_PREFIX_TO_PROVINCE.get(prefix)
+        if province:
+            return province, None
+
+    # Unknown territory type or unrecognised code — no geo narrowing.
+    # The caller will apply sorgente.geo_regioni as a region fallback.
     return None, None
 
 

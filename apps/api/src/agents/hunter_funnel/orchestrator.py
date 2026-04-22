@@ -74,6 +74,7 @@ async def run_funnel(
         event_type="scan.l1_complete",
         payload={
             "scan_id": scan_id,
+            "territory_id": payload.territory_id,   # needed by dashboard scan-summary
             "candidates": len(l1),
             "atoka_cost_cents": costs.atoka_cost_cents,
         },
@@ -101,6 +102,18 @@ async def run_funnel(
         await _finalise(ctx, out, agent)
         return out
 
+    # Budget gate — abort before the more expensive L3 Haiku calls.
+    if costs.over_budget(ctx.config.budget_scan_eur):
+        log.info(
+            "funnel.budget_exceeded_before_l3",
+            scan_id=scan_id,
+            tenant_id=payload.tenant_id,
+            total_cost_cents=costs.total_cost_cents,
+            budget_eur=ctx.config.budget_scan_eur,
+        )
+        await _finalise(ctx, out, agent)
+        return out
+
     # ---- L3: Haiku proxy score ----
     l3 = await run_level3(ctx, l2)
     await costs.flush()
@@ -117,6 +130,18 @@ async def run_funnel(
         tenant_id=payload.tenant_id,
     )
     if not l3:
+        await _finalise(ctx, out, agent)
+        return out
+
+    # Budget gate — abort before the most expensive L4 Solar API calls.
+    if costs.over_budget(ctx.config.budget_scan_eur):
+        log.info(
+            "funnel.budget_exceeded_before_l4",
+            scan_id=scan_id,
+            tenant_id=payload.tenant_id,
+            total_cost_cents=costs.total_cost_cents,
+            budget_eur=ctx.config.budget_scan_eur,
+        )
         await _finalise(ctx, out, agent)
         return out
 
@@ -160,6 +185,7 @@ async def _finalise(
         event_type="scan.completed",
         payload={
             "scan_id": ctx.scan_id,
+            "territory_id": ctx.territory_id,        # needed by dashboard scan-summary
             "total_cost_cents": ctx.costs.total_cost_cents,
             "leads_qualified": ctx.costs.leads_qualified,
             "breakdown": {

@@ -95,12 +95,35 @@ class TenantConfig:
     max_employees: int | None
     min_revenue_eur: int | None
     max_revenue_eur: int | None
+    # Geographic preference from sorgente.regioni (e.g. ["Campania"]).
+    # Used as fallback geo filter when the territory type can't yield a
+    # province code (e.g. CAP without parent-province metadata).
+    geo_regioni: tuple[str, ...] = ()
 
     # L4 Solar-gate filters (also read as the scoring tier floor input)
     technical_b2b: TechnicalFilters
 
     # ScoringAgent — collapses leads below this tier to REJECTED
     scoring_threshold: int
+
+    # ---- Economico module ------------------------------------------------
+    # Per-scan spend ceiling (€). Funnel aborts between levels once the
+    # accumulated API cost crosses this threshold.
+    budget_scan_eur: float = 50.0
+
+    # Monthly outreach spend ceiling (€). OutreachAgent skips sends once
+    # the sum of campaigns.cost_cents for the current calendar month
+    # exceeds this.
+    budget_outreach_eur_month: float = 2_000.0
+
+    # Average contract value (€). Used by the ROI calculator to compare
+    # against the lead's net-capex estimate — surfaces on the lead portal
+    # as "questo impianto è nel tuo range commerciale".
+    ticket_medio_eur: int = 25_000
+
+    # Payback target (years). RoiEstimate.meets_roi_target is True when
+    # payback_years ≤ this value.
+    roi_target_years: int = 6
 
 
 # ---------------------------------------------------------------------------
@@ -126,6 +149,9 @@ def _project_from_modules(
     tecnico = modules_by_key.get("tecnico") or schema_for("tecnico")().model_dump(
         mode="json"
     )
+    economico = modules_by_key.get("economico") or schema_for("economico")().model_dump(
+        mode="json"
+    )
 
     mode: ScanMode = sorgente.get("mode") or "b2b_funnel_v2"
 
@@ -137,8 +163,13 @@ def _project_from_modules(
         max_employees=sorgente.get("max_employees"),
         min_revenue_eur=sorgente.get("min_revenue_eur"),
         max_revenue_eur=sorgente.get("max_revenue_eur"),
+        geo_regioni=tuple(sorgente.get("regioni") or ()),
         technical_b2b=TechnicalFilters.from_tecnico(tecnico),
         scoring_threshold=_DEFAULT_SCORING_THRESHOLD,
+        budget_scan_eur=float(economico.get("budget_scan_eur") or 50.0),
+        budget_outreach_eur_month=float(economico.get("budget_outreach_eur_month") or 2_000.0),
+        ticket_medio_eur=int(economico.get("ticket_medio_eur") or 25_000),
+        roi_target_years=int(economico.get("roi_target_years") or 6),
     )
 
 

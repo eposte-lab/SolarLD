@@ -19,7 +19,9 @@ import { BentoCard, BentoGrid } from '@/components/ui/bento-card';
 import { TerritoryAddForm } from '@/components/territory-add-form';
 import {
   listTerritories,
+  listScanSummaries,
   summariseTerritories,
+  type ScanSummary,
 } from '@/lib/data/territories';
 import { getCurrentTenantContext } from '@/lib/data/tenant';
 import { cn } from '@/lib/utils';
@@ -87,7 +89,8 @@ export default async function TerritoriesPage({
   const sp = await searchParams;
   const rows = await listTerritories();
   const summary = summariseTerritories(rows);
-  const flash = buildFlash(sp, rows);
+  const scanSummaries = await listScanSummaries(rows.map((r) => r.id));
+  const flash = buildFlash(sp, rows, scanSummaries);
 
   return (
     <div className="space-y-6">
@@ -104,7 +107,11 @@ export default async function TerritoriesPage({
         </BentoCard>
 
         <BentoCard span="2x1" padding="tight">
-          {rows.length === 0 ? <EmptyState /> : <TerritoryTable rows={rows} />}
+          {rows.length === 0 ? (
+            <EmptyState />
+          ) : (
+            <TerritoryTable rows={rows} scanSummaries={scanSummaries} />
+          )}
         </BentoCard>
       </BentoGrid>
     </div>
@@ -212,13 +219,43 @@ function SummaryChip({ label, value }: { label: string; value: number }) {
 
 type Flash = { tone: 'ok' | 'warn' | 'err'; msg: string };
 
-function buildFlash(sp: Awaited<Search>, rows: TerritoryRow[]): Flash | null {
+function buildFlash(
+  sp: Awaited<Search>,
+  rows: TerritoryRow[],
+  scanSummaries: Map<string, ScanSummary>,
+): Flash | null {
   if (sp.scanning) {
     const row = rows.find((r) => r.id === sp.scanning);
     const name = row?.name ?? sp.scanning;
+    const summary = sp.scanning ? scanSummaries.get(sp.scanning) : undefined;
+
+    // If a scan.completed event already landed for this territory show
+    // the real outcome immediately instead of "Hunter sta lavorando…"
+    if (summary) {
+      if (summary.atoka_empty) {
+        return {
+          tone: 'warn',
+          msg: `Scansione di "${name}" completata — 0 aziende trovate da Atoka. `
+            + `Causa più comune: ATOKA_API_KEY non configurata sul server API. `
+            + `Controlla le variabili d'ambiente su Railway.`,
+        };
+      }
+      if (summary.leads_qualified === 0) {
+        return {
+          tone: 'warn',
+          msg: `Scansione di "${name}" completata — 0 lead qualificati. `
+            + `Prova ad ampliare il territorio o ad allentare i filtri in Impostazioni → Moduli → Sorgente.`,
+        };
+      }
+      return {
+        tone: 'ok',
+        msg: `Scansione di "${name}" completata — ${summary.leads_qualified} lead qualificati trovati. Vai su Lead per vederli.`,
+      };
+    }
+
     return {
       tone: 'ok',
-      msg: `Scansione di "${name}" avviata — Hunter sta lavorando in background. I tetti arriveranno nella tabella entro qualche minuto.`,
+      msg: `Scansione di "${name}" avviata — Hunter sta lavorando in background. I lead arriveranno entro qualche minuto.`,
     };
   }
   if (sp.created) {
@@ -282,7 +319,13 @@ function EmptyState() {
 // Table
 // ---------------------------------------------------------------------------
 
-function TerritoryTable({ rows }: { rows: TerritoryRow[] }) {
+function TerritoryTable({
+  rows,
+  scanSummaries,
+}: {
+  rows: TerritoryRow[];
+  scanSummaries: Map<string, ScanSummary>;
+}) {
   return (
     <div className="overflow-hidden rounded-lg bg-surface-container-low">
       <table className="w-full text-sm">
@@ -294,6 +337,7 @@ function TerritoryTable({ rows }: { rows: TerritoryRow[] }) {
             <th className="px-5 py-3 text-right">Priorità</th>
             <th className="px-5 py-3">Bbox</th>
             <th className="px-5 py-3">Stato</th>
+            <th className="px-5 py-3">Ultima scan</th>
             <th className="px-5 py-3">Aggiunto</th>
             <th className="px-5 py-3 text-right" />
           </tr>
@@ -338,6 +382,9 @@ function TerritoryTable({ rows }: { rows: TerritoryRow[] }) {
                 ) : (
                   <Badge tone="neutral">Attivo</Badge>
                 )}
+              </td>
+              <td className="px-5 py-4">
+                <LastScanBadge summary={scanSummaries.get(t.id)} />
               </td>
               <td className="px-5 py-4 text-xs text-on-surface-variant">
                 {formatDate(t.created_at)}
@@ -445,6 +492,55 @@ function Badge({
       )}
     >
       {children}
+    </span>
+  );
+}
+
+function LastScanBadge({ summary }: { summary?: ScanSummary }) {
+  if (!summary) {
+    return (
+      <span className="text-[10px] text-on-surface-variant/50">
+        Mai eseguita
+      </span>
+    );
+  }
+
+  const date = new Date(summary.occurred_at).toLocaleDateString('it-IT', {
+    day: '2-digit',
+    month: 'short',
+  });
+
+  if (summary.atoka_empty) {
+    return (
+      <span
+        className="inline-flex flex-col gap-0.5"
+        title="Atoka non ha trovato aziende — verifica ATOKA_API_KEY su Railway"
+      >
+        <span className="text-[10px] font-semibold text-error">
+          ⚠ 0 aziende (Atoka)
+        </span>
+        <span className="text-[9px] text-on-surface-variant">{date}</span>
+      </span>
+    );
+  }
+
+  if (summary.leads_qualified === 0) {
+    return (
+      <span className="inline-flex flex-col gap-0.5">
+        <span className="text-[10px] font-semibold text-on-surface-variant">
+          0 lead
+        </span>
+        <span className="text-[9px] text-on-surface-variant">{date}</span>
+      </span>
+    );
+  }
+
+  return (
+    <span className="inline-flex flex-col gap-0.5">
+      <span className="text-[10px] font-semibold text-primary">
+        ✓ {summary.leads_qualified} lead
+      </span>
+      <span className="text-[9px] text-on-surface-variant">{date}</span>
     </span>
   );
 }
