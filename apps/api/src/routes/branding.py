@@ -317,7 +317,30 @@ async def setup_domain(
     sb.table("tenants").update(update_payload).eq("id", tenant_id).execute()
     log.info("branding.domain_setup", tenant_id=tenant_id, domain=domain, domain_id=domain_id)
 
-    return await _fetch_domain_status(domain_id)
+    # The domain is registered and our DB is up to date — even if the
+    # follow-up status fetch fails (Resend payload shape drift, 5xx,
+    # transient timeout), we must return 200 so the UI shows the domain
+    # as connected. The user can click "Ricontrolla" to populate DNS
+    # records; otherwise they see a generic "Failed to fetch" and think
+    # nothing happened (when in fact the domain IS live on Resend).
+    try:
+        return await _fetch_domain_status(domain_id)
+    except HTTPException as exc:
+        log.warning(
+            "branding.domain_setup_status_fetch_failed",
+            tenant_id=tenant_id,
+            domain=domain,
+            domain_id=domain_id,
+            status_code=exc.status_code,
+            detail=str(exc.detail)[:200],
+        )
+        return DomainStatusResponse(
+            domain_id=domain_id,
+            domain=domain,
+            status="pending",
+            dns_records=[],
+            created_at=None,
+        )
 
 
 @router.get("/domain/status", response_model=DomainStatusResponse)
@@ -749,27 +772,74 @@ async def _fetch_domain_status(domain_id: str) -> DomainStatusResponse:
         )
 
     data = resp.json()
-    records_raw: list[dict[str, Any]] = data.get("records") or []
 
-    dns_records = [
-        DnsRecord(
-            type=str(r.get("type", "")).upper(),
-            name=str(r.get("name", "")),
-            value=str(r.get("value", "")),
-            priority=int(r["priority"]) if r.get("priority") else None,
-            ttl=int(r["ttl"]) if r.get("ttl") else None,
-            status=str(r.get("status", "not_started")),
+    # Resend has shipped schema changes over time — `records` used to be
+    # at the top level, newer payloads nest it under `dns_records` or
+    # return it as null for freshly-created domains. Parse defensively
+    # and log the raw payload shape if anything blows up, so the next
+    # regression is diagnosable without prod access.
+    try:
+        if isinstance(data, dict) and isinstance(data.get("data"), dict):
+            # Some Resend responses wrap the payload: {"object": "domain", "data": {...}}
+            data = data["data"]
+
+        records_raw = data.get("records")
+        if records_raw is None:
+            records_raw = data.get("dns_records") or []
+        if not isinstance(records_raw, list):
+            records_raw = []
+
+        def _opt_int(v: Any) -> int | None:
+            if v is None or v == "":
+                return None
+            try:
+                return int(v)
+            except (TypeError, ValueError):
+                return None
+
+        dns_records: list[DnsRecord] = []
+        for r in records_raw:
+            if not isinstance(r, dict):
+                continue
+            dns_records.append(
+                DnsRecord(
+                    type=str(r.get("type") or "").upper(),
+                    name=str(r.get("name") or ""),
+                    value=str(r.get("value") or r.get("record") or ""),
+                    priority=_opt_int(r.get("priority")),
+                    ttl=_opt_int(r.get("ttl")),
+                    status=str(r.get("status") or "not_started"),
+                )
+            )
+
+        return DomainStatusResponse(
+            domain_id=domain_id,
+            domain=str(data.get("name") or ""),
+            status=str(data.get("status") or "not_started"),
+            dns_records=dns_records,
+            created_at=(
+                str(data["created_at"]) if data.get("created_at") else None
+            ),
         )
-        for r in records_raw
-    ]
-
-    return DomainStatusResponse(
-        domain_id=domain_id,
-        domain=str(data.get("name", "")),
-        status=str(data.get("status", "not_started")),
-        dns_records=dns_records,
-        created_at=str(data["created_at"]) if data.get("created_at") else None,
-    )
+    except Exception as exc:  # noqa: BLE001
+        # Never let a parser mismatch crash the request — it leaks as
+        # "Failed to fetch" on the client because Railway closes the
+        # socket mid-ASGI. Log the raw payload (truncated) and return
+        # a typed 502 so the frontend shows something actionable.
+        log.exception(
+            "branding.domain_status_parse_failed",
+            domain_id=domain_id,
+            payload_preview=str(data)[:500],
+            err=str(exc),
+        )
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "Risposta inattesa da Resend durante la lettura dello stato del "
+                "dominio. Il dominio è stato registrato correttamente — riprova "
+                "'Ricontrolla' tra qualche secondo."
+            ),
+        ) from exc
 
 
 async def _find_domain_by_name(domain_name: str) -> dict[str, Any] | None:
