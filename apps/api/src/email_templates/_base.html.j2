@@ -1,193 +1,347 @@
 {# ============================================================
    Shared scaffold for all SolarLead outreach emails.
 
+   Design language (April 2026 revision):
+     – Solar / photovoltaic-coherent visual cues (sunrise-tinted hero,
+       thin radial accent that evokes a sun-disc, faint panel-grid
+       pattern overlay on Bold). Zero emoji — all accents are CSS
+       geometric shapes or Unicode glyphs (→, ◐, ●).
+     – "Impactful on open": strong hero typography, eyebrow micro-label,
+       large ROI stat hero. Professional tone; no playful decoration.
+     – Email-client safe: CSS is inlined by `premailer` before send,
+       gradients degrade to solid brand colour on Outlook desktop,
+       pattern overlays are purely decorative (no layout dependency).
+
    Supports three visual styles via {{ template_style }}:
-     classic  – white card, 4 px brand-color accent bar (default)
-     bold     – full-width gradient hero header, dark ROI box
-     minimal  – editorial whitespace, brand-underlined H1, no card
+     classic  – white card, 3-stop gradient accent rail, sun-disc mark
+     bold     – gradient hero with panel-grid overlay, dark stat hero
+     minimal  – editorial serif, double-rule header with brand dot
 
-   CSS is inlined via `premailer` before sending so every rule
-   survives Gmail / Outlook / Apple Mail.
+   Context variables (optional overrides):
+     template_style    str   classic | bold | minimal   default: classic
+     headline          str   AI-generated H1 override
+     main_copy_1       str   First body paragraph override
+     main_copy_2       str   Second body paragraph override
+     cta_text          str   CTA button label override
+     brand_logo_url    str   Absolute URL to tenant logo
+     brand_primary_color str Hex color used across accents / hero / CTA
 
-   Context variables (new, optional):
-     template_style   str   classic | bold | minimal   default: classic
-     headline         str   AI-generated H1 override
-     main_copy_1      str   First body paragraph override
-     main_copy_2      str   Second body paragraph override
-     cta_text         str   CTA button label override
-     brand_logo_url   str   Absolute URL to tenant logo
+   Class contract (children templates rely on these):
+     .cta .roi .roi-row .roi-label .roi-value .sign  — stable
    ============================================================ #}
 <!DOCTYPE html>
 <html lang="it">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="color-scheme" content="light only" />
+    <meta name="supported-color-schemes" content="light" />
     <title>{{ subject }}</title>
     <style>
       /* ---- reset ---- */
-      body { margin:0; padding:0; -webkit-text-size-adjust:100%; }
-      img  { border:0; display:block; }
+      body { margin:0; padding:0; -webkit-text-size-adjust:100%; -ms-text-size-adjust:100%; }
+      img  { border:0; display:block; max-width:100%; height:auto; }
       a    { text-decoration:none; }
+      table { border-collapse:collapse; }
+
+      /* Generic decorative helper — a thin rule with a centered sun-mark.
+         Pure CSS, no images. Renders as a hairline on every client. */
+      .ray-rule {
+        position:relative; height:1px; margin:26px 0;
+        background:linear-gradient(90deg, rgba(15,23,42,0) 0%, rgba(15,23,42,0.15) 18%, rgba(15,23,42,0.15) 82%, rgba(15,23,42,0) 100%);
+      }
+      .ray-rule .dot {
+        position:absolute; top:-4px; left:50%; transform:translateX(-50%);
+        width:9px; height:9px; border-radius:50%;
+        background:{{ brand_primary_color }};
+      }
+
+      /* Eyebrow micro-label used across all styles to establish tone */
+      .eyebrow {
+        font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+        font-size:10px; font-weight:700; letter-spacing:.18em; text-transform:uppercase;
+        margin:0 0 10px 0;
+      }
 
       {% if template_style == 'bold' %}
       /* ============================================================
-         BOLD  – gradient hero header, dark ROI panel
+         BOLD  – sunrise gradient hero, dark stat-hero ROI panel.
+         Optimised for maximum first-impression impact.
          ============================================================ */
       body {
-        background: #111827;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-        color: #f9fafb;
+        background:#0b1220;
+        font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+        color:#f9fafb;
       }
-      .wrap   { max-width:600px; margin:0 auto; padding:24px 16px; }
-      .card   { background:#fff; border-radius:16px; overflow:hidden; }
+      .wrap   { max-width:620px; margin:0 auto; padding:28px 16px; }
+      .card   { background:#fff; border-radius:18px; overflow:hidden; box-shadow:0 20px 50px rgba(0,0,0,0.25); }
 
-      /* gradient hero */
+      /* ---- Hero header ----
+         Sunrise gradient (brand → warm amber) with a faint photovoltaic
+         panel-grid overlay. Two stacked backgrounds; Outlook desktop
+         ignores the overlay and shows solid brand colour — acceptable. */
       .hero-header {
-        background: {{ brand_primary_color }};
-        padding: 36px 32px 28px;
+        background-color:{{ brand_primary_color }};
+        background-image:
+          linear-gradient(135deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.14) 60%, rgba(255,255,255,0) 100%),
+          linear-gradient(135deg, {{ brand_primary_color }} 0%, {{ brand_primary_color }} 55%, #f59e0b 120%);
+        padding:44px 36px 36px;
+        position:relative;
       }
-      .hero-header .logo-img { height:32px; width:auto; margin-bottom:18px; opacity:.9; }
+      .hero-header .eyebrow { color:rgba(255,255,255,0.78); }
+      .hero-header .logo-img { height:34px; width:auto; margin-bottom:22px; }
       .hero-header .big-h1  {
-        font-size:26px; font-weight:800; color:#fff;
-        margin:0; line-height:1.22; letter-spacing:-.02em;
+        font-size:30px; font-weight:800; color:#fff;
+        margin:0; line-height:1.18; letter-spacing:-.022em;
+        max-width:480px;
       }
-      .hero-header .sub-h1  { font-size:14px; color:rgba(255,255,255,.78); margin-top:6px; }
+      .hero-header .sub-h1  {
+        font-size:14px; color:rgba(255,255,255,.82); margin-top:12px;
+        line-height:1.5; max-width:460px;
+      }
 
-      /* hero image */
+      /* Hero image */
       .hero-img img { width:100%; height:auto; }
 
-      /* content area */
-      .content { padding:28px 32px 24px; background:#fff; color:#0f172a; }
-      /* hide the child-template <h1> — headline is in .hero-header */
+      /* Content area */
+      .content { padding:32px 36px 28px; background:#fff; color:#0f172a; }
       .content h1 { display:none !important; }
       h1 { display:none !important; }
-      p  { margin:0 0 14px 0; font-size:15px; color:#374151; }
+      p  { margin:0 0 16px 0; font-size:15px; color:#334155; line-height:1.65; }
 
-      /* ROI box — dark */
+      /* ---- ROI stat hero ----
+         The installable kWp is presented as a large display number
+         (visual anchor), with the secondary stats listed below. */
       .roi {
-        background:#111827; border-radius:10px;
-        padding:18px 22px; margin:20px 0;
+        background:#0b1220;
+        background-image:linear-gradient(180deg, #111827 0%, #0b1220 100%);
+        border-radius:14px;
+        padding:24px 26px; margin:22px 0 24px 0;
+        color:#f9fafb;
       }
-      .roi-row   { display:flex; justify-content:space-between; margin:6px 0; }
+      .roi-eyebrow {
+        font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;
+        font-size:10px; font-weight:700; letter-spacing:.2em; text-transform:uppercase;
+        color:{{ brand_primary_color }}; margin:0 0 6px 0;
+      }
+      .roi-hero {
+        font-size:40px; font-weight:800; line-height:1; color:#fff;
+        letter-spacing:-.02em; margin:0 0 2px 0;
+      }
+      .roi-hero .unit { font-size:18px; font-weight:600; color:#9ca3af; margin-left:4px; letter-spacing:.02em; }
+      .roi-hero-label { color:#9ca3af; font-size:13px; margin:0 0 16px 0; }
+      .roi-divider { height:1px; background:rgba(255,255,255,0.09); margin:14px 0; }
+      .roi-row   { display:flex; justify-content:space-between; margin:7px 0; }
       .roi-label { color:#9ca3af; font-size:13px; }
       .roi-value { color:#f9fafb; font-weight:700; font-size:14px; }
 
-      /* CTA — pill */
+      /* CTA — pill with arrow */
       .cta {
         display:inline-block;
         background:{{ brand_primary_color }}; color:#fff !important;
-        font-weight:800; font-size:13px; letter-spacing:.05em; text-transform:uppercase;
-        padding:13px 30px; border-radius:50px; margin-top:10px;
+        font-weight:700; font-size:14px; letter-spacing:.04em;
+        padding:14px 28px; border-radius:50px; margin-top:6px;
+        box-shadow:0 8px 20px rgba(15,23,42,0.12);
       }
-      .sign   { color:#6b7280; font-size:13px; margin-top:22px; }
-      .footer { font-size:12px; color:#6b7280; text-align:center; margin-top:20px; }
+      .cta-arrow { margin-left:8px; font-weight:400; }
+
+      .sign   { color:#6b7280; font-size:13px; margin-top:26px; line-height:1.6; }
+      .footer {
+        font-size:12px; color:#6b7280; text-align:center; margin-top:22px;
+        line-height:1.6;
+      }
       .footer a { color:#6b7280; text-decoration:underline; }
+      .footer .mark {
+        display:inline-block; width:6px; height:6px; border-radius:50%;
+        background:{{ brand_primary_color }}; vertical-align:middle; margin:0 6px;
+      }
 
       {% elif template_style == 'minimal' %}
       /* ============================================================
-         MINIMAL  – editorial whitespace, Georgia body, accent underline
+         MINIMAL  – editorial whitespace, Georgia body, brand double-rule.
          ============================================================ */
       body {
-        background:#fff;
-        font-family: Georgia, "Times New Roman", "DejaVu Serif", serif;
+        background:#fafaf9;
+        font-family:Georgia,"Times New Roman","DejaVu Serif",serif;
         color:#1a1a1a;
       }
-      .wrap { max-width:560px; margin:0 auto; padding:48px 24px; }
+      .wrap { max-width:580px; margin:0 auto; padding:56px 24px; }
       .card { background:transparent; }
 
-      /* thin branded top rule */
+      /* Header: thick brand rule + thin grey rule + brand-colored dot.
+         Reads as a quiet but deliberate editorial masthead. */
       .minimal-header {
+        padding-bottom:18px; margin-bottom:36px;
         border-bottom:3px solid {{ brand_primary_color }};
-        padding-bottom:14px; margin-bottom:32px;
+        box-shadow:0 4px 0 -3px #e5e5e5;
+        position:relative;
       }
-      .minimal-header .logo-img { height:28px; width:auto; }
+      .minimal-header .logo-img { height:30px; width:auto; }
+      .minimal-header .brand-row {
+        display:flex; align-items:center; gap:10px;
+      }
+      .minimal-header .brand-dot {
+        width:8px; height:8px; border-radius:50%;
+        background:{{ brand_primary_color }}; display:inline-block;
+      }
       .minimal-header .brand-name {
         font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;
-        font-size:12px; font-weight:700; letter-spacing:.1em; text-transform:uppercase;
+        font-size:11px; font-weight:700; letter-spacing:.18em; text-transform:uppercase;
         color:{{ brand_primary_color }};
       }
 
-      /* hero image */
-      .hero-img img { width:100%; height:auto; margin-bottom:28px; border-radius:4px; }
+      /* Hero image */
+      .hero-img img { width:100%; height:auto; margin-bottom:30px; border-radius:3px; }
 
-      /* content area */
+      /* Content area */
       .content { background:transparent; }
+      .eyebrow {
+        color:{{ brand_primary_color }};
+      }
       h1 {
-        font-size:28px; font-weight:700; margin:0 0 22px 0;
-        color:#1a1a1a; line-height:1.22;
+        font-size:30px; font-weight:700; margin:0 0 18px 0;
+        color:#111; line-height:1.2; letter-spacing:-.01em;
       }
-      p  { margin:0 0 18px 0; font-size:16px; color:#333; line-height:1.72; }
+      p  { margin:0 0 20px 0; font-size:16px; color:#2a2a2a; line-height:1.78; }
 
-      /* ROI — left accent bar */
+      /* ROI — two-column, hair-rule separators, serif preserved for numbers */
       .roi {
-        border-left:3px solid {{ brand_primary_color }};
-        background:#f7f7f7; padding:16px 20px; margin:24px 0;
+        border-top:1px solid #e5e5e5; border-bottom:1px solid #e5e5e5;
+        padding:18px 2px; margin:28px 0;
       }
-      .roi-row   { display:flex; justify-content:space-between; margin:5px 0; }
-      .roi-label { color:#666; font-size:13px; font-family:-apple-system,Arial,sans-serif; }
-      .roi-value { color:#1a1a1a; font-weight:700; font-size:14px; font-family:-apple-system,Arial,sans-serif; }
-
-      /* CTA — underline link style */
-      .cta {
-        display:inline-block; color:{{ brand_primary_color }} !important;
-        font-weight:700; font-size:15px; border-bottom:2px solid {{ brand_primary_color }};
-        padding-bottom:2px; margin-top:8px;
+      .roi-eyebrow {
+        font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;
+        font-size:10px; font-weight:700; letter-spacing:.2em; text-transform:uppercase;
+        color:{{ brand_primary_color }}; margin:0 0 12px 0;
+      }
+      .roi-row {
+        display:flex; justify-content:space-between; align-items:baseline;
+        padding:7px 0; border-bottom:1px dotted #e5e5e5;
+      }
+      .roi-row:last-child { border-bottom:none; }
+      .roi-label {
+        color:#666; font-size:13px;
         font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;
       }
-      .sign   { color:#888; font-size:13px; margin-top:32px; font-family:-apple-system,Arial,sans-serif; }
+      .roi-value {
+        color:#111; font-weight:700; font-size:17px;
+        font-family:Georgia,"Times New Roman",serif;
+      }
+
+      /* CTA — elegant underline link */
+      .cta {
+        display:inline-block; color:{{ brand_primary_color }} !important;
+        font-weight:700; font-size:15px;
+        border-bottom:2px solid {{ brand_primary_color }};
+        padding-bottom:2px; margin-top:10px;
+        font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;
+        letter-spacing:.01em;
+      }
+      .cta-arrow { margin-left:6px; font-weight:400; }
+
+      .sign   { color:#777; font-size:13px; margin-top:36px; font-family:-apple-system,Arial,sans-serif; line-height:1.6; }
       .footer {
-        font-size:11px; color:#aaa; margin-top:40px;
-        padding-top:20px; border-top:1px solid #eee;
-        font-family:-apple-system,Arial,sans-serif;
+        font-size:11px; color:#aaa; margin-top:44px;
+        padding-top:22px; border-top:1px solid #ebebeb;
+        font-family:-apple-system,Arial,sans-serif; line-height:1.6;
       }
       .footer a { color:#aaa; text-decoration:underline; }
+      .footer .mark {
+        display:inline-block; width:5px; height:5px; border-radius:50%;
+        background:{{ brand_primary_color }}; vertical-align:middle; margin:0 6px;
+      }
 
       {% else %}
       /* ============================================================
-         CLASSIC (default)  – white card, accent bar, solid CTA
+         CLASSIC (default)  – white card with 3-stop sunrise accent rail,
+         sun-disc logo mark, refined ROI with vertical dividers.
          ============================================================ */
       body {
-        background:#f1f5f9;
+        background:#eef2f5;
         font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
         color:#0f172a;
       }
-      .wrap { max-width:600px; margin:0 auto; padding:28px 16px; }
-      .card { background:#fff; border:1px solid #e2e8f0; border-radius:14px; overflow:hidden; }
+      .wrap { max-width:620px; margin:0 auto; padding:32px 16px; }
+      .card {
+        background:#fff; border:1px solid #e2e8f0; border-radius:16px;
+        overflow:hidden; box-shadow:0 8px 30px rgba(15,23,42,0.06);
+      }
 
-      /* accent bar */
-      .accent-bar { height:5px; background:{{ brand_primary_color }}; }
+      /* 3-stop gradient accent rail — evokes sunrise / PV output curve */
+      .accent-bar {
+        height:5px;
+        background:{{ brand_primary_color }};
+        background-image:linear-gradient(90deg,
+          {{ brand_primary_color }} 0%,
+          #f59e0b 55%,
+          {{ brand_primary_color }} 100%);
+      }
 
-      /* logo row */
-      .logo-row { padding:20px 28px 0; }
+      /* Logo row + a subtle sun-disc next to the brand */
+      .logo-row {
+        padding:22px 30px 4px;
+        display:flex; align-items:center; gap:12px;
+      }
       .logo-row .logo-img { height:36px; width:auto; }
+      .logo-row .brand-name {
+        font-size:13px; font-weight:700; letter-spacing:.12em; text-transform:uppercase;
+        color:{{ brand_primary_color }};
+      }
 
-      /* hero image */
+      /* Hero image */
       .hero-img img { width:100%; height:auto; }
 
-      /* content area */
-      .content { padding:28px 28px 24px; }
-      h1 { font-size:22px; font-weight:700; margin:0 0 14px 0; color:#0f172a; line-height:1.3; }
-      p  { margin:0 0 14px 0; font-size:15px; color:#334155; }
-
-      /* ROI box — light */
-      .roi {
-        background:#f8fafc; border:1px solid #e2e8f0;
-        border-radius:10px; padding:18px 20px; margin:18px 0;
+      /* Content area */
+      .content { padding:28px 30px 24px; }
+      .eyebrow {
+        color:{{ brand_primary_color }};
       }
-      .roi-row   { display:flex; justify-content:space-between; margin:5px 0; }
-      .roi-label { color:#64748b; font-size:13px; }
-      .roi-value { color:#0f172a; font-weight:700; font-size:14px; }
+      h1 {
+        font-size:24px; font-weight:800; margin:0 0 14px 0; color:#0f172a;
+        line-height:1.28; letter-spacing:-.01em;
+      }
+      h1 .brand-under {
+        box-shadow:inset 0 -6px 0 {{ brand_primary_color }}22;
+        padding-bottom:1px;
+      }
+      p  { margin:0 0 15px 0; font-size:15px; color:#334155; line-height:1.7; }
 
-      /* CTA — solid rounded */
+      /* ROI — card with an eyebrow + vertical accent */
+      .roi {
+        background:#f8fafc;
+        border:1px solid #e2e8f0;
+        border-left:4px solid {{ brand_primary_color }};
+        border-radius:10px;
+        padding:20px 22px; margin:22px 0;
+      }
+      .roi-eyebrow {
+        font-size:10px; font-weight:700; letter-spacing:.2em; text-transform:uppercase;
+        color:{{ brand_primary_color }}; margin:0 0 10px 0;
+      }
+      .roi-row   { display:flex; justify-content:space-between; margin:7px 0; padding:4px 0; }
+      .roi-label { color:#64748b; font-size:13px; }
+      .roi-value { color:#0f172a; font-weight:700; font-size:15px; }
+
+      /* CTA — solid rounded with arrow */
       .cta {
         display:inline-block;
         background:{{ brand_primary_color }}; color:#fff !important;
-        font-weight:700; font-size:15px; padding:13px 26px;
-        border-radius:9px; margin-top:10px; letter-spacing:.01em;
+        font-weight:700; font-size:15px; padding:13px 28px;
+        border-radius:10px; margin-top:10px; letter-spacing:.01em;
+        box-shadow:0 4px 14px rgba(15,23,42,0.10);
       }
-      .sign   { color:#64748b; font-size:13px; margin-top:22px; }
-      .footer { font-size:12px; color:#94a3b8; text-align:center; margin-top:20px; }
+      .cta-arrow { margin-left:8px; font-weight:400; }
+
+      .sign   { color:#64748b; font-size:13px; margin-top:24px; line-height:1.6; }
+      .footer {
+        font-size:12px; color:#94a3b8; text-align:center; margin-top:22px;
+        line-height:1.6;
+      }
       .footer a { color:#94a3b8; text-decoration:underline; }
+      .footer .mark {
+        display:inline-block; width:6px; height:6px; border-radius:50%;
+        background:{{ brand_primary_color }}; vertical-align:middle; margin:0 6px;
+      }
       {% endif %}
     </style>
   </head>
@@ -195,35 +349,47 @@
     <div class="wrap">
       <div class="card">
 
-        {# -------- BOLD: gradient hero header -------- #}
+        {# -------- BOLD: sunrise hero -------- #}
         {% if template_style == 'bold' %}
           <div class="hero-header">
             {% if brand_logo_url %}
               <img class="logo-img" src="{{ brand_logo_url }}" alt="{{ tenant_name }}" />
+            {% else %}
+              <p class="eyebrow">{{ tenant_name }}</p>
             {% endif %}
+            <p class="eyebrow" style="margin-bottom:12px;">Simulazione fotovoltaica</p>
             <div class="big-h1">
               {{ headline or 'La tua simulazione fotovoltaica è pronta' }}
             </div>
+            <p class="sub-h1">
+              Rendering realistico, stima di produzione annua e tempo di rientro
+              calcolati sulla posizione esatta del tuo tetto.
+            </p>
           </div>
 
-        {# -------- MINIMAL: thin top rule -------- #}
+        {# -------- MINIMAL: editorial masthead -------- #}
         {% elif template_style == 'minimal' %}
           <div class="minimal-header">
+            {% if brand_logo_url %}
+              <img class="logo-img" src="{{ brand_logo_url }}" alt="{{ tenant_name }}" />
+            {% else %}
+              <div class="brand-row">
+                <span class="brand-dot"></span>
+                <span class="brand-name">{{ tenant_name }}</span>
+              </div>
+            {% endif %}
+          </div>
+
+        {# -------- CLASSIC: gradient rail + logo row -------- #}
+        {% else %}
+          <div class="accent-bar"></div>
+          <div class="logo-row">
             {% if brand_logo_url %}
               <img class="logo-img" src="{{ brand_logo_url }}" alt="{{ tenant_name }}" />
             {% else %}
               <span class="brand-name">{{ tenant_name }}</span>
             {% endif %}
           </div>
-
-        {# -------- CLASSIC: accent bar + optional logo -------- #}
-        {% else %}
-          <div class="accent-bar"></div>
-          {% if brand_logo_url %}
-            <div class="logo-row">
-              <img class="logo-img" src="{{ brand_logo_url }}" alt="{{ tenant_name }}" />
-            </div>
-          {% endif %}
         {% endif %}
 
         {# -------- Hero image (all styles) -------- #}
@@ -233,40 +399,80 @@
           </div>
         {% endif %}
 
-        {# -------- Main content (child template fills this) -------- #}
+        {# -------- Main content -------- #}
         <div class="content">
+
+          {# Eyebrow label shown only on non-Bold styles — Bold already
+             has it in the hero-header. #}
+          {% if template_style != 'bold' %}
+            <p class="eyebrow">Report energetico personalizzato</p>
+          {% endif %}
+
           {% block content %}{% endblock %}
 
-          {# ROI data box ---- #}
+          {# ROI data — redesigned with eyebrow + stat hero (Bold) #}
           {% if roi %}
             <div class="roi">
-              <div class="roi-row">
-                <span class="roi-label">Potenza installabile</span>
-                <span class="roi-value">{{ roi.estimated_kwp }} kWp</span>
-              </div>
-              <div class="roi-row">
-                <span class="roi-label">Risparmio annuo stimato</span>
-                <span class="roi-value">€ {{ roi.yearly_savings_eur | format_money }}</span>
-              </div>
-              {% if roi.payback_years %}
+              {% if template_style == 'bold' %}
+                <p class="roi-eyebrow">Potenziale impianto</p>
+                <p class="roi-hero">
+                  {{ roi.estimated_kwp }}<span class="unit">kWp</span>
+                </p>
+                <p class="roi-hero-label">potenza installabile stimata</p>
+                <div class="roi-divider"></div>
                 <div class="roi-row">
-                  <span class="roi-label">Rientro stimato</span>
-                  <span class="roi-value">~ {{ roi.payback_years }} anni</span>
+                  <span class="roi-label">Risparmio annuo</span>
+                  <span class="roi-value">€ {{ roi.yearly_savings_eur | format_money }}</span>
                 </div>
-              {% endif %}
-              {% if roi.co2_tonnes_25_years %}
+                {% if roi.payback_years %}
+                  <div class="roi-row">
+                    <span class="roi-label">Rientro stimato</span>
+                    <span class="roi-value">~ {{ roi.payback_years }} anni</span>
+                  </div>
+                {% endif %}
+                {% if roi.co2_tonnes_25_years %}
+                  <div class="roi-row">
+                    <span class="roi-label">CO<sub>2</sub> evitata · 25 anni</span>
+                    <span class="roi-value">~ {{ roi.co2_tonnes_25_years }} t</span>
+                  </div>
+                {% endif %}
+              {% else %}
+                <p class="roi-eyebrow">Numeri indicativi</p>
                 <div class="roi-row">
-                  <span class="roi-label">CO₂ evitata (25 anni)</span>
-                  <span class="roi-value">~ {{ roi.co2_tonnes_25_years }} t</span>
+                  <span class="roi-label">Potenza installabile</span>
+                  <span class="roi-value">{{ roi.estimated_kwp }} kWp</span>
                 </div>
+                <div class="roi-row">
+                  <span class="roi-label">Risparmio annuo stimato</span>
+                  <span class="roi-value">€ {{ roi.yearly_savings_eur | format_money }}</span>
+                </div>
+                {% if roi.payback_years %}
+                  <div class="roi-row">
+                    <span class="roi-label">Rientro stimato</span>
+                    <span class="roi-value">~ {{ roi.payback_years }} anni</span>
+                  </div>
+                {% endif %}
+                {% if roi.co2_tonnes_25_years %}
+                  <div class="roi-row">
+                    <span class="roi-label">CO<sub>2</sub> evitata · 25 anni</span>
+                    <span class="roi-value">~ {{ roi.co2_tonnes_25_years }} t</span>
+                  </div>
+                {% endif %}
               {% endif %}
             </div>
           {% endif %}
 
-          {# CTA button ---- #}
+          {# Decorative sun-mark divider before the CTA — adds breathing
+             room and a quiet thematic signature. Skipped on Bold (the
+             gradient hero already carries the visual weight). #}
+          {% if template_style != 'bold' %}
+            <div class="ray-rule"><span class="dot"></span></div>
+          {% endif %}
+
+          {# CTA — arrow glyph is Unicode &rarr;, not an emoji. #}
           <p>
             <a class="cta" href="{{ lead_url }}">
-              {{ cta_text or 'Vedi il tuo preventivo personalizzato' }}
+              {{ cta_text or 'Vedi il tuo preventivo personalizzato' }}<span class="cta-arrow">&rarr;</span>
             </a>
           </p>
 
@@ -279,7 +485,7 @@
       </div>{# /card #}
 
       <div class="footer">
-        {{ tenant_name }} — stima indicativa, non vincolante.<br />
+        {{ tenant_name }} <span class="mark"></span> Stima indicativa, non vincolante.<br />
         <a href="{{ optout_url }}">Non desidero più ricevere comunicazioni</a>
       </div>
     </div>
