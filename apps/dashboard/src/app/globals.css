@@ -86,3 +86,41 @@
     backdrop-filter: blur(24px);
   }
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * Geo Radar Map — pulse animation for hot/appointment province markers.
+ *
+ * Used by geo-radar-map.client.tsx via inline style on the marker ring divs.
+ * Keyframe must live in global scope (not Tailwind layer) so Mapbox's
+ * dynamically appended DOM can reference it.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+@keyframes radarPulse {
+  0% {
+    transform: scale(0.8);
+    opacity: 0.8;
+  }
+  70% {
+    transform: scale(2.5);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(2.5);
+    opacity: 0;
+  }
+}
+
+/* ── Mapbox GL popup override — dark theme to match Luminous Curator. ─────── */
+.geo-popup .mapboxgl-popup-content {
+  background: #1c2022;
+  color: #e4e7e6;
+  border-radius: 10px;
+  padding: 10px 14px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+  font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+}
+
+.geo-popup .mapboxgl-popup-tip {
+  border-top-color: #1c2022;
+  border-bottom-color: #1c2022;
+}

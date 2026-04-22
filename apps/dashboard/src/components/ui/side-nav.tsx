@@ -16,7 +16,7 @@
  * decide to pre-render the nav shell.
  */
 
-import Link, { type LinkProps } from 'next/link';
+import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
 import { GradientButton } from '@/components/ui/gradient-button';
@@ -145,7 +145,7 @@ export function SideNav({ items, tenant, user_email }: SideNavProps) {
           return (
             <li key={item.href}>
               <Link
-                href={item.href as LinkProps<string>['href']}
+                href={item.href}
                 className={cn(
                   'group flex items-center gap-3 rounded-xl px-4 py-2.5 text-sm font-semibold transition-all duration-150',
                   active

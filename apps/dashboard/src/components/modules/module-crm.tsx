@@ -1,15 +1,20 @@
 'use client';
 
 /**
- * Module `crm` — downstream webhook + pipeline vocabulary.
+ * Module `crm` — pipeline vocabulary and SLA threshold.
  *
- * The HMAC secret is a password-shaped input with reveal toggle — we
- * don't echo the persisted secret back from the API after save (same
- * pattern as GitHub tokens), so the field shows empty on reload and
- * the installer knows blank = "leave existing".
+ * Webhook subscriptions (URL, HMAC secret, event filters) are managed
+ * in the dedicated Integrations page, not here.  This wizard step only
+ * covers the fields that are truly "per-install preferences":
+ *   - pipeline_labels  — how the operator names their commercial stages
+ *   - sla_hours_first_touch — SLA alert threshold for first contact
+ *
+ * The webhook_url / webhook_secret fields are preserved inside `value`
+ * so they survive save round-trips without being wiped; they are just
+ * not exposed as editable inputs in this form.
  */
 
-import { useState } from 'react';
+import Link from 'next/link';
 
 import type { CRMConfig } from '@/types/modules';
 
@@ -21,53 +26,33 @@ export interface ModuleCRMProps {
 }
 
 export function ModuleCRM({ value, onChange }: ModuleCRMProps) {
-  const [reveal, setReveal] = useState(false);
-
   return (
     <div className="space-y-4">
-      <FieldCard
-        title="Webhook outbound"
-        hint="SolarLead invia POST firmati con HMAC-SHA256 ad ogni cambio lead."
-      >
-        <label className="block space-y-1">
-          <span className="text-sm text-on-surface">URL webhook</span>
-          <input
-            type="url"
-            value={value.webhook_url ?? ''}
-            onChange={(e) =>
-              onChange({ ...value, webhook_url: e.target.value || null })
-            }
-            placeholder="https://crm.example.com/solarlead"
-            className="w-full rounded-lg border border-outline-variant/40 bg-surface px-3 py-1.5 text-sm"
-          />
-        </label>
-        <label className="block space-y-1">
-          <span className="text-sm text-on-surface">HMAC secret</span>
-          <div className="flex gap-2">
-            <input
-              type={reveal ? 'text' : 'password'}
-              value={value.webhook_secret ?? ''}
-              onChange={(e) =>
-                onChange({
-                  ...value,
-                  webhook_secret: e.target.value || null,
-                })
-              }
-              placeholder="Lascia vuoto per mantenere il precedente"
-              className="flex-1 rounded-lg border border-outline-variant/40 bg-surface px-3 py-1.5 font-mono text-sm"
-            />
-            <button
-              type="button"
-              onClick={() => setReveal((r) => !r)}
-              className="rounded-lg border border-outline-variant/40 px-3 text-xs text-on-surface-variant hover:bg-surface-container"
+      {/* Webhook callout — directs to the real integration surface */}
+      <div className="flex items-start gap-3 rounded-xl border border-outline-variant/30 bg-surface-container-low px-4 py-3">
+        <span className="mt-0.5 text-base leading-none">🔗</span>
+        <div className="min-w-0">
+          <p className="text-sm font-medium text-on-surface">
+            Webhook outbound (HMAC-SHA256)
+          </p>
+          <p className="mt-0.5 text-xs text-on-surface-variant">
+            Registra gli endpoint del tuo CRM nella sezione{' '}
+            <Link
+              href={'/settings/integrations/webhooks'}
+              className="font-medium text-primary underline-offset-2 hover:underline"
             >
-              {reveal ? 'Nascondi' : 'Mostra'}
-            </button>
-          </div>
-        </label>
-      </FieldCard>
+              Integrazioni → Webhook
+            </Link>
+            . Puoi iscrivere più endpoint, filtrare per evento e ruotare il
+            secret senza passare da qui.
+          </p>
+        </div>
+      </div>
 
-      <FieldCard title="Pipeline">
+      <FieldCard
+        title="Pipeline"
+        hint="5 nomi per le tue fasi commerciali (dalla scoperta alla chiusura) e la soglia SLA entro cui un lead contattato deve ricevere risposta."
+      >
         <TagInput
           label="Label stati"
           value={value.pipeline_labels}
@@ -75,7 +60,7 @@ export function ModuleCRM({ value, onChange }: ModuleCRMProps) {
           placeholder="nuovo, contattato, preventivo"
         />
         <NumberField
-          label="SLA primo contatto"
+          label="SLA primo contatto (ore)"
           value={value.sla_hours_first_touch}
           onChange={(v) =>
             onChange({ ...value, sla_hours_first_touch: v ?? 0 })

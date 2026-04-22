@@ -234,6 +234,24 @@ function IntegrationsCard({ tenant }: { tenant: TenantRow }) {
       </p>
 
       <div className="mt-5 grid gap-3 md:grid-cols-2">
+        {/* ── Inbox mittenti (multi-inbox) ── */}
+        <Link
+          href={'/settings/inboxes'}
+          className={cn(
+            'group flex items-start justify-between gap-4 rounded-lg border border-outline-variant/40 bg-surface-container-lowest px-4 py-4 transition-colors',
+            'hover:border-primary/60 hover:bg-surface-container-low',
+          )}
+        >
+          <div>
+            <p className="font-semibold text-on-surface">Inbox mittenti</p>
+            <p className="mt-1 text-xs text-on-surface-variant">
+              Più indirizzi sullo stesso dominio verificato. Round-robin automatico
+              con cap giornaliero per inbox e pausa auto su errori Resend.
+            </p>
+          </div>
+          <span className="text-on-surface-variant group-hover:text-primary">→</span>
+        </Link>
+
         {/* ── Branding email ── */}
         <Link
           href="/settings/branding"

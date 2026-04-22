@@ -96,7 +96,7 @@ export function BentoGrid({
   className,
   children,
 }: {
-  cols?: 2 | 3 | 4 | 6;
+  cols?: 2 | 3 | 4 | 5 | 6;
   className?: string;
   children: React.ReactNode;
 }) {
@@ -104,6 +104,7 @@ export function BentoGrid({
     2: 'md:grid-cols-2',
     3: 'md:grid-cols-3',
     4: 'md:grid-cols-4',
+    5: 'md:grid-cols-5',
     6: 'md:grid-cols-6',
   }[cols];
 

@@ -3,7 +3,11 @@ import type { NextConfig } from 'next';
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
-  typedRoutes: true,
+  // typedRoutes requires every dynamic href to match a statically-known route
+  // pattern. With query-string hrefs (e.g. /leads?status=…) and external URLs
+  // this becomes a whack-a-mole of `as unknown as` casts that add noise without
+  // real safety. Re-enable once all hrefs are typed at the call site.
+  // typedRoutes: true,
   images: {
     remotePatterns: [
       {

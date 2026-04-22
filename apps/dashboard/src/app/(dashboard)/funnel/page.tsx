@@ -128,7 +128,7 @@ export default async function FunnelPage() {
             </h2>
           </div>
           <Link
-            href="/contatti"
+            href={'/contatti'}
             className="text-xs font-semibold text-primary hover:underline"
           >
             Tutti i contatti →

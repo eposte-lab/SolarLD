@@ -241,7 +241,34 @@ async def atoka_search_by_criteria(
             modalità ``opportunistic`` o abortisce il run a seconda della
             politica config.
     """
-    key = api_key or settings.atoka_api_key
+    # ── Mock mode ────────────────────────────────────────────────────────────
+    # Active when ATOKA_MOCK_MODE=true.  Generates deterministic synthetic
+    # profiles so the full funnel can be exercised without a real key.
+    # A real key (if present) always takes priority — mock only fires when
+    # neither a per-call `api_key` nor the global `settings.atoka_api_key`
+    # is configured.
+    effective_key = api_key or settings.atoka_api_key
+    if settings.atoka_mock_mode and not effective_key:
+        if not ateco_codes:
+            raise ValueError("ateco_codes cannot be empty — would return entire Italian market")
+        from .atoka_mock import generate_mock_atoka_profiles  # lazy import
+        mock_province = province_code or (region_code[:2].upper() if region_code else "NA")
+        mock_count = min(limit, settings.atoka_mock_count)
+        log.info(
+            "atoka_mock_active",
+            extra={
+                "province": mock_province,
+                "ateco_codes": ateco_codes,
+                "mock_count": mock_count,
+            },
+        )
+        return generate_mock_atoka_profiles(
+            ateco_codes=ateco_codes,
+            province_code=mock_province,
+            count=mock_count,
+        )
+
+    key = effective_key
     if not key:
         raise EnrichmentUnavailable("ATOKA_API_KEY not configured")
     if not ateco_codes:

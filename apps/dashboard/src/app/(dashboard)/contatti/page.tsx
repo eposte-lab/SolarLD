@@ -10,7 +10,7 @@
  *   Lead     = contatto qualificato che ha ricevuto almeno un outreach
  */
 
-import Link, { type LinkProps } from 'next/link';
+import Link from 'next/link';
 import { redirect } from 'next/navigation';
 
 import { BentoCard, BentoGrid } from '@/components/ui/bento-card';
@@ -381,7 +381,7 @@ function FilterChip({
 }) {
   return (
     <Link
-      href={href as LinkProps<string>['href']}
+      href={href}
       className={cn(
         'rounded-full px-3 py-1 text-xs font-semibold transition-colors',
         active

@@ -1,15 +1,19 @@
 /**
- * Campaigns + events data access — server-side, RLS-scoped.
+ * Outreach sends + events data access — server-side, RLS-scoped.
  *
- * Schema reminder (migration 0007): the `campaigns` table only
- * tracks send-side lifecycle via a `status` enum
- * (pending / sent / delivered / failed / cancelled) plus `sent_at`.
+ * Schema note (migration 0043): the `campaigns` table was renamed to
+ * `outreach_sends`. This file now reads from `outreach_sends`.
+ * Each row is one individual message send (email / postal / WA).
+ *
  * Open and click signals live on the parent **lead** under
  * `outreach_opened_at` / `outreach_clicked_at`, updated by the
  * Resend webhook in TrackingAgent. That means "open/click rate" at
- * the campaign table level is really a lead-wide signal — we
- * compute it as the fraction of unique leads (with at least one
- * campaign) that ever engaged.
+ * the outreach_sends table level is really a lead-wide signal — we
+ * compute it as the fraction of unique leads (with at least one send)
+ * that ever engaged.
+ *
+ * Acquisition campaigns (strategic targeting entities) live in a
+ * separate table: `acquisition_campaigns` (see data/acquisition-campaigns.ts).
  */
 
 import 'server-only';
@@ -56,7 +60,7 @@ export async function listCampaigns(
 ): Promise<CampaignWithLeadEngagement[]> {
   const supabase = await createSupabaseServerClient();
   const { data, error } = await supabase
-    .from('campaigns')
+    .from('outreach_sends')
     .select(CAMPAIGN_WITH_LEAD_COLUMNS)
     .order('created_at', { ascending: false })
     .limit(limit);
@@ -79,7 +83,7 @@ export async function getCampaignDeliveryStats(): Promise<CampaignDeliveryStats>
   const supabase = await createSupabaseServerClient();
 
   const [campaignsRes, engagementRes] = await Promise.all([
-    supabase.from('campaigns').select('status, lead_id'),
+    supabase.from('outreach_sends').select('status, lead_id'),
     // RLS scopes `leads` to the current tenant → we only see our rows.
     supabase
       .from('leads')
@@ -153,7 +157,7 @@ export async function listCampaignsForLead(
 ): Promise<CampaignRow[]> {
   const supabase = await createSupabaseServerClient();
   const { data, error } = await supabase
-    .from('campaigns')
+    .from('outreach_sends')
     .select(CAMPAIGN_COLUMNS)
     .eq('lead_id', leadId)
     .order('sequence_step', { ascending: true });

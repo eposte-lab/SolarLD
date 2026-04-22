@@ -81,11 +81,27 @@ class Settings(BaseSettings):
     google_places_api_key: str = ""
     mapbox_access_token: str = ""
 
+    # Set GOOGLE_SOLAR_MOCK_MODE=true to bypass the real Solar API and
+    # generate plausible synthetic roof data.  Only active when
+    # google_solar_api_key is not configured; real key always wins.
+    google_solar_mock_mode: bool = False
+
     # ---- Italian business data ----
     visura_api_key: str = ""
     atoka_api_key: str = ""
     hunter_api_key: str = ""
     neverbounce_api_key: str = ""
+
+    # ---- Atoka mock mode (dev / integration testing without a real key) ----
+    # Set ATOKA_MOCK_MODE=true to bypass the real Atoka API and generate
+    # deterministic synthetic Italian businesses instead.  Mock VATs start
+    # with IT9999 so they never collide with real records.
+    # Safe to leave false in staging/production — has no effect when
+    # atoka_api_key is set (real key always takes priority over mock).
+    atoka_mock_mode: bool = False
+    # How many synthetic companies to generate per L1 discovery run.
+    # Keep ≤ 50 in dev to stay fast; increase for load testing.
+    atoka_mock_count: int = 20
 
     # ---- Email ----
     resend_api_key: str = ""

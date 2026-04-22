@@ -1,15 +1,15 @@
 /**
- * Overview page — Luminous Curator bento grid (Fase B).
+ * Overview — Premium Dashboard (Fase C).
  *
  * Layout:
- *   Row 1: header + welcome card (spans 2) + 4 KPI chips
- *   Row 2: Top 10 Hot Leads table (spans full)
+ *   Row 1: Editorial header
+ *   Row 2: Pipeline Revenue strip (5 stage bars, total value)
+ *   Row 3: 2-col — GeoRadarMap (2/3) | AI Executive Insights (1/3)
+ *   Row 4: 2-col — Smart Time Heatmap (1/2) | Conversion Funnel (1/2)
+ *   Row 5: Full-width Lead Temperature Board (top 25, sortable)
  *
- * The table itself keeps the existing data join (KPIs + listTopHotLeads)
- * but is wrapped in a BentoCard with no borders — rows separated by
- * 1px `ghost-border` fallback since density is the key value prop here.
- *
- * Server component: RLS-scoped reads via Supabase SSR, no client JS.
+ * All heavy data fetching runs in parallel via Promise.all.
+ * GeoRadarMap hydrates client-side (Mapbox GL = browser-only).
  */
 
 import Link from 'next/link';
@@ -18,9 +18,20 @@ import { redirect } from 'next/navigation';
 import { BentoCard, BentoGrid } from '@/components/ui/bento-card';
 import { GradientButton } from '@/components/ui/gradient-button';
 import { KpiChipCard } from '@/components/ui/kpi-chip-card';
-import { StatusChip, TierChip } from '@/components/ui/status-chip';
+
+import { AiExecutiveInsights } from '@/components/dashboard/ai-executive-insights';
+import { GeoRadarMap } from '@/components/dashboard/geo-radar-map';
+import { LeadTemperatureBoard } from '@/components/dashboard/lead-temperature-board';
+import { PipelineRevenuePanel } from '@/components/dashboard/pipeline-revenue-panel';
+import { SmartTimeHeatmap } from '@/components/dashboard/smart-time-heatmap';
+
+import {
+  getAiInsights,
+  getPipelineRevenue,
+  getSendTimeHeatmap,
+} from '@/lib/data/geo-analytics';
 import { getConversionStats } from '@/lib/data/conversions';
-import { getOverviewKpis, listTopHotLeads } from '@/lib/data/leads';
+import { getOverviewKpis, listLeads } from '@/lib/data/leads';
 import { getContattiSummary, getScanFunnel } from '@/lib/data/contatti';
 import { getCurrentTenantContext } from '@/lib/data/tenant';
 import { cn, formatEurPlain, formatNumber, relativeTime } from '@/lib/utils';
@@ -32,75 +43,76 @@ export default async function DashboardOverview() {
   const ctx = await getCurrentTenantContext();
   if (!ctx) redirect('/login');
 
-  const [kpis, topLeads, conversions, contattiSummary, funnel] =
-    await Promise.all([
-      getOverviewKpis(),
-      listTopHotLeads(10),
-      getConversionStats(30),
-      getContattiSummary(),
-      getScanFunnel(),
-    ]);
+  // All data fetched in parallel — GeoRadarMap fetches its own data internally
+  const [
+    kpis,
+    topLeads,
+    conversions,
+    contattiSummary,
+    funnel,
+    pipelineRevenue,
+    heatmapCells,
+    aiInsights,
+  ] = await Promise.all([
+    getOverviewKpis(),
+    listLeads({ page: 1, pageSize: 25, filter: { tier: 'hot' } }).then((r) =>
+      r.rows.length >= 10 ? r.rows : listLeads({ page: 1, pageSize: 25 }).then((r2) => r2.rows),
+    ),
+    getConversionStats(30),
+    getContattiSummary(),
+    getScanFunnel(),
+    getPipelineRevenue(),
+    getSendTimeHeatmap(90),
+    getAiInsights(),
+  ]);
+
+  const hour = new Date().toLocaleString('it-IT', {
+    timeZone: 'Europe/Rome',
+    hour: 'numeric',
+    hour12: false,
+  });
+  const greeting =
+    Number(hour) < 12 ? 'Buongiorno' : Number(hour) < 18 ? 'Buon pomeriggio' : 'Buonasera';
 
   return (
     <div className="space-y-8">
-      {/* ------------------------------------------------------------------
-           Editorial header + welcome gradient card
-      ------------------------------------------------------------------ */}
+      {/* ── Row 1: Header ─────────────────────────────────────────────────── */}
       <header className="flex flex-col gap-1">
         <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
-          Panoramica · Ultimi 30 giorni
+          Panoramica · {new Date().toLocaleDateString('it-IT', {
+            weekday: 'long',
+            day: 'numeric',
+            month: 'long',
+          })}
         </p>
-        <h1 className="font-headline text-4xl font-bold tracking-tighter text-on-surface">
-          Buongiorno, {ctx.tenant.business_name}
-        </h1>
+        <div className="flex items-end justify-between gap-4">
+          <h1 className="font-headline text-4xl font-bold tracking-tighter text-on-surface">
+            {greeting},{' '}
+            <span className="text-primary">{ctx.tenant.business_name}</span>
+          </h1>
+          <GradientButton href="/leads" variant="secondary" size="sm">
+            Tutti i lead →
+          </GradientButton>
+        </div>
       </header>
 
-      {/* ------------------------------------------------------------------
-           KPI bento strip — 6 chips (4 pipeline + 2 top-of-funnel)
-      ------------------------------------------------------------------ */}
-      <BentoGrid cols={3}>
-        <KpiChipCard
-          label="Contatti scansionati"
-          value={formatNumber(contattiSummary.l1)}
-          hint={contattiSummary.l4_qualified > 0
-            ? `${formatNumber(contattiSummary.l4_qualified)} Solar OK`
-            : 'totali'}
-          accent="neutral"
-        />
-        <KpiChipCard
-          label="Lead in pipeline"
-          value={formatNumber(kpis.hot_leads + (kpis.leads_sent_30d || 0))}
-          hint={`${formatNumber(kpis.hot_leads)} hot`}
-          accent="secondary"
-        />
-        <KpiChipCard
-          label="Costo / lead"
-          value={
-            funnel.cost.cost_per_lead_cents != null
-              ? formatEurPlain(funnel.cost.cost_per_lead_cents / 100)
-              : '—'
-          }
-          hint="scan spend / leads"
-          accent="tertiary"
-        />
-      </BentoGrid>
+      {/* ── Row 2: Quick KPI strip ────────────────────────────────────────── */}
       <BentoGrid cols={4}>
         <KpiChipCard
-          label="Leads inviati"
-          value={formatNumber(kpis.leads_sent_30d)}
-          hint="30gg"
-          accent="primary"
+          label="Scansionati"
+          value={formatNumber(contattiSummary.l1)}
+          hint={`${formatNumber(contattiSummary.l4_qualified)} Solar OK`}
+          accent="neutral"
         />
         <KpiChipCard
           label="Hot leads"
           value={formatNumber(kpis.hot_leads)}
           hint="in pipeline"
-          accent="secondary"
+          accent="primary"
         />
         <KpiChipCard
-          label="Appuntamenti"
+          label="Appuntamenti 30gg"
           value={formatNumber(kpis.appointments_30d)}
-          hint="30gg"
           accent="tertiary"
         />
         <KpiChipCard
@@ -111,125 +123,60 @@ export default async function DashboardOverview() {
         />
       </BentoGrid>
 
-      {/* ------------------------------------------------------------------
-           Conversion attribution funnel (Part B.6)
-      ------------------------------------------------------------------ */}
-      <ConversionFunnelCard stats={conversions} />
+      {/* ── Row 3: Pipeline Revenue (full width) ─────────────────────────── */}
+      <BentoCard span="full">
+        <PipelineRevenuePanel stages={pipelineRevenue} />
+      </BentoCard>
 
-      {/* ------------------------------------------------------------------
-           Hot leads table — bento card, no grid dividers
-      ------------------------------------------------------------------ */}
+      {/* ── Row 4: GeoRadarMap + AI Insights (2/3 | 1/3) ─────────────────── */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        {/* Geo Radar Map — 2 cols */}
+        <div className="lg:col-span-2">
+          <BentoCard span="full" className="h-full">
+            <GeoRadarMap />
+          </BentoCard>
+        </div>
+
+        {/* AI Insights — 1 col */}
+        <div>
+          <BentoCard span="full" className="h-full">
+            <AiExecutiveInsights insights={aiInsights} />
+          </BentoCard>
+        </div>
+      </div>
+
+      {/* ── Row 5: Smart Time Heatmap + Conversion Funnel (1/2 | 1/2) ───── */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <BentoCard span="full">
+          <SmartTimeHeatmap cells={heatmapCells} />
+        </BentoCard>
+        <BentoCard span="full">
+          <ConversionFunnelCard stats={conversions} />
+        </BentoCard>
+      </div>
+
+      {/* ── Row 6: Lead Temperature Board (full width) ───────────────────── */}
       <BentoCard span="full" padding="tight">
         <header className="flex items-center justify-between px-2 pb-5 pt-2">
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
-              Priorità outbound
+              Classificazione termica
             </p>
             <h2 className="font-headline text-2xl font-bold tracking-tighter">
-              Top 10 Hot Leads
+              Lead Temperature Board
             </h2>
           </div>
-          <GradientButton href="/leads?tier=hot" variant="secondary" size="sm">
-            Vedi tutti
+          <GradientButton href="/leads" variant="secondary" size="sm">
+            Tutti i lead →
           </GradientButton>
         </header>
-
-        {topLeads.length === 0 ? (
-          <div className="rounded-lg bg-surface-container-low p-10 text-center">
-            <p className="text-sm text-on-surface-variant">
-              Nessun lead hot ancora.{' '}
-              <Link
-                href="/territories"
-                className="font-semibold text-primary hover:underline"
-              >
-                Connetti un territorio
-              </Link>{' '}
-              per iniziare.
-            </p>
-          </div>
-        ) : (
-          <div className="overflow-hidden rounded-lg bg-surface-container-low">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">
-                  <th className="px-5 py-3">Lead</th>
-                  <th className="px-5 py-3">Comune</th>
-                  <th className="px-5 py-3">Score</th>
-                  <th className="px-5 py-3">Tier</th>
-                  <th className="px-5 py-3">Stato</th>
-                  <th className="px-5 py-3">Ultimo tocco</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody className="bg-surface-container-lowest">
-                {topLeads.map((lead, idx) => {
-                  const name =
-                    lead.subjects?.business_name ||
-                    [
-                      lead.subjects?.owner_first_name,
-                      lead.subjects?.owner_last_name,
-                    ]
-                      .filter(Boolean)
-                      .join(' ') ||
-                    '—';
-                  const lastTouch =
-                    lead.dashboard_visited_at ||
-                    lead.outreach_opened_at ||
-                    lead.outreach_sent_at ||
-                    lead.created_at;
-                  return (
-                    <tr
-                      key={lead.id}
-                      className={`transition-colors hover:bg-surface-container-low ${
-                        idx !== 0 ? 'ghost-border border-t-0 border-x-0 border-b-0' : ''
-                      }`}
-                      style={
-                        idx !== 0
-                          ? { boxShadow: 'inset 0 1px 0 rgba(170,174,173,0.15)' }
-                          : undefined
-                      }
-                    >
-                      <td className="px-5 py-4 font-semibold text-on-surface">
-                        {name}
-                      </td>
-                      <td className="px-5 py-4 text-on-surface-variant">
-                        {lead.roofs?.comune ?? '—'}
-                      </td>
-                      <td className="px-5 py-4 font-headline font-bold tabular-nums">
-                        {lead.score}
-                      </td>
-                      <td className="px-5 py-4">
-                        <TierChip tier={lead.score_tier} />
-                      </td>
-                      <td className="px-5 py-4">
-                        <StatusChip status={lead.pipeline_status} />
-                      </td>
-                      <td className="px-5 py-4 text-xs text-on-surface-variant">
-                        {relativeTime(lastTouch)}
-                      </td>
-                      <td className="px-5 py-4 text-right">
-                        <Link
-                          href={`/leads/${lead.id}`}
-                          className="text-xs font-semibold text-primary hover:underline"
-                        >
-                          apri →
-                        </Link>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
+        <LeadTemperatureBoard leads={topLeads} />
       </BentoCard>
     </div>
   );
 }
 
-// ---------------------------------------------------------------------------
-// Conversion funnel card — closed-loop attribution (Part B.6)
-// ---------------------------------------------------------------------------
+// ── Conversion funnel ─────────────────────────────────────────────────────────
 
 function formatEurFromCents(cents: number): string {
   if (cents === 0) return '—';
@@ -256,7 +203,7 @@ function ConversionFunnelCard({ stats }: { stats: ConversionStats }) {
     stats.lost === 0;
 
   return (
-    <BentoCard span="full">
+    <div>
       <div className="flex flex-col gap-1 md:flex-row md:items-end md:justify-between">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
@@ -324,7 +271,7 @@ function ConversionFunnelCard({ stats }: { stats: ConversionStats }) {
           {/* Divider */}
           <div className="hidden h-16 w-px bg-outline-variant/30 md:block" />
 
-          {/* Lost — separate bucket */}
+          {/* Lost */}
           <div className="flex items-center gap-2 md:flex-col md:items-end">
             <p className="text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant md:text-right">
               Persi
@@ -335,7 +282,7 @@ function ConversionFunnelCard({ stats }: { stats: ConversionStats }) {
           </div>
         </div>
       )}
-    </BentoCard>
+    </div>
   );
 }
 
@@ -346,8 +293,8 @@ function ConversionEmptyState() {
         Nessuna conversione registrata negli ultimi 30 giorni.
       </p>
       <p className="mt-1 max-w-xl text-sm text-on-surface-variant">
-        Registra le chiusure incollando l&apos;URL del pixel nel tuo CRM
-        o automatizzando via POST. Il portal registra automaticamente{' '}
+        Registra le chiusure tramite il pixel CRM o automatizzando via POST.
+        Il portal registra automaticamente{' '}
         <code className="rounded bg-surface-container px-1 font-mono text-xs">
           stage=booked
         </code>{' '}

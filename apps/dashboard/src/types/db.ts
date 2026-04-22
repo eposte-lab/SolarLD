@@ -165,16 +165,15 @@ export interface LeadDetailRow extends LeadListRow {
 }
 
 /**
- * Campaign row — mirrors migration 0007 exactly.
+ * Outreach send row — mirrors `outreach_sends` table (migration 0043,
+ * previously named `campaigns`).
  *
- * Important: per-recipient engagement (delivered / opened / clicked)
- * is NOT stored on this table. The Resend/tracking webhooks update
- * the parent **lead** (`leads.outreach_*_at`). The campaign only
- * tracks its own send-side lifecycle via the `status` enum plus
- * `sent_at`. To render engagement in a campaigns table we join the
- * lead — see `CampaignWithLeadEngagement` below.
+ * Each row is one individual email / postal / WA message sent to one lead.
+ * Per-recipient engagement (delivered / opened / clicked) is NOT stored here;
+ * it lives on the parent lead's `outreach_*_at` columns. To render engagement
+ * alongside a send, join the lead — see `OutreachSendWithEngagement` below.
  */
-export interface CampaignRow {
+export interface OutreachSendRow {
   id: string;
   lead_id: string;
   tenant_id: string;
@@ -192,22 +191,57 @@ export interface CampaignRow {
   sent_at: string | null;
   cost_cents: number;
   failure_reason: string | null;
+  acquisition_campaign_id: string | null;
+  inbox_id: string | null;
   created_at: string;
   updated_at: string;
 }
 
+/** Backward-compat alias — components that still use CampaignRow compile unchanged. */
+export type CampaignRow = OutreachSendRow;
+
 /**
- * Campaign row joined with the parent lead's outreach timestamps so
- * each campaign row in the list view can show whether the recipient
- * engaged at any point. Engagement is recorded at the lead level —
- * not per-step — so this collapses to a lead-wide signal.
+ * Outreach send joined with the parent lead's engagement timestamps.
+ * Engagement is lead-level, not per-send, so this is a lead-wide signal.
  */
-export interface CampaignWithLeadEngagement extends CampaignRow {
+export interface OutreachSendWithEngagement extends OutreachSendRow {
   leads: {
     outreach_delivered_at: string | null;
     outreach_opened_at: string | null;
     outreach_clicked_at: string | null;
   } | null;
+}
+
+/** Backward-compat alias. */
+export type CampaignWithLeadEngagement = OutreachSendWithEngagement;
+
+// ---------------------------------------------------------------------------
+// Acquisition campaigns (migration 0044)
+// ---------------------------------------------------------------------------
+
+export type AcquisitionCampaignStatus = 'draft' | 'active' | 'paused' | 'archived';
+
+/**
+ * One row from `acquisition_campaigns` — the strategic targeting entity
+ * that bundles the 5 wizard module configs into a named campaign.
+ */
+export interface AcquisitionCampaignRow {
+  id: string;
+  tenant_id: string;
+  name: string;
+  description: string | null;
+  is_default: boolean;
+  status: AcquisitionCampaignStatus;
+  sorgente_config: Record<string, unknown>;
+  tecnico_config: Record<string, unknown>;
+  economico_config: Record<string, unknown>;
+  outreach_config: Record<string, unknown>;
+  crm_config: Record<string, unknown>;
+  inbox_ids: string[] | null;
+  schedule_cron: string | null;
+  budget_cap_cents: number | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface EventRow {

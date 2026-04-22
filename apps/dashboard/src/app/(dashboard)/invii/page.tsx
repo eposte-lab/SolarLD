@@ -1,16 +1,18 @@
 /**
- * Invii — elenco flat di tutti gli invii outreach.
+ * Invii — elenco flat di tutti gli invii outreach (tabella outreach_sends).
  *
  * Differenza rispetto a /campaigns:
- *   /campaigns  — vista management con KPI aggregati (delivery/open/click)
+ *   /campaigns  — gestione campagne di acquisizione (entità strategiche)
  *   /invii      — lista completa di ogni singolo send, con full engagement
  *                 inline per ogni riga (consegnato / aperto / cliccato)
  *
  * Ordinati per data invio DESC. Paginati 100 per pagina.
  * Filtri: canale, stato.
+ *
+ * Reads from `outreach_sends` (ex `campaigns`, renamed in migration 0043).
  */
 
-import Link, { type LinkProps } from 'next/link';
+import Link from 'next/link';
 import { redirect } from 'next/navigation';
 
 import { BentoCard, BentoGrid } from '@/components/ui/bento-card';
@@ -396,7 +398,7 @@ function FilterChip({
 }) {
   return (
     <Link
-      href={href as LinkProps<string>['href']}
+      href={href}
       className={cn(
         'rounded-full px-3 py-1 text-xs font-semibold transition-colors',
         active

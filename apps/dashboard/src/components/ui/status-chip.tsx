@@ -96,11 +96,61 @@ const STATUS_LABEL: Record<LeadStatus, string> = {
   blacklisted: 'Blacklist',
 };
 
+/**
+ * Maps each system status to a 0-based commercial pipeline bucket.
+ *
+ * Bucket 0 — "nuovo"        lead appena qualificato, non ancora contattato
+ * Bucket 1 — "contattato"   primo contatto inviato / aperto / cliccato
+ * Bucket 2 — "in-valutazione" ha interagito (portal, WA, risposta)
+ * Bucket 3 — "preventivo"   appuntamento fissato / trattativa aperta
+ * Bucket 4 — "chiuso"       contratto firmato, perso o blacklist
+ *
+ * When `pipeline_labels` is passed to <StatusChip>, bucket N shows
+ * `pipeline_labels[N]` instead of the hardcoded English label.
+ */
+export const STATUS_BUCKET: Record<LeadStatus, number> = {
+  new: 0,
+  sent: 1,
+  delivered: 1,
+  opened: 1,
+  clicked: 1,
+  engaged: 2,
+  whatsapp: 2,
+  appointment: 3,
+  closed_won: 4,
+  closed_lost: 4,
+  blacklisted: 4,
+};
+
+/**
+ * Return the display label for a system status, optionally overriding
+ * it with the tenant's custom pipeline vocabulary.
+ *
+ * @param status - The system `LeadStatus` value stored in the DB.
+ * @param pipelineLabels - The 5-item array from `CRMConfig.pipeline_labels`.
+ *   When provided and the bucket index resolves to a non-empty string, that
+ *   label is returned; otherwise falls back to the hardcoded Italian default.
+ */
+export function getPipelineLabel(
+  status: LeadStatus,
+  pipelineLabels?: string[],
+): string {
+  if (pipelineLabels && pipelineLabels.length > 0) {
+    const bucket = STATUS_BUCKET[status];
+    const custom = pipelineLabels[bucket];
+    if (custom && custom.trim().length > 0) return custom.trim();
+  }
+  return STATUS_LABEL[status];
+}
+
 export function StatusChip({
   status,
+  pipelineLabels,
   className,
 }: {
   status: LeadStatus;
+  /** Optional tenant pipeline vocabulary — overrides the default label. */
+  pipelineLabels?: string[];
   className?: string;
 }) {
   return (
@@ -111,11 +161,11 @@ export function StatusChip({
         className,
       )}
     >
-      {STATUS_LABEL[status]}
+      {getPipelineLabel(status, pipelineLabels)}
     </span>
   );
 }
 
-export function statusLabel(s: LeadStatus): string {
-  return STATUS_LABEL[s];
+export function statusLabel(s: LeadStatus, pipelineLabels?: string[]): string {
+  return getPipelineLabel(s, pipelineLabels);
 }

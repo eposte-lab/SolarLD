@@ -1,10 +1,13 @@
 /**
- * Campaigns page — Luminous Curator restyle (Fase B).
+ * /campaigns — Acquisition campaigns management.
  *
- * Layout:
- *   - Editorial header
- *   - 5 KPI chips: Totali / Delivery / Open / Click / Failed
- *   - Full-width bento table of recent campaigns with CampaignStatusChip
+ * An acquisition campaign bundles the five wizard module configs
+ * (sorgente, tecnico, economico, outreach, crm) into a named, reusable
+ * targeting strategy. Each tenant starts with one "Campagna Default"
+ * pre-seeded from their wizard configuration.
+ *
+ * This page replaces the old "Campagne" send-history view.
+ * Individual send history → /invii.
  */
 
 import Link from 'next/link';
@@ -12,12 +15,10 @@ import { redirect } from 'next/navigation';
 
 import { BentoCard, BentoGrid } from '@/components/ui/bento-card';
 import { KpiChipCard } from '@/components/ui/kpi-chip-card';
-import {
-  getCampaignDeliveryStats,
-  listCampaigns,
-} from '@/lib/data/campaigns';
+import { listAcquisitionCampaigns } from '@/lib/data/acquisition-campaigns';
 import { getCurrentTenantContext } from '@/lib/data/tenant';
-import { cn, formatNumber, formatPercent, relativeTime } from '@/lib/utils';
+import { cn, relativeTime } from '@/lib/utils';
+import type { AcquisitionCampaignRow } from '@/types/db';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,179 +26,184 @@ export default async function CampaignsPage() {
   const ctx = await getCurrentTenantContext();
   if (!ctx) redirect('/login');
 
-  const [stats, campaigns] = await Promise.all([
-    getCampaignDeliveryStats(),
-    listCampaigns(100),
-  ]);
+  const campaigns = await listAcquisitionCampaigns();
+
+  const active = campaigns.filter((c) => c.status === 'active').length;
+  const paused = campaigns.filter((c) => c.status === 'paused').length;
+  const draft = campaigns.filter((c) => c.status === 'draft').length;
+  const archived = campaigns.filter((c) => c.status === 'archived').length;
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <header className="flex flex-col gap-1">
-        <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
-          Outreach · {stats.total} campagn{stats.total === 1 ? 'a' : 'e'}
-        </p>
-        <h1 className="font-headline text-4xl font-bold tracking-tighter">
-          Campagne
-        </h1>
+      <header className="flex items-end justify-between">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
+            Acquisizione · {campaigns.length} campagn{campaigns.length === 1 ? 'a' : 'e'}
+          </p>
+          <h1 className="font-headline text-4xl font-bold tracking-tighter">
+            Campagne
+          </h1>
+          <p className="mt-1 max-w-xl text-sm text-on-surface-variant">
+            Strategie di acquisizione riutilizzabili — ogni campagna porta
+            i parametri di targeting, il budget e gli inbox dedicati. Gli
+            invii individuali sono visibili su{' '}
+            <Link href={'/invii'} className="font-semibold text-primary hover:underline">
+              Invii →
+            </Link>
+          </p>
+        </div>
+        {/* TODO Sprint+1: link to create-campaign page */}
       </header>
 
-      {/* Funnel KPI strip */}
-      <BentoGrid cols={6}>
-        <div className="md:col-span-2">
-          <KpiChipCard
-            label="Totali"
-            value={formatNumber(stats.total)}
-            accent="neutral"
-          />
-        </div>
+      {/* KPI strip */}
+      <BentoGrid cols={4}>
+        <KpiChipCard label="Attive" value={String(active)} accent="primary" />
         <KpiChipCard
-          label="Consegna"
-          value={formatPercent(stats.delivery_rate, 1)}
-          hint={`${stats.delivered} / ${stats.total}`}
-          accent="primary"
+          label="In pausa"
+          value={String(paused)}
+          accent={paused > 0 ? 'tertiary' : 'neutral'}
         />
-        <KpiChipCard
-          label="Open rate"
-          value={formatPercent(stats.open_rate, 1)}
-          hint={`${stats.opened} / ${stats.delivered}`}
-          accent="tertiary"
-        />
-        <KpiChipCard
-          label="Click rate"
-          value={formatPercent(stats.click_rate, 1)}
-          hint={`${stats.clicked} / ${stats.delivered}`}
-          accent="primary"
-        />
-        <KpiChipCard
-          label="Failed"
-          value={formatNumber(stats.failed)}
-          hint="Bounce / 4xx / complaint"
-          accent="secondary"
-        />
+        <KpiChipCard label="Bozze" value={String(draft)} accent="neutral" />
+        <KpiChipCard label="Archiviate" value={String(archived)} accent="secondary" />
       </BentoGrid>
 
-      {/* Recent campaigns */}
-      <BentoCard span="full" padding="tight">
-        <header className="flex items-center justify-between px-2 pb-4 pt-2">
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
-              Storico
+      {/* Campaign list */}
+      {campaigns.length === 0 ? (
+        <BentoCard span="full">
+          <div className="py-10 text-center">
+            <p className="font-headline text-xl font-bold">
+              Nessuna campagna configurata
             </p>
-            <h2 className="font-headline text-2xl font-bold tracking-tighter">
-              Ultime campagne
-            </h2>
-          </div>
-        </header>
-
-        {campaigns.length === 0 ? (
-          <div className="rounded-lg bg-surface-container-low p-10 text-center">
-            <p className="text-sm text-on-surface-variant">
-              Nessuna campagna ancora. Invia la prima outreach da{' '}
-              <Link
-                href="/leads?tier=hot"
-                className="font-semibold text-primary hover:underline"
-              >
-                un lead hot
+            <p className="mt-2 text-sm text-on-surface-variant">
+              La campagna default viene creata automaticamente al primo onboarding.
+              Se non è presente, completa la configurazione wizard in{' '}
+              <Link href={'/settings/modules'} className="font-semibold text-primary hover:underline">
+                Impostazioni → Moduli
               </Link>
               .
             </p>
           </div>
-        ) : (
-          <div className="overflow-hidden rounded-lg bg-surface-container-low">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">
-                  <th className="px-5 py-3">Step</th>
-                  <th className="px-5 py-3">Canale</th>
-                  <th className="px-5 py-3">Subject</th>
-                  <th className="px-5 py-3">Stato</th>
-                  <th className="px-5 py-3">Inviato</th>
-                  <th className="px-5 py-3">Engagement</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody className="bg-surface-container-lowest">
-                {campaigns.map((c, idx) => (
-                  <tr
-                    key={c.id}
-                    className="transition-colors hover:bg-surface-container-low"
-                    style={
-                      idx !== 0
-                        ? { boxShadow: 'inset 0 1px 0 rgba(170,174,173,0.15)' }
-                        : undefined
-                    }
-                  >
-                    <td className="px-5 py-4 font-headline font-bold tabular-nums">
-                      #{c.sequence_step}
-                    </td>
-                    <td className="px-5 py-4 text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">
-                      {c.channel}
-                    </td>
-                    <td className="max-w-xs truncate px-5 py-4 font-medium">
-                      {c.email_subject ?? c.template_id ?? (
-                        <span className="text-on-surface-variant">—</span>
-                      )}
-                    </td>
-                    <td className="px-5 py-4">
-                      <CampaignStatusChip status={c.status} />
-                    </td>
-                    <td className="px-5 py-4 text-xs text-on-surface-variant">
-                      {relativeTime(c.sent_at)}
-                    </td>
-                    <td className="px-5 py-4 text-xs font-semibold">
-                      {c.leads?.outreach_clicked_at ? (
-                        <span className="text-primary">Click</span>
-                      ) : c.leads?.outreach_opened_at ? (
-                        <span className="text-primary">Aperto</span>
-                      ) : c.status === 'delivered' ||
-                        c.leads?.outreach_delivered_at ? (
-                        <span className="text-on-surface-variant">
-                          Consegnato
-                        </span>
-                      ) : (
-                        <span className="text-on-surface-variant">—</span>
-                      )}
-                    </td>
-                    <td className="px-5 py-4 text-right">
-                      <Link
-                        href={`/leads/${c.lead_id}`}
-                        className="text-xs font-semibold text-primary hover:underline"
-                      >
-                        lead →
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </BentoCard>
+        </BentoCard>
+      ) : (
+        <div className="space-y-3">
+          {campaigns.map((campaign) => (
+            <CampaignCard key={campaign.id} campaign={campaign} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Status chip — local to this page (campaign-status enum differs from lead)
+// Campaign card
+// ---------------------------------------------------------------------------
+
+function CampaignCard({ campaign }: { campaign: AcquisitionCampaignRow }) {
+  const sorgente = campaign.sorgente_config as Record<string, unknown>;
+  const atecoCodes = (sorgente?.ateco_codes as string[] | undefined) ?? [];
+  const province = (sorgente?.province as string[] | undefined) ?? [];
+  const regioni = (sorgente?.regioni as string[] | undefined) ?? [];
+  const economico = campaign.economico_config as Record<string, unknown>;
+  const budgetEur = economico?.budget_outreach_eur_month as number | undefined;
+
+  const geo = [...regioni, ...province].slice(0, 3).join(', ') || 'Italia intera';
+  const atecoPeek = atecoCodes.slice(0, 3).join(', ') || '—';
+
+  return (
+    <div className="rounded-xl border border-outline-variant/40 bg-surface-container-lowest px-5 py-4">
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0 flex-1">
+          {/* Title row */}
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-headline text-base font-bold tracking-tight text-on-surface">
+              {campaign.name}
+            </span>
+            {campaign.is_default && (
+              <span className="rounded-full bg-surface-container-high px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-on-surface-variant">
+                Default
+              </span>
+            )}
+            <CampaignStatusChip status={campaign.status} />
+          </div>
+
+          {/* Description */}
+          {campaign.description && (
+            <p className="mt-1 text-sm text-on-surface-variant line-clamp-2">
+              {campaign.description}
+            </p>
+          )}
+
+          {/* Config summary row */}
+          <div className="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-xs text-on-surface-variant">
+            <span>
+              <span className="font-semibold text-on-surface">ATECO:</span>{' '}
+              {atecoPeek}
+              {atecoCodes.length > 3 ? ` +${atecoCodes.length - 3} altri` : ''}
+            </span>
+            <span>
+              <span className="font-semibold text-on-surface">Geo:</span>{' '}
+              {geo}
+            </span>
+            {budgetEur != null && (
+              <span>
+                <span className="font-semibold text-on-surface">Budget:</span>{' '}
+                €{budgetEur.toLocaleString('it-IT')}/mese
+              </span>
+            )}
+            {campaign.schedule_cron && (
+              <span>
+                <span className="font-semibold text-on-surface">Cron:</span>{' '}
+                {campaign.schedule_cron}
+              </span>
+            )}
+            <span className="ml-auto text-on-surface-variant">
+              Aggiornata {relativeTime(campaign.updated_at)}
+            </span>
+          </div>
+        </div>
+
+        {/* Actions */}
+        <div className="flex shrink-0 items-center gap-2">
+          <Link
+            href={`/invii?campaign=${campaign.id}`}
+            className="rounded-lg border border-outline-variant/60 px-3 py-1.5 text-xs font-semibold text-on-surface hover:bg-surface-container-low"
+          >
+            Invii →
+          </Link>
+          {/* TODO Sprint+1: Edit modal / detail page */}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Status chip
 // ---------------------------------------------------------------------------
 
 function CampaignStatusChip({ status }: { status: string }) {
   const styles: Record<string, string> = {
-    pending: 'bg-surface-container-high text-on-surface-variant',
-    sent: 'bg-surface-container-highest text-on-surface',
-    delivered: 'bg-primary-container text-on-primary-container',
-    failed: 'bg-secondary-container text-on-secondary-container',
-    cancelled: 'bg-surface-container-high text-on-surface-variant opacity-70',
+    active: 'bg-primary-container text-on-primary-container',
+    draft: 'bg-surface-container-high text-on-surface-variant',
+    paused: 'bg-tertiary-container text-on-tertiary-container',
+    archived: 'bg-surface-container text-on-surface-variant opacity-60',
+  };
+  const labels: Record<string, string> = {
+    active: 'Attiva',
+    draft: 'Bozza',
+    paused: 'In pausa',
+    archived: 'Archiviata',
   };
   return (
     <span
       className={cn(
-        'inline-flex items-center rounded-md px-2.5 py-0.5 text-xs font-medium',
-        styles[status] ?? 'bg-surface-container-high text-on-surface-variant',
+        'inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider',
+        styles[status] ?? 'bg-surface-container text-on-surface-variant',
       )}
     >
-      {status}
+      {labels[status] ?? status}
     </span>
   );
 }

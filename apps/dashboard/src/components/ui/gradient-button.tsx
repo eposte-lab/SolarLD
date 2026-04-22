@@ -10,7 +10,7 @@
  * `href` prop — saves wrapping in a nested `<Link><button/></Link>`.
  */
 
-import Link, { type LinkProps as NextLinkProps } from 'next/link';
+import Link from 'next/link';
 import type { AnchorHTMLAttributes, ButtonHTMLAttributes } from 'react';
 
 import { cn } from '@/lib/utils';
@@ -75,7 +75,7 @@ export function GradientButton(props: GradientButtonProps) {
     const { href, ...anchorRest } = rest;
     return (
       <Link
-        href={href as NextLinkProps<string>['href']}
+        href={href}
         className={classes}
         {...anchorRest}
       >

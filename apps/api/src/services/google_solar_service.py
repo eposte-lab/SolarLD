@@ -15,6 +15,7 @@ We cache 404s for 1h to avoid re-hammering empty coordinates.
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from typing import Any
 
@@ -147,6 +148,77 @@ def _parse_building_insights(data: dict[str, Any]) -> RoofInsight:
     )
 
 
+def _mock_roof_insight(lat: float, lng: float) -> RoofInsight:
+    """Generate a deterministic synthetic RoofInsight for testing.
+
+    Seeded on (lat, lng) so the same coordinate always returns the same
+    roof — idempotent re-runs won't oscillate between pass/fail filter.
+
+    Output ranges are calibrated for Italian commercial B2B roofs:
+      - Area 200–2 000 m²
+      - kWp  20–200 kWp  (panel_w=400 W, typical SME install)
+      - Yield 1 200–1 450 kWh/kWp  (Italian sun average)
+      - Shading 0.70–1.00
+      - Exposure: S / SE / SW / E / W  (never N → passes filter)
+    """
+    # Two independent MD5 hashes for independent variation across fields.
+    seed_a = f"solar_mock_a_{lat:.5f}_{lng:.5f}".encode()
+    seed_b = f"solar_mock_b_{lat:.5f}_{lng:.5f}".encode()
+    ha = int(hashlib.md5(seed_a).hexdigest(), 16)
+    hb = int(hashlib.md5(seed_b).hexdigest(), 16)
+
+    # Area: 200–2000 m²  (200 + [0,1800])
+    area_sqm = 200.0 + (ha % 1801)
+    # Panel count: drives kWp
+    panel_w = 400.0  # Watt-peak per panel (typical 2024 module)
+    # Panels: 50–500  → 20–200 kWp
+    n_panels = 50 + (hb % 451)
+    estimated_kwp = round((n_panels * panel_w) / 1000.0, 2)
+    # Italian yield 1200–1450 kWh/kWp
+    yield_factor = 1200.0 + ((ha >> 16) % 251)
+    estimated_yearly_kwh = round(estimated_kwp * yield_factor, 2)
+    # Shading 0.70–1.00
+    shading_score = round(0.70 + ((hb >> 16) % 31) / 100.0, 2)
+    # Pitch 15–35°
+    pitch_degrees = round(15.0 + (ha % 21), 2)
+    # Exposure: never N — pick from good Italian azimuths
+    _GOOD_EXPOSURES = ["S", "SE", "SW", "E", "W"]
+    dominant_exposure = _GOOD_EXPOSURES[hb % len(_GOOD_EXPOSURES)]
+
+    raw: dict[str, Any] = {
+        "_mock": True,
+        "seed_lat": lat,
+        "seed_lng": lng,
+    }
+    log.debug(
+        "solar_mock_roof_generated",
+        extra={
+            "lat": lat,
+            "lng": lng,
+            "area_sqm": area_sqm,
+            "estimated_kwp": estimated_kwp,
+            "exposure": dominant_exposure,
+        },
+    )
+    return RoofInsight(
+        lat=lat,
+        lng=lng,
+        area_sqm=round(area_sqm, 2),
+        estimated_kwp=estimated_kwp,
+        estimated_yearly_kwh=estimated_yearly_kwh,
+        max_panel_count=n_panels,
+        panel_capacity_w=panel_w,
+        dominant_exposure=dominant_exposure,
+        pitch_degrees=pitch_degrees,
+        shading_score=shading_score,
+        postal_code=None,
+        region_code="IT",
+        administrative_area=None,
+        locality=None,
+        raw=raw,
+    )
+
+
 @retry(
     stop=stop_after_attempt(4),
     wait=wait_exponential(multiplier=1, min=2, max=20),
@@ -166,7 +238,23 @@ async def fetch_building_insight(
         SolarApiNotFound: no building detected at this coordinate.
         SolarApiError:    unrecoverable failure (bad key, quota exhausted, …).
     """
-    key = api_key or settings.google_solar_api_key
+    effective_key = api_key or settings.google_solar_api_key
+
+    # ── Mock mode ─────────────────────────────────────────────────────────────
+    # Fires when GOOGLE_SOLAR_MOCK_MODE=true AND no real key is configured.
+    # A real key always takes priority — consistent with the Atoka mock pattern.
+    # Generates deterministic but plausible synthetic RoofInsight data so the
+    # full L4 pipeline can be exercised (Solar→filter→upsert roofs+subjects)
+    # without consuming API quota.
+    #
+    # Values are seeded on (lat, lng) so the same coordinate always returns
+    # the same roof — idempotent re-runs won't oscillate between pass/fail.
+    # Generated values are all non-zero and dominant_exposure is never "N",
+    # so they pass the default TechnicalFilters thresholds.
+    if settings.google_solar_mock_mode and not effective_key:
+        return _mock_roof_insight(lat, lng)
+
+    key = effective_key
     if not key:
         raise SolarApiError("GOOGLE_SOLAR_API_KEY not configured")
 

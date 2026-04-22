@@ -11,7 +11,7 @@
  * primitives (BentoCard, StatusChip, TierChip, GradientButton).
  */
 
-import Link, { type LinkProps } from 'next/link';
+import Link from 'next/link';
 import { redirect } from 'next/navigation';
 
 import { BentoCard } from '@/components/ui/bento-card';
@@ -145,7 +145,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
             </div>
           </div>
           <Link
-            href="/contatti"
+            href={'/contatti'}
             className="shrink-0 text-xs font-semibold text-primary hover:underline"
           >
             Vedi contatti →
@@ -353,7 +353,7 @@ function FilterChip({
 }) {
   return (
     <Link
-      href={href as LinkProps<string>['href']}
+      href={href}
       className={cn(
         'rounded-full px-3 py-1 text-xs font-semibold transition-colors',
         active
