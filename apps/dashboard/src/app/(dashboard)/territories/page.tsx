@@ -51,8 +51,17 @@ const ERROR_COPY: Record<string, string> = {
   no_bbox:
     'Questo territorio non ha un\'area geografica — eliminalo e ri-aggiungilo ' +
     'usando il tasto "📍 Rileva zona" nel form.',
-  scan_failed: 'La scansione non è partita. Controlla che il worker arq sia attivo.',
+  scan_failed:
+    'La scansione non è partita — il worker arq non ha risposto. ' +
+    'Controlla che il servizio worker sia attivo su Railway e che REDIS_URL sia configurato.',
   scan_no_auth: 'Sessione scaduta. Ricarica la pagina e riprova.',
+  budget_exceeded:
+    'Budget mensile di scansione esaurito (€150 per piano Founding). ' +
+    'Attendi il mese prossimo o chiedi un upgrade del piano.',
+  api_unreachable:
+    'Impossibile raggiungere il server API. ' +
+    'Controlla che NEXT_PUBLIC_API_URL punti al tuo servizio Railway ' +
+    '(es. https://tuo-progetto.up.railway.app).',
 };
 
 function formatDate(iso: string): string {

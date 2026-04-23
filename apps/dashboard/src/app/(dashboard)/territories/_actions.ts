@@ -183,24 +183,32 @@ export async function triggerScan(formData: FormData): Promise<void> {
   }
 
   const maxRoofs = 500; // safe default — operator can re-trigger for more
-  const res = await fetch(
-    `${API_URL}/v1/territories/${id}/scan?max_roofs=${maxRoofs}`,
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${session.access_token}`,
-        'Content-Type': 'application/json',
+  let res: Response;
+  try {
+    res = await fetch(
+      `${API_URL}/v1/territories/${id}/scan?max_roofs=${maxRoofs}`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        // next: { revalidate: 0 } — this is a mutation, never cached.
+        cache: 'no-store',
       },
-      // next: { revalidate: 0 } — this is a mutation, never cached.
-      cache: 'no-store',
-    },
-  );
+    );
+  } catch {
+    // Network error (e.g. API unreachable, NEXT_PUBLIC_API_URL wrong, or
+    // Railway service down). Redirect instead of crashing the server action.
+    redirect('/territories?error=api_unreachable');
+  }
 
   if (!res.ok) {
     let detail = 'scan_failed';
     try {
       const body = await res.json() as { detail?: string };
       if (body.detail?.includes('no bbox')) detail = 'no_bbox';
+      else if (body.detail?.includes('budget')) detail = 'budget_exceeded';
     } catch {
       // ignore parse error
     }

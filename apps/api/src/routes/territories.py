@@ -80,6 +80,9 @@ async def scan_estimate(
     }
 
 
+_VALID_SCAN_MODES = {"b2b_funnel_v2", "b2c_residential"}
+
+
 @router.post("/{territory_id}/scan")
 async def trigger_scan(
     ctx: CurrentUser,
@@ -87,6 +90,14 @@ async def trigger_scan(
     max_roofs: int = Query(500, ge=1, le=10_000),
     start_index: int = Query(0, ge=0),
     step_meters: float = Query(50.0, ge=10.0, le=500.0),
+    scan_mode_override: str | None = Query(
+        None,
+        description=(
+            "Force a specific scan mode, bypassing the tenant's sorgente config. "
+            "Valid values: 'b2b_funnel_v2', 'b2c_residential'. "
+            "Useful for testing with ATOKA_MOCK_MODE=true without touching the wizard."
+        ),
+    ),
 ) -> dict[str, object]:
     """Enqueue a Hunter Agent scan for this territory.
 
@@ -94,6 +105,12 @@ async def trigger_scan(
     `/v1/events?source=agent.hunter&territory_id=...`.
     """
     tenant_id = require_tenant(ctx)
+
+    if scan_mode_override is not None and scan_mode_override not in _VALID_SCAN_MODES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"scan_mode_override must be one of {sorted(_VALID_SCAN_MODES)}",
+        )
 
     # Quick sanity check the territory exists and belongs to the tenant
     sb = get_service_client()
@@ -108,15 +125,19 @@ async def trigger_scan(
     if not t.data:
         raise HTTPException(status_code=404, detail="territory not found")
 
+    payload: dict[str, object] = {
+        "tenant_id": tenant_id,
+        "territory_id": territory_id,
+        "max_roofs": max_roofs,
+        "start_index": start_index,
+        "step_meters": step_meters,
+    }
+    if scan_mode_override:
+        payload["scan_mode_override"] = scan_mode_override
+
     job = await enqueue(
         "hunter_task",
-        {
-            "tenant_id": tenant_id,
-            "territory_id": territory_id,
-            "max_roofs": max_roofs,
-            "start_index": start_index,
-            "step_meters": step_meters,
-        },
+        payload,
         # Idempotency: one in-flight scan per (tenant, territory, start_index)
         job_id=f"hunter:{tenant_id}:{territory_id}:{start_index}",
     )
