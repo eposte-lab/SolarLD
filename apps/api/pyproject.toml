@@ -41,6 +41,9 @@ dependencies = [
   "passlib[bcrypt]>=1.7.4",
   "pyjwt>=2.10.0",
 
+  # Email validation (required by pydantic EmailStr used in inboxes.py)
+  "email-validator>=2.2.0",
+
   # Utilities
   "python-dotenv>=1.0.1",
   "structlog>=24.4.0",
