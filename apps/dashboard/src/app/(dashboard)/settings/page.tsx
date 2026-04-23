@@ -104,6 +104,8 @@ export default async function SettingsPage() {
       <IntegrationsCard tenant={ctx.tenant} />
 
       <PlanCard tenant={ctx.tenant} />
+
+      {ctx.role === 'super_admin' && <DevToolsCard />}
     </div>
   );
 }
@@ -654,6 +656,35 @@ function tierHasCapability(tier: TenantTier, key: CapabilityKey): boolean {
     tier,
     settings: {},
   }).capabilities[key];
+}
+
+// ---------------------------------------------------------------------------
+// Dev tools — visible only to super_admin
+// ---------------------------------------------------------------------------
+
+function DevToolsCard() {
+  return (
+    <BentoCard span="full">
+      <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
+        Dev tools · solo super_admin
+      </p>
+      <h2 className="mt-1 font-headline text-2xl font-bold tracking-tighter">
+        Strumenti di test
+      </h2>
+      <p className="mt-1 max-w-xl text-sm text-on-surface-variant">
+        Inietta dati sintetici nel pipeline per verificare scoring → rendering → email
+        senza passare da Atoka o Google Solar.
+      </p>
+      <div className="mt-5">
+        <Link
+          href="/settings/pipeline-test"
+          className="inline-flex items-center gap-2 rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-on-primary transition-opacity hover:opacity-90"
+        >
+          🚀 Test pipeline end-to-end
+        </Link>
+      </div>
+    </BentoCard>
+  );
 }
 
 function PlanRow({
