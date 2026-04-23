@@ -152,6 +152,14 @@ async def pick_and_claim(
             # Lazy daily reset: set counter to 1 (first send today).
             # Guard: only apply if another worker hasn't already reset it
             # to today (concurrent first-send race).
+            #
+            # NOTE: We can't use plain `.neq("sent_date", today)` because in
+            # PostgREST `col != value` doesn't match rows where `col IS NULL`
+            # (SQL: NULL != anything is UNKNOWN, not TRUE). A brand-new inbox
+            # has sent_date = NULL, so the neq guard would silently match 0
+            # rows and we'd report "all inboxes blocked" on first-ever send.
+            # Use `.or_("sent_date.is.null,sent_date.neq.today")` so NULL and
+            # stale dates both claim.
             q = (
                 sb.table("tenant_inboxes")
                 .update(
@@ -164,9 +172,9 @@ async def pick_and_claim(
                 )
                 .eq("id", inbox_id)
                 .eq("tenant_id", tenant_id)
-                # Only claim if it's still a new day for this inbox.
-                # Using .neq() + .is_() combination via .or_() filter.
-                .neq("sent_date", today)
+                # Guard covers both "never sent before" (NULL) and "last sent
+                # was a prior day" — both are legitimate first-send-today.
+                .or_(f"sent_date.is.null,sent_date.neq.{today}")
             )
         else:
             # Same day: increment under cap.

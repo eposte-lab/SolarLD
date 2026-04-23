@@ -518,6 +518,30 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
         # ------------------------------------------------------------------
         # 9) Send via Resend
         # ------------------------------------------------------------------
+        # ------------------------------------------------------------------
+        # 8c) List-Unsubscribe headers (RFC 2369 + RFC 8058 one-click)
+        #
+        # Gmail & Yahoo require these for any "bulk" sender (>5k/day), and
+        # penalise deliverability significantly when missing even for small
+        # volumes. Two headers, both required for one-click:
+        #   - List-Unsubscribe: <URL> (or <mailto:…>) → visible "Unsubscribe"
+        #     link in the Gmail UI (next to "via agenda-pro.it").
+        #   - List-Unsubscribe-Post: List-Unsubscribe=One-Click → tells Gmail
+        #     that it may POST to the URL directly with that form body, no
+        #     HTML confirmation page required. Our public optout endpoint
+        #     (`POST /v1/public/lead/{slug}/optout`) accepts this shape.
+        # ------------------------------------------------------------------
+        extra_headers: dict[str, str] = {}
+        slug = (lead.get("public_slug") or "").strip()
+        if slug:
+            api_base = (settings.api_base_url or "").rstrip("/")
+            if api_base:
+                one_click_url = f"{api_base}/v1/public/lead/{slug}/optout"
+                extra_headers["List-Unsubscribe"] = f"<{one_click_url}>"
+                extra_headers["List-Unsubscribe-Post"] = (
+                    "List-Unsubscribe=One-Click"
+                )
+
         send_input = SendEmailInput(
             from_address=from_address,
             to=[recipient],
@@ -530,6 +554,7 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
                 "lead_id": payload.lead_id,
                 "template": _template_id_for(subject_type),
             },
+            headers=extra_headers or None,
         )
 
         try:
