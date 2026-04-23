@@ -963,6 +963,72 @@ async def send_outreach_batch(
     return {"ok": True, "queued": queued, "total_matching": len(res.data or [])}
 
 
+@router.post("/score-pending-subjects")
+async def score_pending_subjects(
+    ctx: CurrentUser,
+    limit: int = Query(default=500, ge=1, le=5000),
+) -> dict[str, object]:
+    """Promote every `subject` without a matching `leads` row by enqueueing
+    a scoring_task. The Scoring agent INSERTs the lead on first run
+    (see agents/scoring.py "Upsert lead row" block).
+
+    This fills the gap between the hunter funnel (which creates
+    `roofs` + `subjects`) and the outreach pipeline (which reads `leads`).
+    The funnel itself doesn't auto-enqueue scoring today — this endpoint is
+    the manual trigger the dashboard / ops calls after each scan.
+
+    Idempotent per (tenant_id, roof_id, subject_id) via deterministic job_id;
+    double-clicks collapse to a single worker run.
+    """
+    tenant_id = require_tenant(ctx)
+    sb = get_service_client()
+    # LEFT JOIN via two queries — PostgREST doesn't support anti-joins.
+    # Pull all tenant subjects, then filter out those with a lead already.
+    subj_res = (
+        sb.table("subjects")
+        .select("id, roof_id")
+        .eq("tenant_id", tenant_id)
+        .not_.is_("roof_id", "null")
+        .order("created_at", desc=True)
+        .limit(limit)
+        .execute()
+    )
+    subjects = subj_res.data or []
+    if not subjects:
+        return {"ok": True, "queued": 0, "total_subjects": 0, "already_scored": 0}
+
+    subject_ids = [s["id"] for s in subjects]
+    existing_res = (
+        sb.table("leads")
+        .select("subject_id")
+        .eq("tenant_id", tenant_id)
+        .in_("subject_id", subject_ids)
+        .execute()
+    )
+    already = {row["subject_id"] for row in (existing_res.data or [])}
+
+    queued = 0
+    for s in subjects:
+        if s["id"] in already:
+            continue
+        await enqueue(
+            "scoring_task",
+            {
+                "tenant_id": tenant_id,
+                "roof_id": s["roof_id"],
+                "subject_id": s["id"],
+            },
+            job_id=f"scoring:{tenant_id}:{s['roof_id']}:{s['id']}",
+        )
+        queued += 1
+    return {
+        "ok": True,
+        "queued": queued,
+        "total_subjects": len(subjects),
+        "already_scored": len(already),
+    }
+
+
 @router.post("/rescore-all")
 async def rescore_all(
     ctx: CurrentUser,
