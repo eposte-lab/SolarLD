@@ -19,7 +19,7 @@ jobs:
     # Only deploy when CI passed (not just completed)
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Deploy to Railway
         uses: bervProject/railway-deploy@main
