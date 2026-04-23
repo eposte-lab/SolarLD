@@ -198,7 +198,7 @@ async def email_inbound_webhook(
     sb = get_service_client()
     lead_res = (
         sb.table("leads")
-        .select("id, tenant_id, public_slug")
+        .select("id, tenant_id, public_slug, source")
         .eq("public_slug", slug)
         .limit(1)
         .execute()
@@ -214,6 +214,17 @@ async def email_inbound_webhook(
     lead = leads[0]
     lead_id = lead["id"]
     tenant_id = lead["tenant_id"]
+
+    # ----------------------------------------------------------------
+    # Promote candidate → active lead on first email reply.
+    # source='email_reply' is what makes this row count in the
+    # dashboard "Lead Attivi" counter (WHERE source IS NOT NULL).
+    # Only stamp once — do not overwrite a prior cta_click.
+    # ----------------------------------------------------------------
+    if not lead.get("source"):
+        sb.table("leads").update({"source": "email_reply"}).eq(
+            "id", lead_id
+        ).execute()
 
     # ----------------------------------------------------------------
     # Insert lead_replies row (unanalysed; RepliesAgent will fill it)

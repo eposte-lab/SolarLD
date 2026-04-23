@@ -131,12 +131,13 @@ async def track_whatsapp_click(slug: str) -> dict[str, str]:
     if lead is None:
         raise HTTPException(status_code=404, detail="Lead not found")
     if not lead.get("whatsapp_initiated_at"):
-        sb.table("leads").update(
-            {
-                "whatsapp_initiated_at": "now()",
-                "pipeline_status": LeadStatus.WHATSAPP.value,
-            }
-        ).eq("id", lead["id"]).execute()
+        wa_update: dict[str, object] = {
+            "whatsapp_initiated_at": "now()",
+            "pipeline_status": LeadStatus.WHATSAPP.value,
+        }
+        if not lead.get("source"):
+            wa_update["source"] = "whatsapp_reply"
+        sb.table("leads").update(wa_update).eq("id", lead["id"]).execute()
         _emit_public_event(
             sb,
             event_type="lead.whatsapp_click",
@@ -191,9 +192,20 @@ async def request_appointment(
     if lead is None:
         raise HTTPException(status_code=404, detail="Lead not found")
 
-    sb.table("leads").update(
-        {"pipeline_status": LeadStatus.APPOINTMENT.value}
-    ).eq("id", lead["id"]).execute()
+    # Promote candidate → active lead.
+    # source='cta_click' marks the first real engagement signal and is what
+    # makes this row count in the dashboard "Lead Attivi" counter
+    # (query: WHERE source IS NOT NULL). We also advance pipeline_status to
+    # 'appointment' and set whatsapp_initiated_at as a convenience timestamp
+    # for the installer's view (it was the first explicit contact request).
+    update_fields: dict[str, object] = {
+        "pipeline_status": LeadStatus.APPOINTMENT.value,
+    }
+    if not lead.get("source"):
+        # Only stamp source once — do not overwrite a subsequent whatsapp_reply.
+        update_fields["source"] = "cta_click"
+
+    sb.table("leads").update(update_fields).eq("id", lead["id"]).execute()
 
     _emit_public_event(
         sb,
@@ -627,7 +639,7 @@ def _load_lead_by_slug(sb: Any, slug: str) -> dict[str, Any] | None:
         sb.table("leads")
         .select(
             "id, tenant_id, pipeline_status, dashboard_visited_at, "
-            "whatsapp_initiated_at"
+            "whatsapp_initiated_at, source"
         )
         .eq("public_slug", slug)
         .limit(1)

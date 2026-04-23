@@ -17,17 +17,24 @@ Surface area:
     GET    /tenants/{id}/feature-flags       — current flags
     PATCH  /tenants/{id}/feature-flags       — update one flag (partial)
     GET    /cost-report?days=30              — spend rollup platform-wide
+    POST   /seed-test-candidate              — inject synthetic company, run full pipeline
 """
 
 from __future__ import annotations
 
+import hashlib
+from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
 
+import geohash  # type: ignore[import-untyped]
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
+from ..agents.scoring import ScoringAgent, ScoringInput
+from ..core.queue import enqueue
 from ..core.security import CurrentUser
 from ..core.supabase_client import get_service_client
+from ..models.enums import RoofDataSource, RoofStatus, SubjectType
 from ..services.territory_lock_service import unlock as territory_unlock
 
 router = APIRouter()
@@ -301,3 +308,233 @@ async def cost_report(
         "by_provider": [],
         "total_cost_cents": 0,
     }
+
+
+# ---------------------------------------------------------------------------
+# Test candidate injection — end-to-end pipeline smoke-test
+# ---------------------------------------------------------------------------
+
+
+class SolarOverride(BaseModel):
+    """Optional Solar API override — skips the real Google Solar call."""
+
+    annual_kwh: float = Field(default=45000.0, ge=0)
+    roof_area_m2: float = Field(default=180.0, ge=0)
+    orientation: str = Field(default="south")
+    estimated_kwp: float = Field(default=30.0, ge=0)
+    shading_score: float = Field(default=0.85, ge=0, le=1)
+
+
+class SeedTestCandidateRequest(BaseModel):
+    """Shape for POST /v1/admin/seed-test-candidate.
+
+    Mirrors ``AtokaProfile`` from ``services.italian_business_service``
+    plus a few test-control fields. All address fields are required so
+    we can build a stable geohash and a synthetic ``subjects`` row that
+    downstream agents can consume without calling Atoka.
+    """
+
+    tenant_id: str = Field(description="Target tenant UUID")
+
+    # ── Atoka-equivalent fields ──────────────────────────────────────────
+    vat_number: str = Field(min_length=5, max_length=30)
+    legal_name: str = Field(min_length=1, max_length=255)
+    ateco_code: str | None = Field(default=None)
+    ateco_description: str | None = Field(default=None)
+    yearly_revenue_cents: int | None = Field(default=None, ge=0)
+    employees: int | None = Field(default=None, ge=0)
+    website_domain: str | None = Field(default=None)
+
+    # ── HQ address (required for geo + Solar) ────────────────────────────
+    hq_address: str = Field(min_length=1)
+    hq_cap: str = Field(min_length=4, max_length=10)
+    hq_city: str = Field(min_length=1)
+    hq_province: str = Field(min_length=2, max_length=2)
+    hq_lat: float = Field(description="Decimal latitude — required; avoids Mapbox geocode")
+    hq_lng: float = Field(description="Decimal longitude — required; avoids Mapbox geocode")
+
+    # ── Decision-maker (goes into subjects + email personalisation) ───────
+    decision_maker_name: str | None = Field(default=None)
+    decision_maker_role: str | None = Field(default=None)
+    decision_maker_email: str | None = Field(
+        default=None,
+        description="Real inbox — this is the recipient of the test email",
+    )
+
+    # ── Test-control flags ────────────────────────────────────────────────
+    solar_override: SolarOverride = Field(
+        default_factory=SolarOverride,
+        description="Skip Google Solar API — use these synthetic values instead",
+    )
+    run_outreach: bool = Field(
+        default=True,
+        description="Enqueue outreach_task (sends real email). Set false to stop after creative render.",
+    )
+
+
+class SeedTestCandidateResponse(BaseModel):
+    ok: bool = True
+    roof_id: str
+    subject_id: str
+    scoring_job_id: str
+    creative_job_id: str
+    outreach_job_id: str | None = None
+    message: str
+
+
+@router.post(
+    "/seed-test-candidate",
+    response_model=SeedTestCandidateResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def seed_test_candidate(
+    ctx: CurrentUser, body: SeedTestCandidateRequest
+) -> SeedTestCandidateResponse:
+    """Inject a synthetic company into the pipeline for end-to-end testing.
+
+    Bypasses Atoka L1, Places L2, Claude L3, and Google Solar L4 by
+    inserting rows directly into ``roofs`` + ``subjects``, then enqueuing
+    the downstream tasks (scoring → creative → outreach) with time-spaced
+    ``defer_until`` so each step has room to complete before the next fires.
+
+    Timeline (approximate):
+      • t+0s   — scoring_task  → creates ``leads`` row, sets score/tier
+      • t+45s  — creative_task → renders Remotion MP4+GIF, uploads to storage
+      • t+3min — outreach_task → sends email via Resend on verified domain
+
+    The endpoint is idempotent within a tenant for the same ``vat_number``:
+    re-running with the same P.IVA upserts the roof (geohash unique) and
+    subject (roof_id unique) rather than creating duplicates.
+    """
+    _require_super_admin(ctx)
+
+    sb = get_service_client()
+    now = datetime.now(timezone.utc)
+    ov = body.solar_override
+
+    # ── 1. Upsert roof row ────────────────────────────────────────────────
+    # geohash precision=9 gives ~4m resolution — same as level4_solar_gate.
+    gh = geohash.encode(body.hq_lat, body.hq_lng, precision=9)
+
+    roof_payload: dict[str, Any] = {
+        "tenant_id": body.tenant_id,
+        "lat": body.hq_lat,
+        "lng": body.hq_lng,
+        "geohash": gh,
+        "address": body.hq_address,
+        "cap": body.hq_cap,
+        "comune": body.hq_city,
+        "provincia": body.hq_province,
+        "area_sqm": ov.roof_area_m2,
+        "estimated_kwp": ov.estimated_kwp,
+        "estimated_yearly_kwh": ov.annual_kwh,
+        "exposure": ov.orientation,
+        "shading_score": ov.shading_score,
+        "has_existing_pv": False,
+        "data_source": RoofDataSource.GOOGLE_SOLAR.value,
+        "classification": SubjectType.B2B.value,
+        "status": RoofStatus.DISCOVERED.value,
+        "scan_cost_cents": 0,
+        "raw_data": {
+            "seed_test": True,
+            "vat_number": body.vat_number,
+            "inserted_at": now.isoformat(),
+        },
+    }
+
+    roof_res = (
+        sb.table("roofs")
+        .upsert(roof_payload, on_conflict="tenant_id,geohash")
+        .execute()
+    )
+    if not roof_res.data:
+        raise HTTPException(status_code=502, detail="Failed to upsert roof row")
+    roof_id: str = roof_res.data[0]["id"]
+
+    # ── 2. Upsert subject row ─────────────────────────────────────────────
+    # pii_hash = SHA256 of "legal_name|vat_number" (normalised lowercase).
+    pii_raw = f"{body.legal_name.lower().strip()}|{body.vat_number.lower().strip()}"
+    pii_hash = hashlib.sha256(pii_raw.encode()).hexdigest()
+
+    subject_payload: dict[str, Any] = {
+        "tenant_id": body.tenant_id,
+        "roof_id": roof_id,
+        "type": SubjectType.B2B.value,
+        "business_name": body.legal_name,
+        "vat_number": body.vat_number,
+        "ateco_code": body.ateco_code,
+        "ateco_description": body.ateco_description,
+        "yearly_revenue_cents": body.yearly_revenue_cents,
+        "employees": body.employees,
+        "decision_maker_name": body.decision_maker_name,
+        "decision_maker_role": body.decision_maker_role,
+        "decision_maker_email": body.decision_maker_email,
+        "data_sources": ["seed_test"],
+        "enrichment_cost_cents": 0,
+        "enrichment_completed_at": now.isoformat(),
+        "pii_hash": pii_hash,
+    }
+
+    subject_res = (
+        sb.table("subjects")
+        .upsert(subject_payload, on_conflict="tenant_id,roof_id")
+        .execute()
+    )
+    if not subject_res.data:
+        raise HTTPException(status_code=502, detail="Failed to upsert subject row")
+    subject_id: str = subject_res.data[0]["id"]
+
+    # ── 3. Run scoring synchronously — we need the lead_id for downstream ──
+    # ScoringAgent creates (or updates) the ``leads`` row and returns its id.
+    scoring_out = await ScoringAgent().run(
+        ScoringInput(
+            tenant_id=body.tenant_id,
+            roof_id=roof_id,
+            subject_id=subject_id,
+        )
+    )
+    lead_id: str | None = scoring_out.lead_id
+    if not lead_id:
+        raise HTTPException(
+            status_code=502,
+            detail="Scoring agent ran but returned no lead_id — check worker logs",
+        )
+
+    # ── 4. Enqueue creative_task (deferred 5s — scoring row propagates) ───
+    # Remotion render can take 60-120s; we just kick it off and return.
+    creative_job = await enqueue(
+        "creative_task",
+        {"tenant_id": body.tenant_id, "lead_id": lead_id, "force": True},
+        job_id=f"creative:{body.tenant_id}:{lead_id}",
+        defer_until=now + timedelta(seconds=5),
+    )
+
+    # ── 5. Enqueue outreach_task (deferred 3min — creative needs to finish) ─
+    outreach_job_id: str | None = None
+    if body.run_outreach:
+        outreach_job = await enqueue(
+            "outreach_task",
+            {
+                "tenant_id": body.tenant_id,
+                "lead_id": lead_id,
+                "channel": "email",
+                "force": True,
+            },
+            job_id=f"outreach_seed:{body.tenant_id}:{lead_id}",
+            defer_until=now + timedelta(minutes=3),
+        )
+        outreach_job_id = outreach_job.get("job_id")
+
+    return SeedTestCandidateResponse(
+        roof_id=roof_id,
+        subject_id=subject_id,
+        scoring_job_id=f"inline:score={scoring_out.score},tier={scoring_out.tier}",
+        creative_job_id=creative_job.get("job_id", ""),
+        outreach_job_id=outreach_job_id,
+        message=(
+            f"Scored {scoring_out.score}/100 ({scoring_out.tier}). "
+            "creative ~5s, "
+            + (f"email to {body.decision_maker_email} ~3min."
+               if body.run_outreach else "outreach skipped.")
+        ),
+    )

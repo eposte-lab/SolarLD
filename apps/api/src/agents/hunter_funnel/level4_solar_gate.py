@@ -196,12 +196,20 @@ async def _gate_one(
     verdict = "accepted" if verdict_accepted else "rejected_tech"
     _mark_verdict(cand.candidate_id, verdict, roof_id=roof_id)
 
-    # Promote qualified candidates to leads by enqueueing the Scoring Agent.
-    # The scoring task INSERTs a leads row on first run (see agents/scoring.py
-    # "Upsert lead row" block), which is what turns a L4-qualified subject
-    # into something OutreachAgent + /leads dashboard can consume. Without
-    # this enqueue the scan completes but Lead Attivi stays at 0.
-    # Idempotent via deterministic job_id: re-runs of the same scan collapse.
+    # Enqueue Scoring Agent for every accepted candidate.
+    #
+    # The scoring task (agents/scoring.py) does two things:
+    #   1. INSERTs a `leads` row with source=NULL — this is the "outreach
+    #      candidate" record that OutreachAgent uses to send the email and
+    #      that the public portal (/lead/{slug}) uses for the CTA landing.
+    #   2. Updates roof.status → 'scored'.
+    #
+    # source=NULL means the person has NOT yet actively engaged. The
+    # dashboard "Lead Attivi" counter only includes rows WHERE source IS
+    # NOT NULL (set later by CTA form submit or email reply).
+    #
+    # Idempotent: deterministic job_id collapses duplicate enqueues if the
+    # scan is retried.
     if verdict_accepted and roof_id is not None and subject_id is not None:
         try:
             await enqueue(
