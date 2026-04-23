@@ -38,9 +38,12 @@ export const getCurrentTenantContext = cache(async (): Promise<TenantContext | n
   } = await supabase.auth.getUser();
   if (!user) return null;
 
+  // NOTE: territory_locked_at / territory_locked_by are fetched separately
+  // in getTenantLockStatus() below so this query doesn't fail before
+  // migration 0047 is applied (those columns didn't exist before it).
   const { data: member } = await supabase
     .from('tenant_members')
-    .select('tenant_id, role, tenants:tenants(id, business_name, brand_primary_color, brand_logo_url, contact_email, whatsapp_number, email_from_domain, email_from_name, email_from_domain_verified_at, tier, settings, territory_locked_at, territory_locked_by)')
+    .select('tenant_id, role, tenants:tenants(id, business_name, brand_primary_color, brand_logo_url, contact_email, whatsapp_number, email_from_domain, email_from_name, email_from_domain_verified_at, tier, settings)')
     .eq('user_id', user.id)
     .limit(1)
     .maybeSingle();

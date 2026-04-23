@@ -55,9 +55,16 @@ export async function isOnboardingPending(tenantId: string): Promise<boolean> {
  * territorial exclusivity. Derived purely from the already-loaded
  * tenant row — no DB call — so layouts can chain it cheaply after
  * `isOnboardingPending`.
+ *
+ * Returns false when `territory_locked_at` is not present in the object
+ * (i.e. migration 0047 hasn't been applied yet and the column wasn't
+ * fetched). This keeps the dashboard accessible while the migration is
+ * pending — the confirm gate will activate once the column exists.
  */
 export function isTerritoryConfirmPending(
   tenant: { territory_locked_at?: string | null },
 ): boolean {
+  // Key absent → migration not yet applied → don't gate.
+  if (!('territory_locked_at' in tenant)) return false;
   return !tenant.territory_locked_at;
 }
