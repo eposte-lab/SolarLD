@@ -52,7 +52,18 @@ RESEND_COST_PER_EMAIL_CENTS = 1
 
 
 class ResendError(Exception):
-    """Raised when Resend returns an error status."""
+    """Raised when Resend returns an error status.
+
+    ``status_code`` carries the HTTP response code so callers can decide
+    whether to auto-pause the sending inbox:
+      * 429 → rate-limited by Resend for this sender → short pause (2 h)
+      * 5xx → server-side error → medium pause (4 h)
+      * Other 4xx → bad recipient / payload → don't pause the inbox
+    """
+
+    def __init__(self, message: str, *, status_code: int = 0) -> None:
+        super().__init__(message)
+        self.status_code = status_code
 
 
 class ResendSignatureError(Exception):
@@ -275,11 +286,13 @@ async def send_email(
 
     if resp.status_code >= 500:
         raise ResendError(
-            f"resend 5xx status={resp.status_code} body={resp.text[:300]}"
+            f"resend 5xx status={resp.status_code} body={resp.text[:300]}",
+            status_code=resp.status_code,
         )
     if resp.status_code >= 400:
         raise ResendError(
-            f"resend 4xx status={resp.status_code} body={resp.text[:300]}"
+            f"resend 4xx status={resp.status_code} body={resp.text[:300]}",
+            status_code=resp.status_code,
         )
     try:
         payload = resp.json()

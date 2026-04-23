@@ -1,4 +1,10 @@
-"""Campaigns — send history."""
+"""Campaigns — backward-compat alias for outreach_sends.
+
+The ``campaigns`` table was renamed to ``outreach_sends`` in migration 0043.
+This route is kept at ``/v1/campaigns`` so existing dashboard pages that
+still import from ``lib/data/campaigns.ts`` continue to work during the
+transition. New code should call ``/v1/outreach-sends`` directly.
+"""
 
 from __future__ import annotations
 
@@ -12,10 +18,11 @@ router = APIRouter()
 
 @router.get("")
 async def list_campaigns(ctx: CurrentUser) -> list[dict[str, object]]:
+    """Backward-compat list of outreach sends (was: campaigns)."""
     tenant_id = require_tenant(ctx)
     sb = get_service_client()
     res = (
-        sb.table("campaigns")
+        sb.table("outreach_sends")
         .select("*")
         .eq("tenant_id", tenant_id)
         .order("scheduled_for", desc=True)

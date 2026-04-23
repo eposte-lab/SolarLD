@@ -244,7 +244,7 @@ async def delete_experiment(
     _load_experiment(sb, experiment_id, tenant_id)
 
     linked = (
-        sb.table("campaigns")
+        sb.table("outreach_sends")
         .select("id")
         .eq("experiment_id", experiment_id)
         .limit(1)
@@ -293,7 +293,7 @@ async def experiment_stats(
     # 1) Pull all campaigns for this experiment in one query
     # ------------------------------------------------------------------
     camp_res = (
-        sb.table("campaigns")
+        sb.table("outreach_sends")
         .select("id, lead_id, experiment_variant, status")
         .eq("experiment_id", experiment_id)
         .in_("experiment_variant", ["a", "b"])

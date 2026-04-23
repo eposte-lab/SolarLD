@@ -1,0 +1,51 @@
+{
+  "$schema": "https://biomejs.dev/schemas/1.9.4/schema.json",
+  "organizeImports": {
+    "enabled": true
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true,
+      "suspicious": {
+        "noConsole": "warn",
+        "noExplicitAny": "warn"
+      },
+      "correctness": {
+        "noUnusedVariables": "error",
+        "noUnusedImports": "error",
+        "noUndeclaredVariables": "error"
+      },
+      "style": {
+        "noNonNullAssertion": "warn",
+        "useImportType": "error"
+      },
+      "complexity": {
+        "noForEach": "off"
+      }
+    }
+  },
+  "formatter": {
+    "enabled": false
+  },
+  "javascript": {
+    "formatter": {
+      "enabled": false
+    }
+  },
+  "files": {
+    "include": [
+      "apps/dashboard/src/**/*.{ts,tsx}",
+      "apps/dashboard/tests/**/*.{ts,tsx}",
+      "apps/lead-portal/src/**/*.{ts,tsx}"
+    ],
+    "ignore": [
+      "**/node_modules/**",
+      "**/.next/**",
+      "**/dist/**",
+      "**/build/**",
+      "**/.turbo/**",
+      "**/*.d.ts"
+    ]
+  }
+}

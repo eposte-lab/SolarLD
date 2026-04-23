@@ -144,8 +144,24 @@ async def get_current_user(
         if result.data:
             tenant_id = result.data[0]["tenant_id"]
             role = result.data[0]["role"]
+        else:
+            # User authenticated but not bound to any tenant yet — return
+            # context with tenant_id=None.  require_tenant() will 403 as needed.
+            log.info("tenant_lookup_no_membership", user_id=user_id)
     except Exception as exc:  # noqa: BLE001
-        log.warning("tenant_lookup_failed", user_id=user_id, error=str(exc))
+        # DB error — this is a 503, not a missing membership.  Returning
+        # tenant_id=None here would produce a misleading 403; raise explicitly
+        # so callers see an accurate service-unavailable response.
+        log.error(
+            "tenant_lookup_db_error",
+            user_id=user_id,
+            error_type=type(exc).__name__,
+            error=str(exc),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Tenant membership lookup unavailable — try again shortly",
+        ) from exc
 
     return AuthContext(
         user_id=user_id,

@@ -15,6 +15,7 @@
     "dev:all": "cd infra && docker compose up -d redis && cd .. && concurrently -n api,worker,dashboard,portal -c blue,magenta,green,yellow \"pnpm --filter @solarlead/api dev\" \"cd apps/api && arq src.workers.main.WorkerSettings\" \"pnpm --filter @solarlead/dashboard dev\" \"pnpm --filter @solarlead/lead-portal dev\"",
     "dev:full-container": "cd infra && docker compose --profile app --profile local-db up",
     "lint": "turbo run lint",
+    "check": "biome check .",
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
@@ -28,6 +29,7 @@
     "lead-portal:dev": "pnpm --filter @solarlead/lead-portal dev"
   },
   "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
     "turbo": "^2.3.3",
     "prettier": "^3.4.2",
     "typescript": "^5.7.2",

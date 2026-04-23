@@ -18,6 +18,7 @@ from .core.logging import configure_logging, get_logger
 from .core.queue import close_pool as close_queue_pool
 from .core.redis import close_redis
 from .routes import (
+    acquisition_campaigns,
     admin,
     analytics,
     auth,
@@ -30,9 +31,11 @@ from .routes import (
     events,
     experiments,
     health,
+    inboxes,
     leads,
     modules,
     notifications,
+    outreach_sends,
     public,
     tenants,
     territories,
@@ -91,7 +94,17 @@ app.include_router(tenants.router, prefix="/v1/tenants", tags=["tenants"])
 app.include_router(modules.router, prefix="/v1/modules", tags=["modules"])
 app.include_router(territories.router, prefix="/v1/territories", tags=["territories"])
 app.include_router(leads.router, prefix="/v1/leads", tags=["leads"])
+# /v1/campaigns kept for backward compat (returns outreach_sends data)
 app.include_router(campaigns.router, prefix="/v1/campaigns", tags=["campaigns"])
+# New primary endpoints
+app.include_router(
+    outreach_sends.router, prefix="/v1/outreach-sends", tags=["outreach-sends"]
+)
+app.include_router(
+    acquisition_campaigns.router,
+    prefix="/v1/acquisition-campaigns",
+    tags=["acquisition-campaigns"],
+)
 app.include_router(contatti.router, prefix="/v1/contatti", tags=["contatti"])
 app.include_router(events.router, prefix="/v1/events", tags=["events"])
 app.include_router(webhooks.router, prefix="/v1/webhooks", tags=["webhooks"])
@@ -108,6 +121,7 @@ app.include_router(
     experiments.router, prefix="/v1/experiments", tags=["experiments"]
 )
 app.include_router(branding.router, prefix="/v1/branding", tags=["branding"])
+app.include_router(inboxes.router, prefix="/v1/inboxes", tags=["inboxes"])
 app.include_router(b2c_outreach.router, prefix="/v1/b2c", tags=["b2c"])
 app.include_router(b2c_exports.router, prefix="/v1/b2c", tags=["b2c-exports"])
 

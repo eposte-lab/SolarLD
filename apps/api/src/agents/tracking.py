@@ -66,7 +66,7 @@ class TrackingInput(BaseModel):
 class TrackingOutput(BaseModel):
     processed: bool = True
     lead_id: str | None = None
-    campaign_id: str | None = None
+    campaign_id: str | None = None    # outreach_sends row id
     new_status: str | None = None
     skipped: bool = False
     reason: str | None = None
@@ -311,7 +311,7 @@ class TrackingAgent(AgentBase[TrackingInput, TrackingOutput]):
         # we still audit the event but can't advance any lead.
         # -------------------------------------------------------------
         campaign_res = (
-            sb.table("campaigns")
+            sb.table("outreach_sends")
             .select("id, tenant_id, lead_id, status")
             .eq("email_message_id", event.email_id)
             .limit(1)
@@ -362,7 +362,7 @@ class TrackingAgent(AgentBase[TrackingInput, TrackingOutput]):
         # -------------------------------------------------------------
         campaign_update = project_resend_campaign_update(event.type)
         if campaign_update:
-            sb.table("campaigns").update(campaign_update).eq(
+            sb.table("outreach_sends").update(campaign_update).eq(
                 "id", campaign["id"]
             ).execute()
 
@@ -452,7 +452,7 @@ class TrackingAgent(AgentBase[TrackingInput, TrackingOutput]):
         campaign: dict[str, Any] | None = None
         if tracking_id:
             res = (
-                sb.table("campaigns")
+                sb.table("outreach_sends")
                 .select("id, tenant_id, lead_id, status")
                 .eq("postal_tracking_number", tracking_id)
                 .limit(1)
@@ -461,7 +461,7 @@ class TrackingAgent(AgentBase[TrackingInput, TrackingOutput]):
             campaign = (res.data or [None])[0]
         if not campaign and order_id:
             res = (
-                sb.table("campaigns")
+                sb.table("outreach_sends")
                 .select("id, tenant_id, lead_id, status")
                 .eq("postal_provider_order_id", order_id)
                 .limit(1)
@@ -510,7 +510,7 @@ class TrackingAgent(AgentBase[TrackingInput, TrackingOutput]):
         # ------------------------------------------------------------
         campaign_update = project_pixart_campaign_update(event_type)
         if campaign_update:
-            sb.table("campaigns").update(campaign_update).eq(
+            sb.table("outreach_sends").update(campaign_update).eq(
                 "id", campaign["id"]
             ).execute()
 

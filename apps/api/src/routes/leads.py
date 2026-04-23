@@ -582,7 +582,7 @@ async def draft_followup(
 
     # Recent campaigns (last 5)
     cmp_res = (
-        sb.table("campaigns")
+        sb.table("outreach_sends")
         .select("sequence_step, status, sent_at, channel, email_subject, failure_reason")
         .eq("lead_id", lead_id)
         .order("sent_at", desc=True)
@@ -825,7 +825,7 @@ async def send_draft(
 
     # Sequence step: MAX(existing) + 1, floor 2 (manual follow-up is never step 1)
     steps_res = (
-        sb.table("campaigns")
+        sb.table("outreach_sends")
         .select("sequence_step")
         .eq("lead_id", lead_id)
         .order("sequence_step", desc=True)
@@ -837,7 +837,7 @@ async def send_draft(
 
     now_iso = datetime.now(timezone.utc).isoformat()
     camp_res = (
-        sb.table("campaigns")
+        sb.table("outreach_sends")
         .insert(
             {
                 "lead_id": lead_id,
@@ -896,7 +896,7 @@ async def send_draft(
         tenant_id,
         "lead.follow_up_sent",
         actor_user_id=ctx.sub,
-        target_table="campaigns",
+        target_table="outreach_sends",
         target_id=campaign_id,
         diff={"subject": body.subject, "sequence_step": next_step},
     )

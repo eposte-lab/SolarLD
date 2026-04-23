@@ -106,7 +106,7 @@ async def run_reputation_digest(
     #    'delivered' and 'failed' are both outcomes of attempts.
     # ------------------------------------------------------------------
     campaigns_res = (
-        sb.table("campaigns")
+        sb.table("outreach_sends")
         .select("tenant_id, lead_id, status")
         .eq("channel", OutreachChannel.EMAIL.value)
         .gte("sent_at", window_start_iso)

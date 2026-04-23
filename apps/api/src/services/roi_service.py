@@ -60,8 +60,12 @@ class RoiEstimate:
     co2_kg_per_year: float
     co2_tonnes_25_years: float
     self_consumption_ratio: float
+    # True when payback_years ≤ the tenant's roi_target_years.  Surfaces on
+    # the lead portal as a green "rientra nel tuo target ROI" badge and lets
+    # the creative agent personalise the email copy.
+    meets_roi_target: bool = True
 
-    def to_jsonb(self) -> dict[str, float | None]:
+    def to_jsonb(self) -> dict[str, float | None | bool]:
         """Shape the estimate for the `leads.roi_data` JSONB column."""
         return {
             "estimated_kwp": round(self.estimated_kwp, 2),
@@ -76,6 +80,7 @@ class RoiEstimate:
             "co2_kg_per_year": round(self.co2_kg_per_year, 0),
             "co2_tonnes_25_years": round(self.co2_tonnes_25_years, 1),
             "self_consumption_ratio": round(self.self_consumption_ratio, 2),
+            "meets_roi_target": self.meets_roi_target,
         }
 
 
@@ -84,6 +89,7 @@ def compute_roi(
     estimated_kwp: float | None,
     estimated_yearly_kwh: float | None,
     subject_type: str,
+    roi_target_years: int | None = None,
 ) -> RoiEstimate | None:
     """Compute lead-facing ROI.
 
@@ -138,6 +144,14 @@ def compute_roi(
 
     co2_per_year = yearly_kwh * CO2_KG_PER_KWH
 
+    # meets_roi_target: True when payback ≤ tenant's target, or when no
+    # target is set (default to True so the badge doesn't show as red
+    # for tenants that haven't configured the economico module yet).
+    if payback is None or roi_target_years is None or roi_target_years <= 0:
+        meets_target = True
+    else:
+        meets_target = payback <= roi_target_years
+
     return RoiEstimate(
         estimated_kwp=kwp,
         yearly_kwh=yearly_kwh,
@@ -149,6 +163,7 @@ def compute_roi(
         co2_kg_per_year=co2_per_year,
         co2_tonnes_25_years=co2_per_year * 25 / 1000.0,
         self_consumption_ratio=self_ratio,
+        meets_roi_target=meets_target,
     )
 
 

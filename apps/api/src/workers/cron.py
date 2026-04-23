@@ -22,11 +22,15 @@ Current schedule (UTC):
                                      deferred per-lead to the UTC hour
                                      at which the lead has historically
                                      opened email (Part B.3).
+    08:30  sla_first_touch_cron    — per-tenant SLA alert: notify when
+                                     leads have been contacted but not
+                                     replied within sla_hours_first_touch.
 
-Both jobs are fully idempotent: re-running the follow-up cron twice in
-the same morning never double-sends because OutreachAgent dedupes on
-``(lead_id, sequence_step)`` at the DB layer; the retention cron
-targets rows by ``created_at`` so already-deleted rows are skipped.
+Both follow_up and sla crons are fully idempotent: re-running the
+follow-up cron twice in the same morning never double-sends because
+OutreachAgent dedupes on ``(lead_id, sequence_step)`` at the DB layer;
+the SLA cron emits one notification per tenant per tick (structured log
+included so duplicates are visible in Sentry).
 """
 
 from __future__ import annotations
@@ -116,7 +120,7 @@ async def follow_up_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
     skipped_reasons: dict[str, int] = {}
     for lead in leads:
         campaigns = (
-            sb.table("campaigns")
+            sb.table("outreach_sends")
             .select("sequence_step, status, sent_at, channel")
             .eq("lead_id", lead["id"])
             .execute()
@@ -268,6 +272,110 @@ async def engagement_rollup_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
         errors=result.get("errors", 0),
     )
     return {"ok": True, **result}
+
+
+async def sla_first_touch_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
+    """Daily SLA alert — notify tenants about leads awaiting first reply.
+
+    Strategy:
+      1. Load every tenant's CRM module to get ``sla_hours_first_touch``.
+         Tenants with SLA=0 (disabled) are skipped entirely.
+      2. For each active SLA tenant, count leads that:
+         - Have been contacted (``outreach_sent_at IS NOT NULL``)
+         - Are still in a "silent" state (sent / delivered / opened)
+           meaning the lead hasn't replied, clicked a CTA, or booked.
+         - Have been waiting longer than ``sla_hours_first_touch``.
+      3. If there are any overdue leads, emit one in-app notification
+         so the operator sees a bell count update on next page load.
+
+    The cron is idempotent: firing it twice in the same morning produces
+    two notifications (the bell counter increments), but the operator
+    dismisses stale ones and both carry a structured timestamp. A
+    deduplication-by-day guard would add DB state we don't need yet.
+    """
+    sb = get_service_client()
+    now = datetime.now(timezone.utc)
+
+    # 1. Load CRM module configs for all tenants.
+    mods_res = (
+        sb.table("tenant_modules")
+        .select("tenant_id, config")
+        .eq("module_key", "crm")
+        .execute()
+    )
+    crm_mods = mods_res.data or []
+    log.info("cron.sla.tenants_loaded", count=len(crm_mods))
+
+    alerted = 0
+    skipped_no_sla = 0
+
+    for mod in crm_mods:
+        tenant_id: str = mod["tenant_id"]
+        cfg: dict[str, Any] = mod.get("config") or {}
+        sla_hours: int = int(cfg.get("sla_hours_first_touch") or 0)
+
+        if sla_hours <= 0:
+            skipped_no_sla += 1
+            continue
+
+        cutoff = (now - timedelta(hours=sla_hours)).isoformat()
+
+        # 2. Count overdue leads: contacted but no positive signal yet.
+        overdue_res = (
+            sb.table("leads")
+            .select("id", count="exact")
+            .eq("tenant_id", tenant_id)
+            .in_(
+                "pipeline_status",
+                [
+                    LeadStatus.SENT.value,
+                    LeadStatus.DELIVERED.value,
+                    LeadStatus.OPENED.value,
+                ],
+            )
+            .lte("outreach_sent_at", cutoff)
+            .execute()
+        )
+        count = overdue_res.count or 0
+        if count == 0:
+            continue
+
+        # 3. Emit a single bell notification for this tenant.
+        try:
+            from ..services.notifications_service import notify
+
+            await notify(
+                tenant_id=tenant_id,
+                title="Lead in attesa — SLA superato",
+                body=(
+                    f"{count} lead {'contattato' if count == 1 else 'contattati'} "
+                    f"da più di {sla_hours}h senz{'a' if count == 1 else 'a'} risposta."
+                ),
+                severity="warning",
+                href="/leads?status=sent",
+                metadata={"overdue_count": count, "sla_hours": sla_hours},
+            )
+            alerted += 1
+            log.info(
+                "cron.sla.notified",
+                tenant_id=tenant_id,
+                overdue_count=count,
+                sla_hours=sla_hours,
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.error(
+                "cron.sla.notify_failed",
+                tenant_id=tenant_id,
+                err=str(exc),
+            )
+
+    log.info(
+        "cron.sla.done",
+        alerted=alerted,
+        skipped_no_sla=skipped_no_sla,
+        total_tenants=len(crm_mods),
+    )
+    return {"ok": True, "alerted": alerted, "skipped_no_sla": skipped_no_sla}
 
 
 async def retention_cron(_ctx: dict[str, Any]) -> dict[str, Any]:

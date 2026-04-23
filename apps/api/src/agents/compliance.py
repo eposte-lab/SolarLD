@@ -71,7 +71,7 @@ class ComplianceAgent(AgentBase[ComplianceInput, ComplianceOutput]):
             if not lead_ids:
                 continue
             res = (
-                sb.table("campaigns")
+                sb.table("outreach_sends")
                 .update({"status": "cancelled", "failure_reason": "blacklisted"})
                 .in_("lead_id", lead_ids)
                 .eq("status", "pending")

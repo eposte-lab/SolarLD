@@ -33,6 +33,7 @@ from .cron import (
     reputation_digest_cron,
     retention_cron,
     send_time_rollup_cron,
+    sla_first_touch_cron,
     weekly_digest_cron,
 )
 
@@ -173,6 +174,7 @@ class WorkerSettings:
     #   07:00 every day  → daily_digest_cron       (opt-in feature flag)
     #   07:30 every day  → follow_up_cron          (reads best_send_hour)
     #   08:00 Mon        → weekly_digest_cron      (opt-in feature flag)
+    #   08:30 every day  → sla_first_touch_cron    (notify overdue leads)
     cron_jobs = [
         cron(reputation_digest_cron, hour=2, minute=30, run_at_startup=False),
         cron(retention_cron, hour=3, minute=15, run_at_startup=False),
@@ -187,6 +189,7 @@ class WorkerSettings:
             minute=0,
             run_at_startup=False,
         ),
+        cron(sla_first_touch_cron, hour=8, minute=30, run_at_startup=False),
     ]
     redis_settings = RedisSettings.from_dsn(settings.redis_url)
     max_jobs = 10

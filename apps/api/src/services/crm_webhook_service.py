@@ -20,6 +20,10 @@ Design:
     * Tenacity retries on 5xx / transport errors with exponential
       backoff. 4xx responses are considered terminal — we persist
       them and mark the subscription unhealthy after repeated 4xx.
+    * **Dead-letter queue**: when all tenacity retries are exhausted
+      (transport error or persistent 5xx) the failed envelope is
+      written to ``crm_webhook_dlq`` so operators can inspect and
+      replay it from the dashboard.
 
 Tests can import ``build_canonical_payload`` and ``sign`` to exercise
 the pure helpers without hitting the network.
@@ -194,6 +198,30 @@ async def dispatch_to_subscription(
             event=event_type,
             err=error,
         )
+        # All tenacity retries exhausted — persist to DLQ so the operator
+        # can inspect the failure and trigger a manual replay later.
+        try:
+            sb.table("crm_webhook_dlq").insert(
+                {
+                    "subscription_id": subscription["id"],
+                    "tenant_id": tenant_id,
+                    "event_type": event_type,
+                    "payload": envelope,
+                    "error": error,
+                }
+            ).execute()
+            log.info(
+                "crm_webhook.dlq_written",
+                subscription_id=subscription["id"],
+                event=event_type,
+            )
+        except Exception as dlq_exc:  # noqa: BLE001
+            # DLQ write must never surface to the caller — log and continue.
+            log.error(
+                "crm_webhook.dlq_write_failed",
+                subscription_id=subscription["id"],
+                dlq_error=str(dlq_exc),
+            )
 
     # Record the attempt regardless of outcome.
     sb.table("crm_webhook_deliveries").insert(

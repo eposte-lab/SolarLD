@@ -78,6 +78,8 @@ from ..services.pixart_service import (
     resolve_template_id,
     submit_letter_campaign,
 )
+from ..services import inbox_service
+from ..services.inbox_service import PAUSE_HOURS_429, PAUSE_HOURS_5XX
 from ..services.rate_limit_service import acquire_email_quota
 from ..services.resend_service import (
     RESEND_COST_PER_EMAIL_CENTS,
@@ -120,7 +122,7 @@ class OutreachInput(BaseModel):
 
 class OutreachOutput(BaseModel):
     lead_id: str
-    campaign_id: str | None = None
+    campaign_id: str | None = None         # outreach_sends row id
     provider_id: str | None = None         # Resend message id
     status: str = CampaignStatus.PENDING.value
     cost_cents: int = 0
@@ -180,7 +182,7 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
                 )
         else:
             existing = (
-                sb.table("campaigns")
+                sb.table("outreach_sends")
                 .select("id, status")
                 .eq("lead_id", payload.lead_id)
                 .eq("sequence_step", payload.sequence_step)
@@ -419,20 +421,18 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
         rendered = render_outreach_email(ctx)
 
         # ------------------------------------------------------------------
-        # 8) Deliverability rate-limit — protect sender reputation
+        # 8) Deliverability rate-limit — domain-level hourly cap
         #
-        # Two caps stacked behind a single call:
-        #   * warm-up daily cap (20/50/.../2000) if the domain is less
-        #     than 7 days old or has never been verified.
-        #   * steady-state hourly cap (tier default or per-tenant
-        #     settings.email_rate_per_hour override) otherwise.
+        # Two caps work together:
+        #   a) Domain-level (Redis): warm-up curve or hourly tier cap.
+        #      Protects the *domain* reputation from burst sends.
+        #   b) Inbox-level (Postgres, step 8b below): each inbox has its
+        #      own daily_cap enforced by InboxSelector.pick_and_claim().
+        #      Distributes volume across multiple sender addresses.
         #
         # On cap hit we *don't* create a campaigns row (unlike a send
-        # failure) — the skip is expected to retry on the next window.
-        # The follow-up cron re-evaluates candidates daily, so step-2/3
-        # naturally roll forward. Step-1 will retry when whatever
-        # originally enqueued it (CreativeAgent / manual dashboard
-        # action) re-enqueues.
+        # failure) — the skip retries on the next window. The follow-up
+        # cron re-evaluates candidates daily, so step-2/3 roll forward.
         # ------------------------------------------------------------------
         quota = await acquire_email_quota(tenant_row)
         if not quota.allowed:
@@ -461,16 +461,70 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
             )
 
         # ------------------------------------------------------------------
+        # 8b) Inbox selection — pick and claim a per-inbox send slot
+        #
+        # pick_and_claim() returns:
+        #   - An inbox row → use its email as the From address.
+        #   - None AND tenant has active inboxes → all at cap / paused
+        #     → skip this send (will retry on next cron tick).
+        #   - None AND tenant has NO inboxes → fall back to the legacy
+        #     single-inbox address derived from tenant.email_from_domain.
+        #
+        # The campaign_inbox_ids filter is reserved for campaign-level
+        # inbox restrictions (Phase A); today it is always None.
+        # ------------------------------------------------------------------
+        selected_inbox: dict[str, Any] | None = await inbox_service.pick_and_claim(
+            sb,
+            payload.tenant_id,
+            campaign_inbox_ids=None,
+        )
+
+        # Detect "inboxes exist but all blocked" vs "no inboxes at all".
+        has_multi_inbox = selected_inbox is not None or await _tenant_has_inboxes(
+            sb, payload.tenant_id
+        )
+
+        if selected_inbox is None and has_multi_inbox:
+            # Tenant has inboxes but none available right now.
+            log.info(
+                "outreach.inbox_cap_all_blocked",
+                lead_id=payload.lead_id,
+                tenant_id=payload.tenant_id,
+            )
+            return await self._record_skip(
+                payload=payload,
+                lead=lead,
+                reason="inbox_daily_cap",
+                event_type="lead.outreach_ratelimited",
+                event_extra={"inbox_selector": "all_blocked"},
+            )
+
+        # Resolve From address: multi-inbox or legacy single-inbox.
+        if selected_inbox is not None:
+            from_address = inbox_service.build_from_address(selected_inbox)
+            reply_to = (
+                selected_inbox.get("reply_to_email")
+                or _build_reply_to(tenant_row, lead.get("public_slug"))
+            )
+        else:
+            # Legacy path: outreach@{email_from_domain}
+            from_address = _build_from_address(tenant_row)
+            reply_to = _build_reply_to(tenant_row, lead.get("public_slug"))
+
+        inbox_id: str | None = (
+            str(selected_inbox["id"]) if selected_inbox else None
+        )
+
+        # ------------------------------------------------------------------
         # 9) Send via Resend
         # ------------------------------------------------------------------
-        from_address = _build_from_address(tenant_row)
         send_input = SendEmailInput(
             from_address=from_address,
             to=[recipient],
             subject=rendered.subject,
             html=rendered.html,
             text=rendered.text,
-            reply_to=_build_reply_to(tenant_row, lead.get("public_slug")),
+            reply_to=reply_to,
             tags={
                 "tenant_id": payload.tenant_id,
                 "lead_id": payload.lead_id,
@@ -485,7 +539,27 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
                 "outreach.resend_failed",
                 lead_id=payload.lead_id,
                 err=str(exc),
+                status_code=exc.status_code,
+                inbox_id=inbox_id,
             )
+            # Auto-pause the inbox on sender-side errors so other inboxes
+            # can continue. Recipient-side 4xx (bad address, etc.) leave
+            # the inbox healthy.
+            if inbox_id and exc.status_code:
+                if exc.status_code == 429:
+                    await inbox_service.pause_inbox(
+                        sb, inbox_id,
+                        hours=PAUSE_HOURS_429,
+                        reason=f"resend_429",
+                        tenant_id=payload.tenant_id,
+                    )
+                elif exc.status_code >= 500:
+                    await inbox_service.pause_inbox(
+                        sb, inbox_id,
+                        hours=PAUSE_HOURS_5XX,
+                        reason=f"resend_{exc.status_code}",
+                        tenant_id=payload.tenant_id,
+                    )
             return await self._record_failure(
                 payload=payload,
                 lead=lead,
@@ -513,11 +587,15 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
             "cost_cents": RESEND_COST_PER_EMAIL_CENTS,
             "status": CampaignStatus.SENT.value,
         }
+        # Attribute the send to the inbox that was used (for per-inbox
+        # deliverability analytics). Null when using legacy single-inbox path.
+        if inbox_id:
+            campaign_insert["inbox_id"] = inbox_id
         if experiment_id and experiment_variant:
             campaign_insert["experiment_id"] = experiment_id
             campaign_insert["experiment_variant"] = experiment_variant
         campaign_res = (
-            sb.table("campaigns").insert(campaign_insert).execute()
+            sb.table("outreach_sends").insert(campaign_insert).execute()
         )
         campaign_id = (
             (campaign_res.data[0]["id"])
@@ -666,7 +744,7 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
             "status": CampaignStatus.FAILED.value,
             "failure_reason": failure_reason,
         }
-        res = sb.table("campaigns").insert(failure_insert).execute()
+        res = sb.table("outreach_sends").insert(failure_insert).execute()
         campaign_id = res.data[0]["id"] if res.data else None
 
         await self._emit_event(
@@ -780,7 +858,7 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
         if result.stub:
             campaign_insert["failure_reason"] = "pixart_stub_mode"
         sb = get_service_client()
-        campaign_res = sb.table("campaigns").insert(campaign_insert).execute()
+        campaign_res = sb.table("outreach_sends").insert(campaign_insert).execute()
         campaign_id = campaign_res.data[0]["id"] if campaign_res.data else None
 
         if payload.sequence_step == 1:
@@ -936,7 +1014,7 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
             "cost_cents": WA_COST_PER_MESSAGE_CENTS,
             "status": CampaignStatus.SENT.value,
         }
-        campaign_res = sb.table("campaigns").insert(campaign_insert).execute()
+        campaign_res = sb.table("outreach_sends").insert(campaign_insert).execute()
         campaign_id = campaign_res.data[0]["id"] if campaign_res.data else None
 
         _log_api_cost(
@@ -1384,6 +1462,40 @@ def _log_api_cost(
 # ---------------------------------------------------------------------------
 
 
+async def _tenant_has_inboxes(sb: Any, tenant_id: str) -> bool:
+    """Return True if the tenant has at least one active inbox configured.
+
+    Used to distinguish "no inboxes at all → fall back to legacy" from
+    "inboxes exist but all capped/paused → skip this send attempt".
+    Cached in the worker process for 60 s via a simple module-level dict
+    to avoid a DB round-trip on every send.
+    """
+    import time as _time
+
+    _cache = _tenant_has_inboxes._cache  # type: ignore[attr-defined]
+    entry = _cache.get(tenant_id)
+    if entry and _time.monotonic() - entry[0] < 60:
+        return entry[1]
+    try:
+        res = (
+            sb.table("tenant_inboxes")
+            .select("id", count="exact")
+            .eq("tenant_id", tenant_id)
+            .eq("active", True)
+            .limit(1)
+            .execute()
+        )
+        result = bool(res.count and res.count > 0)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("outreach.has_inboxes_check_failed", tenant_id=tenant_id, err=str(exc))
+        result = False
+    _cache[tenant_id] = (_time.monotonic(), result)
+    return result
+
+
+_tenant_has_inboxes._cache: dict[str, tuple[float, bool]] = {}  # type: ignore[attr-defined]
+
+
 async def _monthly_outreach_budget(sb: Any, tenant_id: str) -> float | None:
     """Return the tenant's monthly outreach budget (€) from the economico module.
 
@@ -1421,7 +1533,7 @@ async def _monthly_campaign_spend_cents(sb: Any, tenant_id: str) -> int:
     first_of_month = date.today().replace(day=1).isoformat()
     try:
         res = (
-            sb.table("campaigns")
+            sb.table("outreach_sends")
             .select("cost_cents")
             .eq("tenant_id", tenant_id)
             .gte("created_at", first_of_month)
