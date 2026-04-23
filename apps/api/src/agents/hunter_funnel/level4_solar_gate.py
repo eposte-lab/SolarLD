@@ -25,6 +25,7 @@ import geohash  # type: ignore[import-untyped]
 import httpx
 
 from ...core.logging import get_logger
+from ...core.queue import enqueue
 from ...core.supabase_client import get_service_client
 from ...models.enums import RoofDataSource, RoofStatus
 from ...services.google_solar_service import (
@@ -181,7 +182,7 @@ async def _gate_one(
     verdict_accepted, reason = _apply_filters(insight, filters)
     classification = classify_roof(insight)
 
-    roof_id = _upsert_roof_and_subject(
+    roof_id, subject_id = _upsert_roof_and_subject(
         ctx=ctx,
         cand=cand,
         insight=insight,
@@ -194,6 +195,37 @@ async def _gate_one(
 
     verdict = "accepted" if verdict_accepted else "rejected_tech"
     _mark_verdict(cand.candidate_id, verdict, roof_id=roof_id)
+
+    # Promote qualified candidates to leads by enqueueing the Scoring Agent.
+    # The scoring task INSERTs a leads row on first run (see agents/scoring.py
+    # "Upsert lead row" block), which is what turns a L4-qualified subject
+    # into something OutreachAgent + /leads dashboard can consume. Without
+    # this enqueue the scan completes but Lead Attivi stays at 0.
+    # Idempotent via deterministic job_id: re-runs of the same scan collapse.
+    if verdict_accepted and roof_id is not None and subject_id is not None:
+        try:
+            await enqueue(
+                "scoring_task",
+                {
+                    "tenant_id": ctx.tenant_id,
+                    "roof_id": str(roof_id),
+                    "subject_id": str(subject_id),
+                },
+                job_id=f"scoring:{ctx.tenant_id}:{roof_id}:{subject_id}",
+            )
+        except Exception as exc:  # noqa: BLE001
+            # Scoring enqueue failure must not break the funnel — the manual
+            # POST /v1/leads/score-pending-subjects endpoint is the fallback.
+            log.warning(
+                "l4_scoring_enqueue_failed",
+                extra={
+                    "vat": cand.profile.vat_number,
+                    "roof_id": str(roof_id),
+                    "subject_id": str(subject_id),
+                    "err": str(exc),
+                },
+            )
+
     return "qualified" if verdict_accepted else "rejected_tech"
 
 
@@ -267,9 +299,10 @@ def _upsert_roof_and_subject(
     accepted: bool,
     reason: str | None,
     classification: str,
-) -> UUID | None:
+) -> tuple[UUID | None, UUID | None]:
     """Upsert `roofs` (keyed on tenant_id + geohash) and `subjects`
-    (one per roof). Returns the roof.id on success, None on DB error.
+    (one per roof). Returns (roof_id, subject_id). subject_id is None
+    when the roof was rejected (no subject created) or on DB error.
     """
     sb = get_service_client()
     gh = geohash.encode(insight.lat or lat, insight.lng or lng, precision=8)
@@ -315,11 +348,13 @@ def _upsert_roof_and_subject(
             "l4_roof_upsert_failed",
             extra={"vat": cand.profile.vat_number, "err": str(exc)},
         )
-        return None
+        return None, None
 
     roof_id = (up.data[0]["id"] if up.data else None)
     if roof_id is None:
-        return None
+        return None, None
+
+    subject_id: str | None = None
 
     # Subject — create only for accepted roofs, and only when we don't
     # already have one (re-scan idempotency).
@@ -333,35 +368,44 @@ def _upsert_roof_and_subject(
                 .limit(1)
                 .execute()
             )
-            if not existing.data:
-                sb.table("subjects").insert(
-                    {
-                        "tenant_id": ctx.tenant_id,
-                        "roof_id": roof_id,
-                        "type": "b2b",
-                        "business_name": cand.profile.legal_name,
-                        "business_website": cand.enrichment.website,
-                        "business_phone": cand.enrichment.phone,
-                        "vat_number": cand.profile.vat_number,
-                        "ateco_code": cand.profile.ateco_code,
-                        "employees": cand.profile.employees,
-                        "yearly_revenue_cents": cand.profile.yearly_revenue_cents,
-                        "raw_data": {
-                            "source": "funnel_v2",
-                            "decision_maker_name": cand.profile.decision_maker_name,
-                            "decision_maker_role": cand.profile.decision_maker_role,
-                            "linkedin_url": cand.profile.linkedin_url,
-                            "proxy_score": cand.score,
-                        },
-                    }
-                ).execute()
+            if existing.data:
+                subject_id = existing.data[0]["id"]
+            else:
+                ins = (
+                    sb.table("subjects").insert(
+                        {
+                            "tenant_id": ctx.tenant_id,
+                            "roof_id": roof_id,
+                            "type": "b2b",
+                            "business_name": cand.profile.legal_name,
+                            "business_website": cand.enrichment.website,
+                            "business_phone": cand.enrichment.phone,
+                            "vat_number": cand.profile.vat_number,
+                            "ateco_code": cand.profile.ateco_code,
+                            "employees": cand.profile.employees,
+                            "yearly_revenue_cents": cand.profile.yearly_revenue_cents,
+                            "raw_data": {
+                                "source": "funnel_v2",
+                                "decision_maker_name": cand.profile.decision_maker_name,
+                                "decision_maker_role": cand.profile.decision_maker_role,
+                                "linkedin_url": cand.profile.linkedin_url,
+                                "proxy_score": cand.score,
+                            },
+                        }
+                    ).execute()
+                )
+                if ins.data:
+                    subject_id = ins.data[0]["id"]
         except Exception as exc:  # noqa: BLE001
             log.warning(
                 "l4_subject_insert_failed",
                 extra={"vat": cand.profile.vat_number, "err": str(exc)},
             )
 
-    return UUID(str(roof_id)) if roof_id else None
+    return (
+        UUID(str(roof_id)) if roof_id else None,
+        UUID(str(subject_id)) if subject_id else None,
+    )
 
 
 def _mark_verdict(
