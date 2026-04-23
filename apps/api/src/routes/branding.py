@@ -369,13 +369,35 @@ async def get_domain_status(ctx: CurrentUser) -> DomainStatusResponse:
     if not domain_id:
         raise HTTPException(status_code=404, detail="No domain configured for this tenant")
 
+    domain_name: str = tenant.get("email_from_domain") or ""
+    already_verified_at: str | None = tenant.get("email_from_domain_verified_at")
+
     # trigger_verify=True fires POST /domains/{id}/verify on Resend so the
     # DNS check happens immediately instead of waiting for their background
     # polling interval (which can be up to 24 h on free plans).
-    result = await _fetch_domain_status(domain_id, trigger_verify=True)
+    try:
+        result = await _fetch_domain_status(domain_id, trigger_verify=True)
+    except HTTPException as exc:
+        # Resend returned 4xx (commonly 401 when the API key is a send-only
+        # restricted key). Fall back to the DB-cached state so the dashboard
+        # shows the correct badge instead of a perpetual 502 error.
+        log.warning(
+            "branding.domain_status_resend_error_fallback",
+            tenant_id=tenant_id,
+            domain_id=domain_id,
+            status_code=exc.status_code,
+        )
+        db_status = "verified" if already_verified_at else "pending"
+        return DomainStatusResponse(
+            domain_id=domain_id,
+            domain=domain_name,
+            status=db_status,
+            dns_records=[],
+            created_at=already_verified_at,
+        )
 
     # Stamp verification timestamp on first success
-    if result.status == "verified" and not tenant.get("email_from_domain_verified_at"):
+    if result.status == "verified" and not already_verified_at:
         sb.table("tenants").update(
             {"email_from_domain_verified_at": datetime.now(timezone.utc).isoformat()}
         ).eq("id", tenant_id).execute()
