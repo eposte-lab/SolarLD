@@ -80,6 +80,15 @@ export interface TenantRow {
   email_from_domain_verified_at?: string | null;
   tier: TenantTier;
   settings: TenantSettings;
+  /**
+   * Set once the installer confirms their territorial exclusivity at
+   * the end of onboarding. When not null, the dashboard hides the
+   * territory add / delete affordances and disables editing of the
+   * geographic fields in the sorgente module. Cleared only via ops
+   * endpoint `POST /v1/admin/tenants/:id/territory-unlock`.
+   */
+  territory_locked_at?: string | null;
+  territory_locked_by?: string | null;
 }
 
 /**

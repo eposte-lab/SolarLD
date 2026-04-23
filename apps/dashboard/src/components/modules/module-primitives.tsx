@@ -174,11 +174,16 @@ export function TagInput({
   value,
   onChange,
   placeholder,
+  readOnly = false,
+  readOnlyHint,
 }: {
   label: string;
   value: string[];
   onChange: (v: string[]) => void;
   placeholder?: string;
+  readOnly?: boolean;
+  /** Displayed in place of the "separa con virgole" hint when readOnly. */
+  readOnlyHint?: string;
 }) {
   return (
     <label className="block space-y-1">
@@ -187,17 +192,27 @@ export function TagInput({
         type="text"
         value={value.join(', ')}
         placeholder={placeholder}
+        readOnly={readOnly}
+        aria-readonly={readOnly}
+        tabIndex={readOnly ? -1 : 0}
         onChange={(e) => {
+          if (readOnly) return;
           const parts = e.target.value
             .split(',')
             .map((s) => s.trim())
             .filter(Boolean);
           onChange(parts);
         }}
-        className="w-full rounded-lg border border-outline-variant/40 bg-surface px-3 py-1.5 text-sm focus:border-primary focus:outline-none"
+        className={
+          readOnly
+            ? 'w-full cursor-not-allowed rounded-lg border border-outline-variant/40 bg-surface-container px-3 py-1.5 text-sm text-on-surface-variant'
+            : 'w-full rounded-lg border border-outline-variant/40 bg-surface px-3 py-1.5 text-sm focus:border-primary focus:outline-none'
+        }
       />
       <span className="block text-[11px] text-on-surface-variant">
-        Separa con virgole. Esempio: {placeholder ?? '10.51, 20.11'}
+        {readOnly
+          ? (readOnlyHint ?? 'Bloccato da contratto — contatta il supporto per modifiche.')
+          : `Separa con virgole. Esempio: ${placeholder ?? '10.51, 20.11'}`}
       </span>
     </label>
   );

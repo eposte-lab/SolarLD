@@ -40,7 +40,7 @@ export const getCurrentTenantContext = cache(async (): Promise<TenantContext | n
 
   const { data: member } = await supabase
     .from('tenant_members')
-    .select('tenant_id, role, tenants:tenants(id, business_name, brand_primary_color, brand_logo_url, contact_email, whatsapp_number, email_from_domain, email_from_name, email_from_domain_verified_at, tier, settings)')
+    .select('tenant_id, role, tenants:tenants(id, business_name, brand_primary_color, brand_logo_url, contact_email, whatsapp_number, email_from_domain, email_from_name, email_from_domain_verified_at, tier, settings, territory_locked_at, territory_locked_by)')
     .eq('user_id', user.id)
     .limit(1)
     .maybeSingle();

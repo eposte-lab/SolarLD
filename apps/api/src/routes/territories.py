@@ -9,6 +9,7 @@ from ..core.security import CurrentUser, require_tenant
 from ..core.supabase_client import get_service_client
 from ..models.territory import TerritoryCreate, TerritoryOut
 from ..services.hunter.grid import estimate_grid_cost
+from ..services.territory_lock_service import require_unlocked
 
 router = APIRouter()
 
@@ -30,6 +31,11 @@ async def list_territories(ctx: CurrentUser) -> list[dict[str, object]]:
 @router.post("", response_model=TerritoryOut, status_code=201)
 async def add_territory(ctx: CurrentUser, payload: TerritoryCreate) -> dict[str, object]:
     tenant_id = require_tenant(ctx)
+    # Contractual territorial exclusivity: once the tenant has confirmed
+    # their zone during onboarding, the API-level client (service role,
+    # bypassing RLS) must not create new territories either — ops path
+    # only via /v1/admin/tenants/:id/territory-unlock first.
+    require_unlocked(tenant_id, what="territory")
     sb = get_service_client()
     row = {
         "tenant_id": tenant_id,
@@ -47,6 +53,10 @@ async def add_territory(ctx: CurrentUser, payload: TerritoryCreate) -> dict[str,
 @router.delete("/{territory_id}")
 async def delete_territory(ctx: CurrentUser, territory_id: str) -> dict[str, bool]:
     tenant_id = require_tenant(ctx)
+    # Post-lock the tenant cannot shrink their zone by deleting rows.
+    # The RLS policy already blocks this from user-role clients, but
+    # the API uses service role (RLS-bypass), so we re-check here.
+    require_unlocked(tenant_id, what="territory")
     sb = get_service_client()
     sb.table("territories").delete().eq("id", territory_id).eq("tenant_id", tenant_id).execute()
     return {"ok": True}

@@ -233,7 +233,7 @@ async def patch_experiment(
     return row
 
 
-@router.delete("/{experiment_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{experiment_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
 async def delete_experiment(
     experiment_id: str,
     ctx: CurrentUser,

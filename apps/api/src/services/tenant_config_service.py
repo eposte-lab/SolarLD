@@ -95,16 +95,17 @@ class TenantConfig:
     max_employees: int | None
     min_revenue_eur: int | None
     max_revenue_eur: int | None
-    # Geographic preference from sorgente.regioni (e.g. ["Campania"]).
-    # Used as fallback geo filter when the territory type can't yield a
-    # province code (e.g. CAP without parent-province metadata).
-    geo_regioni: tuple[str, ...] = ()
 
     # L4 Solar-gate filters (also read as the scoring tier floor input)
     technical_b2b: TechnicalFilters
 
     # ScoringAgent — collapses leads below this tier to REJECTED
     scoring_threshold: int
+
+    # Geographic preference from sorgente.regioni (e.g. ["Campania"]).
+    # Used as fallback geo filter when the territory type can't yield a
+    # province code (e.g. CAP without parent-province metadata).
+    geo_regioni: tuple[str, ...] = ()
 
     # ---- Economico module ------------------------------------------------
     # Per-scan spend ceiling (€). Funnel aborts between levels once the

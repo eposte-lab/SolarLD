@@ -23,9 +23,21 @@ import {
 export interface ModuleSorgenteProps {
   value: SorgenteConfig;
   onChange: (v: SorgenteConfig) => void;
+  /**
+   * When true, the three geographic fields (province / regioni / cap)
+   * are rendered as read-only. Non-geo fields (ATECO, employees,
+   * revenue, B2C income bands) stay editable. Set to true once the
+   * tenant has confirmed their territorial exclusivity at the end of
+   * onboarding (`tenants.territory_locked_at IS NOT NULL`).
+   */
+  geoLocked?: boolean;
 }
 
-export function ModuleSorgente({ value, onChange }: ModuleSorgenteProps) {
+export function ModuleSorgente({
+  value,
+  onChange,
+  geoLocked = false,
+}: ModuleSorgenteProps) {
   function set<K extends keyof SorgenteConfig>(
     key: K,
     v: SorgenteConfig[K],
@@ -79,25 +91,32 @@ export function ModuleSorgente({ value, onChange }: ModuleSorgenteProps) {
 
       <FieldCard
         title="Geografia"
-        hint="Vince il più specifico: CAP > Provincia > Regione."
+        hint={
+          geoLocked
+            ? '🔒 Zona di esclusiva confermata — contatta il supporto per modifiche.'
+            : 'Vince il più specifico: CAP > Provincia > Regione.'
+        }
       >
         <TagInput
           label="Province (sigle)"
           value={value.province}
           onChange={(v) => set('province', v)}
           placeholder="NA, RM, MI"
+          readOnly={geoLocked}
         />
         <TagInput
           label="Regioni"
           value={value.regioni}
           onChange={(v) => set('regioni', v)}
           placeholder="Campania, Lazio"
+          readOnly={geoLocked}
         />
         <TagInput
           label="CAP"
           value={value.cap}
           onChange={(v) => set('cap', v)}
           placeholder="80100, 00100"
+          readOnly={geoLocked}
         />
       </FieldCard>
 

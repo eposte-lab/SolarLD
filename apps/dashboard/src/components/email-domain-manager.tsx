@@ -259,7 +259,11 @@ export function EmailDomainManager({
             {loading ? 'Connessione…' : domainStatus ? 'Aggiorna dominio' : 'Aggiungi dominio'}
           </button>
 
-          {domainStatus && (
+          {/* Show Ricontrolla whenever a domain is configured — even if the
+              SSR status fetch failed (network timeout, cookie expiry, etc.)
+              and domainStatus is null. The domain field itself is the source
+              of truth: if it's non-empty we know a domain was registered. */}
+          {(domainStatus || initialDomain) && (
             <button
               type="button"
               disabled={checking}

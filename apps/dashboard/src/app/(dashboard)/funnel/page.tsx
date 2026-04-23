@@ -11,18 +11,20 @@
  *   - Drop-off rispetto allo step precedente (% pass-through)
  *   - Linea visuale di riduzione (bar proporzionale)
  *
- * Costo attribution in fondo: totale scan spend + costo/contatto,
- * costo/lead qualificato, costo/inviato.
+ * La strip con le metriche di costo (€/contatto, €/lead, €/inviato, spesa
+ * totale) è stata rimossa: l'installatore paga una tariffa flat e i costi
+ * per-scan sono un dettaglio di back-office, non un'informazione
+ * commercialmente rilevante. La spesa resta visibile solo a ops via
+ * `/v1/admin/cost-report`.
  */
 
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 
-import { BentoCard, BentoGrid } from '@/components/ui/bento-card';
-import { KpiChipCard } from '@/components/ui/kpi-chip-card';
+import { BentoCard } from '@/components/ui/bento-card';
 import { getScanFunnel } from '@/lib/data/contatti';
 import { getCurrentTenantContext } from '@/lib/data/tenant';
-import { cn, formatEurPlain, formatNumber, formatPercent } from '@/lib/utils';
+import { cn, formatNumber, formatPercent } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
 
@@ -55,7 +57,7 @@ export default async function FunnelPage() {
   if (!ctx) redirect('/login');
 
   const funnel = await getScanFunnel();
-  const { discovery: d, pipeline: p, cost: c } = funnel;
+  const { discovery: d, pipeline: p } = funnel;
 
   const maxDisc = d.l1 || 1;
   const maxPipe = p.leads_total || 1;
@@ -71,50 +73,6 @@ export default async function FunnelPage() {
           Funnel
         </h1>
       </header>
-
-      {/* Cost attribution KPI strip */}
-      <BentoGrid cols={4}>
-        <KpiChipCard
-          label="Spesa scan totale"
-          value={
-            c.total_scan_cost_cents > 0
-              ? formatEurPlain(c.total_scan_cost_cents / 100)
-              : '—'
-          }
-          hint="Atoka + Solar + Claude"
-          accent="neutral"
-        />
-        <KpiChipCard
-          label="Costo / contatto"
-          value={
-            c.cost_per_contact_cents != null
-              ? formatEurPlain(c.cost_per_contact_cents / 100)
-              : '—'
-          }
-          hint="€ per L1 scoperto"
-          accent="primary"
-        />
-        <KpiChipCard
-          label="Costo / lead"
-          value={
-            c.cost_per_lead_cents != null
-              ? formatEurPlain(c.cost_per_lead_cents / 100)
-              : '—'
-          }
-          hint="€ per lead qualificato"
-          accent="tertiary"
-        />
-        <KpiChipCard
-          label="Costo / inviato"
-          value={
-            c.cost_per_sent_cents != null
-              ? formatEurPlain(c.cost_per_sent_cents / 100)
-              : '—'
-          }
-          hint="€ per primo outreach"
-          accent="secondary"
-        />
-      </BentoGrid>
 
       {/* Discovery block */}
       <BentoCard span="full">

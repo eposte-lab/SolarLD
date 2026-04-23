@@ -28,6 +28,7 @@ from pydantic import BaseModel, Field
 
 from ..core.security import CurrentUser
 from ..core.supabase_client import get_service_client
+from ..services.territory_lock_service import unlock as territory_unlock
 
 router = APIRouter()
 
@@ -181,6 +182,29 @@ async def update_tenant(
     if not res.data:
         raise HTTPException(status_code=404, detail="tenant not found")
     return res.data[0]
+
+
+# ---------------------------------------------------------------------------
+# Territory lock override (ops-only escape hatch)
+# ---------------------------------------------------------------------------
+
+
+@router.post("/tenants/{tenant_id}/territory-unlock")
+async def unlock_territory(ctx: CurrentUser, tenant_id: str) -> dict[str, Any]:
+    """Clear the territorial exclusivity lock for a tenant.
+
+    This is the only way to reverse a `territory-confirm`. Reserved
+    for ops because unlocking a tenant effectively re-opens a signed
+    commercial commitment. Audit trail lives in the application logs
+    (`territory_lock.unset` with tenant_id).
+    """
+    _require_super_admin(ctx)
+    row = territory_unlock(tenant_id)
+    return {
+        "tenant_id": tenant_id,
+        "territory_locked_at": row.get("territory_locked_at"),
+        "territory_locked_by": row.get("territory_locked_by"),
+    }
 
 
 # ---------------------------------------------------------------------------

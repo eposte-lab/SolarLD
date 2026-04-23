@@ -8,7 +8,10 @@ import {
   listRecentNotifications,
 } from '@/lib/data/notifications';
 import { getCurrentTenantContext } from '@/lib/data/tenant';
-import { isOnboardingPending } from '@/lib/data/tenantConfig';
+import {
+  isOnboardingPending,
+  isTerritoryConfirmPending,
+} from '@/lib/data/tenantConfig';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 
 /**
@@ -69,6 +72,12 @@ export default async function DashboardLayout({
 
   if (pending) {
     redirect('/onboarding');
+  }
+
+  // Final gate: modules done but the installer hasn't confirmed the
+  // territorial exclusivity yet — route them to the confirm step.
+  if (isTerritoryConfirmPending(ctx.tenant)) {
+    redirect('/onboarding/territory-confirm');
   }
 
   return (

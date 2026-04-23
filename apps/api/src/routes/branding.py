@@ -369,7 +369,10 @@ async def get_domain_status(ctx: CurrentUser) -> DomainStatusResponse:
     if not domain_id:
         raise HTTPException(status_code=404, detail="No domain configured for this tenant")
 
-    result = await _fetch_domain_status(domain_id)
+    # trigger_verify=True fires POST /domains/{id}/verify on Resend so the
+    # DNS check happens immediately instead of waiting for their background
+    # polling interval (which can be up to 24 h on free plans).
+    result = await _fetch_domain_status(domain_id, trigger_verify=True)
 
     # Stamp verification timestamp on first success
     if result.status == "verified" and not tenant.get("email_from_domain_verified_at"):
@@ -750,12 +753,38 @@ def _resend_headers() -> dict[str, str]:
     }
 
 
-async def _fetch_domain_status(domain_id: str) -> DomainStatusResponse:
-    """GET /domains/{id} → DomainStatusResponse."""
+async def _fetch_domain_status(
+    domain_id: str, *, trigger_verify: bool = False
+) -> DomainStatusResponse:
+    """GET /domains/{id} → DomainStatusResponse.
+
+    When ``trigger_verify=True`` we first fire ``POST /domains/{id}/verify``
+    to ask Resend to re-check the DNS records immediately rather than waiting
+    for their background polling interval (up to 24 h).  The verify call is
+    best-effort: we log failures but never let them block the status read.
+    """
     if not settings.resend_api_key:
         raise HTTPException(status_code=503, detail="Resend API key not configured")
 
     async with httpx.AsyncClient(timeout=15.0) as client:
+        if trigger_verify:
+            try:
+                vresp = await client.post(
+                    f"{_RESEND_API}/domains/{domain_id}/verify",
+                    headers=_resend_headers(),
+                )
+                log.info(
+                    "branding.domain_verify_triggered",
+                    domain_id=domain_id,
+                    status=vresp.status_code,
+                )
+            except Exception as exc:  # noqa: BLE001
+                log.warning(
+                    "branding.domain_verify_trigger_failed",
+                    domain_id=domain_id,
+                    err=str(exc),
+                )
+
         resp = await client.get(
             f"{_RESEND_API}/domains/{domain_id}",
             headers=_resend_headers(),

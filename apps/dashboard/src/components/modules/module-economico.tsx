@@ -1,11 +1,16 @@
 'use client';
 
 /**
- * Module `economico` — pricing + budget caps.
+ * Module `economico` — parametri commerciali.
  *
- * The key value is `budget_scan_eur`: the orchestrator short-circuits
- * levels past this cap. Installers typically want €5-50/scan for
- * Precision and €1-5/scan for Volume modes.
+ * UI surface is intentionally restricted to ticket medio + ROI target.
+ * The per-scan / monthly outreach budget caps (`budget_scan_eur`,
+ * `budget_outreach_eur_month`) stay in the backend schema as operational
+ * safety nets managed by ops — the installer never sees or tweaks them,
+ * since they pay a flat monthly fee and per-lead economics are not
+ * their concern. The form passes through the persisted values untouched
+ * so the backend continues to enforce cost caps with ops-controlled
+ * defaults.
  */
 
 import type { EconomicoConfig } from '@/types/modules';
@@ -27,7 +32,10 @@ export function ModuleEconomico({ value, onChange }: ModuleEconomicoProps) {
 
   return (
     <div className="space-y-4">
-      <FieldCard title="Offerta & ROI">
+      <FieldCard
+        title="Parametri commerciali"
+        hint="Usati per stimare ROI dei tetti e calibrare la narrativa dei preventivi."
+      >
         <NumberField
           label="Ticket medio"
           value={value.ticket_medio_eur}
@@ -37,34 +45,12 @@ export function ModuleEconomico({ value, onChange }: ModuleEconomicoProps) {
           step={500}
         />
         <NumberField
-          label="ROI target"
+          label="ROI target (payback)"
           value={value.roi_target_years}
           onChange={(v) => set('roi_target_years', v ?? 0)}
           suffix="anni"
           min={1}
           max={30}
-        />
-      </FieldCard>
-
-      <FieldCard
-        title="Budget"
-        hint="Il funnel si ferma quando il costo accumulato supera il cap per scan."
-      >
-        <NumberField
-          label="Budget per scan"
-          value={value.budget_scan_eur}
-          onChange={(v) => set('budget_scan_eur', v ?? 0)}
-          suffix="€"
-          min={0}
-          step={5}
-        />
-        <NumberField
-          label="Budget outreach mensile"
-          value={value.budget_outreach_eur_month}
-          onChange={(v) => set('budget_outreach_eur_month', v ?? 0)}
-          suffix="€"
-          min={0}
-          step={50}
         />
       </FieldCard>
     </div>

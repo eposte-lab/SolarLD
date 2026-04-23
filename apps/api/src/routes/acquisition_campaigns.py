@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, status
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from ..core.logging import get_logger
@@ -248,11 +249,11 @@ async def update_acquisition_campaign(
 # ---------------------------------------------------------------------------
 
 
-@router.delete("/{campaign_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{campaign_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
 async def archive_acquisition_campaign(
     campaign_id: str,
     ctx: CurrentUser,
-) -> None:
+) -> Response:
     """Archive an acquisition campaign (soft-delete: status → 'archived').
 
     Hard delete is intentionally not exposed: outreach_sends rows that
@@ -304,6 +305,7 @@ async def archive_acquisition_campaign(
         ) from exc
 
     log.info("acq_campaigns.archived", tenant_id=tenant_id, campaign_id=campaign_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 # ---------------------------------------------------------------------------

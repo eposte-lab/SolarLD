@@ -15,10 +15,19 @@ import { redirect } from 'next/navigation';
 import { ModularWizardShell } from '@/components/modules/ModularWizardShell';
 import { getCurrentTenantContext } from '@/lib/data/tenant';
 import { getModulesForTenant } from '@/lib/data/modules.server';
+import { isOnboardingPending } from '@/lib/data/tenantConfig';
 
 export default async function OnboardingPage() {
   const ctx = await getCurrentTenantContext();
   if (!ctx) redirect('/login');
+
+  // If the 5 modules are already saved, skip directly to the final
+  // territorial-confirm step. The layout guarantees that reaching
+  // `/onboarding` at all means at least one step is still pending.
+  const pending = await isOnboardingPending(ctx.tenant.id);
+  if (!pending) {
+    redirect('/onboarding/territory-confirm');
+  }
 
   const modules = await getModulesForTenant(ctx.tenant.id);
 

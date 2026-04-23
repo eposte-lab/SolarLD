@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, status
+from fastapi.responses import Response
 from pydantic import BaseModel, EmailStr, Field
 
 from ..core.logging import get_logger
@@ -300,8 +301,8 @@ async def unpause_inbox(inbox_id: str, ctx: CurrentUser) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-@router.delete("/{inbox_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_inbox(inbox_id: str, ctx: CurrentUser) -> None:
+@router.delete("/{inbox_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
+async def delete_inbox(inbox_id: str, ctx: CurrentUser) -> Response:
     """Permanently delete an inbox.
 
     Historical ``campaigns`` rows referencing this inbox will have their
@@ -331,3 +332,4 @@ async def delete_inbox(inbox_id: str, ctx: CurrentUser) -> None:
             detail="Inbox not found or not owned by this tenant",
         )
     log.info("inboxes.deleted", tenant_id=tenant_id, inbox_id=inbox_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

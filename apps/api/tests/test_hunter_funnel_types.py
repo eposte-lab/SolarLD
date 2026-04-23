@@ -54,9 +54,12 @@ def test_derive_geo_from_cap_with_parent_province():
     assert _derive_geo_filters(territory) == ("NA", None)
 
 
-def test_derive_geo_from_cap_without_parent_returns_none():
+def test_derive_geo_from_cap_without_parent_falls_back_to_prefix_lookup():
+    # CAP 80100 has prefix "80" which maps to "NA" (Napoli) in the built-in
+    # _CAP_PREFIX_TO_PROVINCE table.  Since commit 8c085e4 the function does
+    # this lookup automatically even without explicit metadata.provincia.
     territory = {"type": "cap", "code": "80100"}
-    assert _derive_geo_filters(territory) == (None, None)
+    assert _derive_geo_filters(territory) == ("NA", None)
 
 
 def test_derive_geo_unknown_type_returns_none():

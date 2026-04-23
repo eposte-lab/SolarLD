@@ -41,6 +41,7 @@ from ..services.tenant_module_service import (
     upsert_module,
     validate_config,
 )
+from ..services.territory_lock_service import reject_geo_change
 
 router = APIRouter()
 log = get_logger(__name__)
@@ -173,6 +174,18 @@ async def upsert_one_module(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Provide at least one of `config` or `active`.",
+        )
+
+    # Territorial exclusivity: if the tenant confirmed their zone at
+    # onboarding, the three geo fields of `sorgente` (regioni/province/
+    # cap) are frozen. Non-geo fields (ATECO, employees, revenue, B2C
+    # income) remain editable.
+    if module_key == "sorgente" and payload.config is not None:
+        current = await get_module(tenant_id, module_key)
+        reject_geo_change(
+            tenant_id,
+            current=current.config,
+            proposed=payload.config,
         )
 
     try:

@@ -49,3 +49,15 @@ export async function isOnboardingPending(tenantId: string): Promise<boolean> {
   const present = new Set((data ?? []).map((r) => r.module_key));
   return REQUIRED_MODULES.some((k) => !present.has(k));
 }
+
+/**
+ * Last step of onboarding: the installer must confirm (and freeze) the
+ * territorial exclusivity. Derived purely from the already-loaded
+ * tenant row — no DB call — so layouts can chain it cheaply after
+ * `isOnboardingPending`.
+ */
+export function isTerritoryConfirmPending(
+  tenant: { territory_locked_at?: string | null },
+): boolean {
+  return !tenant.territory_locked_at;
+}

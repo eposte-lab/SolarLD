@@ -1,7 +1,10 @@
 import { redirect } from 'next/navigation';
 
 import { getCurrentTenantContext } from '@/lib/data/tenant';
-import { isOnboardingPending } from '@/lib/data/tenantConfig';
+import {
+  isOnboardingPending,
+  isTerritoryConfirmPending,
+} from '@/lib/data/tenantConfig';
 
 /**
  * Onboarding-only shell.
@@ -25,7 +28,10 @@ export default async function OnboardingLayout({
   if (!ctx) redirect('/login');
 
   const pending = await isOnboardingPending(ctx.tenant.id);
-  if (!pending) {
+  const territoryPending = isTerritoryConfirmPending(ctx.tenant);
+
+  // Already fully onboarded (5 modules + territory confirmed) → dashboard.
+  if (!pending && !territoryPending) {
     redirect('/');
   }
 

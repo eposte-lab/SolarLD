@@ -44,10 +44,11 @@ export default async function ModuleEditPage({
   if (!ctx) redirect('/login');
 
   const moduleData = await getModuleForTenant(ctx.tenant.id, key);
+  const territoryLocked = Boolean(ctx.tenant.territory_locked_at);
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
-      <ModulePanel module={moduleData} />
+      <ModulePanel module={moduleData} territoryLocked={territoryLocked} />
     </div>
   );
 }

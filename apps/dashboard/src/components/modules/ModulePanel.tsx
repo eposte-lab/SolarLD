@@ -49,12 +49,20 @@ export interface ModulePanelProps {
   module: TenantModule;
   onSaved?: (m: TenantModule) => void;
   ctaLabel?: string;
+  /**
+   * When true, the Sorgente form renders its three geographic fields
+   * (province / regioni / cap) as read-only. Passed from `/settings/
+   * modules/sorgente` once the tenant has confirmed their territorial
+   * exclusivity. Other modules ignore it.
+   */
+  territoryLocked?: boolean;
 }
 
 export function ModulePanel({
   module,
   onSaved,
   ctaLabel = 'Salva modulo',
+  territoryLocked = false,
 }: ModulePanelProps) {
   // Boundary hydration — one single shot at the edge of the form tree.
   //
@@ -131,6 +139,7 @@ export function ModulePanel({
         moduleKey={module.module_key}
         config={config}
         onChange={setConfig}
+        territoryLocked={territoryLocked}
       />
 
       {error && (
@@ -167,10 +176,12 @@ function FormForKey({
   moduleKey,
   config,
   onChange,
+  territoryLocked = false,
 }: {
   moduleKey: ModuleKey;
   config: unknown;
   onChange: (v: unknown) => void;
+  territoryLocked?: boolean;
 }) {
   switch (moduleKey) {
     case 'sorgente':
@@ -178,6 +189,7 @@ function FormForKey({
         <ModuleSorgente
           value={config as SorgenteConfig}
           onChange={(v) => onChange(v)}
+          geoLocked={territoryLocked}
         />
       );
     case 'tecnico':

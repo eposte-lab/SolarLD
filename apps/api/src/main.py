@@ -35,6 +35,7 @@ from .routes import (
     leads,
     modules,
     notifications,
+    onboarding,
     outreach_sends,
     public,
     tenants,
@@ -92,6 +93,7 @@ app.include_router(health.router)
 app.include_router(auth.router, prefix="/v1/auth", tags=["auth"])
 app.include_router(tenants.router, prefix="/v1/tenants", tags=["tenants"])
 app.include_router(modules.router, prefix="/v1/modules", tags=["modules"])
+app.include_router(onboarding.router, prefix="/v1/onboarding", tags=["onboarding"])
 app.include_router(territories.router, prefix="/v1/territories", tags=["territories"])
 app.include_router(leads.router, prefix="/v1/leads", tags=["leads"])
 # /v1/campaigns kept for backward compat (returns outreach_sends data)

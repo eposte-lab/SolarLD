@@ -80,6 +80,11 @@ export async function createTerritory(formData: FormData): Promise<void> {
   const ctx = await getCurrentTenantContext();
   if (!ctx) redirect('/login');
 
+  // Contractual territorial exclusivity: frozen post-onboarding.
+  if (ctx.tenant.territory_locked_at) {
+    redirect('/territories?error=territory_locked');
+  }
+
   const type = assertType(formData.get('type') as string | null);
   const code = String(formData.get('code') ?? '').trim();
   const name = String(formData.get('name') ?? '').trim();
@@ -121,6 +126,15 @@ export async function createTerritory(formData: FormData): Promise<void> {
 // ---------------------------------------------------------------------------
 
 export async function deleteTerritory(formData: FormData): Promise<void> {
+  const ctx = await getCurrentTenantContext();
+  if (!ctx) redirect('/login');
+
+  // Post-lock the zone is frozen; the button shouldn't be rendered but
+  // if it leaks through (stale page, direct POST) reject explicitly.
+  if (ctx.tenant.territory_locked_at) {
+    redirect('/territories?error=territory_locked');
+  }
+
   const id = String(formData.get('id') ?? '').trim();
   if (!id) redirect('/territories?error=missing_id');
 

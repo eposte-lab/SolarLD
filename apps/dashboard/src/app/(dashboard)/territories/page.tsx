@@ -62,6 +62,9 @@ const ERROR_COPY: Record<string, string> = {
     'Impossibile raggiungere il server API. ' +
     'Controlla che NEXT_PUBLIC_API_URL punti al tuo servizio Railway ' +
     '(es. https://tuo-progetto.up.railway.app).',
+  territory_locked:
+    'Zona di esclusiva bloccata da contratto. ' +
+    'Contatta il supporto per richiederne la modifica.',
 };
 
 function formatDate(iso: string): string {
@@ -101,6 +104,12 @@ export default async function TerritoriesPage({
   const scanSummaries = await listScanSummaries(rows.map((r) => r.id));
   const flash = buildFlash(sp, rows, scanSummaries);
 
+  // Territorial exclusivity: once the installer has confirmed their
+  // zone at the end of onboarding, the add-form and delete buttons
+  // disappear and a lock banner takes their place. Scan button stays
+  // enabled — the user can still run the funnel, just not widen/shrink.
+  const isLocked = Boolean(ctx.tenant.territory_locked_at);
+
   return (
     <div className="space-y-6">
       <Header tenantName={ctx.tenant.business_name} summary={summary} />
@@ -108,21 +117,66 @@ export default async function TerritoriesPage({
       {/* Pipeline explainer — always visible, compact */}
       <PipelineBanner />
 
+      {isLocked && <LockBanner lockedAt={ctx.tenant.territory_locked_at!} />}
       {flash && <FlashBanner flash={flash} />}
 
-      <BentoGrid cols={3}>
-        <BentoCard span="1x1" variant="default">
-          <TerritoryAddForm />
-        </BentoCard>
-
-        <BentoCard span="2x1" padding="tight">
+      {isLocked ? (
+        <BentoCard span="full" padding="tight">
           {rows.length === 0 ? (
             <EmptyState />
           ) : (
-            <TerritoryTable rows={rows} scanSummaries={scanSummaries} />
+            <TerritoryTable
+              rows={rows}
+              scanSummaries={scanSummaries}
+              isLocked
+            />
           )}
         </BentoCard>
-      </BentoGrid>
+      ) : (
+        <BentoGrid cols={3}>
+          <BentoCard span="1x1" variant="default">
+            <TerritoryAddForm />
+          </BentoCard>
+
+          <BentoCard span="2x1" padding="tight">
+            {rows.length === 0 ? (
+              <EmptyState />
+            ) : (
+              <TerritoryTable rows={rows} scanSummaries={scanSummaries} />
+            )}
+          </BentoCard>
+        </BentoGrid>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Lock banner
+// ---------------------------------------------------------------------------
+
+function LockBanner({ lockedAt }: { lockedAt: string }) {
+  const when = (() => {
+    try {
+      return new Date(lockedAt).toLocaleDateString('it-IT', {
+        year: 'numeric',
+        month: 'long',
+        day: '2-digit',
+      });
+    } catch {
+      return lockedAt;
+    }
+  })();
+  return (
+    <div
+      role="status"
+      className="flex flex-wrap items-center gap-3 rounded-xl bg-primary-container px-5 py-3 text-sm font-semibold text-on-primary-container shadow-ambient-sm"
+    >
+      <span aria-hidden>🔒</span>
+      <span>
+        Zona di esclusiva confermata il <strong>{when}</strong>. Per
+        modificare i territori contatta il supporto.
+      </span>
     </div>
   );
 }
@@ -331,9 +385,11 @@ function EmptyState() {
 function TerritoryTable({
   rows,
   scanSummaries,
+  isLocked = false,
 }: {
   rows: TerritoryRow[];
   scanSummaries: Map<string, ScanSummary>;
+  isLocked?: boolean;
 }) {
   return (
     <div className="overflow-hidden rounded-lg bg-surface-container-low">
@@ -401,7 +457,7 @@ function TerritoryTable({
               <td className="px-5 py-4">
                 <div className="flex items-center justify-end gap-3">
                   <ScanButton id={t.id} name={t.name} hasBbox={Boolean(t.bbox)} />
-                  <DeleteButton id={t.id} name={t.name} />
+                  {!isLocked && <DeleteButton id={t.id} name={t.name} />}
                 </div>
               </td>
             </tr>
