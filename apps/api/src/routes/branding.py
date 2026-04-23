@@ -830,11 +830,26 @@ async def _fetch_domain_status(
         for r in records_raw:
             if not isinstance(r, dict):
                 continue
+            rec_type = str(r.get("type") or "").upper()
+            rec_name = str(r.get("name") or "")
+            rec_value = str(r.get("value") or r.get("record") or "")
+
+            # Resend returns DKIM TXT values as bare `p=<pubkey>` without the
+            # required `v=DKIM1; k=rsa;` preamble. DNS providers expect the
+            # full value — prepend it here so the "Copia" button gives the user
+            # exactly what they need to paste into IONOS / Cloudflare / Aruba.
+            if (
+                rec_type == "TXT"
+                and "_domainkey" in rec_name.lower()
+                and rec_value.startswith("p=")
+            ):
+                rec_value = f"v=DKIM1; k=rsa; {rec_value}"
+
             dns_records.append(
                 DnsRecord(
-                    type=str(r.get("type") or "").upper(),
-                    name=str(r.get("name") or ""),
-                    value=str(r.get("value") or r.get("record") or ""),
+                    type=rec_type,
+                    name=rec_name,
+                    value=rec_value,
                     priority=_opt_int(r.get("priority")),
                     ttl=_opt_int(r.get("ttl")),
                     status=str(r.get("status") or "not_started"),
