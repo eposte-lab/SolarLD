@@ -105,7 +105,7 @@ export async function getGeoLeads(): Promise<{
        outreach_opened_at, outreach_clicked_at, created_at,
        roofs:roofs(provincia, comune)`,
     )
-    .not('pipeline_status', 'in', '("rejected","blacklisted")')
+    .not('pipeline_status', 'in', '("blacklisted")')
     .order('score', { ascending: false })
     .limit(500);
 
@@ -219,7 +219,7 @@ export async function getPipelineRevenue(): Promise<PipelineStageRevenue[]> {
   const { data, error } = await supabase
     .from('leads')
     .select('pipeline_status, roi_data')
-    .not('pipeline_status', 'in', '("rejected","blacklisted","closed_lost")');
+    .not('pipeline_status', 'in', '("blacklisted","closed_lost")');
 
   if (error) throw new Error(`getPipelineRevenue: ${error.message}`);
 
