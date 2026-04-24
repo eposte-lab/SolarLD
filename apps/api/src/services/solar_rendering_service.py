@@ -22,7 +22,7 @@ import math
 import struct
 
 import httpx
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageSequence
 
 from ..core.logging import get_logger
 from .google_solar_service import (
@@ -184,6 +184,59 @@ class _GeoTransform:
         return deg / self.scale_y  # use latitude scale (scale_y) as base
 
 
+def _to_doubles(v: object) -> list[float]:
+    """Normalise a TIFF tag value into a list of doubles."""
+    if isinstance(v, (list, tuple)):
+        return [float(x) for x in v]
+    if isinstance(v, bytes):
+        n = len(v) // 8
+        if n == 0:
+            raise SolarRenderingError("empty GeoTIFF tag bytes")
+        return list(struct.unpack(f"<{n}d", v))
+    return [float(v)]  # type: ignore[arg-type]
+
+
+def _find_georef_page(img: Image.Image) -> Image.Image:
+    """Return the first IFD in the TIFF that carries georeference tags.
+
+    Google Solar GeoTIFFs sometimes place the tags in a non-primary IFD
+    (e.g. a sub-IFD for the full-resolution layer while IFD0 holds an
+    overview).  Pillow's ``Image.open`` returns IFD0 by default, so we
+    iterate through ``ImageSequence.Iterator`` to find the right one.
+
+    Raises SolarRenderingError if NO page has both tags, logging the
+    tag IDs seen in each page so we can diagnose format surprises.
+    """
+    pages_seen: list[dict[str, object]] = []
+    for idx, page in enumerate(ImageSequence.Iterator(img)):
+        tags = getattr(page, "tag_v2", None)
+        if tags is None:
+            pages_seen.append({"idx": idx, "size": page.size, "tags": None})
+            continue
+        tag_ids = list(tags.keys())
+        pages_seen.append({
+            "idx": idx,
+            "size": page.size,
+            "mode": page.mode,
+            "tag_ids": sorted(tag_ids),
+        })
+        if 33550 in tags and 33922 in tags:
+            log.info(
+                "solar_rendering.georef_page_found",
+                ifd=idx,
+                size=page.size,
+                mode=page.mode,
+            )
+            return page
+    # Nothing matched — log everything we saw so the error is actionable.
+    log.error("solar_rendering.no_georef_page", pages=pages_seen)
+    raise SolarRenderingError(
+        "GeoTIFF missing ModelPixelScaleTag (33550) or "
+        f"ModelTiepointTag (33922) in any IFD — cannot georeference; "
+        f"pages_inspected={len(pages_seen)}"
+    )
+
+
 def _parse_geotiff_tags(img: Image.Image) -> tuple[float, float, float, float]:
     """Return (west_lng, north_lat, scale_x_deg, scale_y_deg) from GeoTIFF tags.
 
@@ -191,31 +244,15 @@ def _parse_geotiff_tags(img: Image.Image) -> tuple[float, float, float, float]:
     Tag 33922 = ModelTiepointTag    (I, J, K, X, Y, Z)
 
     Both use doubles; Pillow may return them as tuples or raw bytes.
+
+    Walks every IFD in the TIFF — some GeoTIFF producers (including the
+    Google Solar pipeline) put georef metadata in a sub-IFD, not IFD0.
     """
-    tags = img.tag_v2  # type: ignore[attr-defined]
-    if tags is None:
-        raise SolarRenderingError("Image has no TIFF tag dictionary")
+    page = _find_georef_page(img)
+    tags = page.tag_v2  # type: ignore[attr-defined]
 
-    def _to_doubles(v: object) -> list[float]:
-        if isinstance(v, (list, tuple)):
-            return [float(x) for x in v]
-        if isinstance(v, bytes):
-            n = len(v) // 8
-            if n == 0:
-                raise SolarRenderingError("empty GeoTIFF tag bytes")
-            return list(struct.unpack(f"<{n}d", v))
-        return [float(v)]  # type: ignore[arg-type]
-
-    scale_tag = tags.get(33550)
-    tie_tag = tags.get(33922)
-    if scale_tag is None or tie_tag is None:
-        raise SolarRenderingError(
-            "GeoTIFF missing ModelPixelScaleTag (33550) or "
-            "ModelTiepointTag (33922) — cannot georeference"
-        )
-
-    scale = _to_doubles(scale_tag)  # (ScaleX, ScaleY, ...)
-    tie = _to_doubles(tie_tag)      # (I, J, K, X, Y, Z, ...)
+    scale = _to_doubles(tags[33550])  # (ScaleX, ScaleY, ...)
+    tie = _to_doubles(tags[33922])    # (I, J, K, X, Y, Z, ...)
 
     # Tiepoint: pixel (I, J) maps to geographic (X=lng, Y=lat)
     # For top-left origin (I=J=0): X=west_lng, Y=north_lat
