@@ -3,7 +3,7 @@
 Wraps two Google Solar endpoints:
 
 1. `buildingInsights:findClosest` — roof area, kWp, per-panel geometry.
-2. `dataLayers:get?view=IMAGERY_ONLY` — aerial RGB GeoTIFF at ~10 cm/pixel.
+2. `dataLayers:get?view=IMAGERY_LAYERS` — aerial RGB GeoTIFF at ~10 cm/pixel.
 
 The `fetch_building_insight` call is used in the Hunter L4 funnel gate.
 The `fetch_data_layers` call is used by the Creative agent to obtain the
@@ -37,7 +37,7 @@ SOLAR_DATA_LAYERS_ENDPOINT = "https://solar.googleapis.com/v1/dataLayers:get"
 SOLAR_GEOTIFF_ENDPOINT = "https://solar.googleapis.com/v1/geoTiff:get"
 # Per Google billing for solar; used for api_usage_log + scan_cost_cents.
 COST_PER_CALL_CENTS = 2
-COST_DATA_LAYERS_CENTS = 3  # dataLayers:get (IMAGERY_ONLY view)
+COST_DATA_LAYERS_CENTS = 3  # dataLayers:get (IMAGERY_LAYERS view)
 
 
 class SolarApiError(Exception):
@@ -421,11 +421,16 @@ async def fetch_data_layers(
     if not effective_key:
         raise SolarApiError("GOOGLE_SOLAR_API_KEY not configured")
 
+    # Google Solar dataLayers `view` enum (IMAGERY_ONLY does NOT exist —
+    # using it returns HTTP 400 "Invalid value at 'view'"). Valid values:
+    # DSM_LAYER | IMAGERY_LAYERS | IMAGERY_AND_ANNUAL_FLUX_LAYERS |
+    # IMAGERY_AND_ALL_FLUX_LAYERS | FULL_LAYERS.  We only need the RGB
+    # aerial, so IMAGERY_LAYERS is the cheapest option.
     params = {
         "location.latitude": f"{lat:.7f}",
         "location.longitude": f"{lng:.7f}",
         "radiusMeters": str(radius_m),
-        "view": "IMAGERY_ONLY",
+        "view": "IMAGERY_LAYERS",
         "requiredQuality": "HIGH",
         "key": effective_key,
     }
