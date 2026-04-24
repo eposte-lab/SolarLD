@@ -154,8 +154,8 @@ class Settings(BaseSettings):
 
     # ---- Google OAuth (Gmail API cold outreach) ----
     # Obtained from https://console.cloud.google.com → OAuth 2.0 Client IDs.
-    # Redirect URI must be registered:
-    #   {api_base_url}/v1/inboxes/{inbox_id}/oauth/gmail/callback
+    # Redirect URI to register (static — inbox_id travels in the signed JWT state):
+    #   {api_base_url}/v1/inboxes/oauth/gmail/callback
     # Scope: https://www.googleapis.com/auth/gmail.send
     google_oauth_client_id: str = ""
     google_oauth_client_secret: str = ""

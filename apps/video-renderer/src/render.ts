@@ -11,7 +11,7 @@ import os from 'node:os';
 import crypto from 'node:crypto';
 
 import { bundle } from '@remotion/bundler';
-import { renderMedia, selectComposition } from '@remotion/renderer';
+import { ensureBrowser, renderMedia, selectComposition } from '@remotion/renderer';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { z } from 'zod';
 
@@ -46,10 +46,38 @@ export interface RenderResult {
 }
 
 // ---------------------------------------------------------------------------
+// Browser executable — use system Chromium in Docker, auto-detect elsewhere
+// ---------------------------------------------------------------------------
+
+/**
+ * Path to the Chrome/Chromium binary.
+ *
+ * In Railway/Docker: set REMOTION_CHROME_EXECUTABLE=/usr/bin/chromium in the
+ * Dockerfile so Remotion doesn't try to download Chrome at runtime.
+ * In development: leave the env unset — Remotion falls back to its bundled
+ * Chromium (downloaded by `ensureBrowser()` on first render).
+ */
+const BROWSER_EXECUTABLE = process.env.REMOTION_CHROME_EXECUTABLE as string | undefined;
+
+// ---------------------------------------------------------------------------
 // Bundle cache — bundling takes ~1s cold so we keep the result per process.
 // ---------------------------------------------------------------------------
 
 let cachedBundlePromise: Promise<string> | null = null;
+
+/**
+ * Warm up Remotion's browser on first import.
+ * When REMOTION_CHROME_EXECUTABLE is not set (local dev), this downloads
+ * a compatible Chrome version once and caches it to ~/.remotion/.
+ * In Docker it's a no-op because the system Chromium is already present.
+ */
+export const warmupBrowser = (): Promise<void> =>
+  ensureBrowser({
+    ...(BROWSER_EXECUTABLE ? { browserExecutable: BROWSER_EXECUTABLE } : {}),
+  }).then(() => {
+    // eslint-disable-next-line no-console
+    console.log('[video-renderer] browser ready', BROWSER_EXECUTABLE ?? 'auto');
+  });
 
 /**
  * Bundle the Remotion entry once per process and re-use the output
@@ -122,6 +150,7 @@ export const renderTransition = async (
       inputProps: stripNonSchemaProps(req),
       imageFormat: 'jpeg',
       crf: 22,
+      ...(BROWSER_EXECUTABLE ? { browserExecutable: BROWSER_EXECUTABLE } : {}),
     });
 
     // 2) GIF — same composition, half resolution for file size,
@@ -136,6 +165,7 @@ export const renderTransition = async (
       codec: 'gif',
       outputLocation: gifPath,
       inputProps: stripNonSchemaProps(req),
+      ...(BROWSER_EXECUTABLE ? { browserExecutable: BROWSER_EXECUTABLE } : {}),
     });
 
     // 3) Upload to Supabase Storage

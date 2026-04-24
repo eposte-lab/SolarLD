@@ -18,6 +18,7 @@ import {
   buildSupabaseClient,
   renderRequestSchema,
   renderTransition,
+  warmupBrowser,
 } from './render';
 
 // ---------------------------------------------------------------------------
@@ -79,8 +80,26 @@ export const buildApp = (deps: RenderHandlerDeps): express.Express => {
 if (require.main === module) {
   const PORT = Number(process.env.PORT ?? 4000);
   const app = buildApp({ supabase: buildSupabaseClient() });
-  app.listen(PORT, () => {
+
+  const server = app.listen(PORT, () => {
     // eslint-disable-next-line no-console
     console.log(`[video-renderer] listening on :${PORT}`);
   });
+
+  // Warm up Remotion's browser right after binding so the first /render
+  // request doesn't pay the cold-start penalty (Chrome launch + bundle).
+  warmupBrowser().catch((err) => {
+    // eslint-disable-next-line no-console
+    console.warn('[video-renderer] browser warmup failed (non-fatal):', err);
+  });
+
+  // Graceful shutdown
+  const shutdown = () => {
+    // eslint-disable-next-line no-console
+    console.log('[video-renderer] shutting down…');
+    server.close(() => process.exit(0));
+    setTimeout(() => process.exit(1), 10_000);
+  };
+  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', shutdown);
 }

@@ -1,0 +1,16 @@
+[build]
+builder = "dockerfile"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+startCommand = "npx tsx src/server.ts"
+healthcheckPath = "/health"
+healthcheckTimeout = 60
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3
+
+# Environment variables required at runtime (set them in the Railway UI):
+#
+#   SUPABASE_URL             — Supabase project URL (same as NEXT_PUBLIC_SUPABASE_URL)
+#   SUPABASE_SERVICE_ROLE_KEY — Supabase service-role key (for Storage uploads)
+#   PORT                     — optional, defaults to 4000
