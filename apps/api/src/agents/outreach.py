@@ -284,8 +284,11 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
         #     Missing fields are populated in onboarding company-info step.
         #     Graceful skip (not an exception) so the cron keeps processing
         #     other leads while the operator fills in the missing fields.
+        #     Exception: force=True (admin test / re-send) bypasses the gate
+        #     so pipeline smoke-tests work even before the tenant completes
+        #     the company-info onboarding step.
         # ------------------------------------------------------------------
-        if payload.channel == OutreachChannel.EMAIL:
+        if payload.channel == OutreachChannel.EMAIL and not payload.force:
             missing_legal = [
                 f for f in ("legal_name", "vat_number", "legal_address")
                 if not (tenant_row.get(f) or "").strip()

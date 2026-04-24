@@ -469,6 +469,11 @@ async def seed_test_candidate(
         "decision_maker_name": body.decision_maker_name,
         "decision_maker_role": body.decision_maker_role,
         "decision_maker_email": body.decision_maker_email,
+        # Mark the email as verified for test candidates — the operator
+        # explicitly supplied it, so NeverBounce gating would be redundant.
+        # Without this, _resolve_recipient() returns None and the outreach
+        # agent skips with reason='no_verified_email'.
+        "decision_maker_email_verified": bool(body.decision_maker_email),
         "data_sources": ["seed_test"],
         "enrichment_cost_cents": 0,
         "enrichment_completed_at": now.isoformat(),
