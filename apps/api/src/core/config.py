@@ -37,10 +37,14 @@ class Settings(BaseSettings):
     # accepted in addition to `cors_origins`. Kept env-driven so prod can
     # tighten it (e.g. only this team's projects) without a code change.
     # Default matches:
-    #   - any *.vercel.app      (preview + production)
+    #   - any *.vercel.app           (Vercel preview + production deployments)
+    #   - any *.up.railway.app       (Railway preview deployments)
+    #   - any *.solarld.app          (custom production domain)
     #   - localhost / 127.0.0.1 with any port
     cors_origin_regex: str = (
         r"^https://([a-z0-9-]+\.)*vercel\.app$"
+        r"|^https://([a-z0-9-]+\.)*up\.railway\.app$"
+        r"|^https://([a-z0-9-]+\.)*solarld\.app$"
         r"|^http://localhost(:\d+)?$"
         r"|^http://127\.0\.0\.1(:\d+)?$"
     )

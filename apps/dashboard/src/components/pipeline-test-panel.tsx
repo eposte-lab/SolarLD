@@ -14,7 +14,7 @@
 
 import { useState } from 'react';
 
-import { api } from '@/lib/api-client';
+import { api, API_URL } from '@/lib/api-client';
 
 interface SeedResponse {
   ok: boolean;
@@ -61,6 +61,13 @@ export function PipelineTestPanel({ tenantId }: Props) {
     setPhase('scoring');
 
     try {
+      // Sanity check: if API_URL is localhost we're in a broken Vercel env
+      if (typeof window !== 'undefined' && API_URL.includes('localhost') && !window.location.hostname.includes('localhost')) {
+        throw new Error(
+          'NEXT_PUBLIC_API_URL punta a localhost — imposta la variabile d\'ambiente su Vercel con l\'URL del tuo Railway API (es. https://api-xxx.up.railway.app).'
+        );
+      }
+
       const res = await api.post<SeedResponse>('/v1/admin/seed-test-candidate', {
         tenant_id: tenantId,
         vat_number: form.vat_number,
@@ -82,8 +89,16 @@ export function PipelineTestPanel({ tenantId }: Props) {
       setPhase('done');
     } catch (e: unknown) {
       const err = e as { message?: string; body?: { detail?: string } };
+      const rawMsg = err?.body?.detail ?? err?.message ?? 'Errore sconosciuto';
+      // "Failed to fetch" / "NetworkError" = CORS o URL sbagliato
+      const isNetworkError =
+        rawMsg.toLowerCase().includes('failed to fetch') ||
+        rawMsg.toLowerCase().includes('network') ||
+        rawMsg.toLowerCase().includes('networkerror');
       setError(
-        err?.body?.detail ?? err?.message ?? 'Errore sconosciuto'
+        isNetworkError
+          ? `Errore di rete — impossibile raggiungere l'API.\n\nURL API: ${API_URL}\n\nCause probabili:\n1. NEXT_PUBLIC_API_URL non impostato su Vercel (punta a localhost)\n2. CORS: il tuo dominio non è nella lista origini API\n3. L'API Railway è spenta\n\nErrore originale: ${rawMsg}`
+          : rawMsg
       );
       setPhase('idle');
     } finally {
@@ -116,8 +131,24 @@ export function PipelineTestPanel({ tenantId }: Props) {
     );
   }
 
+  const apiIsLocalhost = API_URL.includes('localhost') || API_URL.includes('127.0.0.1');
+
   return (
     <div className="space-y-6">
+      {/* API URL debug strip */}
+      <div className={`flex items-center gap-2 rounded-lg px-3 py-2 text-xs ${
+        apiIsLocalhost
+          ? 'border border-error/30 bg-error-container/20 text-error'
+          : 'border border-primary/20 bg-primary-container/10 text-on-surface-variant'
+      }`}>
+        <span className="font-mono">{API_URL}</span>
+        {apiIsLocalhost && (
+          <span className="font-semibold">
+            ⚠️ localhost — imposta NEXT_PUBLIC_API_URL su Vercel
+          </span>
+        )}
+      </div>
+
       <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
         Dati candidato di test
       </p>
@@ -219,7 +250,9 @@ export function PipelineTestPanel({ tenantId }: Props) {
       {error && (
         <div className="rounded-xl border border-error/30 bg-error-container/20 p-4">
           <p className="text-sm font-semibold text-error">Errore</p>
-          <p className="mt-1 text-sm text-on-error-container">{error}</p>
+          <pre className="mt-1 whitespace-pre-wrap break-words text-xs text-on-error-container font-mono">
+            {error}
+          </pre>
           {error.includes('super_admin') && (
             <p className="mt-2 text-xs text-on-surface-variant">
               Il tuo account non ha il ruolo <code>super_admin</code>. Contatta l&apos;ops per aggiornarlo.

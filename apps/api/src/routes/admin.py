@@ -502,39 +502,57 @@ async def seed_test_candidate(
 
     # ── 4. Enqueue creative_task (deferred 5s — scoring row propagates) ───
     # Remotion render can take 60-120s; we just kick it off and return.
-    creative_job = await enqueue(
-        "creative_task",
-        {"tenant_id": body.tenant_id, "lead_id": lead_id, "force": True},
-        job_id=f"creative:{body.tenant_id}:{lead_id}",
-        defer_until=now + timedelta(seconds=5),
-    )
+    # Non-fatal: if Redis is unreachable (e.g. env var not set in this env)
+    # we still return the scoring result so the test panel doesn't hang.
+    creative_job_id: str = ""
+    try:
+        creative_job = await enqueue(
+            "creative_task",
+            {"tenant_id": body.tenant_id, "lead_id": lead_id, "force": True},
+            job_id=f"creative:{body.tenant_id}:{lead_id}",
+            defer_until=now + timedelta(seconds=5),
+        )
+        creative_job_id = creative_job.get("job_id", "")
+    except Exception as exc:  # noqa: BLE001
+        log.warning("creative_enqueue_failed", lead_id=lead_id, error=str(exc))
+        creative_job_id = f"redis_unavailable:{exc}"
 
     # ── 5. Enqueue outreach_task (deferred 3min — creative needs to finish) ─
     outreach_job_id: str | None = None
     if body.run_outreach:
-        outreach_job = await enqueue(
-            "outreach_task",
-            {
-                "tenant_id": body.tenant_id,
-                "lead_id": lead_id,
-                "channel": "email",
-                "force": True,
-            },
-            job_id=f"outreach_seed:{body.tenant_id}:{lead_id}",
-            defer_until=now + timedelta(minutes=3),
-        )
-        outreach_job_id = outreach_job.get("job_id")
+        try:
+            outreach_job = await enqueue(
+                "outreach_task",
+                {
+                    "tenant_id": body.tenant_id,
+                    "lead_id": lead_id,
+                    "channel": "email",
+                    "force": True,
+                },
+                job_id=f"outreach_seed:{body.tenant_id}:{lead_id}",
+                defer_until=now + timedelta(minutes=3),
+            )
+            outreach_job_id = outreach_job.get("job_id")
+        except Exception as exc:  # noqa: BLE001
+            log.warning("outreach_enqueue_failed", lead_id=lead_id, error=str(exc))
+            outreach_job_id = f"redis_unavailable:{exc}"
 
+    redis_warn = (
+        " ⚠️ Redis non raggiungibile — job in coda non garantiti."
+        if "redis_unavailable" in creative_job_id
+        else ""
+    )
     return SeedTestCandidateResponse(
         roof_id=roof_id,
         subject_id=subject_id,
         scoring_job_id=f"inline:score={scoring_out.score},tier={scoring_out.tier}",
-        creative_job_id=creative_job.get("job_id", ""),
+        creative_job_id=creative_job_id,
         outreach_job_id=outreach_job_id,
         message=(
             f"Scored {scoring_out.score}/100 ({scoring_out.tier}). "
             "creative ~5s, "
             + (f"email to {body.decision_maker_email} ~3min."
                if body.run_outreach else "outreach skipped.")
+            + redis_warn
         ),
     )
