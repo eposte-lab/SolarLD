@@ -145,6 +145,27 @@ class Settings(BaseSettings):
     # ---- Security ----
     jwt_secret: str = "development-secret-change-me-min-32-chars"
     encryption_key: str = ""
+    # Fernet key for encrypting OAuth refresh tokens at rest in
+    # tenant_inboxes.oauth_refresh_token_encrypted. Must be a urlsafe
+    # base64-encoded 32-byte key (generate with `Fernet.generate_key()`).
+    # Leave empty in dev if Gmail OAuth isn't being tested; required when
+    # any inbox has provider='gmail_oauth' or 'm365_oauth'.
+    app_secret_key: str = ""
+
+    # ---- Google OAuth (Gmail API cold outreach) ----
+    # Obtained from https://console.cloud.google.com → OAuth 2.0 Client IDs.
+    # Redirect URI must be registered:
+    #   {api_base_url}/v1/inboxes/{inbox_id}/oauth/gmail/callback
+    # Scope: https://www.googleapis.com/auth/gmail.send
+    google_oauth_client_id: str = ""
+    google_oauth_client_secret: str = ""
+
+    # ---- Microsoft 365 OAuth (Graph API Mail.Send) ----
+    # Reserved for Sprint 6.1 phase B (Office365 tenants). Azure AD app
+    # registration with Mail.Send delegated scope.
+    microsoft_oauth_client_id: str = ""
+    microsoft_oauth_client_secret: str = ""
+    microsoft_oauth_tenant_id: str = "common"  # "common" allows any Microsoft account
 
     @property
     def cors_origin_list(self) -> list[str]:

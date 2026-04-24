@@ -79,13 +79,14 @@ from ..services.pixart_service import (
     submit_letter_campaign,
 )
 from ..services import inbox_service
+from ..services.email_providers import get_provider
+from ..services.email_providers.base import ProviderError
 from ..services.inbox_service import PAUSE_HOURS_429, PAUSE_HOURS_5XX
 from ..services.rate_limit_service import acquire_email_quota
 from ..services.resend_service import (
     RESEND_COST_PER_EMAIL_CENTS,
     ResendError,
     SendEmailInput,
-    send_email,
 )
 from .base import AgentBase
 
@@ -557,9 +558,60 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
             headers=extra_headers or None,
         )
 
+        # Dispatch via the provider registry. The inbox row carries
+        # ``provider`` (from migration 0049) — Resend for legacy/brand,
+        # ``gmail_oauth`` for per-inbox cold outreach via Google Workspace.
+        # Legacy single-inbox path (no selected_inbox) falls through the
+        # "resend" default.
+        provider_name = (
+            (selected_inbox or {}).get("provider") or "resend"
+        )
+        provider = get_provider(provider_name, sb=sb)
+        provider_inbox_row: dict[str, Any] = selected_inbox or {"id": None}
+
         try:
-            send_result = await send_email(send_input)
-        except ResendError as exc:
+            send_result = await provider.send(
+                send_input, inbox=provider_inbox_row
+            )
+        except ProviderError as exc:
+            log.warning(
+                "outreach.provider_failed",
+                lead_id=payload.lead_id,
+                provider=provider_name,
+                err=str(exc),
+                kind=exc.kind,
+                status_code=exc.status_code,
+                inbox_id=inbox_id,
+            )
+            # Auto-pause the inbox on sender-side errors so other inboxes
+            # can continue. Recipient-side permanent errors (bad address,
+            # suppression hit) leave the inbox healthy.
+            if inbox_id:
+                if exc.kind == "rate_limited":
+                    await inbox_service.pause_inbox(
+                        sb, inbox_id,
+                        hours=PAUSE_HOURS_429,
+                        reason=f"{provider_name}_rate_limited",
+                        tenant_id=payload.tenant_id,
+                    )
+                elif exc.kind == "server_error":
+                    await inbox_service.pause_inbox(
+                        sb, inbox_id,
+                        hours=PAUSE_HOURS_5XX,
+                        reason=f"{provider_name}_{exc.status_code}",
+                        tenant_id=payload.tenant_id,
+                    )
+                # auth_failed is terminal — the GmailProvider already
+                # flipped ``active=false`` and recorded the error on the
+                # inbox row. Don't pile an extra pause on top.
+            return await self._record_failure(
+                payload=payload,
+                lead=lead,
+                tenant_row=tenant_row,
+                subject=subject,
+                failure_reason=f"{provider_name}_{exc.kind}: {str(exc)[:200]}",
+            )
+        except ResendError as exc:  # defensive: legacy callsites may still raise
             log.warning(
                 "outreach.resend_failed",
                 lead_id=payload.lead_id,
@@ -567,24 +619,6 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
                 status_code=exc.status_code,
                 inbox_id=inbox_id,
             )
-            # Auto-pause the inbox on sender-side errors so other inboxes
-            # can continue. Recipient-side 4xx (bad address, etc.) leave
-            # the inbox healthy.
-            if inbox_id and exc.status_code:
-                if exc.status_code == 429:
-                    await inbox_service.pause_inbox(
-                        sb, inbox_id,
-                        hours=PAUSE_HOURS_429,
-                        reason=f"resend_429",
-                        tenant_id=payload.tenant_id,
-                    )
-                elif exc.status_code >= 500:
-                    await inbox_service.pause_inbox(
-                        sb, inbox_id,
-                        hours=PAUSE_HOURS_5XX,
-                        reason=f"resend_{exc.status_code}",
-                        tenant_id=payload.tenant_id,
-                    )
             return await self._record_failure(
                 payload=payload,
                 lead=lead,
@@ -605,7 +639,7 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
                 subject_type, sequence_step=payload.sequence_step
             ),
             "sequence_step": payload.sequence_step,
-            "email_message_id": send_result.id,
+            "email_message_id": send_result.message_id,
             "email_subject": rendered.subject,
             "scheduled_for": now_iso,
             "sent_at": now_iso,
@@ -649,14 +683,14 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
             status="success",
             metadata={
                 "lead_id": payload.lead_id,
-                "message_id": send_result.id,
+                "message_id": send_result.message_id,
             },
         )
 
         out = OutreachOutput(
             lead_id=payload.lead_id,
             campaign_id=campaign_id,
-            provider_id=send_result.id,
+            provider_id=send_result.message_id,
             status=CampaignStatus.SENT.value,
             cost_cents=RESEND_COST_PER_EMAIL_CENTS,
         )
