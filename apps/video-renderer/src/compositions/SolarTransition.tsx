@@ -1,18 +1,32 @@
-import { AbsoluteFill, Img, interpolate, useCurrentFrame, useVideoConfig } from 'remotion';
+import {
+  AbsoluteFill,
+  Img,
+  interpolate,
+  spring,
+  useCurrentFrame,
+  useVideoConfig,
+} from 'remotion';
 import { z } from 'zod';
 
 /**
- * SolarTransition — before → crossfade → after with ROI outro.
+ * SolarTransition — cinematic before → after for solar proposals.
  *
- * Timing (30 fps, 180 frames = 6 seconds):
- *   0–60:   pure before shot (2 s)
- *   60–120: crossfade before → after (2 s)
- *   120–180: after + ROI overlay + installer branding (2 s)
+ * Timeline (30 fps, 180 frames = 6 seconds):
+ *   000–054 (1.8 s)  Ken Burns on BEFORE — slow zoom-in + gentle pan.
+ *   054–108 (1.8 s)  Diagonal wipe reveals AFTER on top of BEFORE;
+ *                    both keep drifting so the camera never stalls.
+ *   108–180 (2.4 s)  AFTER holds, continues Ken Burns; KPI stats
+ *                    spring-in stagger (kWp → savings → payback → CO₂);
+ *                    vignette + brand bar settle at the end.
  *
- * The outro panel uses `brandPrimaryColor` (the installer's Tailwind-ish
- * hex) as the accent line + KPI color so the video feels like part of
- * the installer's own content. The logo sits bottom-right so it never
- * overlaps the ROI text.
+ * Design goals:
+ *   · the camera is ALWAYS moving (no static frame) — feels alive
+ *     even when rendered to GIF at 15 fps.
+ *   · the wipe is diagonal and soft (gradient-masked) so the panel
+ *     reveal reads as "installation sweeps across the roof" instead
+ *     of "crossfade".
+ *   · stats slide up one at a time with spring physics → reads as
+ *     a proposal unfolding, not a slideshow ending.
  */
 export const solarTransitionSchema = z.object({
   beforeImageUrl: z.string().url(),
@@ -28,6 +42,56 @@ export const solarTransitionSchema = z.object({
 
 export type SolarTransitionProps = z.infer<typeof solarTransitionSchema>;
 
+// ── Timing constants (30 fps baseline) ─────────────────────────────────────
+const KB_END = 108;          // Ken Burns keeps zooming from 0 → 108
+const WIPE_START = 54;
+const WIPE_END = 108;
+const STATS_START = 110;
+const STATS_STAGGER = 10;    // frames between each stat line appearing
+
+/**
+ * Ken-Burns transform for a single layer.
+ * Returns `scale` and `translate` values that drift slowly over time so
+ * the image never sits still.  Different ``seed`` values produce slightly
+ * different pan directions for before vs. after so the camera doesn't
+ * appear to "glue" across the cut.
+ */
+function kenBurns(frame: number, seed: 'before' | 'after') {
+  // Scale: 1.02 → 1.14 over the whole clip (never static).
+  const scale = interpolate(frame, [0, 180], [1.02, 1.14], {
+    extrapolateLeft: 'clamp',
+    extrapolateRight: 'clamp',
+  });
+  // Pan: a few percent across the frame, different direction per seed.
+  const panX = interpolate(
+    frame,
+    [0, 180],
+    seed === 'before' ? [-1.5, 1.5] : [1.2, -1.8],
+    { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' },
+  );
+  const panY = interpolate(
+    frame,
+    [0, 180],
+    seed === 'before' ? [1.0, -1.5] : [-0.8, 1.2],
+    { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' },
+  );
+  return { scale, panX, panY };
+}
+
+/**
+ * Diagonal wipe clip-path.
+ *
+ * Progress 0 → 1 sweeps a wedge from top-left to bottom-right; the
+ * trailing edge is offset by 18% so the reveal line is clearly diagonal
+ * instead of a flat vertical bar.  At progress 0 the polygon has zero
+ * area (after is invisible); at 1 the polygon covers the whole frame.
+ */
+function diagonalWipe(progress: number): string {
+  const leading = progress * 118;  // top edge x %, overshoots past 100
+  const trailing = progress * 118 - 18; // bottom edge x %
+  return `polygon(0% 0%, ${leading}% 0%, ${trailing}% 100%, 0% 100%)`;
+}
+
 export const SolarTransition: React.FC<SolarTransitionProps> = ({
   beforeImageUrl,
   afterImageUrl,
@@ -40,109 +104,204 @@ export const SolarTransition: React.FC<SolarTransitionProps> = ({
   brandLogoUrl,
 }) => {
   const frame = useCurrentFrame();
-  const { durationInFrames } = useVideoConfig();
+  const { fps } = useVideoConfig();
 
-  // Opacity ramps
-  const afterOpacity = interpolate(frame, [60, 120], [0, 1], {
+  // ── Ken-Burns transforms ────────────────────────────────────────────────
+  const before = kenBurns(frame, 'before');
+  const after = kenBurns(frame, 'after');
+
+  // ── Wipe progress (054 → 108) ───────────────────────────────────────────
+  const wipeProgress = interpolate(frame, [WIPE_START, WIPE_END], [0, 1], {
     extrapolateLeft: 'clamp',
     extrapolateRight: 'clamp',
   });
-  const overlayOpacity = interpolate(frame, [120, 150], [0, 1], {
+  const wipeClipPath = diagonalWipe(wipeProgress);
+
+  // ── Wipe "edge glow" — a bright diagonal line that travels with the cut ─
+  const edgeOpacity = interpolate(
+    frame,
+    [WIPE_START, WIPE_START + 6, WIPE_END - 6, WIPE_END + 4],
+    [0, 0.9, 0.9, 0],
+    { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' },
+  );
+  const edgeX = interpolate(frame, [WIPE_START, WIPE_END], [-10, 110], {
     extrapolateLeft: 'clamp',
     extrapolateRight: 'clamp',
   });
-  // Subtle zoom on the "after" so the outro feels alive
-  const afterScale = interpolate(frame, [60, durationInFrames], [1.0, 1.06], {
+
+  // ── Stats spring-in (staggered) ────────────────────────────────────────
+  function statSpring(delay: number) {
+    const local = frame - (STATS_START + delay);
+    if (local <= 0) return { opacity: 0, translate: 24 };
+    const p = spring({
+      frame: local,
+      fps,
+      config: { damping: 14, stiffness: 80, mass: 0.9 },
+    });
+    return {
+      opacity: p,
+      translate: interpolate(p, [0, 1], [24, 0]),
+    };
+  }
+  const sKwp = statSpring(0);
+  const sSav = statSpring(STATS_STAGGER);
+  const sPay = statSpring(STATS_STAGGER * 2);
+  const sCo2 = statSpring(STATS_STAGGER * 3);
+
+  // ── Vignette + brand bar opacity (settle toward the end) ───────────────
+  const outroOpacity = interpolate(frame, [STATS_START - 4, STATS_START + 20], [0, 1], {
     extrapolateLeft: 'clamp',
     extrapolateRight: 'clamp',
   });
 
   const formattedSavings = Math.round(yearlySavingsEur).toLocaleString('it-IT');
 
+  // Helper: render an image with Ken-Burns transform applied at the origin.
+  const imageStyle = (kb: { scale: number; panX: number; panY: number }) => ({
+    width: '100%',
+    height: '100%',
+    objectFit: 'cover' as const,
+    transformOrigin: '50% 50%',
+    transform: `translate(${kb.panX}%, ${kb.panY}%) scale(${kb.scale})`,
+    willChange: 'transform',
+  });
+
   return (
-    <AbsoluteFill style={{ background: '#0f172a' }}>
-      {/* BEFORE — always underneath */}
+    <AbsoluteFill style={{ background: '#0b1120' }}>
+      {/* BEFORE — always underneath, Ken Burns drifting continuously */}
       <AbsoluteFill>
-        <Img
-          src={beforeImageUrl}
-          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-        />
+        <Img src={beforeImageUrl} style={imageStyle(before)} />
       </AbsoluteFill>
 
-      {/* AFTER — fades in 60→120 */}
-      <AbsoluteFill style={{ opacity: afterOpacity }}>
-        <Img
-          src={afterImageUrl}
+      {/* AFTER — clipped by the diagonal wipe; own Ken Burns direction.
+          Once the wipe finishes (frame >= 108) the clip-path is full
+          coverage so AFTER hides BEFORE completely for the outro. */}
+      <AbsoluteFill style={{ clipPath: wipeClipPath }}>
+        <Img src={afterImageUrl} style={imageStyle(after)} />
+      </AbsoluteFill>
+
+      {/* Edge glow — bright diagonal strip tracking the wipe line.
+          Skewed with the same 18% offset (≈ 10° slant) so it follows
+          the clip-path edge instead of being a vertical bar. */}
+      <AbsoluteFill style={{ pointerEvents: 'none', opacity: edgeOpacity }}>
+        <div
           style={{
-            width: '100%',
-            height: '100%',
-            objectFit: 'cover',
-            transform: `scale(${afterScale})`,
+            position: 'absolute',
+            top: '-10%',
+            height: '120%',
+            width: '10%',
+            left: `${edgeX}%`,
+            transform: 'skewX(-10deg)',
+            background:
+              'linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.55) 45%, rgba(255,255,255,0.95) 50%, rgba(255,255,255,0.55) 55%, rgba(255,255,255,0) 100%)',
+            filter: 'blur(1px)',
           }}
         />
       </AbsoluteFill>
 
-      {/* Brand accent bar (always visible, but more prominent once
-          we're on the after shot). */}
+      {/* Bottom vignette — settles in for the outro so stats stay readable */}
+      <AbsoluteFill
+        style={{
+          pointerEvents: 'none',
+          opacity: outroOpacity,
+          background:
+            'linear-gradient(to top, rgba(0,0,0,0.82) 0%, rgba(0,0,0,0.55) 25%, rgba(0,0,0,0) 60%)',
+        }}
+      />
+
+      {/* Brand accent bar at the very bottom — tracks outroOpacity */}
       <AbsoluteFill
         style={{
           pointerEvents: 'none',
           justifyContent: 'flex-end',
-          alignItems: 'stretch',
           display: 'flex',
+          opacity: outroOpacity,
         }}
       >
         <div
           style={{
-            height: 8,
+            height: 6,
             width: '100%',
             background: brandPrimaryColor,
-            opacity: afterOpacity,
+            boxShadow: `0 0 12px ${brandPrimaryColor}`,
           }}
         />
       </AbsoluteFill>
 
-      {/* ROI outro — fades in after the crossfade */}
+      {/* ROI outro — each line spring-staggered */}
       <AbsoluteFill
         style={{
-          opacity: overlayOpacity,
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'flex-start',
           justifyContent: 'flex-end',
           padding: 56,
           color: 'white',
-          background: 'linear-gradient(to top, rgba(0,0,0,0.80), rgba(0,0,0,0) 55%)',
         }}
       >
         <div
           style={{
-            fontSize: 56,
+            fontSize: 64,
             fontWeight: 700,
-            lineHeight: 1.05,
-            textShadow: '0 2px 6px rgba(0,0,0,0.55)',
+            lineHeight: 1.02,
+            letterSpacing: -1,
+            textShadow: '0 2px 8px rgba(0,0,0,0.55)',
             color: brandPrimaryColor,
+            opacity: sKwp.opacity,
+            transform: `translateY(${sKwp.translate}px)`,
           }}
         >
           {kwp.toFixed(1)} kWp
         </div>
-        <div style={{ fontSize: 30, marginTop: 10, textShadow: '0 1px 3px rgba(0,0,0,0.6)' }}>
+        <div
+          style={{
+            fontSize: 32,
+            marginTop: 12,
+            fontWeight: 600,
+            textShadow: '0 1px 4px rgba(0,0,0,0.65)',
+            opacity: sSav.opacity,
+            transform: `translateY(${sSav.translate}px)`,
+          }}
+        >
           € {formattedSavings} risparmio annuo
         </div>
-        <div style={{ fontSize: 22, marginTop: 4, opacity: 0.85 }}>
+        <div
+          style={{
+            fontSize: 22,
+            marginTop: 6,
+            opacity: 0.85 * sPay.opacity,
+            textShadow: '0 1px 3px rgba(0,0,0,0.6)',
+            transform: `translateY(${sPay.translate}px)`,
+          }}
+        >
           Rientro stimato ~ {paybackYears.toFixed(1)} anni
         </div>
         {co2TonnesLifetime !== undefined ? (
-          <div style={{ fontSize: 18, marginTop: 4, opacity: 0.75 }}>
+          <div
+            style={{
+              fontSize: 18,
+              marginTop: 4,
+              opacity: 0.75 * sCo2.opacity,
+              textShadow: '0 1px 3px rgba(0,0,0,0.6)',
+              transform: `translateY(${sCo2.translate}px)`,
+            }}
+          >
             ~ {co2TonnesLifetime.toFixed(0)} t CO₂ evitate in 25 anni
           </div>
         ) : null}
-        <div style={{ fontSize: 15, marginTop: 28, opacity: 0.7, letterSpacing: 0.6 }}>
+        <div
+          style={{
+            fontSize: 15,
+            marginTop: 28,
+            opacity: 0.7 * outroOpacity,
+            letterSpacing: 0.6,
+          }}
+        >
           Stima indicativa — preventivo formale a cura di {tenantName}
         </div>
       </AbsoluteFill>
 
-      {/* Brand logo — bottom-right corner */}
+      {/* Brand logo — bottom-right corner, fades with the outro */}
       {brandLogoUrl ? (
         <AbsoluteFill
           style={{
@@ -151,7 +310,7 @@ export const SolarTransition: React.FC<SolarTransitionProps> = ({
             justifyContent: 'flex-end',
             padding: 40,
             pointerEvents: 'none',
-            opacity: overlayOpacity,
+            opacity: outroOpacity,
           }}
         >
           <Img
@@ -160,7 +319,7 @@ export const SolarTransition: React.FC<SolarTransitionProps> = ({
               maxWidth: 220,
               maxHeight: 80,
               objectFit: 'contain',
-              filter: 'drop-shadow(0 2px 6px rgba(0,0,0,0.6))',
+              filter: 'drop-shadow(0 2px 8px rgba(0,0,0,0.7))',
             }}
           />
         </AbsoluteFill>
