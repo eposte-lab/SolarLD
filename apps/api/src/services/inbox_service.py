@@ -107,21 +107,31 @@ async def pick_and_claim(
     # We try the JOIN-select first (migration 0050 adds domain_id).
     # If the JOIN fails (e.g. migration not yet applied in dev), fall back
     # to the plain select so we never break an already-running send.
+    #
+    # NOTE: postgrest-py requires the chain order
+    #   .table() → .select() → .eq()/.order()/.in_()
+    # calling .eq() directly on the SyncRequestBuilder returned by .table()
+    # raises AttributeError.  We therefore rebuild the filter chain after
+    # each .select().
     select_with_domain = f"{_SELECT_FIELDS}, {_DOMAIN_JOIN_FIELDS}"
-    query_base = (
-        sb.table("tenant_inboxes")
-        .eq("tenant_id", tenant_id)
-        .eq("active", True)
-        .order("last_sent_at", desc=False, nullsfirst=True)
-    )
-    if campaign_inbox_ids:
-        query_base = query_base.in_("id", campaign_inbox_ids)
+
+    def _build(select_cols: str):  # type: ignore[no-untyped-def]
+        q = (
+            sb.table("tenant_inboxes")
+            .select(select_cols)
+            .eq("tenant_id", tenant_id)
+            .eq("active", True)
+            .order("last_sent_at", desc=False, nullsfirst=True)
+        )
+        if campaign_inbox_ids:
+            q = q.in_("id", campaign_inbox_ids)
+        return q
 
     try:
-        result = query_base.select(select_with_domain).execute()
+        result = _build(select_with_domain).execute()
     except Exception:  # noqa: BLE001 — JOIN may fail pre-migration
         try:
-            result = query_base.select(_SELECT_FIELDS).execute()
+            result = _build(_SELECT_FIELDS).execute()
         except Exception as exc:  # noqa: BLE001
             log.warning("inbox_selector.fetch_failed", tenant_id=tenant_id, err=str(exc))
             return None
