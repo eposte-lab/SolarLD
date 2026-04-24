@@ -184,7 +184,14 @@ def test_step3_respects_min_gap_between_steps() -> None:
     assert out.reason is not None and "step2_too_recent" in out.reason
 
 
-def test_step3_skips_when_already_sent() -> None:
+def test_step3_skips_when_already_sent_step4_not_yet_eligible() -> None:
+    """After step 3 goes out the code advances toward step 4, not step 3 again.
+
+    Use now = STEP_4_DELAY_DAYS - 2 (d+12) so step 4 is not yet eligible:
+    age(12) < STEP_4_DELAY_DAYS(14) → too_early_for_step4.
+    """
+    from src.services.followup_service import STEP_4_DELAY_DAYS
+
     step3 = CampaignSummary(
         sequence_step=3,
         status="sent",
@@ -198,7 +205,58 @@ def test_step3_skips_when_already_sent() -> None:
             step3,
         ),
     )
-    out = select_next_step(c, now=_now(STEP_3_DELAY_DAYS + 5))
+    out = select_next_step(c, now=_now(STEP_4_DELAY_DAYS - 2))
+    assert out.should_send is False
+    assert out.reason is not None and out.reason.startswith("too_early_for_step4")
+
+
+def test_step4_fires_after_step3_at_cadence() -> None:
+    """Step 4 (breakup email) fires at d+14 once step 3 is delivered."""
+    from src.services.followup_service import STEP_4_DELAY_DAYS
+
+    step3 = CampaignSummary(
+        sequence_step=3,
+        status="sent",
+        sent_at=_now(STEP_3_DELAY_DAYS),
+        channel="email",
+    )
+    c = _candidate(
+        campaigns=(
+            _step1(),
+            _step2(sent_at=_now(STEP_2_DELAY_DAYS)),
+            step3,
+        ),
+    )
+    out = select_next_step(c, now=_now(STEP_4_DELAY_DAYS))
+    assert out.should_send is True
+    assert out.step == 4
+
+
+def test_sequence_complete_after_step4() -> None:
+    """Once all four steps have been sent the selector returns sequence_complete."""
+    from src.services.followup_service import STEP_4_DELAY_DAYS
+
+    step3 = CampaignSummary(
+        sequence_step=3,
+        status="sent",
+        sent_at=_now(STEP_3_DELAY_DAYS),
+        channel="email",
+    )
+    step4 = CampaignSummary(
+        sequence_step=4,
+        status="sent",
+        sent_at=_now(STEP_4_DELAY_DAYS),
+        channel="email",
+    )
+    c = _candidate(
+        campaigns=(
+            _step1(),
+            _step2(sent_at=_now(STEP_2_DELAY_DAYS)),
+            step3,
+            step4,
+        ),
+    )
+    out = select_next_step(c, now=_now(STEP_4_DELAY_DAYS + 5))
     assert out.should_send is False
     assert out.reason == "sequence_complete"
 
