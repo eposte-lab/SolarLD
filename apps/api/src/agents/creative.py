@@ -239,6 +239,16 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
         # non-fatal — we still commit the image + ROI.
         video_url: str | None = None
         gif_url: str | None = None
+        log.info(
+            "creative.remotion_gate",
+            lead_id=payload.lead_id,
+            has_before=before_url is not None,
+            has_after=after_url is not None,
+            has_roi=roi is not None,
+            sidecar_url=settings.video_renderer_url
+            if hasattr(settings, "video_renderer_url")
+            else "UNSET",
+        )
         if (
             before_url is not None
             and after_url is not None
@@ -279,9 +289,20 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
                     output_path=f"{payload.tenant_id}/{payload.lead_id}",
                     scene3d=scene3d_payload,
                 )
+                log.info(
+                    "creative.remotion_calling",
+                    lead_id=payload.lead_id,
+                    has_scene3d=scene3d_payload is not None,
+                )
                 transition = await render_transition(render_input)
                 video_url = transition.mp4_url
                 gif_url = transition.gif_url
+                log.info(
+                    "creative.remotion_ok",
+                    lead_id=payload.lead_id,
+                    mp4=video_url,
+                    gif=gif_url,
+                )
             except (RemotionError, httpx.HTTPError) as exc:
                 log.warning(
                     "creative.remotion_failed",
