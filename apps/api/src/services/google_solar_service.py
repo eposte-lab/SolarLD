@@ -359,33 +359,61 @@ async def fetch_building_insight(
     if not key:
         raise SolarApiError("GOOGLE_SOLAR_API_KEY not configured")
 
-    params = {
-        "location.latitude": f"{lat:.7f}",
-        "location.longitude": f"{lng:.7f}",
-        "requiredQuality": "HIGH",
-        "key": key,
-    }
-
     owns_client = client is None
     if client is None:
         client = httpx.AsyncClient(timeout=15.0)
 
+    # Quality tier-down: HIGH → MEDIUM → LOW with expanding radius.
+    # Italian coverage outside major metro cores is mostly MEDIUM/LOW.
+    # Using requiredQuality=HIGH alone misses ~65% of valid roofs in Italy.
+    # radiusMeters=150 lets the API find a building when the geocoded point
+    # (typically on the street) is offset from the actual roof centroid.
+    quality_tiers = [
+        ("HIGH",   "100"),
+        ("MEDIUM", "150"),
+        ("LOW",    "150"),
+    ]
+
     try:
-        resp = await client.get(SOLAR_API_ENDPOINT, params=params)
+        for quality, radius in quality_tiers:
+            params = {
+                "location.latitude": f"{lat:.7f}",
+                "location.longitude": f"{lng:.7f}",
+                "requiredQuality": quality,
+                "radiusMeters": radius,
+                "key": key,
+            }
+            resp = await client.get(SOLAR_API_ENDPOINT, params=params)
+
+            if resp.status_code == 200:
+                if quality != "HIGH":
+                    log.info(
+                        "solar_api_quality_tier_down",
+                        lat=lat, lng=lng, quality=quality,
+                    )
+                return _parse_building_insight_payload(resp.json())
+
+            if resp.status_code == 404:
+                # Nothing at this quality — try next tier
+                continue
+
+            if resp.status_code in (429, 503):
+                log.warning(
+                    "solar_api_rate_limited", status=resp.status_code,
+                    lat=lat, lng=lng,
+                )
+                raise SolarApiRateLimited(f"status={resp.status_code}")
+
+            # Any other 4xx/5xx is a hard error — stop immediately
+            log.error("solar_api_error", status=resp.status_code, body=resp.text[:500])
+            raise SolarApiError(f"status={resp.status_code} body={resp.text[:200]}")
+
+        # Exhausted all quality tiers with 404 each time
+        raise SolarApiNotFound(f"no building at ({lat}, {lng})")
+
     finally:
         if owns_client:
             await client.aclose()
-
-    if resp.status_code == 404:
-        raise SolarApiNotFound(f"no building at ({lat}, {lng})")
-    if resp.status_code in (429, 503):
-        log.warning("solar_api_rate_limited", status=resp.status_code, lat=lat, lng=lng)
-        raise SolarApiRateLimited(f"status={resp.status_code}")
-    if resp.status_code >= 400:
-        log.error("solar_api_error", status=resp.status_code, body=resp.text[:500])
-        raise SolarApiError(f"status={resp.status_code} body={resp.text[:200]}")
-
-    return _parse_building_insight_payload(resp.json())
 
 
 def _parse_building_insight_payload(payload: dict[str, Any]) -> RoofInsight:
