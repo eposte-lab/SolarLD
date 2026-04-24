@@ -1,0 +1,490 @@
+"""Solar-native rendering pipeline.
+
+Replaces the Replicate/Mapbox path in the Creative agent with a
+deterministic, high-quality approach:
+
+  1. Download the Google Solar aerial RGB GeoTIFF (10 cm/pixel).
+  2. Parse GeoTIFF georeference tags to build a lat/lng ↔ pixel transform.
+  3. Crop a square around the building centre (1024×1024 px).
+  4. "Before" image  = the plain aerial crop.
+  5. "After" image   = same crop + deterministic solar-panel overlay drawn
+                       with PIL in exact Google Solar panel positions.
+
+No AI, no Replicate, no hallucinations.  Panel positions, orientations and
+count come directly from ``RoofInsight.panels`` (Google Solar API) so they
+correspond perfectly to the kWp figure quoted in the email.
+"""
+
+from __future__ import annotations
+
+import io
+import math
+import struct
+
+import httpx
+from PIL import Image, ImageDraw
+
+from ..core.logging import get_logger
+from .google_solar_service import (
+    RoofInsight,
+    SolarApiError,
+    SolarApiNotFound,
+    SolarPanel,
+    download_geotiff,
+    fetch_building_insight,
+    fetch_data_layers,
+)
+
+log = get_logger(__name__)
+
+# Output image size in pixels (square).  At 10 cm/pixel this captures
+# roughly 100 m × 100 m around the building — enough context to look
+# good in email without excessive file size.
+OUTPUT_SIZE = 1024
+
+# Padding around the building centre expressed as a multiplier of the
+# roof's diagonal (sqrt(area)).  Values <1 crop tightly; >2 shows a lot
+# of surroundings.
+PADDING_FACTOR = 2.2
+
+# ── Panel visual style ─────────────────────────────────────────────────────
+# Colours are chosen to look like monocrystalline silicon panels seen
+# from above at ~45° solar angle: dark base + subtle blue cell sheen +
+# silver frame edge.
+PANEL_FILL = (18, 32, 62)          # #12203E  — very dark blue
+PANEL_CELL_1 = (22, 52, 100)       # #163464  — medium blue cell grid
+PANEL_CELL_2 = (30, 70, 130)       # #1E4682  — lighter blue highlight
+PANEL_FRAME = (210, 215, 220)      # silver frame edge
+PANEL_FRAME_WIDTH = 2              # pixels
+# Number of cell columns / rows drawn inside each panel.
+CELL_COLS = 6
+CELL_ROWS = 10
+
+
+class SolarRenderingError(Exception):
+    """Wraps all non-fatal rendering failures."""
+
+
+# ---------------------------------------------------------------------------
+# Public entry point
+# ---------------------------------------------------------------------------
+
+async def render_before_after(
+    lat: float,
+    lng: float,
+    insight: RoofInsight,
+    *,
+    api_key: str | None = None,
+    http_client: httpx.AsyncClient | None = None,
+) -> tuple[bytes, bytes]:
+    """Return ``(before_png_bytes, after_png_bytes)`` for a lead.
+
+    ``insight`` must have been fetched with ``solarPanels`` present (i.e.
+    ``insight.panels`` is non-empty).  If it is empty we still produce a
+    before image but the after image will be identical (no panels drawn).
+
+    Raises:
+        SolarRenderingError: any unrecoverable failure (bad imagery, etc.)
+    """
+    owns_client = http_client is None
+    client = http_client or httpx.AsyncClient(timeout=60.0)
+
+    try:
+        # 1) Fetch DataLayers to get the rgb_url.
+        try:
+            data_layers = await fetch_data_layers(
+                lat, lng, radius_m=50, client=client, api_key=api_key
+            )
+        except SolarApiNotFound as exc:
+            raise SolarRenderingError(f"no imagery at ({lat}, {lng})") from exc
+        except SolarApiError as exc:
+            raise SolarRenderingError(f"Solar API error: {exc}") from exc
+
+        log.info(
+            "solar_rendering.imagery_found",
+            lat=lat,
+            lng=lng,
+            quality=data_layers.imagery_quality,
+            date=data_layers.imagery_date,
+        )
+
+        # 2) Download the GeoTIFF.
+        try:
+            tiff_bytes = await download_geotiff(
+                data_layers.rgb_url, client=client, api_key=api_key
+            )
+        except SolarApiError as exc:
+            raise SolarRenderingError(f"GeoTIFF download failed: {exc}") from exc
+
+    finally:
+        if owns_client:
+            await client.aclose()
+
+    # 3) Parse + crop.
+    try:
+        before_img, transform = _load_and_crop(tiff_bytes, lat, lng, insight)
+    except Exception as exc:
+        raise SolarRenderingError(f"image processing failed: {exc}") from exc
+
+    before_bytes = _to_png_bytes(before_img)
+
+    # 4) Draw panel overlay.
+    try:
+        after_img = _draw_panels(before_img.copy(), insight.panels, transform,
+                                 insight.panel_width_m, insight.panel_height_m)
+    except Exception as exc:
+        log.warning("solar_rendering.panel_draw_failed", err=str(exc))
+        # Non-fatal: after = before (no panels) rather than crashing.
+        after_img = before_img
+
+    after_bytes = _to_png_bytes(after_img)
+
+    log.info(
+        "solar_rendering.done",
+        panels=len(insight.panels),
+        before_kb=len(before_bytes) // 1024,
+        after_kb=len(after_bytes) // 1024,
+    )
+    return before_bytes, after_bytes
+
+
+# ---------------------------------------------------------------------------
+# GeoTIFF loading and cropping
+# ---------------------------------------------------------------------------
+
+class _GeoTransform:
+    """Affine transform: (lat, lng) ↔ pixel (col, row) in the original image."""
+
+    def __init__(
+        self,
+        west_lng: float,
+        north_lat: float,
+        scale_x: float,   # degrees per pixel in longitude
+        scale_y: float,   # degrees per pixel in latitude (positive)
+        crop_col: int,    # column offset of the crop within the original
+        crop_row: int,    # row offset of the crop within the original
+    ) -> None:
+        self.west_lng = west_lng
+        self.north_lat = north_lat
+        self.scale_x = scale_x
+        self.scale_y = scale_y
+        self.crop_col = crop_col
+        self.crop_row = crop_row
+
+    def geo_to_crop_pixel(self, lat: float, lng: float) -> tuple[float, float]:
+        """Return (col, row) in the *cropped* image coordinate space."""
+        col_orig = (lng - self.west_lng) / self.scale_x
+        row_orig = (self.north_lat - lat) / self.scale_y
+        return col_orig - self.crop_col, row_orig - self.crop_row
+
+    def meters_to_pixels(self, meters: float, lat: float) -> float:
+        """Approximate: convert a ground distance in metres to pixels."""
+        # One degree latitude ≈ 111 320 m; longitude is compressed by cos(lat).
+        deg = meters / 111_320.0
+        return deg / self.scale_y  # use latitude scale (scale_y) as base
+
+
+def _parse_geotiff_tags(img: Image.Image) -> tuple[float, float, float, float]:
+    """Return (west_lng, north_lat, scale_x_deg, scale_y_deg) from GeoTIFF tags.
+
+    Tag 33550 = ModelPixelScaleTag  (ScaleX, ScaleY, ScaleZ)
+    Tag 33922 = ModelTiepointTag    (I, J, K, X, Y, Z)
+
+    Both use doubles; Pillow may return them as tuples or raw bytes.
+    """
+    tags = img.tag_v2  # type: ignore[attr-defined]
+    if tags is None:
+        raise SolarRenderingError("Image has no TIFF tag dictionary")
+
+    def _to_doubles(v: object) -> list[float]:
+        if isinstance(v, (list, tuple)):
+            return [float(x) for x in v]
+        if isinstance(v, bytes):
+            n = len(v) // 8
+            if n == 0:
+                raise SolarRenderingError("empty GeoTIFF tag bytes")
+            return list(struct.unpack(f"<{n}d", v))
+        return [float(v)]  # type: ignore[arg-type]
+
+    scale_tag = tags.get(33550)
+    tie_tag = tags.get(33922)
+    if scale_tag is None or tie_tag is None:
+        raise SolarRenderingError(
+            "GeoTIFF missing ModelPixelScaleTag (33550) or "
+            "ModelTiepointTag (33922) — cannot georeference"
+        )
+
+    scale = _to_doubles(scale_tag)  # (ScaleX, ScaleY, ...)
+    tie = _to_doubles(tie_tag)      # (I, J, K, X, Y, Z, ...)
+
+    # Tiepoint: pixel (I, J) maps to geographic (X=lng, Y=lat)
+    # For top-left origin (I=J=0): X=west_lng, Y=north_lat
+    west_lng = tie[3]
+    north_lat = tie[4]
+    scale_x = scale[0]   # degrees per pixel in longitude
+    scale_y = scale[1]   # degrees per pixel in latitude (positive: row↓ = lat↓)
+
+    if scale_x <= 0 or scale_y <= 0:
+        raise SolarRenderingError(
+            f"Implausible GeoTIFF scale: scale_x={scale_x}, scale_y={scale_y}"
+        )
+
+    return west_lng, north_lat, scale_x, scale_y
+
+
+def _load_and_crop(
+    tiff_bytes: bytes,
+    center_lat: float,
+    center_lng: float,
+    insight: RoofInsight,
+) -> tuple[Image.Image, _GeoTransform]:
+    """Open the GeoTIFF, extract georeference, crop to the building.
+
+    Returns ``(cropped_rgb_image, transform)`` where ``transform`` maps
+    lat/lng in the *original* image to pixel coordinates in the *crop*.
+    """
+    img = Image.open(io.BytesIO(tiff_bytes))
+    # Force RGB so downstream code always deals with 3-channel images.
+    img = img.convert("RGB")
+
+    west_lng, north_lat, scale_x, scale_y = _parse_geotiff_tags(img)
+
+    img_w, img_h = img.size
+
+    # Compute crop radius in pixels based on roof area + padding.
+    roof_diag_m = math.sqrt(max(insight.area_sqm, 50.0))
+    crop_radius_m = roof_diag_m * PADDING_FACTOR
+    # Pixels per metre (latitude direction, more stable than longitude)
+    px_per_m = 1.0 / (scale_y * 111_320.0)
+    crop_radius_px = max(OUTPUT_SIZE // 2, int(crop_radius_m * px_per_m))
+
+    # Centre pixel of the building within the full image.
+    center_col = (center_lng - west_lng) / scale_x
+    center_row = (north_lat - center_lat) / scale_y
+
+    # Clamp crop box to image bounds.
+    left = max(0, int(center_col - crop_radius_px))
+    top = max(0, int(center_row - crop_radius_px))
+    right = min(img_w, int(center_col + crop_radius_px))
+    bottom = min(img_h, int(center_row + crop_radius_px))
+
+    # Keep it square for the video composition.
+    side = min(right - left, bottom - top)
+    right = left + side
+    bottom = top + side
+
+    crop = img.crop((left, top, right, bottom))
+    crop = crop.resize((OUTPUT_SIZE, OUTPUT_SIZE), Image.LANCZOS)
+
+    # Scale factor from original pixels → resized output pixels.
+    scale_factor = OUTPUT_SIZE / max(side, 1)
+
+    transform = _GeoTransform(
+        west_lng=west_lng,
+        north_lat=north_lat,
+        scale_x=scale_x,
+        scale_y=scale_y,
+        # Adjusted crop offset and scale so geo_to_crop_pixel gives output-size coords.
+        crop_col=left - (crop_radius_px - side / 2) * (1 - 1 / scale_factor),
+        crop_row=top - (crop_radius_px - side / 2) * (1 - 1 / scale_factor),
+    )
+    # Override to use a simpler, accurate transform: absolute pixel → scaled output.
+    # (Reuse _GeoTransform but inject the scale factor into the pixel computation.)
+    transform = _GeoTransformScaled(
+        west_lng=west_lng,
+        north_lat=north_lat,
+        scale_x=scale_x,
+        scale_y=scale_y,
+        crop_col=left,
+        crop_row=top,
+        scale_factor=scale_factor,
+    )
+
+    return crop, transform
+
+
+class _GeoTransformScaled(_GeoTransform):
+    """Like _GeoTransform but also applies the resize scale factor."""
+
+    def __init__(self, *, scale_factor: float, **kwargs: object) -> None:
+        super().__init__(**kwargs)  # type: ignore[arg-type]
+        self.scale_factor = scale_factor
+
+    def geo_to_crop_pixel(self, lat: float, lng: float) -> tuple[float, float]:
+        col_orig = (lng - self.west_lng) / self.scale_x
+        row_orig = (self.north_lat - lat) / self.scale_y
+        col_crop = (col_orig - self.crop_col) * self.scale_factor
+        row_crop = (row_orig - self.crop_row) * self.scale_factor
+        return col_crop, row_crop
+
+    def meters_to_pixels(self, meters: float, lat: float) -> float:
+        deg = meters / 111_320.0
+        px_per_deg = 1.0 / self.scale_y
+        return deg * px_per_deg * self.scale_factor
+
+
+# ---------------------------------------------------------------------------
+# Panel overlay drawing
+# ---------------------------------------------------------------------------
+
+def _rotate_corners(
+    cx: float, cy: float, half_w: float, half_h: float, angle_deg: float
+) -> list[tuple[float, float]]:
+    """Return 4 corners of a rectangle rotated CW by ``angle_deg`` in screen
+    coordinates (y-axis pointing down).
+
+    CW screen rotation matrix:
+      x' =  x·cos θ + y·sin θ
+      y' = -x·sin θ + y·cos θ
+    """
+    theta = math.radians(angle_deg)
+    cos_a = math.cos(theta)
+    sin_a = math.sin(theta)
+    local = [(-half_w, -half_h), (half_w, -half_h), (half_w, half_h), (-half_w, half_h)]
+    return [
+        (cx + dx * cos_a + dy * sin_a, cy - dx * sin_a + dy * cos_a)
+        for dx, dy in local
+    ]
+
+
+def _panel_rotation_deg(panel: SolarPanel) -> float:
+    """Clockwise rotation from image-North for a panel's long axis.
+
+    Google Solar azimuth = direction the panel FACES (normal projected to
+    horizontal). The long axis of a LANDSCAPE panel runs perpendicular to
+    the azimuth; PORTRAIT runs parallel.
+
+    In screen coordinates (y-down, North = up = −y):
+      azimuth 0°  → LANDSCAPE long axis is E-W  (horizontal line in image)
+      azimuth 90° → LANDSCAPE long axis is N-S  (vertical line in image)
+      azimuth 180°→ LANDSCAPE long axis is E-W  (same as 0°, panel faces S)
+    """
+    azimuth = panel.segment_azimuth_deg % 360.0
+    if panel.orientation == "PORTRAIT":
+        return azimuth % 180.0   # long axis parallel to azimuth, wrapped to [0,180)
+    # LANDSCAPE: long axis perpendicular to azimuth
+    return (azimuth + 90.0) % 180.0
+
+
+def _draw_panel_on(
+    draw: ImageDraw.ImageDraw,
+    cx: float,
+    cy: float,
+    w_px: float,
+    h_px: float,
+    angle_deg: float,
+) -> None:
+    """Draw a single panel: filled rectangle + cell grid + frame."""
+    half_w = w_px / 2
+    half_h = h_px / 2
+
+    corners = _rotate_corners(cx, cy, half_w, half_h, angle_deg)
+    # Main fill
+    draw.polygon(corners, fill=PANEL_FILL)
+
+    # Cell grid — divide the panel interior into CELL_COLS × CELL_ROWS cells.
+    # We draw grid lines by interpolating along the panel edges.
+    def _interp(p1: tuple[float, float], p2: tuple[float, float], t: float) -> tuple[float, float]:
+        return (p1[0] + (p2[0] - p1[0]) * t, p1[1] + (p2[1] - p1[1]) * t)
+
+    tl, tr, br, bl = corners
+
+    # Column dividers (parallel to the short sides)
+    for i in range(1, CELL_COLS):
+        t = i / CELL_COLS
+        p_top = _interp(tl, tr, t)
+        p_bot = _interp(bl, br, t)
+        draw.line([p_top, p_bot], fill=PANEL_CELL_1, width=max(1, int(w_px / 60)))
+
+    # Row dividers (parallel to the long sides)
+    for i in range(1, CELL_ROWS):
+        t = i / CELL_ROWS
+        p_left = _interp(tl, bl, t)
+        p_right = _interp(tr, br, t)
+        draw.line([p_left, p_right], fill=PANEL_CELL_1, width=max(1, int(h_px / 80)))
+
+    # Highlight the top-left quadrant to simulate specular reflection.
+    highlight_corners = [
+        tl,
+        _interp(tl, tr, 0.5),
+        _interp(tl, br, 0.5),
+        _interp(tl, bl, 0.5),
+    ]
+    # Draw as a semi-transparent lighter polygon using a separate draw pass.
+    draw.polygon(highlight_corners, fill=(*PANEL_CELL_2, 60))  # type: ignore[arg-type]
+
+    # Silver frame
+    draw.polygon(corners, outline=PANEL_FRAME, width=PANEL_FRAME_WIDTH)
+
+
+def _draw_panels(
+    img: Image.Image,
+    panels: list[SolarPanel],
+    transform: _GeoTransform,
+    panel_width_m: float,
+    panel_height_m: float,
+) -> Image.Image:
+    """Draw all panels onto ``img`` in-place and return it."""
+    if not panels:
+        return img
+
+    draw = ImageDraw.Draw(img, "RGBA")
+
+    # Use a representative latitude for the metre→pixel conversion.
+    ref_lat = panels[0].lat if panels else transform.north_lat - 0.001
+
+    w_px = transform.meters_to_pixels(panel_width_m, ref_lat)
+    h_px = transform.meters_to_pixels(panel_height_m, ref_lat)
+
+    # Guard: if the image resolution is too low to show panels, skip.
+    if w_px < 2 or h_px < 2:
+        log.warning(
+            "solar_rendering.panels_too_small_for_image",
+            w_px=w_px,
+            h_px=h_px,
+        )
+        return img
+
+    drawn = 0
+    for panel in panels:
+        cx, cy = transform.geo_to_crop_pixel(panel.lat, panel.lng)
+        # Skip panels that fall outside the crop area (can happen at edges).
+        if not (-w_px < cx < img.width + w_px and -h_px < cy < img.height + h_px):
+            continue
+        angle = _panel_rotation_deg(panel)
+        _draw_panel_on(draw, cx, cy, w_px, h_px, angle)
+        drawn += 1
+
+    log.debug("solar_rendering.panels_drawn", total=len(panels), drawn=drawn)
+    return img.convert("RGB")  # flatten RGBA → RGB for PNG output
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _to_png_bytes(img: Image.Image) -> bytes:
+    buf = io.BytesIO()
+    img.convert("RGB").save(buf, format="PNG", optimize=True, compress_level=6)
+    return buf.getvalue()
+
+
+# ---------------------------------------------------------------------------
+# Convenience: fetch insight + render in one call (used by tests / admin)
+# ---------------------------------------------------------------------------
+
+async def render_lead(
+    lat: float,
+    lng: float,
+    *,
+    api_key: str | None = None,
+) -> tuple[bytes, bytes]:
+    """Fetch building insight + render before/after in a single call.
+
+    Suitable for one-off admin endpoints and tests.  Production creative
+    agent should pass a pre-fetched ``RoofInsight`` to avoid duplicate API
+    calls.
+    """
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        insight = await fetch_building_insight(lat, lng, client=client, api_key=api_key)
+        return await render_before_after(lat, lng, insight, api_key=api_key, http_client=client)

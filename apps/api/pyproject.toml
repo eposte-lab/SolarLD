@@ -62,6 +62,9 @@ dependencies = [
   "jinja2>=3.1.4",
   "premailer>=3.10.0",
 
+  # Image processing — solar panel overlay on GeoTIFF aerial imagery
+  "Pillow>=11.0.0",
+
   # PDF generation for postcards + B2C door-to-door exports
   "reportlab>=4.2.5",
   "qrcode[pil]>=8.0",

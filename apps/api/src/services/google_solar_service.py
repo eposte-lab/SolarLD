@@ -1,22 +1,27 @@
 """Google Solar API client.
 
-Wraps the Google Solar `buildingInsights:findClosest` endpoint which returns,
-for a given lat/lng, the closest building polygon with:
-  - roof area
-  - max solar panel count / wattage / potential yearly kWh
-  - per-segment azimuth + pitch + shading
-  - center lat/lng and postal address
+Wraps two Google Solar endpoints:
 
-Docs: https://developers.google.com/maps/documentation/solar/building-insights
+1. `buildingInsights:findClosest` — roof area, kWp, per-panel geometry.
+2. `dataLayers:get?view=IMAGERY_ONLY` — aerial RGB GeoTIFF at ~10 cm/pixel.
 
-Costs (as of 2024): ~$0.02 per request on the `IMAGERY_AND_ALL_LAYERS` tier.
-We cache 404s for 1h to avoid re-hammering empty coordinates.
+The `fetch_building_insight` call is used in the Hunter L4 funnel gate.
+The `fetch_data_layers` call is used by the Creative agent to obtain the
+high-quality "before" image for the before/after rendering pipeline.
+
+Docs:
+  https://developers.google.com/maps/documentation/solar/building-insights
+  https://developers.google.com/maps/documentation/solar/data-layers
+
+Costs (as of 2024):
+  buildingInsights: ~$0.02/request
+  dataLayers:       ~$0.03/request
 """
 
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
@@ -28,8 +33,11 @@ from ..core.logging import get_logger
 log = get_logger(__name__)
 
 SOLAR_API_ENDPOINT = "https://solar.googleapis.com/v1/buildingInsights:findClosest"
+SOLAR_DATA_LAYERS_ENDPOINT = "https://solar.googleapis.com/v1/dataLayers:get"
+SOLAR_GEOTIFF_ENDPOINT = "https://solar.googleapis.com/v1/geoTiff:get"
 # Per Google billing for solar; used for api_usage_log + scan_cost_cents.
 COST_PER_CALL_CENTS = 2
+COST_DATA_LAYERS_CENTS = 3  # dataLayers:get (IMAGERY_ONLY view)
 
 
 class SolarApiError(Exception):
@@ -42,6 +50,36 @@ class SolarApiNotFound(Exception):
 
 class SolarApiRateLimited(Exception):
     """Retryable 429 / 503."""
+
+
+@dataclass(slots=True)
+class SolarPanel:
+    """One panel in the Google Solar optimal layout.
+
+    `segment_azimuth_deg` is resolved from the parent segment so callers
+    don't need to look it up separately.
+    """
+
+    lat: float
+    lng: float
+    orientation: str          # "LANDSCAPE" | "PORTRAIT"
+    segment_azimuth_deg: float
+    yearly_energy_kwh: float
+    segment_index: int
+
+
+@dataclass(slots=True)
+class DataLayers:
+    """Minimal projection of the `dataLayers:get` response.
+
+    The `rgb_url` is the base URL of the GeoTIFF.  To download it you
+    must append ``?key={api_key}`` — the key is not baked in to avoid
+    leaking it into logs.
+    """
+
+    rgb_url: str
+    imagery_quality: str      # "HIGH" | "MEDIUM" | "LOW"
+    imagery_date: str         # "YYYY-MM-DD" (best effort)
 
 
 @dataclass(slots=True)
@@ -67,6 +105,10 @@ class RoofInsight:
     administrative_area: str | None
     locality: str | None
     raw: dict[str, Any]
+    # Panel geometry — populated when solarPotential.solarPanels is present.
+    panels: list[SolarPanel] = field(default_factory=list)
+    panel_width_m: float = 1.045   # Google Solar default (standard 2024 module)
+    panel_height_m: float = 1.879
 
 
 def _azimuth_to_cardinal(deg: float) -> str:
@@ -114,14 +156,40 @@ def _parse_building_insights(data: dict[str, Any]) -> RoofInsight:
 
     # Google lists multiple financial analyses; pick the first production total.
     yearly_kwh = 0.0
-    if max_panels > 0 and potential.get("solarPanels"):
-        # Sum yearly energy across default-count panel set
-        yearly_kwh = sum(
-            float(p.get("yearlyEnergyDcKwh", 0.0) or 0.0) for p in potential["solarPanels"]
-        )
+    raw_panels: list[dict[str, Any]] = potential.get("solarPanels") or []
+    if raw_panels:
+        yearly_kwh = sum(float(p.get("yearlyEnergyDcKwh", 0.0) or 0.0) for p in raw_panels)
     if not yearly_kwh:
         # Fallback: typical Italian yield ≈ 1300 kWh/kWp
         yearly_kwh = estimated_kwp * 1300.0
+
+    # Build a fast segment-index → azimuth lookup.
+    seg_azimuths: dict[int, float] = {}
+    for i, seg in enumerate(segments):
+        seg_azimuths[i] = float(seg.get("azimuthDegrees", 180.0) or 180.0)
+
+    # Panel physical dimensions (Google provides these per-potential block).
+    panel_width_m = float(potential.get("panelWidthMeters", 1.045) or 1.045)
+    panel_height_m = float(potential.get("panelHeightMeters", 1.879) or 1.879)
+
+    panels: list[SolarPanel] = []
+    for p in raw_panels:
+        p_center = p.get("center") or {}
+        p_lat = float(p_center.get("latitude", 0.0) or 0.0)
+        p_lng = float(p_center.get("longitude", 0.0) or 0.0)
+        if not p_lat and not p_lng:
+            continue
+        seg_idx = int(p.get("segmentIndex", 0) or 0)
+        panels.append(
+            SolarPanel(
+                lat=p_lat,
+                lng=p_lng,
+                orientation=str(p.get("orientation", "LANDSCAPE")),
+                segment_azimuth_deg=seg_azimuths.get(seg_idx, dominant_azimuth),
+                yearly_energy_kwh=float(p.get("yearlyEnergyDcKwh", 0.0) or 0.0),
+                segment_index=seg_idx,
+            )
+        )
 
     postal_addr = data.get("postalCode")  # Not always present
     # The Solar API sometimes returns `regionCode` + `administrativeArea` inline
@@ -145,6 +213,9 @@ def _parse_building_insights(data: dict[str, Any]) -> RoofInsight:
         administrative_area=admin_area,
         locality=locality,
         raw=data,
+        panels=panels,
+        panel_width_m=panel_width_m,
+        panel_height_m=panel_height_m,
     )
 
 
@@ -182,8 +253,8 @@ def _mock_roof_insight(lat: float, lng: float) -> RoofInsight:
     # Pitch 15–35°
     pitch_degrees = round(15.0 + (ha % 21), 2)
     # Exposure: never N — pick from good Italian azimuths
-    _GOOD_EXPOSURES = ["S", "SE", "SW", "E", "W"]
-    dominant_exposure = _GOOD_EXPOSURES[hb % len(_GOOD_EXPOSURES)]
+    good_exposures = ["S", "SE", "SW", "E", "W"]
+    dominant_exposure = good_exposures[hb % len(good_exposures)]
 
     raw: dict[str, Any] = {
         "_mock": True,
@@ -200,6 +271,33 @@ def _mock_roof_insight(lat: float, lng: float) -> RoofInsight:
             "exposure": dominant_exposure,
         },
     )
+    # Generate a simple grid of mock panels around the building center.
+    # Each panel is 1.045 × 1.879 m; panels are placed on a 2m grid,
+    # facing South (azimuth=180°) — the dominant Italian exposure.
+    mock_panel_w = 1.045
+    mock_panel_h = 1.879
+    deg_per_m_lat = 1 / 111320.0
+    deg_per_m_lng = 1 / (111320.0 * 0.94)  # cos(20°) ≈ Italy mid-latitude
+    mock_panels: list[SolarPanel] = []
+    cols = max(1, int((area_sqm ** 0.5) / 2.0))
+    rows = max(1, n_panels // max(1, cols))
+    for ri in range(rows):
+        for ci in range(cols):
+            if len(mock_panels) >= n_panels:
+                break
+            p_lat = lat + (ri - rows / 2) * mock_panel_h * deg_per_m_lat
+            p_lng = lng + (ci - cols / 2) * mock_panel_w * deg_per_m_lng
+            mock_panels.append(
+                SolarPanel(
+                    lat=p_lat,
+                    lng=p_lng,
+                    orientation="LANDSCAPE",
+                    segment_azimuth_deg=180.0,
+                    yearly_energy_kwh=float(estimated_yearly_kwh) / max(1, n_panels),
+                    segment_index=0,
+                )
+            )
+
     return RoofInsight(
         lat=lat,
         lng=lng,
@@ -216,6 +314,9 @@ def _mock_roof_insight(lat: float, lng: float) -> RoofInsight:
         administrative_area=None,
         locality=None,
         raw=raw,
+        panels=mock_panels,
+        panel_width_m=mock_panel_w,
+        panel_height_m=mock_panel_h,
     )
 
 
@@ -290,3 +391,110 @@ async def fetch_building_insight(
 def _parse_building_insight_payload(payload: dict[str, Any]) -> RoofInsight:
     """Public alias to allow unit tests to feed fixture JSON without an HTTP call."""
     return _parse_building_insights(payload)
+
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+    retry=retry_if_exception_type(SolarApiRateLimited),
+    reraise=True,
+)
+async def fetch_data_layers(
+    lat: float,
+    lng: float,
+    *,
+    radius_m: int = 40,
+    client: httpx.AsyncClient | None = None,
+    api_key: str | None = None,
+) -> DataLayers:
+    """Fetch aerial RGB imagery metadata for a point.
+
+    Returns a ``DataLayers`` with ``rgb_url`` pointing at the GeoTIFF.
+    The caller is responsible for downloading the GeoTIFF separately
+    (append ``?key={api_key}`` to the URL).
+
+    Raises:
+        SolarApiNotFound: no imagery at this location.
+        SolarApiError:    unrecoverable failure.
+    """
+    effective_key = api_key or settings.google_solar_api_key
+    if not effective_key:
+        raise SolarApiError("GOOGLE_SOLAR_API_KEY not configured")
+
+    params = {
+        "location.latitude": f"{lat:.7f}",
+        "location.longitude": f"{lng:.7f}",
+        "radiusMeters": str(radius_m),
+        "view": "IMAGERY_ONLY",
+        "requiredQuality": "HIGH",
+        "key": effective_key,
+    }
+
+    owns_client = client is None
+    if client is None:
+        client = httpx.AsyncClient(timeout=20.0)
+
+    try:
+        resp = await client.get(SOLAR_DATA_LAYERS_ENDPOINT, params=params)
+    finally:
+        if owns_client:
+            await client.aclose()
+
+    if resp.status_code == 404:
+        raise SolarApiNotFound(f"no data layers at ({lat}, {lng})")
+    if resp.status_code in (429, 503):
+        log.warning("solar_data_layers_rate_limited", status=resp.status_code, lat=lat, lng=lng)
+        raise SolarApiRateLimited(f"status={resp.status_code}")
+    if resp.status_code >= 400:
+        log.error("solar_data_layers_error", status=resp.status_code, body=resp.text[:300])
+        raise SolarApiError(f"dataLayers status={resp.status_code} body={resp.text[:200]}")
+
+    data = resp.json()
+    rgb_url = data.get("rgbUrl", "")
+    if not rgb_url:
+        raise SolarApiError("dataLayers response missing rgbUrl")
+
+    # Normalise imagery date from {"year": 2022, "month": 8, "day": 15}
+    d = data.get("imageryDate") or {}
+    imagery_date = (
+        f"{d.get('year', '?')}-{d.get('month', '?'):02d}-{d.get('day', '?'):02d}"
+        if d
+        else "unknown"
+    )
+
+    return DataLayers(
+        rgb_url=rgb_url,
+        imagery_quality=str(data.get("imageryQuality", "UNKNOWN")),
+        imagery_date=imagery_date,
+    )
+
+
+async def download_geotiff(
+    url: str,
+    *,
+    client: httpx.AsyncClient | None = None,
+    api_key: str | None = None,
+) -> bytes:
+    """Download a GeoTIFF from a Solar API URL (appends the API key).
+
+    The ``url`` comes from ``DataLayers.rgb_url`` which is a base URL
+    without the key; we append it here so the key never appears in logs.
+    """
+    effective_key = api_key or settings.google_solar_api_key
+    if not effective_key:
+        raise SolarApiError("GOOGLE_SOLAR_API_KEY not configured for GeoTIFF download")
+
+    full_url = f"{url}&key={effective_key}" if "?" in url else f"{url}?key={effective_key}"
+
+    owns_client = client is None
+    if client is None:
+        client = httpx.AsyncClient(timeout=60.0)
+
+    try:
+        resp = await client.get(full_url)
+        if resp.status_code >= 400:
+            raise SolarApiError(f"GeoTIFF download failed: status={resp.status_code}")
+        return resp.content
+    finally:
+        if owns_client:
+            await client.aclose()

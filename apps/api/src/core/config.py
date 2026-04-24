@@ -90,6 +90,13 @@ class Settings(BaseSettings):
     # google_solar_api_key is not configured; real key always wins.
     google_solar_mock_mode: bool = False
 
+    # ---- Creative rendering engine ----
+    # "google_solar" (default): fetch RGB aerial from Google Solar dataLayers
+    #   + draw panel geometry deterministically with PIL — no AI, no Replicate.
+    # "replicate": legacy path (Stable Diffusion inpainting) — kept as
+    #   fallback if Google Solar imagery is unavailable for a region.
+    creative_rendering_engine: Literal["google_solar", "replicate"] = "google_solar"
+
     # ---- Italian business data ----
     visura_api_key: str = ""
     atoka_api_key: str = ""

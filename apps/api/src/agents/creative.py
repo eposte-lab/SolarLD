@@ -1,6 +1,6 @@
-"""Creative Agent — satellite tile → PV rendering → ROI → lead assets.
+"""Creative Agent — Google Solar aerial → deterministic PV overlay → ROI → lead assets.
 
-Sprint 4 pipeline (GIF/video shipped in Sprint 5 alongside Remotion):
+Pipeline:
 
     lead_id
         ↓
@@ -8,34 +8,31 @@ Sprint 4 pipeline (GIF/video shipped in Sprint 5 alongside Remotion):
         ↓
     idempotency: if lead.rendering_image_url already set and not force → skip
         ↓
-    download high-zoom Mapbox satellite tile        → "before" image
+    fetch Google Solar buildingInsights (panel geometry) + dataLayers (RGB aerial)
         ↓
-    upload before.png to Supabase Storage
+    solar_rendering_service.render_before_after()
+          → "before" image  (Google aerial crop, 1024×1024, 10 cm/px)
+          → "after"  image  (same crop + PIL panel overlay, deterministic)
+        ↓
+    upload before.png + after.png to Supabase Storage
         renderings/{tenant_id}/{lead_id}/before.png
-        ↓
-    Replicate create_pv_rendering(before_url, prompt_ctx)
-        ↓
-    download the prediction output and re-host       → "after" image
         renderings/{tenant_id}/{lead_id}/after.png
         ↓
-    compute_roi(kwp, yearly_kwh, subject_type)       → leads.roi_data
+    compute_roi(kwp, yearly_kwh, subject_type)  → leads.roi_data
         ↓
-    UPDATE leads SET rendering_image_url, roi_data
-    UPDATE roofs.status = 'rendered' (if currently 'scored')
+    Remotion sidecar: render_transition(before, after, roi)  → MP4 + GIF
+        ↓
+    UPDATE leads SET rendering_image_url, rendering_video_url, rendering_gif_url, roi_data
+    UPDATE roofs.status = 'rendered'
         ↓
     emit lead.rendered event
 
 Degradation:
-  * Replicate timeout / failure → we DON'T touch the after URL, we still
-    commit the before URL + ROI. The outreach agent can gracefully use
-    the before image (labelled "situazione attuale") without the AI
-    overlay. Next regenerate-rendering run retries.
-  * Roof has no lat/lng → we skip the image path entirely; ROI is still
-    computed if kWp / yearly_kwh are available.
-
-We deliberately re-host the Replicate output on our own Supabase bucket
-rather than linking directly to ``replicate.delivery`` — their URLs
-expire after 24h and we need long-lived URLs for email/postal creatives.
+  * Google Solar 404 (no building data) or bad imagery quality → skip_reason
+    set, ROI still persisted, outreach continues without rendering.
+  * Google Solar API key missing → same graceful skip.
+  * PIL rendering error → before uploaded only (no after), Remotion skipped.
+  * Remotion sidecar failure → images still committed, video/GIF skipped.
 """
 
 from __future__ import annotations
@@ -45,30 +42,28 @@ from typing import Any
 import httpx
 from pydantic import BaseModel, Field
 
+from ..core.config import settings
 from ..core.logging import get_logger
 from ..core.supabase_client import get_service_client
 from ..models.enums import RoofStatus
-from ..services.mapbox_service import MapboxError, build_static_satellite_url
+from ..services.google_solar_service import (
+    SolarApiError,
+    SolarApiNotFound,
+    fetch_building_insight,
+)
 from ..services.remotion_service import (
     RemotionError,
     RenderTransitionInput,
     render_transition,
 )
-from ..services.replicate_service import (
-    REPLICATE_COST_PER_CALL_CENTS,
-    RenderingPromptContext,
-    ReplicateError,
-    create_pv_rendering,
-)
-from ..services.roi_service import RoiEstimate, compute_roi
+from ..services.roi_service import compute_roi
+from ..services.solar_rendering_service import SolarRenderingError, render_before_after
 from ..services.storage_service import upload_bytes
 from .base import AgentBase
 
 log = get_logger(__name__)
 
 RENDERINGS_BUCKET = "renderings"
-DEFAULT_SATELLITE_ZOOM = 20
-DEFAULT_SATELLITE_SIZE = 768
 
 
 class CreativeInput(BaseModel):
@@ -141,96 +136,90 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
         )
         roi_jsonb = roi.to_jsonb() if roi else {}
 
-        # 4) Build the "before" image URL (Mapbox static satellite) and
-        # re-host it on Supabase Storage so it survives Mapbox URL churn.
+        # 4) Fetch Google Solar panel geometry + aerial RGB imagery, then
+        # render before/after deterministically with PIL.
+        # Non-fatal: missing coords or Solar API failure → skip rendering,
+        # ROI is still persisted and outreach continues without images.
         before_url: str | None = None
         after_url: str | None = None
         skipped_reason: str | None = None
 
         lat = _to_float(roof.get("lat"))
         lng = _to_float(roof.get("lng"))
+
         if lat is None or lng is None:
             skipped_reason = "missing_coords"
+        elif not settings.google_solar_api_key and not settings.google_solar_mock_mode:
+            skipped_reason = "solar_api_key_not_configured"
+            log.warning("creative.solar_api_key_missing", lead_id=payload.lead_id)
         else:
             try:
-                async with httpx.AsyncClient(timeout=20.0) as http:
-                    before_bytes = await _download_satellite_tile(
-                        lat=lat, lng=lng, client=http
-                    )
+                # Re-fetch buildingInsights to get the full solarPanels list.
+                # Hunter L4 already fetched this but the panel geometry is not
+                # stored in the DB, so a second call is necessary here.
+                # Cost: ~$0.02 (buildingInsights) + ~$0.03 (dataLayers) per lead.
+                async with httpx.AsyncClient(timeout=30.0) as http:
+                    insight = await fetch_building_insight(lat, lng, client=http)
+
+                log.info(
+                    "creative.solar_insight_fetched",
+                    lead_id=payload.lead_id,
+                    panels=len(insight.panels),
+                    kwp=insight.estimated_kwp,
+                )
+
+                before_bytes, after_bytes = await render_before_after(
+                    lat, lng, insight,
+                    api_key=settings.google_solar_api_key or None,
+                )
+
                 before_url = upload_bytes(
                     bucket=RENDERINGS_BUCKET,
                     path=f"{payload.tenant_id}/{payload.lead_id}/before.png",
                     data=before_bytes,
                     content_type="image/png",
                 )
-            except (MapboxError, httpx.HTTPError) as exc:
-                log.warning(
-                    "creative.before_download_failed",
-                    lead_id=payload.lead_id,
-                    err=str(exc),
+                after_url = upload_bytes(
+                    bucket=RENDERINGS_BUCKET,
+                    path=f"{payload.tenant_id}/{payload.lead_id}/after.png",
+                    data=after_bytes,
+                    content_type="image/png",
                 )
-                skipped_reason = "mapbox_unavailable"
 
-        # 5) If we have a before image, try the Replicate pass. Failure
-        # here is non-fatal: we still persist whatever we have.
-        if before_url is not None:
-            try:
-                prompt_ctx = RenderingPromptContext(
-                    area_sqm=_to_float(roof.get("area_sqm")),
-                    exposure=roof.get("exposure"),
-                    brand_primary_color=tenant_row.get("brand_primary_color"),
-                    subject_type=subject.get("type") or "unknown",
+                # Book-keep cost (buildingInsights + dataLayers).
+                _log_api_cost(
+                    sb,
+                    tenant_id=payload.tenant_id,
+                    endpoint="solar/buildingInsights+dataLayers",
+                    cost_cents=5,  # $0.02 + $0.03
+                    status="success",
+                    metadata={"lead_id": payload.lead_id, "panels": len(insight.panels)},
                 )
-                prediction = await create_pv_rendering(
-                    before_image_url=before_url,
-                    prompt_ctx=prompt_ctx,
-                )
-                if prediction.is_success and prediction.output_url:
-                    async with httpx.AsyncClient(timeout=30.0) as http:
-                        after_bytes = await _download_url(
-                            prediction.output_url, client=http
-                        )
-                    after_url = upload_bytes(
-                        bucket=RENDERINGS_BUCKET,
-                        path=f"{payload.tenant_id}/{payload.lead_id}/after.png",
-                        data=after_bytes,
-                        content_type="image/png",
-                    )
-                else:
-                    skipped_reason = (
-                        f"replicate_{prediction.status}"
-                        if skipped_reason is None
-                        else skipped_reason
-                    )
-                    log.warning(
-                        "creative.replicate_no_output",
-                        lead_id=payload.lead_id,
-                        status=prediction.status,
-                        error=prediction.error,
-                    )
-            except (ReplicateError, httpx.HTTPError) as exc:
-                log.warning(
-                    "creative.replicate_failed",
-                    lead_id=payload.lead_id,
-                    err=str(exc),
-                )
-                if skipped_reason is None:
-                    # Preserve the actual error message (truncated) so
-                    # the admin seed-test response surfaces it — otherwise
-                    # "replicate_error" is opaque and requires log digging.
-                    err_msg = str(exc).replace("\n", " ")[:160]
-                    skipped_reason = f"replicate_error:{err_msg}"
 
-            # Book-keep Replicate cost (always, even on failure we pay for
-            # the inference time).
-            _log_api_cost(
-                sb,
-                tenant_id=payload.tenant_id,
-                endpoint="predictions:create",
-                cost_cents=REPLICATE_COST_PER_CALL_CENTS,
-                status="success" if after_url else "error",
-                metadata={"lead_id": payload.lead_id},
-            )
+            except SolarApiNotFound:
+                skipped_reason = "solar_no_building"
+                log.info(
+                    "creative.solar_no_building",
+                    lead_id=payload.lead_id,
+                    lat=lat,
+                    lng=lng,
+                )
+            except (SolarApiError, SolarRenderingError, httpx.HTTPError) as exc:
+                err_msg = str(exc).replace("\n", " ")[:160]
+                skipped_reason = f"solar_render_error:{err_msg}"
+                log.warning(
+                    "creative.solar_render_failed",
+                    lead_id=payload.lead_id,
+                    err=err_msg,
+                )
+                _log_api_cost(
+                    sb,
+                    tenant_id=payload.tenant_id,
+                    endpoint="solar/buildingInsights+dataLayers",
+                    cost_cents=5,
+                    status="error",
+                    metadata={"lead_id": payload.lead_id, "err": err_msg[:80]},
+                )
 
         # 6) Video + GIF via Remotion sidecar (Sprint 5). We only try
         # this when both a before and an after exist — the transition
@@ -334,29 +323,6 @@ def _load_single(
     )
     data = res.data or []
     return data[0] if data else None
-
-
-async def _download_satellite_tile(
-    *, lat: float, lng: float, client: httpx.AsyncClient
-) -> bytes:
-    """Fetch the Mapbox static satellite tile as raw PNG bytes."""
-    url = build_static_satellite_url(
-        lat,
-        lng,
-        zoom=DEFAULT_SATELLITE_ZOOM,
-        width=DEFAULT_SATELLITE_SIZE,
-        height=DEFAULT_SATELLITE_SIZE,
-    )
-    return await _download_url(url, client=client)
-
-
-async def _download_url(url: str, *, client: httpx.AsyncClient) -> bytes:
-    resp = await client.get(url)
-    if resp.status_code >= 400:
-        raise httpx.HTTPError(
-            f"download {url[:80]}... status={resp.status_code}"
-        )
-    return resp.content
 
 
 def _log_api_cost(
