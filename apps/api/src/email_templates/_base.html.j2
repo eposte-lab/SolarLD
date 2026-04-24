@@ -484,9 +484,18 @@
 
       </div>{# /card #}
 
+      {# ── Mandatory GDPR footer (Sprint 6.5) ──────────────────────────────
+         Legal basis: legittimo interesse commerciale B2B — art. 6.1.f GDPR.
+         tenant_legal_name and tenant_vat_number are required from migration
+         0052 and enforced by the outreach GDPR gate before any email is sent.
+         List-Unsubscribe header is added server-side by the outreach agent.
+      ─────────────────────────────────────────────────────────────────────── #}
       <div class="footer">
         {{ tenant_name }} <span class="mark"></span> Stima indicativa, non vincolante.<br />
-        <a href="{{ optout_url }}">Non desidero più ricevere comunicazioni</a>
+        Questa email è inviata{% if recipient_email %} a <em>{{ recipient_email }}</em>{% endif %}
+        in base al legittimo interesse commerciale B2B (art.&nbsp;6.1.f&nbsp;GDPR).<br />
+        {{ tenant_legal_name or tenant_name }}{% if tenant_vat_number %}&nbsp;&mdash; P.IVA {{ tenant_vat_number }}{% endif %}.<br />
+        <a href="{{ optout_url }}">Cancellati con un click</a> per non ricevere pi&ugrave; comunicazioni da noi.
       </div>
     </div>
   </body>

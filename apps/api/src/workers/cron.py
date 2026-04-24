@@ -50,6 +50,7 @@ from ..services.followup_service import (
 )
 from ..services.engagement_service import run_engagement_rollup
 from ..services.reputation_service import run_reputation_digest
+from ..services.reputation_enforcement_service import run_enforcement
 from ..services.send_time_service import pick_next_send_time, run_send_time_rollup
 
 log = get_logger(__name__)
@@ -210,22 +211,45 @@ async def weekly_digest_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
 
 
 async def reputation_digest_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
-    """Nightly rollup of sender reputation (Part B.5 deliverability).
+    """Nightly rollup of sender reputation (Part B.5 / Sprint 6.5).
 
     Aggregates the last 7 days of (campaigns + events) per tenant's
     ``email_from_domain`` and writes one row to ``domain_reputation``.
     The dashboard ``/settings`` page reads the latest snapshot and
     renders a red banner if bounce_rate > 5% or complaint_rate > 0.3%.
 
+    Immediately after the digest, the enforcement service auto-pauses any
+    domain whose alarm flags are set (bounce > 5 % / complaint > 0.3 %).
+
     Idempotent: re-running on the same date upserts the snapshot.
     """
-    result = await run_reputation_digest()
+    sb = get_service_client()
+
+    digest_result = await run_reputation_digest()
     log.info(
         "cron.reputation_digest.done",
-        rows=result.get("rows", 0),
-        alarms=result.get("alarms", 0),
+        rows=digest_result.get("rows", 0),
+        alarms=digest_result.get("alarms", 0),
     )
-    return {"ok": True, **result}
+
+    # Sprint 6.5 — enforce alarm flags immediately after the fresh digest.
+    enforcement_result = await run_enforcement(sb)
+    log.info(
+        "cron.reputation_enforcement.done",
+        checked=enforcement_result.domains_checked,
+        paused=enforcement_result.domains_paused,
+        errors=len(enforcement_result.errors),
+    )
+
+    return {
+        "ok": True,
+        **digest_result,
+        "enforcement": {
+            "checked": enforcement_result.domains_checked,
+            "paused": enforcement_result.domains_paused,
+            "errors": enforcement_result.errors,
+        },
+    }
 
 
 async def send_time_rollup_cron(_ctx: dict[str, Any]) -> dict[str, Any]:

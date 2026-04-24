@@ -52,6 +52,10 @@ from pydantic import BaseModel
 from ..core.logging import get_logger
 from ..core.supabase_client import get_service_client
 from ..models.enums import BlacklistReason, CampaignStatus, LeadStatus
+from ..services.reputation_enforcement_service import (
+    check_realtime_bounce_spike,
+    check_realtime_complaint_cluster,
+)
 from .base import AgentBase
 
 log = get_logger(__name__)
@@ -261,6 +265,43 @@ def project_pixart_campaign_update(event_type: str) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _resolve_domain_for_inbox(sb: Any, inbox_id: str | None) -> tuple[str | None, str]:
+    """Synchronous: return (domain_id, domain_name) for a given inbox row.
+
+    Used by real-time reputation checks.  Returns ``(None, "")`` on any
+    error so callers gracefully fall through to tenant-level lookups.
+    """
+    if not inbox_id:
+        return None, ""
+    try:
+        res = (
+            sb.table("tenant_inboxes")
+            .select("domain_id, tenant_email_domains(id, domain)")
+            .eq("id", inbox_id)
+            .limit(1)
+            .execute()
+        )
+        row = (res.data or [None])[0]
+        if not row:
+            return None, ""
+        dom = row.get("tenant_email_domains") or {}
+        if isinstance(dom, list):
+            dom = dom[0] if dom else {}
+        return dom.get("id"), str(dom.get("domain") or "")
+    except Exception as exc:  # noqa: BLE001
+        log.debug(
+            "tracking.resolve_domain_failed",
+            inbox_id=inbox_id,
+            err=str(exc),
+        )
+        return None, ""
+
+
+# ---------------------------------------------------------------------------
 # Agent
 # ---------------------------------------------------------------------------
 
@@ -312,7 +353,7 @@ class TrackingAgent(AgentBase[TrackingInput, TrackingOutput]):
         # -------------------------------------------------------------
         campaign_res = (
             sb.table("outreach_sends")
-            .select("id, tenant_id, lead_id, status")
+            .select("id, tenant_id, lead_id, status, inbox_id")
             .eq("email_message_id", event.email_id)
             .limit(1)
             .execute()
@@ -378,6 +419,50 @@ class TrackingAgent(AgentBase[TrackingInput, TrackingOutput]):
                 reason=blacklist_reason,
                 source=f"resend.{event.type}",
             )
+
+        # -------------------------------------------------------------
+        # 5b) Real-time reputation enforcement (Sprint 6.5)
+        #
+        #   complained → complaint-cluster guard: if ≥3 complaints from
+        #     the same tenant domain within 60 min → immediate 48h pause.
+        #   bounced    → bounce-spike guard: if rolling 24h bounce rate
+        #     exceeds 8% and at least 10 sends in the window → pause.
+        #
+        # Both checks are non-fatal: any exception is swallowed to
+        # ensure the webhook ACK is never delayed by a reputation check.
+        # -------------------------------------------------------------
+        if event.type in {"complained", "bounced"}:
+            domain_id, domain_name = _resolve_domain_for_inbox(
+                sb, campaign.get("inbox_id")
+            )
+            if event.type == "complained":
+                try:
+                    await check_realtime_complaint_cluster(
+                        sb,
+                        tenant_id=tenant_id,
+                        domain_id=domain_id,
+                        domain_name=domain_name,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    log.warning(
+                        "tracking.complaint_cluster_check_failed",
+                        tenant_id=tenant_id,
+                        err=str(exc),
+                    )
+            else:  # bounced
+                try:
+                    await check_realtime_bounce_spike(
+                        sb,
+                        tenant_id=tenant_id,
+                        domain_id=domain_id,
+                        domain_name=domain_name,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    log.warning(
+                        "tracking.bounce_spike_check_failed",
+                        tenant_id=tenant_id,
+                        err=str(exc),
+                    )
 
         # -------------------------------------------------------------
         # 6) Audit event (also the dedupe marker for future calls)

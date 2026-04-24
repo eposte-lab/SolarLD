@@ -254,6 +254,24 @@ function IntegrationsCard({ tenant }: { tenant: TenantRow }) {
           <span className="text-on-surface-variant group-hover:text-primary">→</span>
         </Link>
 
+        {/* ── Multi-domain outreach (Sprint 6.2) ── */}
+        <Link
+          href="/settings/email-domains"
+          className={cn(
+            'group flex items-start justify-between gap-4 rounded-lg border border-outline-variant/40 bg-surface-container-lowest px-4 py-4 transition-colors',
+            'hover:border-primary/60 hover:bg-surface-container-low',
+          )}
+        >
+          <div>
+            <p className="font-semibold text-on-surface">Domini email</p>
+            <p className="mt-1 text-xs text-on-surface-variant">
+              Gestisci brand domain (Resend) e outreach domain (Gmail OAuth) con
+              verifica DNS live SPF/DKIM/DMARC e tracking host per-dominio.
+            </p>
+          </div>
+          <span className="text-on-surface-variant group-hover:text-primary">→</span>
+        </Link>
+
         {/* ── Branding email ── */}
         <Link
           href="/settings/branding"

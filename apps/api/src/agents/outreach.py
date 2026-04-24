@@ -162,7 +162,8 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
             .select(
                 "id, business_name, brand_primary_color, brand_logo_url, "
                 "contact_email, email_from_domain, email_from_name, "
-                "email_from_domain_verified_at, tier, settings"
+                "email_from_domain_verified_at, tier, settings, "
+                "legal_name, vat_number, legal_address"
             )
             .eq("id", payload.tenant_id)
             .single()
@@ -275,6 +276,31 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
                     "capability": channel_capability.value,
                 },
             )
+
+        # ------------------------------------------------------------------
+        # 4b) GDPR footer gate (Sprint 6.5)
+        #     Email outreach requires tenant legal details so the mandatory
+        #     GDPR footer (art. 6.1.f legitimate-interest B2B) is complete.
+        #     Missing fields are populated in onboarding company-info step.
+        #     Graceful skip (not an exception) so the cron keeps processing
+        #     other leads while the operator fills in the missing fields.
+        # ------------------------------------------------------------------
+        if payload.channel == OutreachChannel.EMAIL:
+            missing_legal = [
+                f for f in ("legal_name", "vat_number", "legal_address")
+                if not (tenant_row.get(f) or "").strip()
+            ]
+            if missing_legal:
+                log.warning(
+                    "outreach.gdpr_footer_missing",
+                    tenant_id=payload.tenant_id,
+                    missing=missing_legal,
+                )
+                return OutreachOutput(
+                    lead_id=payload.lead_id,
+                    skipped=True,
+                    reason="gdpr_footer_missing",
+                )
 
         # ------------------------------------------------------------------
         # 5) Channel routing
