@@ -32,12 +32,14 @@ from pydantic import BaseModel, Field
 
 from ..agents.outreach import OutreachAgent, OutreachInput
 from ..agents.scoring import ScoringAgent, ScoringInput
+from ..core.logging import get_logger
 from ..core.queue import enqueue
 from ..core.security import CurrentUser
 from ..core.supabase_client import get_service_client
 from ..models.enums import OutreachChannel, RoofDataSource, RoofStatus, SubjectType
 from ..services.territory_lock_service import unlock as territory_unlock
 
+log = get_logger(__name__)
 router = APIRouter()
 
 
