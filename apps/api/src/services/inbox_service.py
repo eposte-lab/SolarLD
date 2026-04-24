@@ -178,8 +178,8 @@ async def pick_and_claim(
         is_new_day = sent_date != today
 
         # Warm-up start: if this inbox has never sent before, mark now
-        # as warmup_started_at so the generated warmup_phase_day column
-        # starts ticking from today.
+        # as warmup_started_at so rate_limit_service can compute the
+        # warm-up phase (day 1-21) for all subsequent sends.
         needs_warmup_start = (
             candidate.get("warmup_started_at") is None
             and candidate.get("email_style") != "visual_preventivo"

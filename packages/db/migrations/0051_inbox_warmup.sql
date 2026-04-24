@@ -23,38 +23,21 @@
 
 BEGIN;
 
+-- NOTE: the original draft of this migration included two STORED generated
+-- columns (warmup_phase_day, warmup_completed) derived from warmup_started_at
+-- via CURRENT_DATE / NOW(). Postgres rejects those ("generation expression is
+-- not immutable" — 42P17) because STORED columns must be deterministic.
+-- Those values are now computed on the fly in rate_limit_service from
+-- warmup_started_at, which is the single source of truth.
+
 ALTER TABLE tenant_inboxes
     ADD COLUMN IF NOT EXISTS warmup_started_at timestamptz,
     ADD COLUMN IF NOT EXISTS email_style text NOT NULL DEFAULT 'visual_preventivo'
         CHECK (email_style IN ('visual_preventivo','plain_conversational'));
 
--- Computed warm-up phase: which day of the 21-day ramp are we on?
--- NULL when warmup_started_at IS NULL (warm-up not yet started).
--- LEAST(21, ...) so day 22+ still reads 21 (steady state).
--- Stored so ORDER BY / WHERE on warmup_phase_day is index-friendly.
-ALTER TABLE tenant_inboxes
-    ADD COLUMN IF NOT EXISTS warmup_phase_day int
-        GENERATED ALWAYS AS (
-            CASE
-                WHEN warmup_started_at IS NULL THEN NULL
-                ELSE GREATEST(1, LEAST(21,
-                    (CURRENT_DATE - warmup_started_at::date)::int + 1
-                ))
-            END
-        ) STORED,
-    ADD COLUMN IF NOT EXISTS warmup_completed bool
-        GENERATED ALWAYS AS (
-            warmup_started_at IS NOT NULL
-            AND warmup_started_at < NOW() - INTERVAL '21 days'
-        ) STORED;
-
 COMMENT ON COLUMN tenant_inboxes.warmup_started_at IS
     'Set on first successful send from this inbox. Drives daily cap '
     'calculation during the 21-day warm-up ramp. NULL = not started yet.';
-
-COMMENT ON COLUMN tenant_inboxes.warmup_phase_day IS
-    'Current day of warm-up (1-21). NULL until first send. Stays at 21 '
-    'after completion — use warmup_completed to test steady state.';
 
 COMMENT ON COLUMN tenant_inboxes.email_style IS
     'Template family: visual_preventivo (legacy, hero image + ROI card) '

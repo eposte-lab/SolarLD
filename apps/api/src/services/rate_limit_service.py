@@ -292,15 +292,15 @@ def inbox_effective_daily_cap(inbox: dict[str, Any]) -> int:
 
     Applies the 21-day per-inbox outreach warm-up curve when:
       1. ``warmup_started_at`` is set (first send has happened), AND
-      2. ``warmup_completed`` is False (within the first 21 days).
+      2. We're still within the first 21 days of warm-up.
 
     After day 21, or for brand inboxes (email_style='visual_preventivo'),
     returns the configured ``daily_cap`` column value.
 
-    The DB generates ``warmup_phase_day`` and ``warmup_completed`` as
-    computed columns (migration 0051). If they're absent (old row or
-    pre-migration), we fall back to ``daily_cap`` directly so nothing
-    breaks on deploy before the migration runs.
+    Both ``warmup_phase_day`` (1-21) and ``warmup_completed`` are derived
+    from ``warmup_started_at`` on the fly — Postgres can't express them as
+    STORED generated columns because CURRENT_DATE/NOW() aren't immutable.
+    ``warmup_started_at`` is the single source of truth.
 
     Args:
         inbox: A ``tenant_inboxes`` row dict (or compatible).
@@ -308,6 +308,8 @@ def inbox_effective_daily_cap(inbox: dict[str, Any]) -> int:
     Returns:
         Effective daily cap (integer ≥ 1).
     """
+    from datetime import date, datetime, timezone
+
     daily_cap = int(inbox.get("daily_cap") or STEADY_STATE_OUTREACH_CAP)
     style = inbox.get("email_style") or "visual_preventivo"
 
@@ -316,33 +318,66 @@ def inbox_effective_daily_cap(inbox: dict[str, Any]) -> int:
     if style == "visual_preventivo":
         return daily_cap
 
-    warmup_completed = inbox.get("warmup_completed")
-    if warmup_completed:
+    warmup_started_at = inbox.get("warmup_started_at")
+    if not warmup_started_at:
+        # Warm-up not started yet — first send will trigger the start.
+        # Return the most conservative cap (day 1 = 10).
+        return WARMUP_DAILY_CAPS_OUTREACH[0]
+
+    # Parse warmup_started_at (stringified timestamptz from PostgREST, or
+    # an actual datetime if called from Python code).
+    try:
+        if isinstance(warmup_started_at, datetime):
+            started = warmup_started_at.date()
+        else:
+            # "2026-04-01T..." or "2026-04-01 ..." — only the date matters.
+            started = date.fromisoformat(str(warmup_started_at)[:10])
+    except Exception:  # noqa: BLE001
+        return WARMUP_DAILY_CAPS_OUTREACH[0]
+
+    # Days-into-warmup is 1-indexed: the start day itself is day 1.
+    day_delta = (date.today() - started).days + 1
+
+    # Steady state: past day 21.
+    if day_delta > WARMUP_OUTREACH_DAYS:
         return daily_cap
 
-    phase_day = inbox.get("warmup_phase_day")
-    if phase_day is None:
-        # warm-up not started yet — allow 0 (caller will start warm-up on
-        # first successful send). We return the maximum conservative cap:
-        # day 1 = 10.
-        warmup_started_at = inbox.get("warmup_started_at")
-        if not warmup_started_at:
-            return WARMUP_DAILY_CAPS_OUTREACH[0]  # = 10
-        # Compute manually as fallback (pre-migration generated column).
-        try:
-            from datetime import date
-            started = date.fromisoformat(str(warmup_started_at)[:10])
-            day_delta = (date.today() - started).days + 1
-            idx = max(1, min(WARMUP_OUTREACH_DAYS, day_delta)) - 1
-            return WARMUP_DAILY_CAPS_OUTREACH[idx]
-        except Exception:  # noqa: BLE001
-            return WARMUP_DAILY_CAPS_OUTREACH[0]
-
-    # phase_day is 1-21 (generated column, LEAST(21, ...)).
-    idx = max(1, min(WARMUP_OUTREACH_DAYS, int(phase_day))) - 1
+    idx = max(1, min(WARMUP_OUTREACH_DAYS, day_delta)) - 1
     curve_cap = WARMUP_DAILY_CAPS_OUTREACH[idx]
     # Never exceed the configured daily_cap — in case ops set it lower.
     return min(curve_cap, daily_cap)
+
+
+def inbox_warmup_phase_day(inbox: dict[str, Any]) -> int | None:
+    """Compute current warm-up day (1-21) for an inbox, or None.
+
+    Substitute for the dropped ``warmup_phase_day`` generated column.
+    Returns None when warmup has not started. Clamped to 21 after day 21.
+    """
+    from datetime import date, datetime
+
+    started_raw = inbox.get("warmup_started_at")
+    if not started_raw:
+        return None
+    try:
+        if isinstance(started_raw, datetime):
+            started = started_raw.date()
+        else:
+            started = date.fromisoformat(str(started_raw)[:10])
+    except Exception:  # noqa: BLE001
+        return None
+    return max(1, min(WARMUP_OUTREACH_DAYS, (date.today() - started).days + 1))
+
+
+def inbox_warmup_completed(inbox: dict[str, Any]) -> bool:
+    """Return True iff the inbox finished its 21-day warm-up.
+
+    Substitute for the dropped ``warmup_completed`` generated column.
+    """
+    phase = inbox_warmup_phase_day(inbox)
+    if phase is None:
+        return False
+    return phase >= WARMUP_OUTREACH_DAYS
 
 
 # ---------------------------------------------------------------------------
