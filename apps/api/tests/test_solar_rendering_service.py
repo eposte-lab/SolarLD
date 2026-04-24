@@ -316,6 +316,49 @@ async def test_render_before_after_no_panels_before_equals_after() -> None:
 
 
 @pytest.mark.asyncio
+async def test_render_before_after_falls_back_when_tiff_lacks_georef_tags() -> None:
+    """Google Solar's real GeoTIFFs don't always embed 33550/33922.
+
+    When the tags are missing the service must fall back to a transform
+    derived from (center_lat, center_lng, radius_m, image_size) rather
+    than error out — the radius/center are already known from the request.
+    """
+    lat, lng = 41.9028, 12.4964
+    insight = _make_insight(lat=lat, lng=lng, n_panels=4)
+
+    # Build a TIFF WITHOUT ModelPixelScaleTag / ModelTiepointTag.
+    img = Image.new("RGB", (1024, 1024), color=(180, 180, 180))
+    buf = io.BytesIO()
+    img.save(buf, format="TIFF")  # no tiffinfo → no georef tags
+    tiff_bytes = buf.getvalue()
+
+    fake_dl = DataLayers(
+        rgb_url="https://fake",
+        imagery_quality="HIGH",
+        imagery_date="2024-01-01",
+    )
+    with (
+        patch(
+            "src.services.solar_rendering_service.fetch_data_layers",
+            new=AsyncMock(return_value=fake_dl),
+        ),
+        patch(
+            "src.services.solar_rendering_service.download_geotiff",
+            new=AsyncMock(return_value=tiff_bytes),
+        ),
+    ):
+        before, after = await render_before_after(
+            lat, lng, insight, api_key="fake-key"
+        )
+
+    # Pipeline completed — both outputs are valid PNG.
+    for label, b in [("before", before), ("after", after)]:
+        im = Image.open(io.BytesIO(b))
+        assert im.format == "PNG", f"{label} not PNG"
+        assert im.size == (OUTPUT_SIZE, OUTPUT_SIZE)
+
+
+@pytest.mark.asyncio
 async def test_render_before_after_raises_on_solar_not_found() -> None:
     """SolarApiNotFound from fetch_data_layers should become SolarRenderingError."""
     from src.services.google_solar_service import SolarApiNotFound

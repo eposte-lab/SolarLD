@@ -122,7 +122,9 @@ async def render_before_after(
 
     # 3) Parse + crop.
     try:
-        before_img, transform = _load_and_crop(tiff_bytes, lat, lng, insight)
+        before_img, transform = _load_and_crop(
+            tiff_bytes, lat, lng, insight, radius_m=50
+        )
     except Exception as exc:
         raise SolarRenderingError(f"image processing failed: {exc}") from exc
 
@@ -269,21 +271,81 @@ def _parse_geotiff_tags(img: Image.Image) -> tuple[float, float, float, float]:
     return west_lng, north_lat, scale_x, scale_y
 
 
+def _derive_geo_from_request(
+    img: Image.Image,
+    *,
+    center_lat: float,
+    center_lng: float,
+    radius_m: int,
+) -> tuple[float, float, float, float]:
+    """Fall-back geo transform computed from the dataLayers request params.
+
+    Google Solar's GeoTIFFs don't always embed ModelPixelScaleTag /
+    ModelTiepointTag.  The image returned by ``dataLayers:get`` covers a
+    square region centred on ``(center_lat, center_lng)`` extending
+    ``radius_m`` in each direction, so we can reconstruct an adequate
+    transform from the image dimensions alone.
+
+    Precision is ~1 pixel over 100 m at Italian latitudes — more than
+    enough for drawing panels at their lat/lng to the correct roof.
+    """
+    img_w, img_h = img.size
+    meters_per_deg_lat = 111_320.0
+    meters_per_deg_lng = 111_320.0 * math.cos(math.radians(center_lat))
+    if meters_per_deg_lng <= 0:
+        raise SolarRenderingError(
+            f"Cannot derive geo transform at center_lat={center_lat}"
+        )
+    width_deg = (2 * radius_m) / meters_per_deg_lng
+    height_deg = (2 * radius_m) / meters_per_deg_lat
+    west_lng = center_lng - width_deg / 2
+    north_lat = center_lat + height_deg / 2
+    scale_x = width_deg / img_w
+    scale_y = height_deg / img_h
+    log.info(
+        "solar_rendering.georef_from_request",
+        center_lat=center_lat,
+        center_lng=center_lng,
+        radius_m=radius_m,
+        img_w=img_w,
+        img_h=img_h,
+        scale_x=scale_x,
+        scale_y=scale_y,
+    )
+    return west_lng, north_lat, scale_x, scale_y
+
+
 def _load_and_crop(
     tiff_bytes: bytes,
     center_lat: float,
     center_lng: float,
     insight: RoofInsight,
+    *,
+    radius_m: int,
 ) -> tuple[Image.Image, _GeoTransform]:
     """Open the GeoTIFF, extract georeference, crop to the building.
 
     Returns ``(cropped_rgb_image, transform)`` where ``transform`` maps
     lat/lng in the *original* image to pixel coordinates in the *crop*.
+
+    Tries embedded GeoTIFF tags first; falls back to a transform derived
+    from the dataLayers request params (center + radius + image size)
+    when Google's imagery omits those tags, which it commonly does.
     """
     img = Image.open(io.BytesIO(tiff_bytes))
     # Parse geo-reference tags BEFORE convert() — Pillow's convert() returns
     # a plain Image copy that no longer carries tag_v2 TIFF metadata.
-    west_lng, north_lat, scale_x, scale_y = _parse_geotiff_tags(img)
+    try:
+        west_lng, north_lat, scale_x, scale_y = _parse_geotiff_tags(img)
+    except SolarRenderingError as exc:
+        # Fall back to computing bounds from the request parameters.
+        log.warning("solar_rendering.georef_fallback", reason=str(exc))
+        west_lng, north_lat, scale_x, scale_y = _derive_geo_from_request(
+            img,
+            center_lat=center_lat,
+            center_lng=center_lng,
+            radius_m=radius_m,
+        )
     # Force RGB so downstream code always deals with 3-channel images.
     img = img.convert("RGB")
 
