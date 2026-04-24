@@ -23,6 +23,7 @@ interface SeedResponse {
   scoring_job_id: string;
   creative_job_id: string;
   outreach_job_id: string | null;
+  outreach_result: string | null;
   message: string;
 }
 
@@ -199,7 +200,7 @@ export function PipelineTestPanel({ tenantId }: Props) {
             className="h-4 w-4 rounded border-outline-variant/40 accent-primary"
           />
           <span className="text-sm text-on-surface">
-            Invia email reale (~3 min dopo lo scoring)
+            Invia email reale (sincrono — nello stesso request)
           </span>
         </label>
 
@@ -230,6 +231,19 @@ export function PipelineTestPanel({ tenantId }: Props) {
         <div className="space-y-3 rounded-xl border border-primary/20 bg-primary-container/10 p-4">
           <p className="font-semibold text-primary">✓ Pipeline avviata</p>
           <p className="text-sm text-on-surface">{result.message}</p>
+
+          {/* Outreach result badge */}
+          {result.outreach_result && (
+            <div className={`rounded-lg px-3 py-2 text-sm font-medium ${
+              result.outreach_result.startsWith('sent')
+                ? 'bg-green-500/10 text-green-700 border border-green-500/20'
+                : 'bg-amber-500/10 text-amber-700 border border-amber-500/20'
+            }`}>
+              {result.outreach_result.startsWith('sent') ? '✉️ ' : '⚠️ '}
+              {result.outreach_result}
+            </div>
+          )}
+
           <div className="grid gap-2 rounded-lg bg-surface-container-lowest p-3 font-mono text-xs text-on-surface-variant sm:grid-cols-2">
             <span>roof_id: <span className="text-on-surface">{result.roof_id}</span></span>
             <span>subject_id: <span className="text-on-surface">{result.subject_id}</span></span>
@@ -240,8 +254,10 @@ export function PipelineTestPanel({ tenantId }: Props) {
             )}
           </div>
           <p className="text-xs text-on-surface-variant">
-            Controlla <strong>Lead Attivi</strong> tra ~5 min e la casella{' '}
-            <strong>{form.decision_maker_email}</strong> tra ~3 min.
+            {result.outreach_result?.startsWith('sent')
+              ? <>Email inviata — controlla la casella <strong>{form.decision_maker_email}</strong> ora.</>
+              : <>Controlla <strong>Lead Attivi</strong> in dashboard.</>
+            }
           </p>
         </div>
       )}

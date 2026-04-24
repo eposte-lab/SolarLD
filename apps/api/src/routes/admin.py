@@ -30,11 +30,12 @@ import geohash  # type: ignore[import-untyped]
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
+from ..agents.outreach import OutreachAgent, OutreachInput
 from ..agents.scoring import ScoringAgent, ScoringInput
 from ..core.queue import enqueue
 from ..core.security import CurrentUser
 from ..core.supabase_client import get_service_client
-from ..models.enums import RoofDataSource, RoofStatus, SubjectType
+from ..models.enums import OutreachChannel, RoofDataSource, RoofStatus, SubjectType
 from ..services.territory_lock_service import unlock as territory_unlock
 
 router = APIRouter()
@@ -368,7 +369,7 @@ class SeedTestCandidateRequest(BaseModel):
     )
     run_outreach: bool = Field(
         default=True,
-        description="Enqueue outreach_task (sends real email). Set false to stop after creative render.",
+        description="Run outreach (sends real email). Always executed synchronously — no worker needed.",
     )
 
 
@@ -379,6 +380,7 @@ class SeedTestCandidateResponse(BaseModel):
     scoring_job_id: str
     creative_job_id: str
     outreach_job_id: str | None = None
+    outreach_result: str | None = None
     message: str
 
 
@@ -522,30 +524,56 @@ async def seed_test_candidate(
         log.warning("creative_enqueue_failed", lead_id=lead_id, error=str(exc))
         creative_job_id = f"redis_unavailable:{exc}"
 
-    # ── 5. Enqueue outreach_task (deferred 3min — creative needs to finish) ─
+    # ── 5. Run outreach synchronously (no worker needed for testing) ─────────
+    # Rather than enqueueing and waiting for a worker that may not be running,
+    # we call OutreachAgent directly. `force=True` bypasses already_sent and
+    # GDPR footer guards so the test always fires regardless of prior state.
     outreach_job_id: str | None = None
+    outreach_result: str | None = None
     if body.run_outreach:
         try:
-            outreach_job = await enqueue(
-                "outreach_task",
-                {
-                    "tenant_id": body.tenant_id,
-                    "lead_id": lead_id,
-                    "channel": "email",
-                    "force": True,
-                },
-                job_id=f"outreach_seed:{body.tenant_id}:{lead_id}",
-                defer_until=now + timedelta(minutes=3),
+            outreach_out = await OutreachAgent().run(
+                OutreachInput(
+                    tenant_id=body.tenant_id,
+                    lead_id=lead_id,
+                    channel=OutreachChannel.EMAIL,
+                    sequence_step=1,
+                    force=True,
+                )
             )
-            outreach_job_id = outreach_job.get("job_id")
+            if outreach_out.skipped:
+                outreach_result = f"skipped: {outreach_out.reason}"
+                outreach_job_id = f"skipped:{outreach_out.reason}"
+                log.warning(
+                    "seed_test.outreach_skipped",
+                    lead_id=lead_id,
+                    reason=outreach_out.reason,
+                )
+            elif outreach_out.status == "failed":
+                outreach_result = f"failed: {outreach_out.reason}"
+                outreach_job_id = f"failed:{outreach_out.reason}"
+                log.warning(
+                    "seed_test.outreach_failed",
+                    lead_id=lead_id,
+                    reason=outreach_out.reason,
+                )
+            else:
+                outreach_result = f"sent to {body.decision_maker_email}"
+                outreach_job_id = f"inline:sent:{outreach_out.provider_id or 'ok'}"
         except Exception as exc:  # noqa: BLE001
-            log.warning("outreach_enqueue_failed", lead_id=lead_id, error=str(exc))
-            outreach_job_id = f"redis_unavailable:{exc}"
+            log.warning("seed_test.outreach_error", lead_id=lead_id, error=str(exc))
+            outreach_result = f"error: {exc}"
+            outreach_job_id = f"error:{str(exc)[:120]}"
 
     redis_warn = (
-        " ⚠️ Redis non raggiungibile — job in coda non garantiti."
+        " ⚠️ Redis non raggiungibile — creative job non in coda."
         if "redis_unavailable" in creative_job_id
         else ""
+    )
+    outreach_msg = (
+        f" Outreach: {outreach_result}."
+        if outreach_result
+        else " outreach skipped."
     )
     return SeedTestCandidateResponse(
         roof_id=roof_id,
@@ -553,11 +581,10 @@ async def seed_test_candidate(
         scoring_job_id=f"inline:score={scoring_out.score},tier={scoring_out.tier}",
         creative_job_id=creative_job_id,
         outreach_job_id=outreach_job_id,
+        outreach_result=outreach_result,
         message=(
-            f"Scored {scoring_out.score}/100 ({scoring_out.tier}). "
-            "creative ~5s, "
-            + (f"email to {body.decision_maker_email} ~3min."
-               if body.run_outreach else "outreach skipped.")
+            f"Scored {scoring_out.score}/100 ({scoring_out.tier})."
+            + outreach_msg
             + redis_warn
         ),
     )
