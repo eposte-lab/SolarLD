@@ -76,18 +76,33 @@ app = FastAPI(
     redoc_url="/redoc" if not settings.is_production else None,
 )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.cors_origin_list,
-    # Regex catches Vercel preview URLs whose subdomain changes per deploy
-    # (e.g. `solar-ld-dashboard-jhtqfwc7y-alfonsos-projects-...vercel.app`).
-    # Without this the browser blocks the preflight and `fetch()` surfaces
-    # as the generic "Failed to fetch" TypeError.
-    allow_origin_regex=settings.cors_origin_regex or None,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+if settings.is_production:
+    # Production: only explicitly whitelisted origins + the regex pattern.
+    # allow_credentials=True is required because the browser sends the
+    # Authorization Bearer header (custom header → preflight).
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origin_list,
+        # Regex catches Vercel preview URLs / Railway preview URLs / custom
+        # domains whose subdomain changes per-deploy.
+        allow_origin_regex=settings.cors_origin_regex or None,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+else:
+    # Development / staging: accept all origins so Vercel preview URLs,
+    # Railway preview URLs and local dev don't need manual whitelisting.
+    # Safe because we use Authorization Bearer (not cookies) — the browser
+    # sends the header explicitly regardless of allow_credentials.
+    # NOTE: allow_credentials must be False when allow_origins=["*"].
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
 # ---- Routers ----
 app.include_router(health.router)
