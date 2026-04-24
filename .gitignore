@@ -79,3 +79,4 @@ tmp/
 
 # PRD archive (kept local)
 *.docx
+.claude/
