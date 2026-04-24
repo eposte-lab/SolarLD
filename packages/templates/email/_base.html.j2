@@ -229,7 +229,13 @@
         {# -------- Hero image (all styles) -------- #}
         {% if hero_gif_url or hero_image_url %}
           <div class="hero-img">
-            <img src="{{ hero_gif_url or hero_image_url }}" alt="Rendering fotovoltaico" />
+            {% if video_landing_url %}
+              <a href="{{ video_landing_url }}" style="display:block;">
+                <img src="{{ hero_gif_url or hero_image_url }}" alt="Rendering fotovoltaico" style="width:100%;height:auto;" />
+              </a>
+            {% else %}
+              <img src="{{ hero_gif_url or hero_image_url }}" alt="Rendering fotovoltaico" />
+            {% endif %}
           </div>
         {% endif %}
 
@@ -263,7 +269,14 @@
             </div>
           {% endif %}
 
-          {# CTA button ---- #}
+          {# CTA buttons ---- #}
+          {% if video_landing_url %}
+          <p style="margin-top:14px;">
+            <a class="cta" href="{{ video_landing_url }}" style="background:{{ brand_primary_color }};margin-right:8px;">
+              ▶ Guarda il video del tuo tetto
+            </a>
+          </p>
+          {% endif %}
           <p>
             <a class="cta" href="{{ lead_url }}">
               {{ cta_text or 'Vedi il tuo preventivo personalizzato' }}

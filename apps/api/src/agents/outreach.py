@@ -594,6 +594,10 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
             tenant_legal_name=tenant_row.get("legal_name"),
             tenant_vat_number=tenant_row.get("vat_number"),
             similar_province=lead.get("hq_province"),  # Step-3 case study hint
+            video_landing_url=_video_landing_url(
+                lead.get("portal_video_slug"),
+                tracking_host=tracking_host,
+            ),
         )
         rendered = render_outreach_email(ctx)
 
@@ -731,6 +735,8 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
             "sent_at": now_iso,
             "cost_cents": RESEND_COST_PER_EMAIL_CENTS,
             "status": CampaignStatus.SENT.value,
+            "rendering_gif_url": lead.get("rendering_gif_url"),
+            "rendering_video_url": lead.get("rendering_video_url"),
         }
         # Attribute the send to the inbox that was used (for per-inbox
         # deliverability analytics). Null when using legacy single-inbox path.
@@ -1339,6 +1345,25 @@ def _optout_url(
         base = (settings.next_public_lead_portal_url or "").rstrip("/")
     slug = (public_slug or "").strip()
     return f"{base}/optout/{slug}" if slug else f"{base}/optout"
+
+
+def _video_landing_url(
+    portal_video_slug: str | None,
+    *,
+    tracking_host: str | None = None,
+) -> str | None:
+    """Build the public video landing page URL for a lead.
+
+    Returns None when portal_video_slug is absent (render hasn't run yet).
+    """
+    if not portal_video_slug:
+        return None
+    from ..core.config import settings
+    if tracking_host:
+        base = f"https://{tracking_host.strip('/')}"
+    else:
+        base = (settings.next_public_lead_portal_url or "").rstrip("/")
+    return f"{base}/lead/{portal_video_slug.strip()}/video"
 
 
 # ---------------------------------------------------------------------------

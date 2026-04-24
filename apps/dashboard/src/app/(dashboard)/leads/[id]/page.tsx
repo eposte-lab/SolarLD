@@ -142,6 +142,50 @@ export default async function LeadDetailPage({ params }: PageProps) {
         </div>
       )}
 
+      {/* Video / GIF rendering ---------------------------------------- */}
+      {(lead.rendering_video_url || lead.rendering_gif_url) && (
+        <BentoCard title="Video rendering" padding="tight" span="full">
+          <div className="flex flex-col gap-4 p-4 sm:flex-row sm:items-start">
+            {/* Video player — uses GIF as poster frame */}
+            {lead.rendering_video_url ? (
+              // eslint-disable-next-line jsx-a11y/media-has-caption
+              <video
+                src={lead.rendering_video_url}
+                poster={lead.rendering_gif_url ?? undefined}
+                controls
+                muted
+                loop
+                playsInline
+                className="w-full rounded-lg sm:max-w-md"
+              />
+            ) : lead.rendering_gif_url ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={lead.rendering_gif_url}
+                alt="GIF rendering fotovoltaico"
+                className="w-full rounded-lg sm:max-w-md"
+              />
+            ) : null}
+            <div className="flex flex-col gap-3">
+              <p className="text-sm text-on-surface-variant">
+                Rendering fotovoltaico generato per questo lead. Il video è
+                incluso nelle email inviate come hero cliccabile.
+              </p>
+              {lead.portal_video_slug && (
+                <a
+                  href={`${process.env.NEXT_PUBLIC_LEAD_PORTAL_URL ?? ''}/lead/${lead.portal_video_slug}/video`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-on-primary transition-opacity hover:opacity-90"
+                >
+                  ▶ Apri landing video
+                </a>
+              )}
+            </div>
+          </div>
+        </BentoCard>
+      )}
+
       {/* ROI chips ----------------------------------------------------- */}
       <BentoGrid cols={4}>
         <KpiChipCard

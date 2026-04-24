@@ -269,12 +269,20 @@ export default async function InviiPage({
                         : '—'}
                     </td>
                     <td className="px-5 py-3 text-right">
-                      <Link
-                        href={`/leads/${c.lead_id}`}
-                        className="text-xs font-semibold text-primary hover:underline"
-                      >
-                        lead →
-                      </Link>
+                      <div className="flex items-center justify-end gap-3">
+                        <Link
+                          href={`/invii/${c.id}`}
+                          className="text-xs font-semibold text-on-surface-variant hover:text-primary hover:underline"
+                        >
+                          dettaglio →
+                        </Link>
+                        <Link
+                          href={`/leads/${c.lead_id}`}
+                          className="text-xs font-semibold text-primary hover:underline"
+                        >
+                          lead →
+                        </Link>
+                      </div>
                     </td>
                   </tr>
                 ))}

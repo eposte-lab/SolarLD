@@ -164,6 +164,7 @@ export interface LeadDetailRow extends LeadListRow {
   rendering_image_url: string | null;
   rendering_video_url: string | null;
   rendering_gif_url: string | null;
+  portal_video_slug: string | null;
   roi_data: RoiData;
   outreach_delivered_at: string | null;
   outreach_clicked_at: string | null;

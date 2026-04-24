@@ -35,7 +35,7 @@ const LIST_COLUMNS = `
 
 const DETAIL_COLUMNS = `
   ${LIST_COLUMNS},
-  rendering_image_url, rendering_video_url, rendering_gif_url,
+  rendering_image_url, rendering_video_url, rendering_gif_url, portal_video_slug,
   roi_data, outreach_delivered_at, outreach_clicked_at,
   whatsapp_initiated_at, feedback, feedback_notes, score_breakdown
 `.trim();

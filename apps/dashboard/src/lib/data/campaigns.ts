@@ -164,3 +164,80 @@ export async function listCampaignsForLead(
   if (error) throw new Error(`listCampaignsForLead: ${error.message}`);
   return (data ?? []) as unknown as CampaignRow[];
 }
+
+// ---------------------------------------------------------------------------
+// Detail
+// ---------------------------------------------------------------------------
+
+/** Full detail of a single outreach send, joined with key lead fields. */
+export interface OutreachSendDetail {
+  id: string;
+  lead_id: string;
+  tenant_id: string;
+  channel: string;
+  template_id: string | null;
+  sequence_step: number;
+  email_subject: string | null;
+  email_message_id: string | null;
+  status: string;
+  sent_at: string | null;
+  cost_cents: number;
+  rendering_gif_url: string | null;
+  rendering_video_url: string | null;
+  inbox_id: string | null;
+  experiment_id: string | null;
+  experiment_variant: string | null;
+  leads: {
+    id: string;
+    hq_address: string | null;
+    pipeline_status: string | null;
+    outreach_delivered_at: string | null;
+    outreach_opened_at: string | null;
+    outreach_clicked_at: string | null;
+    rendering_image_url: string | null;
+    rendering_gif_url: string | null;
+    rendering_video_url: string | null;
+    portal_video_slug: string | null;
+    subjects: {
+      business_name: string | null;
+      decision_maker_name: string | null;
+      decision_maker_email: string | null;
+    } | null;
+  } | null;
+}
+
+const SEND_DETAIL_COLUMNS = `
+  id, lead_id, tenant_id, channel, sequence_step, status,
+  template_id, email_subject, email_message_id,
+  sent_at, cost_cents, failure_reason,
+  rendering_gif_url, rendering_video_url,
+  inbox_id, experiment_id, experiment_variant,
+  leads:leads(
+    id, hq_address, pipeline_status,
+    outreach_delivered_at, outreach_opened_at, outreach_clicked_at,
+    rendering_image_url, rendering_gif_url, rendering_video_url,
+    portal_video_slug,
+    subjects:subjects(business_name, decision_maker_name, decision_maker_email)
+  )
+`.trim();
+
+/**
+ * Fetch a single outreach send by id, joined with the parent lead's
+ * engagement timestamps and media URLs.
+ *
+ * Returns null when the send doesn't exist or belongs to another tenant
+ * (RLS will hide it and Supabase returns an empty result).
+ */
+export async function getOutreachSendDetail(
+  id: string,
+): Promise<OutreachSendDetail | null> {
+  const supabase = await createSupabaseServerClient();
+  const { data, error } = await supabase
+    .from('outreach_sends')
+    .select(SEND_DETAIL_COLUMNS)
+    .eq('id', id)
+    .limit(1)
+    .maybeSingle();
+  if (error) return null;
+  return data as unknown as OutreachSendDetail | null;
+}
