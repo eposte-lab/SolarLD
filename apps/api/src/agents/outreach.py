@@ -366,6 +366,107 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
                 )
 
         # ------------------------------------------------------------------
+        # 8) Deliverability rate-limit — domain-level hourly cap
+        #
+        # Two caps work together:
+        #   a) Domain-level (Redis): warm-up curve or hourly tier cap.
+        #      Protects the *domain* reputation from burst sends.
+        #   b) Inbox-level (Postgres, step 8b below): each inbox has its
+        #      own daily_cap enforced by InboxSelector.pick_and_claim().
+        #      Distributes volume across multiple sender addresses.
+        #
+        # On cap hit we *don't* create a campaigns row (unlike a send
+        # failure) — the skip retries on the next window. The follow-up
+        # cron re-evaluates candidates daily, so step-2/3 roll forward.
+        # ------------------------------------------------------------------
+        quota = await acquire_email_quota(tenant_row)
+        if not quota.allowed:
+            log.info(
+                "outreach.rate_limited",
+                lead_id=payload.lead_id,
+                tenant_id=payload.tenant_id,
+                domain=quota.domain,
+                window=quota.window,
+                used=quota.used,
+                limit=quota.limit,
+                verdict=quota.verdict,
+            )
+            return await self._record_skip(
+                payload=payload,
+                lead=lead,
+                reason=f"rate_limited_{quota.window}",
+                event_type="lead.outreach_ratelimited",
+                event_extra={
+                    "domain": quota.domain,
+                    "window": quota.window,
+                    "used": quota.used,
+                    "limit": quota.limit,
+                    "verdict": quota.verdict,
+                },
+            )
+
+        # ------------------------------------------------------------------
+        # 8b) Inbox selection — pick and claim a per-inbox send slot
+        #
+        # pick_and_claim() returns:
+        #   - An inbox row → use its email as the From address.
+        #   - None AND tenant has active inboxes → all at cap / paused
+        #     → skip this send (will retry on next cron tick).
+        #   - None AND tenant has NO inboxes → fall back to the legacy
+        #     single-inbox address derived from tenant.email_from_domain.
+        #
+        # The campaign_inbox_ids filter is reserved for campaign-level
+        # inbox restrictions (Phase A); today it is always None.
+        # ------------------------------------------------------------------
+        selected_inbox: dict[str, Any] | None = await inbox_service.pick_and_claim(
+            sb,
+            payload.tenant_id,
+            campaign_inbox_ids=None,
+        )
+
+        # Detect "inboxes exist but all blocked" vs "no inboxes at all".
+        has_multi_inbox = selected_inbox is not None or await _tenant_has_inboxes(
+            sb, payload.tenant_id
+        )
+
+        if selected_inbox is None and has_multi_inbox:
+            # Tenant has inboxes but none available right now.
+            log.info(
+                "outreach.inbox_cap_all_blocked",
+                lead_id=payload.lead_id,
+                tenant_id=payload.tenant_id,
+            )
+            return await self._record_skip(
+                payload=payload,
+                lead=lead,
+                reason="inbox_daily_cap",
+                event_type="lead.outreach_ratelimited",
+                event_extra={"inbox_selector": "all_blocked"},
+            )
+
+        # Resolve From address: multi-inbox or legacy single-inbox.
+        # Also resolve the tracking host and domain purpose for this send.
+        tracking_host: str | None = None
+        domain_purpose: str = "brand"
+
+        if selected_inbox is not None:
+            from_address = inbox_service.build_from_address(selected_inbox)
+            reply_to = (
+                selected_inbox.get("reply_to_email")
+                or _build_reply_to(tenant_row, lead.get("public_slug"))
+            )
+            tracking_host = get_tracking_host(selected_inbox)
+            domain_purpose = get_domain_purpose(selected_inbox)
+        else:
+            # Legacy path: outreach@{email_from_domain}
+            from_address = _build_from_address(tenant_row)
+            reply_to = _build_reply_to(tenant_row, lead.get("public_slug"))
+
+        inbox_id: str | None = (
+            str(selected_inbox["id"]) if selected_inbox else None
+        )
+
+        # ------------------------------------------------------------------
         # 7) Build the outreach context (template inputs)
         # ------------------------------------------------------------------
         subject_type = subject.get("type") or SubjectType.UNKNOWN.value
@@ -495,107 +596,6 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
             similar_province=lead.get("hq_province"),  # Step-3 case study hint
         )
         rendered = render_outreach_email(ctx)
-
-        # ------------------------------------------------------------------
-        # 8) Deliverability rate-limit — domain-level hourly cap
-        #
-        # Two caps work together:
-        #   a) Domain-level (Redis): warm-up curve or hourly tier cap.
-        #      Protects the *domain* reputation from burst sends.
-        #   b) Inbox-level (Postgres, step 8b below): each inbox has its
-        #      own daily_cap enforced by InboxSelector.pick_and_claim().
-        #      Distributes volume across multiple sender addresses.
-        #
-        # On cap hit we *don't* create a campaigns row (unlike a send
-        # failure) — the skip retries on the next window. The follow-up
-        # cron re-evaluates candidates daily, so step-2/3 roll forward.
-        # ------------------------------------------------------------------
-        quota = await acquire_email_quota(tenant_row)
-        if not quota.allowed:
-            log.info(
-                "outreach.rate_limited",
-                lead_id=payload.lead_id,
-                tenant_id=payload.tenant_id,
-                domain=quota.domain,
-                window=quota.window,
-                used=quota.used,
-                limit=quota.limit,
-                verdict=quota.verdict,
-            )
-            return await self._record_skip(
-                payload=payload,
-                lead=lead,
-                reason=f"rate_limited_{quota.window}",
-                event_type="lead.outreach_ratelimited",
-                event_extra={
-                    "domain": quota.domain,
-                    "window": quota.window,
-                    "used": quota.used,
-                    "limit": quota.limit,
-                    "verdict": quota.verdict,
-                },
-            )
-
-        # ------------------------------------------------------------------
-        # 8b) Inbox selection — pick and claim a per-inbox send slot
-        #
-        # pick_and_claim() returns:
-        #   - An inbox row → use its email as the From address.
-        #   - None AND tenant has active inboxes → all at cap / paused
-        #     → skip this send (will retry on next cron tick).
-        #   - None AND tenant has NO inboxes → fall back to the legacy
-        #     single-inbox address derived from tenant.email_from_domain.
-        #
-        # The campaign_inbox_ids filter is reserved for campaign-level
-        # inbox restrictions (Phase A); today it is always None.
-        # ------------------------------------------------------------------
-        selected_inbox: dict[str, Any] | None = await inbox_service.pick_and_claim(
-            sb,
-            payload.tenant_id,
-            campaign_inbox_ids=None,
-        )
-
-        # Detect "inboxes exist but all blocked" vs "no inboxes at all".
-        has_multi_inbox = selected_inbox is not None or await _tenant_has_inboxes(
-            sb, payload.tenant_id
-        )
-
-        if selected_inbox is None and has_multi_inbox:
-            # Tenant has inboxes but none available right now.
-            log.info(
-                "outreach.inbox_cap_all_blocked",
-                lead_id=payload.lead_id,
-                tenant_id=payload.tenant_id,
-            )
-            return await self._record_skip(
-                payload=payload,
-                lead=lead,
-                reason="inbox_daily_cap",
-                event_type="lead.outreach_ratelimited",
-                event_extra={"inbox_selector": "all_blocked"},
-            )
-
-        # Resolve From address: multi-inbox or legacy single-inbox.
-        # Also resolve the tracking host and domain purpose for this send.
-        tracking_host: str | None = None
-        domain_purpose: str = "brand"
-
-        if selected_inbox is not None:
-            from_address = inbox_service.build_from_address(selected_inbox)
-            reply_to = (
-                selected_inbox.get("reply_to_email")
-                or _build_reply_to(tenant_row, lead.get("public_slug"))
-            )
-            tracking_host = get_tracking_host(selected_inbox)
-            domain_purpose = get_domain_purpose(selected_inbox)
-        else:
-            # Legacy path: outreach@{email_from_domain}
-            from_address = _build_from_address(tenant_row)
-            reply_to = _build_reply_to(tenant_row, lead.get("public_slug"))
-
-        inbox_id: str | None = (
-            str(selected_inbox["id"]) if selected_inbox else None
-        )
 
         # ------------------------------------------------------------------
         # 9) Send via Resend
