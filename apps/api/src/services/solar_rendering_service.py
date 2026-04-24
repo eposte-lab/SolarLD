@@ -69,6 +69,46 @@ class SolarRenderingError(Exception):
 # Public entry point
 # ---------------------------------------------------------------------------
 
+def build_scene3d(
+    *,
+    aerial_url: str,
+    center_lat: float,
+    center_lng: float,
+    radius_m: int,
+    insight: RoofInsight,
+    roof_height_m: float = 7.0,
+) -> dict[str, object]:
+    """Build the ``scene3d`` payload the Remotion 3D composition expects.
+
+    Mirrors ``scene3dSchema`` in
+    ``apps/video-renderer/src/compositions/SolarTransition.tsx``.  The
+    aerial URL should point at the flat "before" PNG (no panels drawn);
+    the video renderer uses it as the ground-plane texture and layers
+    3-D panel meshes on top.  Passing this dict as ``scene3d`` in the
+    ``/render`` request switches the sidecar to the cinematic
+    camera-orbit renderer; omitting it keeps the legacy 2-D path.
+    """
+    panels = [
+        {
+            "lat": p.lat,
+            "lng": p.lng,
+            "azimuthDeg": p.segment_azimuth_deg,
+            "orientation": p.orientation,
+        }
+        for p in insight.panels
+    ]
+    return {
+        "aerialUrl": aerial_url,
+        "centerLat": center_lat,
+        "centerLng": center_lng,
+        "radiusM": radius_m,
+        "panels": panels,
+        "panelWidthM": insight.panel_width_m,
+        "panelHeightM": insight.panel_height_m,
+        "roofHeightM": roof_height_m,
+    }
+
+
 async def render_before_after(
     lat: float,
     lng: float,

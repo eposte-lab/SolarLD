@@ -47,6 +47,7 @@ from ..core.logging import get_logger
 from ..core.supabase_client import get_service_client
 from ..models.enums import RoofStatus
 from ..services.google_solar_service import (
+    RoofInsight,
     SolarApiError,
     SolarApiNotFound,
     fetch_building_insight,
@@ -57,7 +58,11 @@ from ..services.remotion_service import (
     render_transition,
 )
 from ..services.roi_service import compute_roi
-from ..services.solar_rendering_service import SolarRenderingError, render_before_after
+from ..services.solar_rendering_service import (
+    SolarRenderingError,
+    build_scene3d,
+    render_before_after,
+)
 from ..services.storage_service import upload_bytes
 from .base import AgentBase
 
@@ -143,6 +148,7 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
         before_url: str | None = None
         after_url: str | None = None
         skipped_reason: str | None = None
+        insight_for_scene3d: RoofInsight | None = None
 
         lat = _to_float(roof.get("lat"))
         lng = _to_float(roof.get("lng"))
@@ -160,6 +166,8 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
                 # Cost: ~$0.02 (buildingInsights) + ~$0.03 (dataLayers) per lead.
                 async with httpx.AsyncClient(timeout=30.0) as http:
                     insight = await fetch_building_insight(lat, lng, client=http)
+
+                insight_for_scene3d = insight
 
                 log.info(
                     "creative.solar_insight_fetched",
@@ -237,6 +245,24 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
             and roi is not None
         ):
             try:
+                scene3d_payload: dict[str, Any] | None = None
+                if insight_for_scene3d is not None and before_url is not None:
+                    try:
+                        scene3d_payload = build_scene3d(
+                            aerial_url=before_url,
+                            center_lat=lat,  # type: ignore[arg-type]  # guarded above
+                            center_lng=lng,  # type: ignore[arg-type]
+                            radius_m=50,
+                            insight=insight_for_scene3d,
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        log.warning(
+                            "creative.scene3d_build_failed",
+                            lead_id=payload.lead_id,
+                            err=str(exc),
+                        )
+                        scene3d_payload = None
+
                 render_input = RenderTransitionInput(
                     before_image_url=before_url,
                     after_image_url=after_url,
@@ -251,6 +277,7 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
                     or "#0F766E",
                     brand_logo_url=tenant_row.get("brand_logo_url"),
                     output_path=f"{payload.tenant_id}/{payload.lead_id}",
+                    scene3d=scene3d_payload,
                 )
                 transition = await render_transition(render_input)
                 video_url = transition.mp4_url

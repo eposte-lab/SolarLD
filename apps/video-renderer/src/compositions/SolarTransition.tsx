@@ -28,6 +28,36 @@ import { z } from 'zod';
  *   · stats slide up one at a time with spring physics → reads as
  *     a proposal unfolding, not a slideshow ending.
  */
+/**
+ * Optional 3D scene payload.  When present the composition switches to
+ * the cinematic Three.js renderer (SolarTransition3D) — camera orbit
+ * around a 3D roof with lit panels as real meshes.  When absent the
+ * composition falls back to the classic 2D Ken-Burns + wipe path
+ * (SolarTransition2D) so old clients keep working unchanged.
+ *
+ * All positions in WGS84 lat/lng; the renderer projects them to metres
+ * using the equirectangular approximation centred on ``centerLat``.
+ */
+export const scene3dSchema = z.object({
+  aerialUrl: z.string().url(),           // flat before-aerial PNG (ground texture)
+  centerLat: z.number(),
+  centerLng: z.number(),
+  radiusM: z.number(),                   // half-width of the aerial footprint
+  panels: z.array(
+    z.object({
+      lat: z.number(),
+      lng: z.number(),
+      azimuthDeg: z.number(),            // panel-facing direction (0=N, 90=E)
+      orientation: z.enum(['LANDSCAPE', 'PORTRAIT']).default('LANDSCAPE'),
+    }),
+  ),
+  panelWidthM: z.number().default(1.045),
+  panelHeightM: z.number().default(1.879),
+  roofHeightM: z.number().default(7.0),  // best-guess building ridge height
+});
+
+export type Scene3d = z.infer<typeof scene3dSchema>;
+
 export const solarTransitionSchema = z.object({
   beforeImageUrl: z.string().url(),
   afterImageUrl: z.string().url(),
@@ -38,9 +68,16 @@ export const solarTransitionSchema = z.object({
   tenantName: z.string(),
   brandPrimaryColor: z.string().regex(/^#[0-9a-fA-F]{3,8}$/).default('#0F766E'),
   brandLogoUrl: z.string().url().optional(),
+  scene3d: scene3dSchema.optional(),
 });
 
 export type SolarTransitionProps = z.infer<typeof solarTransitionSchema>;
+
+// Dynamic import so clients that don't pass scene3d don't pay the
+// Three.js bundle weight (it's ~600 KB gzipped).  Since Remotion bundles
+// everything statically we accept the cost, but keeping the imports
+// split makes it trivial to lazy-load later if we want to.
+import { SolarTransition3D } from './SolarTransition3D';
 
 // ── Timing constants (30 fps baseline) ─────────────────────────────────────
 const KB_END = 108;          // Ken Burns keeps zooming from 0 → 108
@@ -92,7 +129,17 @@ function diagonalWipe(progress: number): string {
   return `polygon(0% 0%, ${leading}% 0%, ${trailing}% 100%, 0% 100%)`;
 }
 
-export const SolarTransition: React.FC<SolarTransitionProps> = ({
+export const SolarTransition: React.FC<SolarTransitionProps> = (props) => {
+  // When the caller includes a 3D scene payload, render the cinematic
+  // Three.js path (camera orbit + real panels with physical materials).
+  // Otherwise fall back to the existing Ken-Burns + diagonal wipe path.
+  if (props.scene3d) {
+    return <SolarTransition3D {...props} scene3d={props.scene3d} />;
+  }
+  return <SolarTransition2D {...props} />;
+};
+
+const SolarTransition2D: React.FC<SolarTransitionProps> = ({
   beforeImageUrl,
   afterImageUrl,
   kwp,

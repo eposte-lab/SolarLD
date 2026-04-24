@@ -41,7 +41,14 @@ class RemotionError(Exception):
 
 @dataclass(slots=True)
 class RenderTransitionInput:
-    """Shape of one POST /render request."""
+    """Shape of one POST /render request.
+
+    When ``scene3d`` is populated the sidecar switches to the cinematic
+    Three.js renderer (orbit camera + lit panel meshes).  When it's None
+    the legacy 2-D Ken-Burns + diagonal wipe path runs — this keeps
+    backward compatibility for callers that don't have geometry data
+    (e.g. mock-mode tenants).
+    """
 
     before_image_url: str
     after_image_url: str
@@ -54,6 +61,7 @@ class RenderTransitionInput:
     brand_primary_color: str = "#0F766E"
     brand_logo_url: str | None = None
     bucket: str = "renderings"
+    scene3d: dict[str, Any] | None = None
 
 
 @dataclass(slots=True)
@@ -89,6 +97,12 @@ def build_render_request(data: RenderTransitionInput) -> dict[str, Any]:
         body["co2TonnesLifetime"] = float(data.co2_tonnes_lifetime)
     if data.brand_logo_url:
         body["brandLogoUrl"] = data.brand_logo_url
+    if data.scene3d is not None:
+        # Pass the 3D scene payload through as-is.  The sidecar's zod
+        # schema (scene3dSchema) validates shape; we don't want to
+        # snake_case → camelCase twice, so callers already produce
+        # camelCase keys (see solar_rendering_service.build_scene3d).
+        body["scene3d"] = data.scene3d
     return body
 
 
