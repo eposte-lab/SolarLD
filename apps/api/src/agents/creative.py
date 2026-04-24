@@ -215,7 +215,11 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
                     err=str(exc),
                 )
                 if skipped_reason is None:
-                    skipped_reason = "replicate_error"
+                    # Preserve the actual error message (truncated) so
+                    # the admin seed-test response surfaces it — otherwise
+                    # "replicate_error" is opaque and requires log digging.
+                    err_msg = str(exc).replace("\n", " ")[:160]
+                    skipped_reason = f"replicate_error:{err_msg}"
 
             # Book-keep Replicate cost (always, even on failure we pay for
             # the inference time).

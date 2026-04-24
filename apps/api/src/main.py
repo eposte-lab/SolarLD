@@ -2,7 +2,7 @@
 
 Wires routers, middleware, exception handlers, and lifespan events.
 """
-# cache-bust: 2026-04-24-creative-sync
+# cache-bust: 2026-04-24-replicate-error-detail
 
 from __future__ import annotations
 
