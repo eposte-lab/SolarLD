@@ -81,7 +81,12 @@ from ..services.pixart_service import (
 from ..services import inbox_service
 from ..services.email_providers import get_provider
 from ..services.email_providers.base import ProviderError
-from ..services.inbox_service import PAUSE_HOURS_429, PAUSE_HOURS_5XX
+from ..services.inbox_service import (
+    PAUSE_HOURS_429,
+    PAUSE_HOURS_5XX,
+    get_domain_purpose,
+    get_tracking_host,
+)
 from ..services.rate_limit_service import acquire_email_quota
 from ..services.resend_service import (
     RESEND_COST_PER_EMAIL_CENTS,
@@ -112,11 +117,12 @@ class OutreachInput(BaseModel):
     sequence_step: int = Field(
         default=1,
         ge=1,
-        le=3,
+        le=4,
         description=(
             "Which step of the sequence we're sending. 1 = initial "
             "outreach (OutreachAgent default), 2/3 = follow-ups enqueued "
-            "by the follow-up cron."
+            "by the follow-up cron, 4 = breakup email at d+14 "
+            "(conversational template only)."
         ),
     )
 
@@ -335,12 +341,38 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
         # ------------------------------------------------------------------
         subject_type = subject.get("type") or SubjectType.UNKNOWN.value
         greeting = _greeting_for(subject, subject_type)
-        lead_url = _public_lead_url(lead.get("public_slug"))
-        optout_url = _optout_url(lead.get("public_slug"))
+        # Use the per-domain tracking host for all public URLs when available.
+        lead_url = _public_lead_url(lead.get("public_slug"), tracking_host=tracking_host)
+        optout_url = _optout_url(lead.get("public_slug"), tracking_host=tracking_host)
+        # Determine the email style for this send:
+        # 1. Outreach domain (Gmail) → default plain_conversational
+        # 2. Tenant setting in tenant_modules.outreach.email_style overrides
+        # 3. Brand/Resend domain → default visual_preventivo
+        inbox_email_style = (
+            (selected_inbox or {}).get("email_style") or (
+                "plain_conversational" if domain_purpose == "outreach"
+                else "visual_preventivo"
+            )
+        )
+        # Tenant-level override (from modules.outreach settings).
+        t_settings: dict = dict(tenant_row.get("settings") or {})
+        email_style = (
+            t_settings.get("outreach_email_style")
+            or inbox_email_style
+        )
+
+        # Sender first name: from inbox display_name (e.g. "Alfonso Gallo" → "Alfonso").
+        sender_first_name: str | None = None
+        if selected_inbox:
+            dname = (selected_inbox.get("display_name") or "").strip()
+            sender_first_name = dname.split()[0] if dname else None
+
         default_subject = default_subject_for(
             subject_type,
             tenant_row.get("business_name") or "SolarLead",
             sequence_step=payload.sequence_step,
+            email_style=email_style,
+            sender_first_name=sender_first_name,
         )
 
         # Opener is an expensive Claude call — keep it for step 1 only.
@@ -392,9 +424,14 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
                         variant=chosen,
                     )
 
-        # Read tenant's saved email style & copy overrides (B.14)
-        t_settings: dict = dict(tenant_row.get("settings") or {})
+        # Read tenant's saved copy overrides (B.14)
         email_copy: dict = dict(t_settings.get("email_copy_overrides") or {})
+
+        # Conversational templates skip the personalised opener (Claude call) —
+        # the copy is already compact and the opener would bloat it.
+        if email_style == "plain_conversational":
+            personalized_opener = None
+
         ctx = OutreachContext(
             tenant_name=tenant_row.get("business_name") or "SolarLead",
             brand_primary_color=tenant_row.get("brand_primary_color")
@@ -418,6 +455,15 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
             main_copy_1=email_copy.get("main_copy_1"),
             main_copy_2=email_copy.get("main_copy_2"),
             cta_text=email_copy.get("cta_text"),
+            # Sprint 6.3 — conversational fields
+            email_style=email_style,
+            sender_first_name=sender_first_name,
+            hq_province=lead.get("hq_province") or subject.get("hq_province"),
+            ateco_desc=subject.get("ateco_description"),
+            recipient_email=recipient,
+            tenant_legal_name=tenant_row.get("legal_name"),
+            tenant_vat_number=tenant_row.get("vat_number"),
+            similar_province=lead.get("hq_province"),  # Step-3 case study hint
         )
         rendered = render_outreach_email(ctx)
 
@@ -501,12 +547,18 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
             )
 
         # Resolve From address: multi-inbox or legacy single-inbox.
+        # Also resolve the tracking host and domain purpose for this send.
+        tracking_host: str | None = None
+        domain_purpose: str = "brand"
+
         if selected_inbox is not None:
             from_address = inbox_service.build_from_address(selected_inbox)
             reply_to = (
                 selected_inbox.get("reply_to_email")
                 or _build_reply_to(tenant_row, lead.get("public_slug"))
             )
+            tracking_host = get_tracking_host(selected_inbox)
+            domain_purpose = get_domain_purpose(selected_inbox)
         else:
             # Legacy path: outreach@{email_from_domain}
             from_address = _build_from_address(tenant_row)
@@ -535,13 +587,18 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
         extra_headers: dict[str, str] = {}
         slug = (lead.get("public_slug") or "").strip()
         if slug:
-            api_base = (settings.api_base_url or "").rstrip("/")
-            if api_base:
+            # List-Unsubscribe one-click (RFC 8058).
+            # When a custom tracking host is configured (Sprint 6.2), use
+            # the optout URL on that domain so the header domain matches the
+            # sending domain — Gmail rewards the alignment positively.
+            # Otherwise fall back to the API's public optout endpoint.
+            if tracking_host:
+                one_click_url = f"https://{tracking_host.strip('/')}/optout/{slug}"
+            else:
+                api_base = (settings.api_base_url or "").rstrip("/")
                 one_click_url = f"{api_base}/v1/public/lead/{slug}/optout"
-                extra_headers["List-Unsubscribe"] = f"<{one_click_url}>"
-                extra_headers["List-Unsubscribe-Post"] = (
-                    "List-Unsubscribe=One-Click"
-                )
+            extra_headers["List-Unsubscribe"] = f"<{one_click_url}>"
+            extra_headers["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
 
         send_input = SendEmailInput(
             from_address=from_address,
@@ -1037,7 +1094,7 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
         # Build short follow-up copy (Italian, plain text)
         subject_type = subject.get("type") or SubjectType.UNKNOWN.value
         greeting = _greeting_for(subject, subject_type)
-        lead_url = _public_lead_url(lead.get("public_slug"))
+        lead_url = _public_lead_url(lead.get("public_slug"), tracking_host=None)  # WA channel: no custom tracking host
         wa_text = _build_wa_followup_text(
             greeting=greeting,
             step=payload.sequence_step,
@@ -1215,18 +1272,42 @@ def _build_from_address(tenant_row: dict[str, Any]) -> str:
     return f"{display} <{address}>"
 
 
-def _public_lead_url(public_slug: str | None) -> str:
+def _public_lead_url(
+    public_slug: str | None,
+    *,
+    tracking_host: str | None = None,
+) -> str:
+    """Build the public lead portal URL.
+
+    When ``tracking_host`` is set (custom per-domain CNAME, Sprint 6.2),
+    the link uses that host so click-tracking stays on the sender's own
+    domain — better deliverability + brand alignment.
+
+    Example:
+        ``"https://go.agendasolar.it/l/abc123"`` instead of
+        ``"https://portal.solarld.app/l/abc123"``
+    """
     from ..core.config import settings
 
-    base = (settings.next_public_lead_portal_url or "").rstrip("/")
+    if tracking_host:
+        base = f"https://{tracking_host.strip('/')}"
+    else:
+        base = (settings.next_public_lead_portal_url or "").rstrip("/")
     slug = (public_slug or "").strip()
     return f"{base}/l/{slug}" if slug else base
 
 
-def _optout_url(public_slug: str | None) -> str:
+def _optout_url(
+    public_slug: str | None,
+    *,
+    tracking_host: str | None = None,
+) -> str:
     from ..core.config import settings
 
-    base = (settings.next_public_lead_portal_url or "").rstrip("/")
+    if tracking_host:
+        base = f"https://{tracking_host.strip('/')}"
+    else:
+        base = (settings.next_public_lead_portal_url or "").rstrip("/")
     slug = (public_slug or "").strip()
     return f"{base}/optout/{slug}" if slug else f"{base}/optout"
 

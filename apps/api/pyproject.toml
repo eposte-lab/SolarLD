@@ -44,6 +44,9 @@ dependencies = [
   # Email validation (required by pydantic EmailStr used in inboxes.py)
   "email-validator>=2.2.0",
 
+  # DNS record verification for outreach domain setup (SPF/DKIM/DMARC)
+  "dnspython>=2.7.0",
+
   # Utilities
   "python-dotenv>=1.0.1",
   "structlog>=24.4.0",

@@ -38,9 +38,10 @@ from typing import Any
 from ..models.enums import CampaignStatus, LeadStatus, OutreachChannel
 
 # Cadence offsets from the day-0 outreach.
-STEP_2_DELAY_DAYS = 4
-STEP_3_DELAY_DAYS = 11
-# And step 3 should never fire less than this after step 2 (guard-rail in
+STEP_2_DELAY_DAYS = 4    # d+4: nudge
+STEP_3_DELAY_DAYS = 9    # d+9: soft case study
+STEP_4_DELAY_DAYS = 14   # d+14: breakup email ("chiudo il caso")
+# Step N should never fire less than this after step N-1 (guard-rail in
 # case the clock skews or the first send was batch-backfilled).
 MIN_GAP_BETWEEN_STEPS_DAYS = 3
 
@@ -144,31 +145,57 @@ def select_next_step(
         )
 
     # Step 2 already went — check step 3 eligibility
-    if _find_step(candidate.campaigns, step=3) is not None:
+    step3_row = _find_step(candidate.campaigns, step=3)
+    if step3_row is None:
+        step2 = _find_step(candidate.campaigns, step=2)
+        # Step 2 still pending (not yet sent) → wait, don't queue step 3.
+        if step2 is None or step2.status not in {
+            CampaignStatus.SENT.value,
+            CampaignStatus.DELIVERED.value,
+        }:
+            return FollowUpDecision(False, reason="step2_not_delivered")
+
+        age_days = _days_between(candidate.outreach_sent_at, now)
+        gap_days = (
+            _days_between(step2.sent_at, now)
+            if step2.sent_at is not None
+            else 0.0
+        )
+        if age_days >= STEP_3_DELAY_DAYS and gap_days >= MIN_GAP_BETWEEN_STEPS_DAYS:
+            return FollowUpDecision(True, step=3)
+        if age_days < STEP_3_DELAY_DAYS:
+            return FollowUpDecision(
+                False, reason=f"too_early_for_step3(age={age_days:.1f}d)"
+            )
+        return FollowUpDecision(
+            False, reason=f"step2_too_recent(gap={gap_days:.1f}d)"
+        )
+
+    # Step 3 already went — check step 4 (breakup email at d+14).
+    if _find_step(candidate.campaigns, step=4) is not None:
         return FollowUpDecision(False, reason="sequence_complete")
 
-    step2 = _find_step(candidate.campaigns, step=2)
-    # Step 2 still pending (not yet sent) → wait, don't queue step 3.
-    if step2 is None or step2.status not in {
+    # Step 3 still pending → wait.
+    if step3_row.status not in {
         CampaignStatus.SENT.value,
         CampaignStatus.DELIVERED.value,
     }:
-        return FollowUpDecision(False, reason="step2_not_delivered")
+        return FollowUpDecision(False, reason="step3_not_delivered")
 
     age_days = _days_between(candidate.outreach_sent_at, now)
     gap_days = (
-        _days_between(step2.sent_at, now)
-        if step2.sent_at is not None
+        _days_between(step3_row.sent_at, now)
+        if step3_row.sent_at is not None
         else 0.0
     )
-    if age_days >= STEP_3_DELAY_DAYS and gap_days >= MIN_GAP_BETWEEN_STEPS_DAYS:
-        return FollowUpDecision(True, step=3)
-    if age_days < STEP_3_DELAY_DAYS:
+    if age_days >= STEP_4_DELAY_DAYS and gap_days >= MIN_GAP_BETWEEN_STEPS_DAYS:
+        return FollowUpDecision(True, step=4)
+    if age_days < STEP_4_DELAY_DAYS:
         return FollowUpDecision(
-            False, reason=f"too_early_for_step3(age={age_days:.1f}d)"
+            False, reason=f"too_early_for_step4(age={age_days:.1f}d)"
         )
     return FollowUpDecision(
-        False, reason=f"step2_too_recent(gap={gap_days:.1f}d)"
+        False, reason=f"step3_too_recent(gap={gap_days:.1f}d)"
     )
 
 

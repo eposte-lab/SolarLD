@@ -70,8 +70,8 @@ class OutreachContext:
     business_name: str | None = None          # B2B only
     ateco_code: str | None = None
     ateco_description: str | None = None
-    # Follow-up step: 1 = initial outreach, 2 = day-4 nudge, 3 = day-11
-    # last-chance. Picks the right ``outreach_{tier}_step{N}.*.j2``.
+    # Follow-up step: 1 = initial, 2 = day-4 nudge, 3 = day-9 case-study,
+    # 4 = day-14 breakup email. Picks the right ``{stem}_step{N}.*.j2``.
     sequence_step: int = 1
     # ---- Visual style & AI-generated copy overrides (B.14) ----
     # template_style selects the visual layout applied in _base.html.j2.
@@ -81,6 +81,19 @@ class OutreachContext:
     main_copy_2: str | None = None      # Second body paragraph override
     cta_text: str | None = None         # CTA button label override
     brand_logo_url: str | None = None   # Absolute URL to tenant logo
+    # ---- Sprint 6.3 additions ----
+    # email_style controls which template family to pick:
+    #   "visual_preventivo"  — rich HTML with hero image + ROI card (default)
+    #   "plain_conversational" — 60-80 word plain-text-feel HTML, cold B2B
+    email_style: str = "visual_preventivo"
+    # Extra context for conversational templates.
+    sender_first_name: str | None = None   # e.g. "Alfonso" (from inbox display_name)
+    hq_province: str | None = None         # e.g. "Napoli"
+    ateco_desc: str | None = None          # Short ATECO description for opener
+    recipient_email: str | None = None     # Used in GDPR footer
+    tenant_legal_name: str | None = None   # Legal entity name for GDPR footer
+    tenant_vat_number: str | None = None   # P.IVA for GDPR footer
+    similar_province: str | None = None    # Step-3 case study province hint
 
 
 # ---------------------------------------------------------------------------
@@ -91,10 +104,20 @@ class OutreachContext:
 def render_outreach_email(ctx: OutreachContext) -> RenderedEmail:
     """Render both the HTML and plain-text bodies for one outreach email."""
     env = _env()
-    template_stem = _template_stem_for(ctx.subject_type, ctx.sequence_step)
+    template_stem = _template_stem_for(
+        ctx.subject_type,
+        ctx.sequence_step,
+        email_style=ctx.email_style,
+    )
+
+    # Extract sender first name from the full display name when not explicit.
+    sender_first = ctx.sender_first_name
+    if not sender_first:
+        sender_first = (ctx.tenant_name or "").split()[0] if ctx.tenant_name else None
 
     context = {
         "subject": ctx.subject_template,
+        "email_subject": ctx.subject_template,
         "tenant_name": ctx.tenant_name,
         "brand_primary_color": ctx.brand_primary_color,
         "brand_logo_url": ctx.brand_logo_url,
@@ -115,6 +138,15 @@ def render_outreach_email(ctx: OutreachContext) -> RenderedEmail:
         "main_copy_1": ctx.main_copy_1,
         "main_copy_2": ctx.main_copy_2,
         "cta_text": ctx.cta_text,
+        # Sprint 6.3: conversational template extras
+        "email_style": ctx.email_style,
+        "sender_first_name": sender_first,
+        "hq_province": ctx.hq_province,
+        "ateco_desc": ctx.ateco_desc or ctx.ateco_description,
+        "recipient_email": ctx.recipient_email or "",
+        "tenant_legal_name": ctx.tenant_legal_name or ctx.tenant_name,
+        "tenant_vat_number": ctx.tenant_vat_number,
+        "similar_province": ctx.similar_province,
     }
 
     html_raw = env.get_template(f"{template_stem}.html.j2").render(**context)
@@ -139,16 +171,37 @@ def render_outreach_email(ctx: OutreachContext) -> RenderedEmail:
 
 
 def default_subject_for(
-    subject_type: str, tenant_name: str, *, sequence_step: int = 1
+    subject_type: str,
+    tenant_name: str,
+    *,
+    sequence_step: int = 1,
+    email_style: str = "visual_preventivo",
+    sender_first_name: str | None = None,
 ) -> str:
     """Sensible default subject line per template variant & sequence step.
 
-    Step 2/3 subject lines are slightly different so they don't look
-    like pure duplicates in the inbox — Gmail sometimes collapses
-    identical-subject threads into one preview.
+    Conversational templates use shorter, first-person subjects that feel
+    like a real human sent them — not a bulk mailer.
+    Step 2/3/4 lines differ so Gmail doesn't collapse the thread.
     """
     st = (subject_type or "").lower()
-    step = sequence_step if sequence_step in {1, 2, 3} else 1
+    sender = sender_first_name or tenant_name
+
+    if email_style == "plain_conversational":
+        # Short, personal subjects — no brand prefix.
+        if st == "b2b":
+            subjects_conv = {
+                1: "Fotovoltaico per la vostra sede",
+                2: "Re: fotovoltaico per la vostra sede",
+                3: "Un dato su risparmio energetico",
+                4: "Chiudo il caso",
+            }
+            return subjects_conv.get(sequence_step, subjects_conv[1])
+        # B2C conversational (future)
+        return "Una proposta per la vostra casa"
+
+    # ── Visual / preventivo style (legacy default) ──────────────────────
+    step = sequence_step if sequence_step in {1, 2, 3, 4} else 1
 
     if st == "b2b":
         base = f"{tenant_name} — simulazione impianto fotovoltaico sulla vostra sede"
@@ -156,6 +209,8 @@ def default_subject_for(
             return f"{tenant_name} — numeri e rendering per la vostra sede"
         if step == 3:
             return f"{tenant_name} — ultima occasione di rivedere i numeri"
+        if step == 4:
+            return f"Re: fotovoltaico per la vostra sede"
         return base
     if st == "b2c":
         base = (
@@ -166,6 +221,8 @@ def default_subject_for(
             return f"{tenant_name} — un rendering del vostro tetto vi aspetta"
         if step == 3:
             return f"{tenant_name} — ultimo promemoria sul rendering del tetto"
+        if step == 4:
+            return f"Re: fotovoltaico per la vostra casa"
         return base
     return f"{tenant_name} — simulazione fotovoltaica"
 
@@ -207,25 +264,47 @@ def _format_money(value: Any) -> str:
     return sign + s
 
 
-def _template_stem_for(subject_type: str, sequence_step: int = 1) -> str:
-    """Resolve ``outreach_{tier}[_step{N}]`` stem.
+def _template_stem_for(
+    subject_type: str,
+    sequence_step: int = 1,
+    *,
+    email_style: str = "visual_preventivo",
+) -> str:
+    """Resolve the template stem for this send.
 
-    Step 1 uses the bare ``outreach_b2b`` / ``outreach_b2c`` templates
-    for backwards compatibility with the Sprint-6 renderer. Steps 2 & 3
-    look for ``_step2`` / ``_step3`` suffixed files. If a follow-up
-    template is missing we fall back to step-1 copy — better than 500'ing.
+    email_style='plain_conversational' picks the ``outreach_conversational_b2b``
+    family (steps 1-4). Fallback chain:
+      - conversational step N → step 1 conversational → visual step N → visual step 1
+
+    email_style='visual_preventivo' (default) keeps the legacy ``outreach_b2b``
+    family (steps 1-3) unchanged.
     """
     st = (subject_type or "").lower()
     if st not in {"b2b", "b2c"}:
-        # Fallback to B2C's softer tone for unknown subjects.
         st = "b2c"
-    step = sequence_step if sequence_step in {2, 3} else 1
-    if step == 1:
-        return f"outreach_{st}"
-
-    stem = f"outreach_{st}_step{step}"
+    step = max(1, min(4, int(sequence_step or 1)))
     env = _env()
-    # If the follow-up file doesn't exist, degrade to the day-0 template.
-    if f"{stem}.html.j2" not in env.list_templates():
+
+    if email_style == "plain_conversational" and st == "b2b":
+        # Conversational family: outreach_conversational_b2b[_step{N}]
+        if step == 1:
+            cand = "outreach_conversational_b2b"
+        else:
+            cand = f"outreach_conversational_b2b_step{step}"
+        if f"{cand}.html.j2" in env.list_templates():
+            return cand
+        # Step N missing → fall back to step 1 conversational.
+        if "outreach_conversational_b2b.html.j2" in env.list_templates():
+            return "outreach_conversational_b2b"
+        # Ultimate fallback: visual b2b.
+        return "outreach_b2b"
+
+    # ── Visual / preventivo (legacy) ──────────────────────────────────
+    # Step 4 maps to step 3 for visual templates (no dedicated breakup copy).
+    legacy_step = step if step in {2, 3} else (3 if step == 4 else 1)
+    if legacy_step == 1:
         return f"outreach_{st}"
-    return stem
+    stem = f"outreach_{st}_step{legacy_step}"
+    if f"{stem}.html.j2" in env.list_templates():
+        return stem
+    return f"outreach_{st}"

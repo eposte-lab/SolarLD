@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ email_subject }}</title>
+</head>
+<body style="margin:0;padding:0;background:#ffffff;font-family:Arial,Helvetica,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;">
+  <tr><td align="center">
+    <table width="580" cellpadding="0" cellspacing="0" border="0"
+           style="max-width:580px;padding:32px 24px 40px;">
+      <tr>
+        <td style="font-size:15px;line-height:1.6;color:#1a1a1a;">
+
+          <p style="margin:0 0 16px;">{{ greeting_name }},</p>
+
+          <p style="margin:0 0 16px;">
+            ho visto che <strong>{{ business_name or "la vostra azienda" }}</strong>{% if hq_province %} opera in {{ hq_province }}{% endif %}{% if ateco_desc %} nel settore {{ ateco_desc }}{% endif %}.
+          </p>
+
+          <p style="margin:0 0 16px;">
+            Aiutiamo aziende come la vostra a capire in 5 minuti se il fotovoltaico
+            conviene sulla vostra sede — senza venditori, senza impegno.
+          </p>
+
+          <p style="margin:0 0 16px;">
+            Se vi interessa una <strong>simulazione gratuita sulla vostra copertura</strong>,
+            basta rispondere a questa email con "sì".
+          </p>
+
+          <p style="margin:24px 0 0;">{{ sender_first_name or tenant_name }}</p>
+
+        </td>
+      </tr>
+      <tr>
+        <td style="padding-top:32px;border-top:1px solid #e5e7eb;font-size:12px;color:#9ca3af;line-height:1.5;">
+          Questa email è inviata a {{ recipient_email }} su base di legittimo interesse B2B
+          (art. 6.1.f GDPR). {{ tenant_legal_name or tenant_name }}{% if tenant_vat_number %} — P.IVA {{ tenant_vat_number }}{% endif %}.<br>
+          <a href="{{ optout_url }}" style="color:#9ca3af;">Non vuoi più ricevere comunicazioni? Cancellati con un click.</a>
+        </td>
+      </tr>
+    </table>
+  </td></tr>
+</table>
+</body>
+</html>

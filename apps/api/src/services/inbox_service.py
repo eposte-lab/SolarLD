@@ -50,6 +50,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from ..core.logging import get_logger
+from .rate_limit_service import inbox_effective_daily_cap
 
 log = get_logger(__name__)
 
@@ -60,7 +61,17 @@ PAUSE_HOURS_429 = 2
 _SELECT_FIELDS = (
     "id, tenant_id, email, display_name, reply_to_email, "
     "signature_html, daily_cap, paused_until, pause_reason, "
-    "sent_date, total_sent_today, last_sent_at, active"
+    "sent_date, total_sent_today, last_sent_at, active, "
+    "provider, domain_id, warmup_started_at"
+)
+
+# Joined domain fields we embed on each inbox row for the OutreachAgent.
+# We join tenant_email_domains so the agent can pick up tracking_host and
+# domain-level pause state without an extra round-trip.
+_DOMAIN_JOIN_FIELDS = (
+    "domain_id, "
+    "tenant_email_domains!tenant_inboxes_domain_id_fkey"
+    "(id, domain, purpose, tracking_host, paused_until, pause_reason, default_provider)"
 )
 
 
@@ -92,22 +103,28 @@ async def pick_and_claim(
     today = datetime.now(timezone.utc).date().isoformat()
     now_iso = datetime.now(timezone.utc).isoformat()
 
-    # ── 1. Fetch all active inboxes (small set — 2-10 rows typically) ────
-    query = (
+    # ── 1. Fetch all active inboxes + their domain row ────────────────────
+    # We try the JOIN-select first (migration 0050 adds domain_id).
+    # If the JOIN fails (e.g. migration not yet applied in dev), fall back
+    # to the plain select so we never break an already-running send.
+    select_with_domain = f"{_SELECT_FIELDS}, {_DOMAIN_JOIN_FIELDS}"
+    query_base = (
         sb.table("tenant_inboxes")
-        .select(_SELECT_FIELDS)
         .eq("tenant_id", tenant_id)
         .eq("active", True)
         .order("last_sent_at", desc=False, nullsfirst=True)
     )
     if campaign_inbox_ids:
-        query = query.in_("id", campaign_inbox_ids)
+        query_base = query_base.in_("id", campaign_inbox_ids)
 
     try:
-        result = query.execute()
-    except Exception as exc:  # noqa: BLE001
-        log.warning("inbox_selector.fetch_failed", tenant_id=tenant_id, err=str(exc))
-        return None
+        result = query_base.select(select_with_domain).execute()
+    except Exception:  # noqa: BLE001 — JOIN may fail pre-migration
+        try:
+            result = query_base.select(_SELECT_FIELDS).execute()
+        except Exception as exc:  # noqa: BLE001
+            log.warning("inbox_selector.fetch_failed", tenant_id=tenant_id, err=str(exc))
+            return None
 
     all_inboxes: list[dict[str, Any]] = result.data or []
 
@@ -116,18 +133,29 @@ async def pick_and_claim(
         return None
 
     # ── 2. Python-side filtering: skip paused and at-cap inboxes ─────────
+    # Also skip inboxes whose parent domain is paused.
     available: list[dict[str, Any]] = []
     for inbox in all_inboxes:
+        # Inbox-level pause.
         paused_until = inbox.get("paused_until")
         if paused_until and paused_until > now_iso:
-            continue  # still within pause window
+            continue
+
+        # Domain-level pause (if domain row was joined).
+        domain_row = inbox.get("tenant_email_domains") or {}
+        if isinstance(domain_row, dict):
+            domain_paused = domain_row.get("paused_until")
+            if domain_paused and domain_paused > now_iso:
+                continue
 
         sent_date = inbox.get("sent_date") or ""
         total_sent = int(inbox.get("total_sent_today") or 0)
-        cap = int(inbox.get("daily_cap") or 50)
+        # Apply the 21-day per-inbox warm-up curve for outreach inboxes;
+        # brand inboxes return their configured daily_cap unchanged.
+        cap = inbox_effective_daily_cap(inbox)
 
         if sent_date == today and total_sent >= cap:
-            continue  # daily cap exhausted for today
+            continue  # daily cap exhausted for today (warm-up or steady-state)
 
         # Counter is stale (yesterday or older) → treat as 0 used.
         available.append(inbox)
@@ -143,10 +171,19 @@ async def pick_and_claim(
     # ── 3. Attempt atomic claim on each candidate (round-robin order) ─────
     for candidate in available:
         inbox_id: str = candidate["id"]
-        cap = int(candidate.get("daily_cap") or 50)
+        # Use the warm-up-aware effective cap (Sprint 6.3).
+        cap = inbox_effective_daily_cap(candidate)
         sent_date = candidate.get("sent_date") or ""
         total_sent = int(candidate.get("total_sent_today") or 0)
         is_new_day = sent_date != today
+
+        # Warm-up start: if this inbox has never sent before, mark now
+        # as warmup_started_at so the generated warmup_phase_day column
+        # starts ticking from today.
+        needs_warmup_start = (
+            candidate.get("warmup_started_at") is None
+            and candidate.get("email_style") != "visual_preventivo"
+        )
 
         if is_new_day:
             # Lazy daily reset: set counter to 1 (first send today).
@@ -160,16 +197,17 @@ async def pick_and_claim(
             # rows and we'd report "all inboxes blocked" on first-ever send.
             # Use `.or_("sent_date.is.null,sent_date.neq.today")` so NULL and
             # stale dates both claim.
+            update_payload: dict[str, Any] = {
+                "sent_date": today,
+                "total_sent_today": 1,
+                "last_sent_at": now_iso,
+                "updated_at": now_iso,
+            }
+            if needs_warmup_start:
+                update_payload["warmup_started_at"] = now_iso
             q = (
                 sb.table("tenant_inboxes")
-                .update(
-                    {
-                        "sent_date": today,
-                        "total_sent_today": 1,
-                        "last_sent_at": now_iso,
-                        "updated_at": now_iso,
-                    }
-                )
+                .update(update_payload)
                 .eq("id", inbox_id)
                 .eq("tenant_id", tenant_id)
                 # Guard covers both "never sent before" (NULL) and "last sent
@@ -179,15 +217,16 @@ async def pick_and_claim(
         else:
             # Same day: increment under cap.
             # The `.eq("total_sent_today", total_sent)` is the optimistic lock.
+            update_payload = {
+                "total_sent_today": total_sent + 1,
+                "last_sent_at": now_iso,
+                "updated_at": now_iso,
+            }
+            if needs_warmup_start:
+                update_payload["warmup_started_at"] = now_iso
             q = (
                 sb.table("tenant_inboxes")
-                .update(
-                    {
-                        "total_sent_today": total_sent + 1,
-                        "last_sent_at": now_iso,
-                        "updated_at": now_iso,
-                    }
-                )
+                .update(update_payload)
                 .eq("id", inbox_id)
                 .eq("tenant_id", tenant_id)
                 # Optimistic lock: only apply if nobody else incremented.
@@ -324,3 +363,30 @@ def build_from_address(inbox: dict[str, Any]) -> str:
     name = (inbox.get("display_name") or "").strip()
     email = (inbox.get("email") or "").strip()
     return f"{name} <{email}>" if name else email
+
+
+def get_tracking_host(inbox: dict[str, Any]) -> str | None:
+    """Return the custom tracking host for this inbox, or None.
+
+    Reads from the joined ``tenant_email_domains`` row (Sprint 6.2).
+    Falls back to None when the domain row is absent (pre-migration or
+    legacy single-inbox path) — callers then use the default shared host.
+
+    Example: ``"go.agendasolar.it"``
+    """
+    domain_row = inbox.get("tenant_email_domains") or {}
+    if isinstance(domain_row, dict):
+        return (domain_row.get("tracking_host") or "").strip() or None
+    return None
+
+
+def get_domain_purpose(inbox: dict[str, Any]) -> str:
+    """Return 'brand' or 'outreach' from the joined domain row.
+
+    Defaults to 'brand' (conservative) when domain info is unavailable
+    so that legacy-path inboxes use the visual template family.
+    """
+    domain_row = inbox.get("tenant_email_domains") or {}
+    if isinstance(domain_row, dict):
+        return (domain_row.get("purpose") or "brand")
+    return "brand"

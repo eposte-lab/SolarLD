@@ -56,6 +56,32 @@ WARMUP_DAYS = 7
 # Standard industry ramp — ISPs prefer predictable daily deltas.
 WARMUP_DAILY_CURVE: tuple[int, ...] = (20, 50, 100, 200, 500, 1000, 2000)
 
+# ---------------------------------------------------------------------------
+# Per-inbox 21-day outreach warm-up (Sprint 6.3)
+# ---------------------------------------------------------------------------
+# Cold outreach inboxes (Gmail Workspace, purpose='outreach') need a much
+# gentler ramp than the domain-wide curve above. ISPs like Gmail track
+# per-sender reputation (individual address, not just domain), and a new
+# address sending 50/day from day 1 triggers spam filters.
+#
+# Curve: week1 → 10/day, week2 → 25/day, week3 → 40/day, day22+ → steady
+# This is in line with Lemlist / Smartlead / Instantly defaults.
+
+WARMUP_OUTREACH_DAYS = 21
+
+# Index 0 = day 1. len = 21.
+WARMUP_DAILY_CAPS_OUTREACH: tuple[int, ...] = (
+    # Week 1 (days 1-7)
+    10, 10, 10, 10, 10, 10, 10,
+    # Week 2 (days 8-14)
+    25, 25, 25, 25, 25, 25, 25,
+    # Week 3 (days 15-21)
+    40, 40, 40, 40, 40, 40, 40,
+)
+# After day 21, inbox sends at its configured daily_cap (default 50).
+STEADY_STATE_OUTREACH_CAP = 50
+STEADY_STATE_BRAND_CAP = 200  # transactional / nurturing uses domain-level cap
+
 # Hourly cap after warm-up, per tier.
 TIER_HOURLY_CAP: dict[TenantTier, int] = {
     "founding": 15,
@@ -254,6 +280,69 @@ def _warmup_day_index(
     if verified_at is None:
         return 1
     return max(1, min(WARMUP_DAYS, (now - verified_at).days + 1))
+
+
+# ---------------------------------------------------------------------------
+# Per-inbox warm-up helpers (Sprint 6.3)
+# ---------------------------------------------------------------------------
+
+
+def inbox_effective_daily_cap(inbox: dict[str, Any]) -> int:
+    """Return the effective daily send cap for this inbox.
+
+    Applies the 21-day per-inbox outreach warm-up curve when:
+      1. ``warmup_started_at`` is set (first send has happened), AND
+      2. ``warmup_completed`` is False (within the first 21 days).
+
+    After day 21, or for brand inboxes (email_style='visual_preventivo'),
+    returns the configured ``daily_cap`` column value.
+
+    The DB generates ``warmup_phase_day`` and ``warmup_completed`` as
+    computed columns (migration 0051). If they're absent (old row or
+    pre-migration), we fall back to ``daily_cap`` directly so nothing
+    breaks on deploy before the migration runs.
+
+    Args:
+        inbox: A ``tenant_inboxes`` row dict (or compatible).
+
+    Returns:
+        Effective daily cap (integer ≥ 1).
+    """
+    daily_cap = int(inbox.get("daily_cap") or STEADY_STATE_OUTREACH_CAP)
+    style = inbox.get("email_style") or "visual_preventivo"
+
+    # Brand inboxes (Resend transactional) skip per-inbox outreach warm-up.
+    # They're governed by the domain-level acquire_email_quota() above.
+    if style == "visual_preventivo":
+        return daily_cap
+
+    warmup_completed = inbox.get("warmup_completed")
+    if warmup_completed:
+        return daily_cap
+
+    phase_day = inbox.get("warmup_phase_day")
+    if phase_day is None:
+        # warm-up not started yet — allow 0 (caller will start warm-up on
+        # first successful send). We return the maximum conservative cap:
+        # day 1 = 10.
+        warmup_started_at = inbox.get("warmup_started_at")
+        if not warmup_started_at:
+            return WARMUP_DAILY_CAPS_OUTREACH[0]  # = 10
+        # Compute manually as fallback (pre-migration generated column).
+        try:
+            from datetime import date
+            started = date.fromisoformat(str(warmup_started_at)[:10])
+            day_delta = (date.today() - started).days + 1
+            idx = max(1, min(WARMUP_OUTREACH_DAYS, day_delta)) - 1
+            return WARMUP_DAILY_CAPS_OUTREACH[idx]
+        except Exception:  # noqa: BLE001
+            return WARMUP_DAILY_CAPS_OUTREACH[0]
+
+    # phase_day is 1-21 (generated column, LEAST(21, ...)).
+    idx = max(1, min(WARMUP_OUTREACH_DAYS, int(phase_day))) - 1
+    curve_cap = WARMUP_DAILY_CAPS_OUTREACH[idx]
+    # Never exceed the configured daily_cap — in case ops set it lower.
+    return min(curve_cap, daily_cap)
 
 
 # ---------------------------------------------------------------------------

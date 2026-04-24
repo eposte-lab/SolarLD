@@ -28,6 +28,7 @@ from .routes import (
     campaigns,
     contatti,
     crm_webhooks,
+    email_domains,
     events,
     experiments,
     health,
@@ -124,6 +125,7 @@ app.include_router(
 )
 app.include_router(branding.router, prefix="/v1/branding", tags=["branding"])
 app.include_router(inboxes.router, prefix="/v1/inboxes", tags=["inboxes"])
+app.include_router(email_domains.router, prefix="/v1/email-domains", tags=["email-domains"])
 app.include_router(b2c_outreach.router, prefix="/v1/b2c", tags=["b2c"])
 app.include_router(b2c_exports.router, prefix="/v1/b2c", tags=["b2c-exports"])
 
