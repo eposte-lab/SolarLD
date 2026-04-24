@@ -23,17 +23,18 @@ Surface area:
 from __future__ import annotations
 
 import hashlib
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any, Literal
 
 import geohash  # type: ignore[import-untyped]
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
+from ..agents.creative import CreativeAgent, CreativeInput
 from ..agents.outreach import OutreachAgent, OutreachInput
 from ..agents.scoring import ScoringAgent, ScoringInput
 from ..core.logging import get_logger
-from ..core.queue import enqueue
+from ..core.queue import enqueue  # noqa: F401 — retained for non-test admin paths
 from ..core.security import CurrentUser
 from ..core.supabase_client import get_service_client
 from ..models.enums import OutreachChannel, RoofDataSource, RoofStatus, SubjectType
@@ -397,14 +398,15 @@ async def seed_test_candidate(
     """Inject a synthetic company into the pipeline for end-to-end testing.
 
     Bypasses Atoka L1, Places L2, Claude L3, and Google Solar L4 by
-    inserting rows directly into ``roofs`` + ``subjects``, then enqueuing
-    the downstream tasks (scoring → creative → outreach) with time-spaced
-    ``defer_until`` so each step has room to complete before the next fires.
+    inserting rows directly into ``roofs`` + ``subjects``, then running the
+    downstream pipeline (scoring → creative → outreach) **synchronously**
+    in-request so the test panel gets a single deterministic result and
+    doesn't depend on a running arq worker.
 
-    Timeline (approximate):
-      • t+0s   — scoring_task  → creates ``leads`` row, sets score/tier
-      • t+45s  — creative_task → renders Remotion MP4+GIF, uploads to storage
-      • t+3min — outreach_task → sends email via Resend on verified domain
+    Request timeline (blocking):
+      • scoring  → creates ``leads`` row, sets score/tier (~1s)
+      • creative → Mapbox tile + Replicate AI + Remotion render (~60-120s)
+      • outreach → sends email via the configured provider (~2s)
 
     The endpoint is idempotent within a tenant for the same ``vat_number``:
     re-running with the same P.IVA upserts the roof (geohash unique) and
@@ -509,22 +511,38 @@ async def seed_test_candidate(
             detail="Scoring agent ran but returned no lead_id — check worker logs",
         )
 
-    # ── 4. Enqueue creative_task (deferred 5s — scoring row propagates) ───
-    # Remotion render can take 60-120s; we just kick it off and return.
-    # Non-fatal: if Redis is unreachable (e.g. env var not set in this env)
-    # we still return the scoring result so the test panel doesn't hang.
+    # ── 4. Run creative synchronously so the email below has a hero image ──
+    # Why sync: the test endpoint must produce an email with the rendered
+    # roof in the body. If creative were enqueued, OutreachAgent would run
+    # before the worker (if any) completed the render, and the email would
+    # ship without the hero image / GIF / video URL.
+    # Remotion render can take 60-120s — the HTTP request will block that
+    # long. Acceptable for a manual admin smoke-test.
     creative_job_id: str = ""
     try:
-        creative_job = await enqueue(
-            "creative_task",
-            {"tenant_id": body.tenant_id, "lead_id": lead_id, "force": True},
-            job_id=f"creative:{body.tenant_id}:{lead_id}",
-            defer_until=now + timedelta(seconds=5),
+        creative_out = await CreativeAgent().run(
+            CreativeInput(
+                tenant_id=body.tenant_id,
+                lead_id=lead_id,
+                force=True,
+            )
         )
-        creative_job_id = creative_job.get("job_id", "")
+        if creative_out.skipped:
+            creative_job_id = f"skipped:{creative_out.reason}"
+            log.warning(
+                "seed_test.creative_skipped",
+                lead_id=lead_id,
+                reason=creative_out.reason,
+            )
+        else:
+            creative_job_id = (
+                f"inline:after={'y' if creative_out.after_url else 'n'},"
+                f"gif={'y' if creative_out.gif_url else 'n'},"
+                f"mp4={'y' if creative_out.video_url else 'n'}"
+            )
     except Exception as exc:  # noqa: BLE001
-        log.warning("creative_enqueue_failed", lead_id=lead_id, error=str(exc))
-        creative_job_id = f"redis_unavailable:{exc}"
+        log.warning("seed_test.creative_error", lead_id=lead_id, error=str(exc))
+        creative_job_id = f"error:{str(exc)[:120]}"
 
     # ── 5. Run outreach synchronously (no worker needed for testing) ─────────
     # Rather than enqueueing and waiting for a worker that may not be running,
@@ -567,10 +585,10 @@ async def seed_test_candidate(
             outreach_result = f"error: {exc}"
             outreach_job_id = f"error:{str(exc)[:120]}"
 
-    redis_warn = (
-        " ⚠️ Redis non raggiungibile — creative job non in coda."
-        if "redis_unavailable" in creative_job_id
-        else ""
+    creative_warn = (
+        f" ⚠️ Creative: {creative_job_id}."
+        if creative_job_id.startswith(("skipped:", "error:"))
+        else f" Creative: {creative_job_id}."
     )
     outreach_msg = (
         f" Outreach: {outreach_result}."
@@ -586,7 +604,7 @@ async def seed_test_candidate(
         outreach_result=outreach_result,
         message=(
             f"Scored {scoring_out.score}/100 ({scoring_out.tier})."
+            + creative_warn
             + outreach_msg
-            + redis_warn
         ),
     )
