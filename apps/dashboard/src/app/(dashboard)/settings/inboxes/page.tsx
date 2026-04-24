@@ -216,7 +216,7 @@ function InboxCard({
     : 0;
 
   const hasOAuthError = !!inbox.oauth_last_error;
-  const isGmailConnected = inbox.provider === 'gmail_oauth' && inbox.oauth_connected_at && !hasOAuthError;
+  const isGmailConnected = inbox.provider === 'gmail_oauth' && !!inbox.oauth_connected_at && !hasOAuthError;
   const isGmailExpired = inbox.provider === 'gmail_oauth' && hasOAuthError;
 
   async function handleConnectGmail() {

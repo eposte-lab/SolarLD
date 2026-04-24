@@ -185,11 +185,13 @@ function StepDomains({
   }
 
   function handleNameChange(index: number, val: string) {
+    const domain = domains[index];
+    if (!domain) return;
     const name = val.trim();
-    const auto = domains[index].trackingHost === '' || domains[index].trackingHost === `go.${domains[index].name}`;
+    const auto = domain.trackingHost === '' || domain.trackingHost === `go.${domain.name}`;
     updateDomain(index, {
       name,
-      trackingHost: auto ? `go.${name}` : domains[index].trackingHost,
+      trackingHost: auto ? `go.${name}` : domain.trackingHost,
     });
   }
 
@@ -210,6 +212,7 @@ function StepDomains({
 
     for (let i = 0; i < updated.length; i++) {
       const d = updated[i];
+      if (!d) continue;
       if (!d.name.trim()) continue;
       if (d.domainId) continue; // Already created
       try {
@@ -219,7 +222,7 @@ function StepDomains({
           tracking_host: d.trackingHost.trim() || null,
           default_provider: 'gmail_oauth',
         });
-        updated[i] = { ...updated[i], domainId: res.id };
+        updated[i] = { ...d, domainId: res.id };
       } catch (err: unknown) {
         errs.push(`${d.name}: ${err instanceof Error ? err.message : 'Errore'}`);
       }
@@ -341,16 +344,19 @@ function StepDns({
 
   async function checkDns(index: number) {
     const d = activeDomains[index];
-    if (!d.domainId) return;
+    if (!d?.domainId) return;
     setChecking((c) => ({ ...c, [index]: true }));
     try {
       const res = await apiClient.post<DnsCheckResult>(
         `/v1/email-domains/${d.domainId}/dns-check`, {}
       );
       const globalIndex = domains.findIndex((dd) => dd.domainId === d.domainId);
+      if (globalIndex === -1) return;
       const updated = [...domains];
+      const existing = updated[globalIndex];
+      if (!existing) return;
       updated[globalIndex] = {
-        ...updated[globalIndex],
+        ...existing,
         dnsChecked: true,
         spfOk: res.spf.ok,
         dkimOk: res.dkim_resend.ok || res.dkim_google.ok,
