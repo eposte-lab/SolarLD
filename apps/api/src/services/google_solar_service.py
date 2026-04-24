@@ -363,24 +363,20 @@ async def fetch_building_insight(
     if client is None:
         client = httpx.AsyncClient(timeout=15.0)
 
-    # Quality tier-down: HIGH → MEDIUM → LOW with expanding radius.
+    # Quality tier-down: HIGH → MEDIUM → LOW.
     # Italian coverage outside major metro cores is mostly MEDIUM/LOW.
     # Using requiredQuality=HIGH alone misses ~65% of valid roofs in Italy.
-    # radiusMeters=150 lets the API find a building when the geocoded point
-    # (typically on the street) is offset from the actual roof centroid.
-    quality_tiers = [
-        ("HIGH",   "100"),
-        ("MEDIUM", "150"),
-        ("LOW",    "150"),
-    ]
+    # Note: buildingInsights:findClosest does NOT accept radiusMeters —
+    # that param is only valid on dataLayers:get. The search radius is
+    # internal to Solar API (~100m) and is not configurable.
+    quality_tiers = ("HIGH", "MEDIUM", "LOW")
 
     try:
-        for quality, radius in quality_tiers:
+        for quality in quality_tiers:
             params = {
                 "location.latitude": f"{lat:.7f}",
                 "location.longitude": f"{lng:.7f}",
                 "requiredQuality": quality,
-                "radiusMeters": radius,
                 "key": key,
             }
             resp = await client.get(SOLAR_API_ENDPOINT, params=params)
@@ -389,7 +385,8 @@ async def fetch_building_insight(
                 if quality != "HIGH":
                     log.info(
                         "solar_api_quality_tier_down",
-                        lat=lat, lng=lng, quality=quality,
+                        lat=lat, lng=lng,
+                        quality_used=quality,
                     )
                 return _parse_building_insight_payload(resp.json())
 
