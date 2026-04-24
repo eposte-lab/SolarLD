@@ -35,9 +35,9 @@ const DEFAULT_FORM = {
   hq_cap: '80014',
   hq_city: 'Giugliano in Campania',
   hq_province: 'NA',
-  // Coords: Viale dei Pini Nord 16, Giugliano Varcaturo (Lago Patria area).
-  hq_lat: '40.9518',
-  hq_lng: '14.0887',
+  // Coords: rooftop centroid verified on Google Maps (Giugliano/Varcaturo).
+  hq_lat: '40.90851483639563',
+  hq_lng: '14.043913588786717',
   decision_maker_name: 'Gaetano Gallo',
   decision_maker_role: 'Titolare',
   decision_maker_email: 'wisp.rent@gmail.com',

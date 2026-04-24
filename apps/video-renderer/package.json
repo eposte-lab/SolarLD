@@ -4,7 +4,7 @@
   "private": true,
   "description": "SolarLead — Remotion sidecar for rendering before/after transition videos",
   "scripts": {
-    "dev": "tsx watch src/server.ts",
+    "dev": "tsx watch --env-file=.env src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
     "render:example": "remotion render src/remotion.tsx SolarTransition out/example.mp4",
