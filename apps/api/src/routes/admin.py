@@ -65,7 +65,7 @@ def _require_super_admin(ctx: CurrentUser) -> None:
 @router.get("/system/health")
 async def system_health(ctx: CurrentUser) -> dict[str, object]:
     _require_super_admin(ctx)
-    return {"status": "ok", "services": ["db", "redis", "claude", "replicate"]}
+    return {"status": "ok", "services": ["db", "redis", "claude", "google_solar"]}
 
 
 @router.get("/system/stats")

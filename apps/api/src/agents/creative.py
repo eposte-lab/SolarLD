@@ -128,7 +128,7 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
             )
 
         # 3) ROI first — it's pure and independent of the image path, so we
-        # can persist useful data even if Replicate is down.
+        # can persist useful data even if the rendering step is skipped.
         roi = compute_roi(
             estimated_kwp=roof.get("estimated_kwp"),
             estimated_yearly_kwh=roof.get("estimated_yearly_kwh"),
@@ -190,6 +190,7 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
                 _log_api_cost(
                     sb,
                     tenant_id=payload.tenant_id,
+                    provider="google_solar",
                     endpoint="solar/buildingInsights+dataLayers",
                     cost_cents=5,  # $0.02 + $0.03
                     status="success",
@@ -215,6 +216,7 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
                 _log_api_cost(
                     sb,
                     tenant_id=payload.tenant_id,
+                    provider="google_solar",
                     endpoint="solar/buildingInsights+dataLayers",
                     cost_cents=5,
                     status="error",
@@ -329,6 +331,7 @@ def _log_api_cost(
     sb: Any,
     *,
     tenant_id: str,
+    provider: str,
     endpoint: str,
     cost_cents: int,
     status: str,
@@ -339,7 +342,7 @@ def _log_api_cost(
         sb.table("api_usage_log").insert(
             {
                 "tenant_id": tenant_id,
-                "provider": "replicate",
+                "provider": provider,
                 "endpoint": endpoint,
                 "request_count": 1,
                 "cost_cents": cost_cents,

@@ -244,10 +244,11 @@ def _load_and_crop(
     lat/lng in the *original* image to pixel coordinates in the *crop*.
     """
     img = Image.open(io.BytesIO(tiff_bytes))
+    # Parse geo-reference tags BEFORE convert() — Pillow's convert() returns
+    # a plain Image copy that no longer carries tag_v2 TIFF metadata.
+    west_lng, north_lat, scale_x, scale_y = _parse_geotiff_tags(img)
     # Force RGB so downstream code always deals with 3-channel images.
     img = img.convert("RGB")
-
-    west_lng, north_lat, scale_x, scale_y = _parse_geotiff_tags(img)
 
     img_w, img_h = img.size
 
@@ -348,16 +349,19 @@ def _rotate_corners(
 
 
 def _panel_rotation_deg(panel: SolarPanel) -> float:
-    """Clockwise rotation from image-North for a panel's long axis.
+    """Clockwise rotation applied to the panel rectangle before drawing.
 
-    Google Solar azimuth = direction the panel FACES (normal projected to
-    horizontal). The long axis of a LANDSCAPE panel runs perpendicular to
-    the azimuth; PORTRAIT runs parallel.
+    ``panel_width_m`` (short side) is passed as ``w_px`` to ``_draw_panel_on``
+    and ``panel_height_m`` (long side) as ``h_px``.  At rotation=0° the panel
+    appears tall and narrow (portrait); at 90° it appears wide and short
+    (landscape).
 
-    In screen coordinates (y-down, North = up = −y):
-      azimuth 0°  → LANDSCAPE long axis is E-W  (horizontal line in image)
-      azimuth 90° → LANDSCAPE long axis is N-S  (vertical line in image)
-      azimuth 180°→ LANDSCAPE long axis is E-W  (same as 0°, panel faces S)
+    Google Solar azimuth = direction the panel FACES.  For LANDSCAPE the
+    long axis runs PERPENDICULAR to the azimuth, so:
+      azimuth 0°  (N) → long axis runs N-S  → tall in image → 0° rotation
+      azimuth 90° (E) → long axis runs E-W  → wide in image → 0° rotation after (90+90)%180
+      azimuth 180°(S) → long axis runs E-W  → wide in image → 90° rotation
+    PORTRAIT: long axis parallel to azimuth direction.
     """
     azimuth = panel.segment_azimuth_deg % 360.0
     if panel.orientation == "PORTRAIT":
