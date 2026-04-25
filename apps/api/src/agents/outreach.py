@@ -1672,19 +1672,31 @@ def _log_api_cost(
     cost_cents: int,
     status: str,
     metadata: dict[str, Any],
+    phase: str | None = None,
 ) -> None:
+    """Append a row to ``api_usage_log`` for cost analytics.
+
+    ``phase`` (optional) tags the call with a 9-phase pipeline label
+    such as ``"phase4_solar"`` or ``"phase7_send"``. Migration 0057
+    added a dedicated indexed column for this; legacy callers leave
+    it unset and the row stores NULL (analytics queries treat NULL
+    as "legacy / unattributed").
+    """
+
+    row: dict[str, Any] = {
+        "tenant_id": tenant_id,
+        "provider": endpoint.split(":")[0],  # 'resend' or 'whatsapp'
+        "endpoint": endpoint,
+        "request_count": 1,
+        "cost_cents": cost_cents,
+        "status": status,
+        "metadata": metadata,
+    }
+    if phase is not None:
+        row["phase"] = phase
+
     try:
-        sb.table("api_usage_log").insert(
-            {
-                "tenant_id": tenant_id,
-                "provider": endpoint.split(":")[0],  # 'resend' or 'whatsapp'
-                "endpoint": endpoint,
-                "request_count": 1,
-                "cost_cents": cost_cents,
-                "status": status,
-                "metadata": metadata,
-            }
-        ).execute()
+        sb.table("api_usage_log").insert(row).execute()
     except Exception as exc:  # noqa: BLE001
         log.warning("outreach.api_usage_log_failed", err=str(exc))
 
