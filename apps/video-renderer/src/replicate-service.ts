@@ -39,9 +39,15 @@ const DEFAULT_MODEL = 'kwaivgi/kling-v1.6-pro';
  * needs to describe HOW the model gets from one to the other. The
  * "where" is already pinned by `end_image`.
  *
- * Specifying "panel by panel" / "one row at a time" pushes the model
- * toward a stepwise install animation rather than a global cross-fade
- * (which is what Standard did, producing the watery wash effect).
+ * Animation style: pannello-per-pannello in posizione.
+ * Tenant feedback (Apr 2026): the previous "one row at a time, edge
+ * to edge" wording produced a conveyor-belt look — entire rows
+ * dropping in from above the frame, sliding sideways, etc. We want
+ * panels to MATERIALISE directly in their final position (no descent,
+ * no slide, no rotation) at a rapid cadence so the build-up reads as
+ * "the array assembles itself" rather than "panels are being trucked
+ * in from off-screen". This is closer to a stop-motion pop-in than a
+ * physical install animation.
  *
  * Things deliberately NOT in the prompt:
  *   - panel geometry, count, position (covered by end_image)
@@ -49,10 +55,10 @@ const DEFAULT_MODEL = 'kwaivgi/kling-v1.6-pro';
  *     control typography)
  */
 const DEFAULT_PROMPT =
-  'Photo-realistic aerial timelapse showing solar panels being physically installed onto the visible rooftop, one row at a time, from one edge of the roof to the other. Each panel snaps into its final position cleanly with a brief shimmer as it lands. Subtle ambient motion enriches the scene: any visible cars on nearby streets drift forward smoothly, tree foliage rustles gently in the breeze, and soft cloud shadows drift across the ground over the duration of the clip. The rest of the static scene (ground, vegetation, neighbouring buildings) remains stable — panels appear ONLY on the building rooftop, never on the ground or surroundings. Fixed top-down camera, no zoom, no pan, no rotation. Soft natural daylight, realistic shadows, photorealistic, sharp focus, professional aerial cinematography.';
+  'Photo-realistic aerial timelapse showing solar panels appearing one at a time directly on the visible rooftop, each panel materialising in place at its final position with a brief shimmer or fade-in. The panels do NOT fall from above, do NOT slide in from the sides, do NOT descend or translate — each individual panel simply becomes visible in the exact spot where it belongs, in rapid sequence (multiple panels per second), so the array fills in pixel by pixel until the rooftop is complete. The order is non-linear — panels light up across different parts of the roof, not row by row. Subtle ambient motion enriches the rest of the scene: any visible cars on nearby streets drift forward smoothly, tree foliage rustles gently in the breeze, and soft cloud shadows drift across the ground over the duration of the clip. The rest of the static scene (ground, vegetation, neighbouring buildings, vehicles parked) remains stable — panels appear ONLY on the building rooftop, never on the ground, lawn, driveway or surroundings. Fixed top-down camera, no zoom, no pan, no rotation, no tilt. Soft natural daylight, realistic shadows, photorealistic, sharp focus, professional aerial cinematography.';
 
 const NEGATIVE_PROMPT =
-  'water, liquid, pool, flood, wet surface, reflection of water, panels on ground, panels on grass, panels on pavement, panels floating, panels on cars, panels on trees, low quality, blurry, distorted geometry, warped roof, melting, morphing, dissolving, fade, cross-fade, opacity blending, ghosting, double exposure, text, captions, logos, watermarks, cartoon, illustration, neon colors, weird lighting, camera motion, zoom, pan, rotation, dolly, tilt';
+  'panels falling from above, panels descending, panels dropping, panels sliding in, panels translating into position, panels rotating into place, conveyor belt motion, rows of panels appearing simultaneously, rows being installed one at a time, edge-to-edge sweeping reveal, panels arriving from off-screen, panels carried by hands or machines, construction workers, cranes, drones, water, liquid, pool, flood, wet surface, reflection of water, panels on ground, panels on grass, panels on pavement, panels floating, panels on cars, panels on trees, panels on neighbouring buildings, low quality, blurry, distorted geometry, warped roof, melting, morphing, dissolving, fade between two whole frames, cross-fade, opacity blending of full image, ghosting, double exposure, text, captions, logos, watermarks, cartoon, illustration, neon colors, weird lighting, camera motion, zoom, pan, rotation, dolly, tilt';
 
 export interface VideoGenerationResult {
   /** Public, time-limited Replicate URL of the produced MP4. */

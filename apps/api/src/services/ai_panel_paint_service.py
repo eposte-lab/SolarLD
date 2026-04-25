@@ -132,15 +132,28 @@ def build_paint_prompt(
     """Compose the master instruction Gemini Flash Image will follow.
 
     The prompt is intentionally specific:
-      1. "approximately N panels" — Solar API's count, prevents the
+      1. ROOF IDENTIFICATION first — explicit description of WHAT the
+         rooftop is so the model doesn't pick a courtyard, awning or
+         neighbouring lot. The image is already cropped on the target
+         building (Solar API centroid) but nano-banana still needs the
+         text instruction to lock onto the roof, especially for
+         L-shaped or terraced houses where multiple candidates exist.
+      2. STRICT BOUNDARIES — explicit, exhaustive list of what is NOT
+         a valid panel surface (grass, lawn, courtyard, driveway,
+         road, parking, sidewalk, neighbouring building, awning,
+         canopy, solar shade, terrace, balcony, ground). Production
+         feedback: panels were ending up on the lawn or driveway —
+         the previous prompt only said "preserve everything else"
+         which apparently isn't strict enough for nano-banana.
+      3. "approximately N panels" — Solar API's count, prevents the
          model from over-filling like SDXL did.
-      2. compass direction — guides placement to the correct roof
+      4. compass direction — guides placement to the correct roof
          segments on L-shaped buildings.
-      3. "lie flat on roof, follow perspective" — kills the cube /
+      5. "lie flat on roof, follow perspective" — kills the cube /
          floating-dome artefacts the old PIL render produced.
-      4. "preserve everything else exactly" — locks the instruction
-         edit so cars, trees, neighbours, ground all carry over from
-         the real aerial photo unchanged.
+      6. ABORT clause — if no clear rooftop is visible, return the
+         image unchanged rather than inventing one. nano-banana
+         honours this; SDXL would not.
     """
     panel_word = (
         f"approximately {panel_count}" if panel_count > 0 else "several"
@@ -167,21 +180,55 @@ def build_paint_prompt(
     )
 
     return (
-        "Edit this aerial photograph by adding photorealistic "
-        "monocrystalline silicon solar panels to the rooftop of the "
-        f"{type_hint} visible at the centre of the image. "
-        f"Add {panel_word} dark-blue panels with thin silver aluminium "
-        "frames, arranged in clean rectangular rows aligned with the "
-        f"existing roof edges{scale_hint}.{azimuth_hint} The panels MUST "
-        "lie flat on the roof surface, follow its exact perspective, "
-        "slope and orientation, and inherit the same daylight direction "
-        "and shadow softness as the rest of the scene. Add subtle ambient "
-        "occlusion shadows where the panels meet the roof. "
-        "Do NOT modify the ground, vegetation, neighbouring buildings, "
-        "vehicles, roads or any pixel outside the rooftop. "
-        "Do NOT add text, logos, watermarks or captions. "
-        "Top-down aerial perspective, sharp focus, professional "
-        "real-estate photography quality, natural daylight."
+        # ── 1. Identify the target ────────────────────────────────────
+        "TASK: Edit this top-down aerial photograph by adding "
+        "photorealistic monocrystalline silicon solar panels onto the "
+        "rooftop of the principal building visible at the centre of "
+        "the image. "
+        f"The principal building is the {type_hint} occupying the "
+        "centre of the frame; identify its rooftop as the contiguous "
+        "elevated surface bounded by the building's outer walls — "
+        "typically recognisable by its roof tiles, sheet metal, "
+        "shingles, or flat membrane material, and visibly raised "
+        "above the surrounding ground level. "
+        # ── 2. Lock-down: where panels must NOT go ───────────────────
+        "STRICT BOUNDARIES — panels MUST be placed EXCLUSIVELY within "
+        "the perimeter of that rooftop. Under NO circumstances place "
+        "panels on: grass, lawn, garden, courtyard, driveway, "
+        "parking lot, paved ground, sidewalk, road, street, "
+        "neighbouring buildings, balconies, terraces, awnings, "
+        "canopies, pergolas, swimming pools, or any surface that is "
+        "not the roof of the principal building described above. "
+        "If a portion of a row would extend past the roof edge, "
+        "shorten the row instead — never let a panel hang over open "
+        "ground. "
+        # ── 3. Quantity, layout, scale ───────────────────────────────
+        f"Add {panel_word} dark-blue rectangular panels with thin "
+        "silver aluminium frames, arranged in clean parallel rows "
+        f"aligned with the existing roof edges{scale_hint}."
+        f"{azimuth_hint} "
+        # ── 4. Geometry / lighting ──────────────────────────────────
+        "The panels MUST lie flat on the roof surface, follow its "
+        "exact perspective, slope and orientation, and inherit the "
+        "same daylight direction and shadow softness as the rest of "
+        "the scene. Add subtle ambient-occlusion shadows where the "
+        "panels meet the roof. Maintain a uniform inter-panel gap of "
+        "roughly 2 cm, and a minimum 30 cm clear setback from any "
+        "roof edge, ridge, valley, chimney or skylight. "
+        # ── 5. Preserve everything else ──────────────────────────────
+        "Do NOT modify, recolour, blur, or relight any pixel outside "
+        "the rooftop — ground, vegetation, vehicles, roads, "
+        "neighbouring buildings, shadows on the ground all stay "
+        "EXACTLY as they appear in the source image. "
+        "Do NOT add text, logos, watermarks, captions or arrows. "
+        # ── 6. Abort clause ──────────────────────────────────────────
+        "If you cannot confidently identify a rooftop suitable for "
+        "panels in this image, return the image unchanged rather than "
+        "guessing. "
+        # ── 7. Output style ──────────────────────────────────────────
+        "Output style: top-down aerial perspective, sharp focus, "
+        "professional real-estate photography quality, natural "
+        "daylight, no artistic filters."
     )
 
 

@@ -52,17 +52,48 @@ OUTPUT_SIZE = 1536
 # roof's bounding-box half-diagonal (computed from panel cluster bounds
 # when available, falls back to sqrt(area) otherwise).
 #
-# Values <1 crop tightly; >2 shows a lot of surroundings.
+# We pick the multiplier ADAPTIVELY based on the size of the panel
+# cluster — see ``_adaptive_padding_factor`` below. Industrial roofs
+# (half-diagonal ≥35 m) already dominate the frame, so we crop tight
+# (~1.10) — extra context is just more lawn for the AI model to
+# misplace panels onto. Small residential roofs (half-diagonal ≤8 m,
+# typically ≤20 panels) are too small to be readable at a tight crop,
+# so we widen to ~1.45 to give the viewer enough surrounding context
+# to recognise the building — without zooming so far out that the
+# panels become invisible thumbnails.
 #
-# Why 1.15 (was 1.4 → was 2.2): the AI video model uses the start/end
-# frames as spatial reference; a wide crop with lots of pavement and
-# lawn confuses it into placing panels off-roof.  At 1.4 we still saw
-# enough surrounding ground for Kling to occasionally hallucinate
-# panels onto the driveway in the first paying tenant's renders.
-# 1.15 keeps the roof at >85 % of the frame area — just enough margin
-# to avoid clipping non-square buildings while removing essentially
-# all "off-roof candidate surface" from the reference frames.
-PADDING_FACTOR = 1.15
+# This is the value used as a fallback when ``insight.panels`` is
+# empty (e.g. a non-eligible roof we still want to render before).
+PADDING_FACTOR_FALLBACK = 1.20
+
+
+def _adaptive_padding_factor(cluster_half_diag_m: float) -> float:
+    """Pick a crop padding multiplier proportional to roof size.
+
+    Why this matters: with a fixed multiplier, small residential roofs
+    (10-20 panels) end up as a postage-stamp lost in surrounding lawn,
+    while massive industrial plants (500+ panels) fill the frame edge-
+    to-edge with no breathing room and look claustrophobic. Each
+    extreme also hurts the AI paint step — too wide and nano-banana
+    has lots of "candidate surface" (grass, parking) to mis-target;
+    too tight and Kling lacks visual context to keep the building
+    geometry stable through the transition.
+
+    Curve (half-diagonal in metres → padding multiplier):
+      ≤  8 m (≈ <150 m² roof)  → 1.45  — small house, need context
+      ≈ 15 m (≈  ~400 m² roof) → 1.28
+      ≈ 25 m (≈ 1500 m² roof)  → 1.16
+      ≥ 35 m (industrial)      → 1.10  — already huge, minimal margin
+
+    Linear taper between the anchor points; clamped at the edges.
+    """
+    if cluster_half_diag_m <= 8.0:
+        return 1.45
+    if cluster_half_diag_m >= 35.0:
+        return 1.10
+    # Linear interpolation 8m → 35m maps to 1.45 → 1.10
+    t = (cluster_half_diag_m - 8.0) / (35.0 - 8.0)
+    return 1.45 - 0.35 * t
 
 # ── Panel visual style ─────────────────────────────────────────────────────
 # Colours are chosen to look like monocrystalline silicon panels seen
@@ -496,12 +527,21 @@ def _load_and_crop(
         half_diag_m = math.hypot(cluster_width_m, cluster_height_m) / 2.0
         # Floor at 8 m so single-panel residential cases still get a
         # sensible frame instead of a 1m-wide pinhole.
-        crop_radius_m = max(8.0, half_diag_m) * PADDING_FACTOR
+        effective_half_diag_m = max(8.0, half_diag_m)
+        padding = _adaptive_padding_factor(effective_half_diag_m)
+        crop_radius_m = effective_half_diag_m * padding
+        log.info(
+            "solar_rendering.adaptive_zoom",
+            panels=len(insight.panels),
+            cluster_half_diag_m=round(effective_half_diag_m, 1),
+            padding=round(padding, 3),
+            crop_radius_m=round(crop_radius_m, 1),
+        )
     else:
         # Fallback: no panels in the insight (tiny / unsuitable roof).
-        # Use the legacy sqrt(area) approximation.
+        # Use the legacy sqrt(area) approximation with conservative padding.
         roof_diag_m = math.sqrt(max(insight.area_sqm, 50.0))
-        crop_radius_m = roof_diag_m * PADDING_FACTOR
+        crop_radius_m = roof_diag_m * PADDING_FACTOR_FALLBACK
 
     crop_radius_px = max(OUTPUT_SIZE // 2, int(crop_radius_m * px_per_m))
 
