@@ -10,39 +10,49 @@
  * video model handles geometry + lighting + ambient motion (cars,
  * shadows) in one shot.
  *
- * Default model: kwaivgi/kling-v1.6-standard — mid-tier price (~$0.30
- * per 5s clip), supports start_image conditioning + descriptive
- * prompt, 1:1 aspect ratio (matches our 1080×1080 source frames).
+ * Default model: kwaivgi/kling-v1.6-pro (~$0.49 per 5s clip).
+ *
+ * Why Pro instead of Standard: Pro accepts BOTH `start_image` (before
+ * frame) AND `end_image` (after frame) as conditioning. We feed it our
+ * PIL-rendered `after.png` — which has the exact panel placement from
+ * the Google Solar API's per-panel lat/lng — so the model is forced
+ * to converge on the correct geometry instead of inventing where the
+ * panels go (which is what produced the "panels on the lawn" / "water
+ * pouring on the roof" look in the previous Standard runs).
  *
  * Override at runtime with REPLICATE_VIDEO_MODEL — we keep the model
- * name in env so swapping engines (Luma Ray, Pika, MiniMax, etc.)
+ * name in env so swapping engines (Luma Ray, Runway Gen-3, etc.)
  * needs zero code change as long as the new model accepts the same
- * `start_image` + `prompt` + `duration` + `aspect_ratio` inputs.
+ * `start_image` + `end_image` + `prompt` inputs.
  */
 import Replicate from 'replicate';
 
 import type { TransitionInput } from './schema';
 
-const DEFAULT_MODEL = 'kwaivgi/kling-v1.6-standard';
+const DEFAULT_MODEL = 'kwaivgi/kling-v1.6-pro';
 
 /**
- * Prompt master — describes what the model should animate from the
- * before-frame onward. Tuned for Italian commercial rooftops (the
- * primary target segment) but generic enough that the model handles
- * residential roofs too.
+ * Prompt master — describes the TRANSITION from start to end frame.
+ *
+ * Because we condition on both endpoints (start = bare roof, end =
+ * roof with all panels in their exact positions), the prompt only
+ * needs to describe HOW the model gets from one to the other. The
+ * "where" is already pinned by `end_image`.
+ *
+ * Specifying "panel by panel" / "one row at a time" pushes the model
+ * toward a stepwise install animation rather than a global cross-fade
+ * (which is what Standard did, producing the watery wash effect).
  *
  * Things deliberately NOT in the prompt:
- *   - panel geometry (model infers from the after-frame conditioning
- *     OR from the implicit "solar panels" semantic)
- *   - text/logos (we add overlays in ffmpeg post-processing where we
- *     control the typography, instead of asking the model to invent
- *     letters that always look weird in generative video)
+ *   - panel geometry, count, position (covered by end_image)
+ *   - text/logos (added in ffmpeg overlay post-processing where we
+ *     control typography)
  */
 const DEFAULT_PROMPT =
-  'Photo-realistic aerial timelapse: monocrystalline solar panels are gradually installed across the rooftop of this building, panel by panel, in a smooth left-to-right reveal. Soft ambient daylight, subtle shadow movement, parked cars and surroundings remain mostly still. No camera motion, no zoom, fixed top-down framing. Photorealistic, high detail, no text, no logos, no watermarks.';
+  'Photo-realistic aerial timelapse showing solar panels being physically installed onto the visible rooftop, one row at a time, from one edge of the roof to the other. Each panel snaps into its final position cleanly with a brief shimmer. The rest of the scene (ground, cars, vegetation, neighbouring buildings) remains static — panels appear ONLY on the building rooftop, never on the ground or surroundings. Fixed top-down camera, no zoom, no pan, no rotation. Soft natural daylight, realistic shadows, photorealistic.';
 
 const NEGATIVE_PROMPT =
-  'low quality, blurry, distorted geometry, warped roof, floating panels, text, captions, logos, watermarks, cartoon, illustration, neon colors, weird lighting';
+  'water, liquid, pool, flood, wet surface, reflection of water, panels on ground, panels on grass, panels on pavement, panels floating, panels on cars, panels on trees, low quality, blurry, distorted geometry, warped roof, melting, morphing, dissolving, fade, cross-fade, opacity blending, ghosting, double exposure, text, captions, logos, watermarks, cartoon, illustration, neon colors, weird lighting, camera motion, zoom, pan, rotation, dolly, tilt';
 
 export interface VideoGenerationResult {
   /** Public, time-limited Replicate URL of the produced MP4. */
@@ -114,9 +124,24 @@ export const generateTransitionVideo = async (
     prompt,
     negative_prompt: NEGATIVE_PROMPT,
     start_image: input.beforeImageUrl,
+    // end_image: forces the generated clip to land on our PIL-rendered
+    // after-frame which has the exact panel placement from the Solar
+    // API. Without this anchor the model freestyles the final state
+    // and panels end up on the lawn / driveway / wherever the prior
+    // distribution biases it (Standard model failure mode).
+    //
+    // Supported by kling-v1.6-pro; ignored by kling-v1.6-standard so
+    // the call still succeeds if someone overrides REPLICATE_VIDEO_MODEL
+    // back to standard for cost reasons.
+    end_image: input.afterImageUrl,
     duration: pickDuration(input.kwp),
     aspect_ratio: '1:1',
-    cfg_scale: 0.5,
+    // cfg_scale 0..1 = how strictly the model adheres to the
+    // prompt + image conditioning. 1.0 = max adherence — we want it
+    // since we're providing a precise end_image (no creative freedom
+    // needed). 0.5 was the Standard-era default and produced the
+    // watery transitions because the model wandered.
+    cfg_scale: 1.0,
   };
 
   // `replicate.run` resolves the model version automatically when a

@@ -42,10 +42,19 @@ log = get_logger(__name__)
 # good in email without excessive file size.
 OUTPUT_SIZE = 1024
 
-# Padding around the building centre expressed as a multiplier of the
-# roof's diagonal (sqrt(area)).  Values <1 crop tightly; >2 shows a lot
-# of surroundings.
-PADDING_FACTOR = 2.2
+# Padding around the roof footprint, expressed as a multiplier of the
+# roof's bounding-box half-diagonal (computed from panel cluster bounds
+# when available, falls back to sqrt(area) otherwise).
+#
+# Values <1 crop tightly; >2 shows a lot of surroundings.
+#
+# Why 1.4 (was 2.2): the AI video model uses the start/end frames as
+# spatial reference; a wide crop with lots of pavement and lawn
+# confuses it into placing panels off-roof. Tighter framing keeps the
+# roof at >70% of the frame area, which is enough signal for the
+# model to lock onto the correct surface. We still leave a small
+# margin so the roof edges aren't chopped off on non-square buildings.
+PADDING_FACTOR = 1.4
 
 # ── Panel visual style ─────────────────────────────────────────────────────
 # Colours are chosen to look like monocrystalline silicon panels seen
@@ -391,16 +400,52 @@ def _load_and_crop(
 
     img_w, img_h = img.size
 
-    # Compute crop radius in pixels based on roof area + padding.
-    roof_diag_m = math.sqrt(max(insight.area_sqm, 50.0))
-    crop_radius_m = roof_diag_m * PADDING_FACTOR
     # Pixels per metre (latitude direction, more stable than longitude)
     px_per_m = 1.0 / (scale_y * 111_320.0)
+
+    # Compute crop radius. We prefer to derive it from the *panel
+    # cluster bounds* (the actual roof footprint where Solar API placed
+    # eligible panels) rather than `area_sqm` (the entire roof segment
+    # area, which on multi-segment buildings can be much larger than
+    # the part that's actually covered with panels). This gives us a
+    # tighter, more accurate frame around what we want the AI model
+    # to focus on.
+    if insight.panels:
+        panel_lats = [p.lat for p in insight.panels]
+        panel_lngs = [p.lng for p in insight.panels]
+        cluster_height_m = (max(panel_lats) - min(panel_lats)) * 111_320.0
+        cluster_width_m = (
+            (max(panel_lngs) - min(panel_lngs))
+            * 111_320.0
+            * math.cos(math.radians(center_lat))
+        )
+        # Half-diagonal of the panel cluster — the smallest circle
+        # that still contains every panel, centred on the cluster.
+        half_diag_m = math.hypot(cluster_width_m, cluster_height_m) / 2.0
+        # Floor at 8 m so single-panel residential cases still get a
+        # sensible frame instead of a 1m-wide pinhole.
+        crop_radius_m = max(8.0, half_diag_m) * PADDING_FACTOR
+    else:
+        # Fallback: no panels in the insight (tiny / unsuitable roof).
+        # Use the legacy sqrt(area) approximation.
+        roof_diag_m = math.sqrt(max(insight.area_sqm, 50.0))
+        crop_radius_m = roof_diag_m * PADDING_FACTOR
+
     crop_radius_px = max(OUTPUT_SIZE // 2, int(crop_radius_m * px_per_m))
 
-    # Centre pixel of the building within the full image.
-    center_col = (center_lng - west_lng) / scale_x
-    center_row = (north_lat - center_lat) / scale_y
+    # Centre the crop on the panel cluster centroid when possible
+    # (more stable than the building centre point Solar API returns,
+    # which can land on a parking lot for L-shaped buildings).
+    if insight.panels:
+        cluster_lat = sum(p.lat for p in insight.panels) / len(insight.panels)
+        cluster_lng = sum(p.lng for p in insight.panels) / len(insight.panels)
+    else:
+        cluster_lat = center_lat
+        cluster_lng = center_lng
+
+    # Centre pixel of the roof within the full image.
+    center_col = (cluster_lng - west_lng) / scale_x
+    center_row = (north_lat - cluster_lat) / scale_y
 
     # Clamp crop box to image bounds.
     left = max(0, int(center_col - crop_radius_px))
