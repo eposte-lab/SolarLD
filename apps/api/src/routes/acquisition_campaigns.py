@@ -364,3 +364,175 @@ async def pause_acquisition_campaign(
     if not res.data:
         raise HTTPException(status_code=404, detail="Campaign not found")
     return {"ok": True, "campaign_id": campaign_id, "status": "paused"}
+
+
+# ---------------------------------------------------------------------------
+# Campaign overrides — Sprint 3
+#
+# An override is a time-boxed JSONB patch applied on top of the campaign's
+# base config. The OutreachAgent reads active overrides at send-time and
+# shallow-merges the patch into the relevant config block.
+# ---------------------------------------------------------------------------
+
+
+_OVERRIDE_SELECT = (
+    "id, campaign_id, tenant_id, label, override_type, "
+    "start_at, end_at, patch, experiment_id, created_at, created_by"
+)
+
+
+class CampaignOverrideCreate(BaseModel):
+    label: str = Field(default="", max_length=200)
+    override_type: str = Field(default="all", pattern="^(mail|geo_subset|ab_test|all)$")
+    start_at: datetime
+    end_at: datetime
+    patch: dict[str, Any] = Field(default_factory=dict)
+    experiment_id: str | None = None
+
+    def check_window(self) -> None:
+        from datetime import timedelta
+        if self.end_at <= self.start_at:
+            raise ValueError("end_at must be after start_at")
+        if self.end_at > self.start_at + timedelta(days=90):
+            raise ValueError("Override window must be ≤ 90 days")
+
+
+# ---------------------------------------------------------------------------
+# GET /v1/acquisition-campaigns/{campaign_id}/overrides
+# ---------------------------------------------------------------------------
+
+
+@router.get("/{campaign_id}/overrides")
+async def list_campaign_overrides(
+    campaign_id: str,
+    ctx: CurrentUser,
+    active_only: bool = False,
+) -> dict[str, Any]:
+    """List all overrides for a campaign, newest first.
+
+    Pass ``active_only=true`` to get only overrides whose window
+    includes *now* (UTC).
+    """
+    tenant_id = require_tenant(ctx)
+    sb = get_service_client()
+
+    # Confirm campaign belongs to the tenant first.
+    _assert_campaign_owned(sb, campaign_id, tenant_id)
+
+    q = (
+        sb.table("campaign_overrides")
+        .select(_OVERRIDE_SELECT)
+        .eq("campaign_id", campaign_id)
+        .eq("tenant_id", tenant_id)
+        .order("start_at", desc=True)
+    )
+    if active_only:
+        now_iso = datetime.now(timezone.utc).isoformat()
+        q = q.lte("start_at", now_iso).gte("end_at", now_iso)
+
+    res = q.execute()
+    rows = res.data or []
+    return {"overrides": rows, "total": len(rows)}
+
+
+# ---------------------------------------------------------------------------
+# POST /v1/acquisition-campaigns/{campaign_id}/overrides
+# ---------------------------------------------------------------------------
+
+
+@router.post("/{campaign_id}/overrides", status_code=status.HTTP_201_CREATED)
+async def create_campaign_override(
+    campaign_id: str,
+    body: CampaignOverrideCreate,
+    ctx: CurrentUser,
+) -> dict[str, Any]:
+    """Create a new time-boxed override for the campaign."""
+    tenant_id = require_tenant(ctx)
+    sb = get_service_client()
+
+    _assert_campaign_owned(sb, campaign_id, tenant_id)
+
+    try:
+        body.check_window()
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+
+    insert_data: dict[str, Any] = {
+        "campaign_id": campaign_id,
+        "tenant_id": tenant_id,
+        "label": body.label.strip(),
+        "override_type": body.override_type,
+        "start_at": body.start_at.isoformat(),
+        "end_at": body.end_at.isoformat(),
+        "patch": body.patch,
+    }
+    if body.experiment_id:
+        insert_data["experiment_id"] = body.experiment_id
+    if ctx.user:
+        insert_data["created_by"] = ctx.user.id
+
+    try:
+        res = sb.table("campaign_overrides").insert(insert_data).execute()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("campaign_override.create_failed", campaign_id=campaign_id, err=str(exc))
+        raise HTTPException(status_code=500, detail="Failed to create override") from exc
+
+    if not res.data:
+        raise HTTPException(status_code=500, detail="Insert returned no data")
+    log.info("campaign_override.created", campaign_id=campaign_id, override_id=res.data[0]["id"])
+    return res.data[0]
+
+
+# ---------------------------------------------------------------------------
+# DELETE /v1/acquisition-campaigns/{campaign_id}/overrides/{override_id}
+# ---------------------------------------------------------------------------
+
+
+@router.delete(
+    "/{campaign_id}/overrides/{override_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+)
+async def delete_campaign_override(
+    campaign_id: str,
+    override_id: str,
+    ctx: CurrentUser,
+) -> Response:
+    """Hard-delete an override. Safe to do because overrides have no
+    downstream FK references — they're an ephemeral config layer."""
+    tenant_id = require_tenant(ctx)
+    sb = get_service_client()
+
+    try:
+        sb.table("campaign_overrides").delete().eq(
+            "id", override_id
+        ).eq("campaign_id", campaign_id).eq("tenant_id", tenant_id).execute()
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail="Delete failed") from exc
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# ---------------------------------------------------------------------------
+# Private helper
+# ---------------------------------------------------------------------------
+
+
+def _assert_campaign_owned(sb: Any, campaign_id: str, tenant_id: str) -> None:
+    """Raise 404 if campaign does not belong to the tenant."""
+    res = (
+        sb.table("acquisition_campaigns")
+        .select("id")
+        .eq("id", campaign_id)
+        .eq("tenant_id", tenant_id)
+        .limit(1)
+        .execute()
+    )
+    if not res.data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Campaign not found",
+        )

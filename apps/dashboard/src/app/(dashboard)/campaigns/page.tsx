@@ -13,6 +13,7 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 
+
 import { BentoCard, BentoGrid } from '@/components/ui/bento-card';
 import { KpiChipCard } from '@/components/ui/kpi-chip-card';
 import { listAcquisitionCampaigns } from '@/lib/data/acquisition-campaigns';
@@ -53,7 +54,12 @@ export default async function CampaignsPage() {
             </Link>
           </p>
         </div>
-        {/* TODO Sprint+1: link to create-campaign page */}
+        <Link
+          href="/campaigns/new"
+          className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-on-primary shadow-ambient-sm hover:opacity-90"
+        >
+          + Nuova campagna
+        </Link>
       </header>
 
       {/* KPI strip */}
@@ -172,7 +178,12 @@ function CampaignCard({ campaign }: { campaign: AcquisitionCampaignRow }) {
           >
             Invii →
           </Link>
-          {/* TODO Sprint+1: Edit modal / detail page */}
+          <Link
+            href={`/campaigns/${campaign.id}`}
+            className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-on-primary shadow-ambient-sm hover:opacity-90"
+          >
+            Gestisci →
+          </Link>
         </div>
       </div>
     </div>

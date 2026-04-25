@@ -514,3 +514,29 @@ export interface LeadReplyRow {
   analyzed_at: string | null;
   created_at: string;
 }
+
+// ---------------------------------------------------------------------------
+// Campaign overrides — Sprint 3
+// ---------------------------------------------------------------------------
+
+export type CampaignOverrideType = 'mail' | 'geo_subset' | 'ab_test' | 'all';
+
+/**
+ * One row from `campaign_overrides`.
+ *
+ * An override is a time-boxed JSONB patch applied on top of an acquisition
+ * campaign's base config during the [start_at, end_at] window (UTC).
+ */
+export interface CampaignOverrideRow {
+  id: string;
+  campaign_id: string;
+  tenant_id: string;
+  label: string;
+  override_type: CampaignOverrideType;
+  start_at: string;
+  end_at: string;
+  patch: Record<string, unknown>;
+  experiment_id: string | null;
+  created_at: string;
+  created_by: string | null;
+}
