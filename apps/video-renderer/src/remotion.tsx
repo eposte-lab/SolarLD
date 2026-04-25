@@ -1,4 +1,4 @@
-import { Composition } from 'remotion';
+import { Composition, registerRoot } from 'remotion';
 import { SolarTransition, solarTransitionSchema } from './compositions/SolarTransition';
 
 /**
@@ -31,3 +31,7 @@ export const RemotionRoot: React.FC = () => {
     </>
   );
 };
+
+// Required by Remotion's bundler — registers the root component so that
+// `bundle({ entryPoint: 'src/remotion.tsx' })` can find the compositions.
+registerRoot(RemotionRoot);
