@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { solarTransitionSchema } from '../compositions/SolarTransition';
-import { renderRequestSchema, stripNonSchemaProps, joinPath } from '../render';
+import { solarTransitionSchema, renderRequestSchema } from '../schema';
+import { stripNonSchemaProps, joinPath } from '../render';
 
 /**
  * Pure tests for the zod schemas and the helpers that transform
- * incoming /render bodies into Remotion `inputProps`. No bundler,
- * no Supabase — just shape assertions.
+ * incoming /render bodies into the video-generation input. No
+ * Replicate calls, no Supabase — just shape assertions.
  */
 
 describe('solarTransitionSchema', () => {

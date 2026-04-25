@@ -1,9 +1,10 @@
 /**
  * Express sidecar — receives render requests from the FastAPI Creative
- * Agent, produces a 6s MP4 + GIF pair via Remotion, uploads both to
+ * Agent, calls a hosted image-to-video model (Replicate / Kling), runs
+ * ffmpeg post-processing (stats overlay + GIF), uploads both files to
  * Supabase Storage, and returns public URLs.
  *
- *   POST /render          { ...solarTransitionSchema, outputPath, bucket? }
+ *   POST /render          { ...transitionInputSchema, outputPath, bucket? }
  *   GET  /health          { status, service, version }
  *
  * Handlers are factored out of the Express bootstrap so vitest can
@@ -18,7 +19,6 @@ import {
   buildSupabaseClient,
   renderRequestSchema,
   renderTransition,
-  warmupBrowser,
 } from './render';
 
 // ---------------------------------------------------------------------------
@@ -84,13 +84,6 @@ if (require.main === module) {
   const server = app.listen(PORT, () => {
     // eslint-disable-next-line no-console
     console.log(`[video-renderer] listening on :${PORT}`);
-  });
-
-  // Warm up Remotion's browser right after binding so the first /render
-  // request doesn't pay the cold-start penalty (Chrome launch + bundle).
-  warmupBrowser().catch((err) => {
-    // eslint-disable-next-line no-console
-    console.warn('[video-renderer] browser warmup failed (non-fatal):', err);
   });
 
   // Graceful shutdown

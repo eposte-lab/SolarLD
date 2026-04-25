@@ -1,99 +1,43 @@
 /**
- * Core render pipeline — bundle Remotion entry, render MP4 + GIF,
- * upload both to Supabase Storage, return the public URLs.
+ * Core render pipeline — replaces the old Remotion + Three.js path.
  *
- * Kept deliberately free of Express-isms so it can be unit-tested and
- * reused by the `render:example` CLI script.
+ * Why this rewrite: the in-house 3-D Three.js render produced visibly
+ * bad geometry (cube-like dome with embedded panels), low fps, and no
+ * realistic lighting. We now delegate the actual video synthesis to a
+ * hosted image-to-video model (Replicate / Kling 1.6) which:
+ *   - takes the existing "before rooftop" still as start_image
+ *   - takes a descriptive prompt for the panel-reveal animation
+ *   - returns a photo-realistic MP4 with ambient motion (subtle shadow
+ *     drift, parked-car glints, etc.)
+ *
+ * This module then ffmpeg-post-processes the model output:
+ *   - burns a stats card (kWp / yearly savings / payback) over the
+ *     last ~1.5s
+ *   - emits a Gmail-friendly GIF (~2-4 MB) for inline email embedding
+ *
+ * The HTTP contract (POST /render body shape, response shape) is kept
+ * identical so the Python CreativeAgent client doesn't change.
  */
 import path from 'node:path';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import crypto from 'node:crypto';
 
-import { bundle } from '@remotion/bundler';
-import { ensureBrowser, renderMedia, selectComposition } from '@remotion/renderer';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { z } from 'zod';
 
-import { solarTransitionSchema } from './compositions/SolarTransition';
+import {
+  type RenderRequest,
+  type RenderResult,
+  type TransitionInput,
+  renderRequestSchema,
+} from './schema';
+import { generateTransitionVideo, pickDuration } from './replicate-service';
+import { postProcessVideo } from './ffmpeg-service';
 
-// ---------------------------------------------------------------------------
-// Schemas
-// ---------------------------------------------------------------------------
-
-/**
- * The full render request accepted by POST /render. On top of the
- * Remotion composition props we need: a destination folder in the
- * Supabase bucket (`outputPath`, e.g. `{tenantId}/{leadId}`) and a
- * bucket name (defaults to `renderings`).
- */
-export const renderRequestSchema = solarTransitionSchema.extend({
-  outputPath: z
-    .string()
-    .min(1)
-    .refine((p) => !p.startsWith('/') && !p.includes('..'), {
-      message: 'outputPath must be a relative, non-traversing path',
-    }),
-  bucket: z.string().min(1).default('renderings'),
-});
-
-export type RenderRequest = z.infer<typeof renderRequestSchema>;
-
-export interface RenderResult {
-  mp4Url: string;
-  gifUrl: string;
-  durationMs: number;
-}
-
-// ---------------------------------------------------------------------------
-// Browser executable — use system Chromium in Docker, auto-detect elsewhere
-// ---------------------------------------------------------------------------
-
-/**
- * Path to the Chrome/Chromium binary.
- *
- * In Railway/Docker: set REMOTION_CHROME_EXECUTABLE=/usr/bin/chromium in the
- * Dockerfile so Remotion doesn't try to download Chrome at runtime.
- * In development: leave the env unset — Remotion falls back to its bundled
- * Chromium (downloaded by `ensureBrowser()` on first render).
- */
-const BROWSER_EXECUTABLE = process.env.REMOTION_CHROME_EXECUTABLE as string | undefined;
-
-// ---------------------------------------------------------------------------
-// Bundle cache — bundling takes ~1s cold so we keep the result per process.
-// ---------------------------------------------------------------------------
-
-let cachedBundlePromise: Promise<string> | null = null;
-
-/**
- * Warm up Remotion's browser on first import.
- * When REMOTION_CHROME_EXECUTABLE is not set (local dev), this downloads
- * a compatible Chrome version once and caches it to ~/.remotion/.
- * In Docker it's a no-op because the system Chromium is already present.
- */
-export const warmupBrowser = (): Promise<void> =>
-  ensureBrowser({
-    ...(BROWSER_EXECUTABLE ? { browserExecutable: BROWSER_EXECUTABLE } : {}),
-  }).then(() => {
-    // eslint-disable-next-line no-console
-    console.log('[video-renderer] browser ready', BROWSER_EXECUTABLE ?? 'auto');
-  });
-
-/**
- * Bundle the Remotion entry once per process and re-use the output
- * directory. Exported so tests can swap it for a stub.
- */
-export const getOrBuildBundle = async (entry?: string): Promise<string> => {
-  if (cachedBundlePromise) return cachedBundlePromise;
-  const entryPoint = entry ?? path.resolve(__dirname, 'remotion.tsx');
-  cachedBundlePromise = bundle({ entryPoint });
-  return cachedBundlePromise;
-};
-
-/** Reset — used by tests between runs. */
-export const _resetBundleCache = (): void => {
-  cachedBundlePromise = null;
-};
+// Re-export so existing imports (server.ts, tests) don't have to chase
+// the schema down a level.
+export { renderRequestSchema };
+export type { RenderRequest, RenderResult };
 
 // ---------------------------------------------------------------------------
 // Public entry
@@ -104,71 +48,55 @@ export interface RenderDeps {
   supabase: SupabaseClient;
   /** Override for the workspace tmp dir (tests). */
   tmpDir?: string;
-  /** Inject a pre-built bundle location (tests). */
-  bundleLocation?: string;
+  /**
+   * Override the video-generation step (tests + future model swap).
+   * Default = call Replicate.
+   */
+  generateVideo?: (input: TransitionInput) => Promise<{ videoUrl: string; durationMs: number }>;
 }
 
 /**
  * Full pipeline:
- *   1. Ensure a Remotion bundle exists (cached).
- *   2. `selectComposition` to resolve fps/width/height.
- *   3. `renderMedia` → mp4 in tmp dir.
- *   4. `renderMedia` again with codec='gif' at lower fps/size → gif.
+ *   1. Call the Replicate video model with `beforeImageUrl` + prompt.
+ *   2. Download the resulting MP4 to a tmp work dir.
+ *   3. ffmpeg → burn stats overlay on last ~1.5s.
+ *   4. ffmpeg → produce optimized GIF (480×480, 12fps).
  *   5. Upload both files to `{bucket}/{outputPath}/transition.{mp4,gif}`.
- *   6. Return public URLs + wall-clock duration.
- *
- * On any error mid-way the tmp files are cleaned up, but partially-
- * uploaded assets are NOT deleted — the caller (Python CreativeAgent)
- * retries with the same deterministic path so the next run overwrites.
+ *   6. Return public URLs + total wall-clock duration.
  */
 export const renderTransition = async (
   req: RenderRequest,
   deps: RenderDeps,
 ): Promise<RenderResult> => {
   const start = Date.now();
-  const bundleLocation = deps.bundleLocation ?? (await getOrBuildBundle());
 
-  const composition = await selectComposition({
-    serveUrl: bundleLocation,
-    id: 'SolarTransition',
-    inputProps: stripNonSchemaProps(req),
-  });
+  // 1) Hosted video generation (default = Replicate).
+  const generator =
+    deps.generateVideo ??
+    ((input: TransitionInput) => generateTransitionVideo(input));
+  const { videoUrl } = await generator(stripNonSchemaProps(req));
 
+  // 2) Working dir for the post-process step.
   const workDir = await fs.mkdtemp(
     path.join(deps.tmpDir ?? os.tmpdir(), 'sl-render-'),
   );
-  const mp4Path = path.join(workDir, 'transition.mp4');
-  const gifPath = path.join(workDir, 'transition.gif');
 
   try {
-    // 1) MP4 — full quality, full res, 30fps.
-    await renderMedia({
-      composition,
-      serveUrl: bundleLocation,
-      codec: 'h264',
-      outputLocation: mp4Path,
-      inputProps: stripNonSchemaProps(req),
-      imageFormat: 'jpeg',
-      crf: 22,
-      ...(BROWSER_EXECUTABLE ? { browserExecutable: BROWSER_EXECUTABLE } : {}),
-    });
-
-    // 2) GIF — same composition, half resolution for file size,
-    // same frame count so timing matches the MP4 exactly.
-    await renderMedia({
-      composition: {
-        ...composition,
-        width: Math.round(composition.width / 2),
-        height: Math.round(composition.height / 2),
+    // 3) Download → overlay → GIF.
+    const { mp4Path, gifPath } = await postProcessVideo(
+      videoUrl,
+      workDir,
+      {
+        kwp: req.kwp,
+        yearlySavingsEur: req.yearlySavingsEur,
+        paybackYears: req.paybackYears,
+        tenantName: req.tenantName,
+        brandPrimaryColor: req.brandPrimaryColor,
       },
-      serveUrl: bundleLocation,
-      codec: 'gif',
-      outputLocation: gifPath,
-      inputProps: stripNonSchemaProps(req),
-      ...(BROWSER_EXECUTABLE ? { browserExecutable: BROWSER_EXECUTABLE } : {}),
-    });
+      pickDuration(req.kwp),
+    );
 
-    // 3) Upload to Supabase Storage
+    // 4) Upload to Supabase Storage.
     const mp4Bytes = await fs.readFile(mp4Path);
     const gifBytes = await fs.readFile(gifPath);
 
@@ -193,8 +121,7 @@ export const renderTransition = async (
       durationMs: Date.now() - start,
     };
   } finally {
-    // Leave the tmp files in place on error for debugging in dev, but
-    // always try to tidy up on the happy path. `rm -rf` semantics.
+    // Best-effort cleanup; non-fatal if it fails.
     fs.rm(workDir, { recursive: true, force: true }).catch(() => {
       /* non-fatal */
     });
@@ -206,12 +133,11 @@ export const renderTransition = async (
 // ---------------------------------------------------------------------------
 
 /**
- * Remotion's `inputProps` must match `solarTransitionSchema` exactly
- * (unknown keys like `outputPath` would fail the zod refine). This
- * helper drops our sidecar-only fields.
+ * Drop the sidecar-only fields (`outputPath`, `bucket`) before passing
+ * the request through to the video-generation layer. Matches the
+ * Remotion-era signature so existing tests keep working.
  */
-export const stripNonSchemaProps = (req: RenderRequest) => {
-  // `bucket` and `outputPath` are for the sidecar, not the composition.
+export const stripNonSchemaProps = (req: RenderRequest): TransitionInput => {
   const { outputPath: _outputPath, bucket: _bucket, ...compositionProps } = req;
   return compositionProps;
 };
@@ -256,5 +182,5 @@ export const buildSupabaseClient = (): SupabaseClient => {
   });
 };
 
-/** Used by tests to get a unique outputPath without colliding. */
+/** Used by tests / the example CLI to get a unique outputPath. */
 export const randomSuffix = (): string => crypto.randomBytes(4).toString('hex');
