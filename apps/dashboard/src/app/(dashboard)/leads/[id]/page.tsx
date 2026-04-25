@@ -38,6 +38,7 @@ import {
 } from '@/lib/utils';
 
 import { SendOutreachButton } from './SendOutreachButton';
+import { SolarApiInspector } from './SolarApiInspector';
 
 export const dynamic = 'force-dynamic';
 
@@ -221,6 +222,13 @@ export default async function LeadDetailPage({ params }: PageProps) {
           accent="neutral"
         />
       </BentoGrid>
+
+      {/* Solar API inspector ----------------------------------------- */}
+      {/* Surfaces panel count, dominant azimuth, per-segment data and the
+          raw Solar API payload — operators sanity-check the quote here
+          before the email goes out. Includes the "Rigenera rendering"
+          control to re-run the AI paint pipeline if the data looks off. */}
+      <SolarApiInspector lead={lead} />
 
       {/* Subject + Roof ----------------------------------------------- */}
       <BentoGrid cols={2}>

@@ -33,8 +33,26 @@ const LIST_COLUMNS = `
               estimated_kwp, estimated_yearly_kwh, area_sqm)
 `.trim();
 
+// Detail page also pulls Solar API fields from `roofs` so the
+// "Dati Solar API" inspection panel can show panel count, dominant
+// azimuth, pitch, shading and the raw payload — used by the operator
+// to sanity-check the quote before sending.
+const DETAIL_ROOF_COLUMNS = `
+  address, comune, provincia, cap,
+  estimated_kwp, estimated_yearly_kwh, area_sqm,
+  exposure, pitch_degrees, shading_score, has_existing_pv,
+  lat, lng, status, raw_data
+`.trim();
+
 const DETAIL_COLUMNS = `
-  ${LIST_COLUMNS},
+  id, public_slug, pipeline_status, score, score_tier,
+  outreach_channel, outreach_sent_at, outreach_opened_at,
+  dashboard_visited_at, created_at,
+  engagement_score, engagement_score_updated_at,
+  portal_sessions, portal_total_time_sec, deepest_scroll_pct,
+  subjects:subjects(type, business_name, owner_first_name, owner_last_name,
+                    decision_maker_email, decision_maker_email_verified),
+  roofs:roofs(${DETAIL_ROOF_COLUMNS}),
   rendering_image_url, rendering_video_url, rendering_gif_url, portal_video_slug,
   roi_data, outreach_delivered_at, outreach_clicked_at,
   whatsapp_initiated_at, feedback, feedback_notes, score_breakdown

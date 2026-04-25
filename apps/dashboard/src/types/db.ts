@@ -124,6 +124,17 @@ export interface RoofSummary {
   estimated_kwp: number | null;
   estimated_yearly_kwh: number | null;
   area_sqm: number | null;
+  // Solar API data — only loaded on the lead detail page (DETAIL_COLUMNS).
+  // Used by the "Dati Solar API" inspection panel to verify the customer
+  // quote before sending. `null` when Solar API was never called or skipped.
+  exposure?: string | null;
+  pitch_degrees?: number | null;
+  shading_score?: number | null;
+  has_existing_pv?: boolean | null;
+  lat?: number | null;
+  lng?: number | null;
+  status?: string | null;
+  raw_data?: Record<string, unknown> | null;
 }
 
 export interface SubjectSummary {
