@@ -58,9 +58,10 @@ CREATE TABLE IF NOT EXISTS campaign_overrides (
 );
 
 -- Hot path: resolve active overrides at runtime for a given campaign.
+-- (Plain index, not partial — `now()` is not IMMUTABLE so cannot appear
+-- in an index predicate. The composite is still a tight scan.)
 CREATE INDEX IF NOT EXISTS idx_campaign_overrides_active
-    ON campaign_overrides (campaign_id, start_at, end_at)
-    WHERE end_at > now();
+    ON campaign_overrides (campaign_id, start_at, end_at);
 
 CREATE INDEX IF NOT EXISTS idx_campaign_overrides_tenant
     ON campaign_overrides (tenant_id, created_at DESC);
@@ -71,8 +72,8 @@ ALTER TABLE campaign_overrides ENABLE ROW LEVEL SECURITY;
 CREATE POLICY campaign_overrides_tenant_isolation
     ON campaign_overrides
     FOR ALL
-    USING (tenant_id = (
-        SELECT id FROM tenants WHERE id = auth.uid()::uuid LIMIT 1
-    ));
+    USING (tenant_id = auth_tenant_id());
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON campaign_overrides TO authenticated;
 
 COMMIT;

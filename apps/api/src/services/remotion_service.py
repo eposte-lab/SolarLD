@@ -43,12 +43,16 @@ class RemotionError(Exception):
 class RenderTransitionInput:
     """Shape of one POST /render request.
 
-    The sidecar uses ``before_image_url`` as the conditioning frame for
-    a hosted image-to-video model (Replicate / Kling) and produces the
-    panel-reveal animation.  ``after_image_url`` is kept in the schema
-    for backward compatibility with older callers (and for a future
-    end-frame conditioning experiment) but is currently unused by the
-    sidecar pipeline.
+    The sidecar uses both frames as Kling 1.6-Pro conditioning inputs:
+      * ``before_image_url`` → ``start_image`` (bare roof, day-1)
+      * ``after_image_url``  → ``end_image``   (PIL-rendered roof with
+        every panel at its exact lat/lng from the Solar API)
+
+    Anchoring on both endpoints is what forces the generated clip to
+    converge on geometrically correct panel placement — without
+    ``end_image`` the video model freestyles the final state and panels
+    end up on the lawn / driveway (the Standard-tier failure mode
+    documented in apps/video-renderer/src/replicate-service.ts).
     """
 
     before_image_url: str

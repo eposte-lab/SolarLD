@@ -37,10 +37,16 @@ from .google_solar_service import (
 
 log = get_logger(__name__)
 
-# Output image size in pixels (square).  At 10 cm/pixel this captures
-# roughly 100 m × 100 m around the building — enough context to look
-# good in email without excessive file size.
-OUTPUT_SIZE = 1024
+# Output image size in pixels (square).  At 1536² we match Replicate's
+# Kling 1.6-Pro native conditioning resolution — feeding the model a
+# 1024² end_image meant Kling was upscaling internally before
+# convergence, which softened the panel grid and produced the "pasted"
+# look reported by the first paying tenant.  At 1536 the per-panel
+# cell texture (CELL_COLS × CELL_ROWS) survives the video model's
+# diffusion sampler and lands sharp in the GIF.  PNG file is ~3-5 MB
+# (vs ~1.5 MB at 1024) — well within Replicate's input limits and
+# negligible vs the 4-6 MB the resulting GIF is going to weigh.
+OUTPUT_SIZE = 1536
 
 # Padding around the roof footprint, expressed as a multiplier of the
 # roof's bounding-box half-diagonal (computed from panel cluster bounds
@@ -48,13 +54,15 @@ OUTPUT_SIZE = 1024
 #
 # Values <1 crop tightly; >2 shows a lot of surroundings.
 #
-# Why 1.4 (was 2.2): the AI video model uses the start/end frames as
-# spatial reference; a wide crop with lots of pavement and lawn
-# confuses it into placing panels off-roof. Tighter framing keeps the
-# roof at >70% of the frame area, which is enough signal for the
-# model to lock onto the correct surface. We still leave a small
-# margin so the roof edges aren't chopped off on non-square buildings.
-PADDING_FACTOR = 1.4
+# Why 1.15 (was 1.4 → was 2.2): the AI video model uses the start/end
+# frames as spatial reference; a wide crop with lots of pavement and
+# lawn confuses it into placing panels off-roof.  At 1.4 we still saw
+# enough surrounding ground for Kling to occasionally hallucinate
+# panels onto the driveway in the first paying tenant's renders.
+# 1.15 keeps the roof at >85 % of the frame area — just enough margin
+# to avoid clipping non-square buildings while removing essentially
+# all "off-roof candidate surface" from the reference frames.
+PADDING_FACTOR = 1.15
 
 # ── Panel visual style ─────────────────────────────────────────────────────
 # Colours are chosen to look like monocrystalline silicon panels seen
