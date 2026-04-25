@@ -157,8 +157,20 @@ async def render_transition(
     owns_client = client is None
     if client is None:
         client = httpx.AsyncClient(timeout=timeout_s)
+    target = f"{_sidecar_url()}/render"
+    log.info("remotion.sidecar_call", url=target, lead_id=getattr(data, "lead_id", None))
     try:
-        resp = await client.post(f"{_sidecar_url()}/render", json=body)
+        try:
+            resp = await client.post(target, json=body)
+        except httpx.ConnectError as exc:
+            # DNS / IPv6 / wrong service name → bubble up with the URL we tried
+            log.error(
+                "remotion.sidecar_connect_error",
+                url=target,
+                err=str(exc),
+                err_type=type(exc).__name__,
+            )
+            raise RemotionError(f"sidecar connect_error url={target} err={exc}") from exc
     finally:
         if owns_client:
             await client.aclose()
