@@ -78,7 +78,7 @@ from ..services.pixart_service import (
     resolve_template_id,
     submit_letter_campaign,
 )
-from ..services import inbox_service
+from ..services import daily_target_cap_service, inbox_service
 from ..services.email_providers import get_provider
 from ..services.email_providers.base import ProviderError
 from ..services.inbox_service import (
@@ -163,7 +163,8 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
                 "id, business_name, brand_primary_color, brand_logo_url, "
                 "contact_email, email_from_domain, email_from_name, "
                 "email_from_domain_verified_at, tier, settings, "
-                "legal_name, vat_number, legal_address"
+                "legal_name, vat_number, legal_address, "
+                "daily_target_send_cap"
             )
             .eq("id", payload.tenant_id)
             .single()
@@ -364,6 +365,43 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
                     subject=subject,
                     failure_reason=f"neverbounce_{nb_result.result.value}",
                 )
+
+        # ------------------------------------------------------------------
+        # 7b) Tenant-level daily "in-target" cap (Sprint 2)
+        #
+        # The product SLA: ~250 in-target emails/day per tenant.
+        # Enforced HERE (not at provider level) so that if a tenant
+        # has 8 inboxes × 50/day = 400 capacity, they still cap at
+        # 250 commercial sends/day. Reset at Europe/Rome midnight.
+        #
+        # Placed AFTER capability/dedup/blacklist/NeverBounce — those
+        # are pre-conditions for "is this a real candidate" and
+        # shouldn't burn quota. Placed BEFORE the deliverability
+        # rate-limit because if the tenant is already at the daily
+        # cap we don't even need to talk to Redis for the hourly
+        # window check.
+        # ------------------------------------------------------------------
+        cap_decision = await daily_target_cap_service.check_and_reserve(
+            tenant_row
+        )
+        if not cap_decision.allowed:
+            log.info(
+                "outreach.daily_target_cap_reached",
+                lead_id=payload.lead_id,
+                tenant_id=payload.tenant_id,
+                used=cap_decision.used,
+                limit=cap_decision.limit,
+            )
+            return await self._record_skip(
+                payload=payload,
+                lead=lead,
+                reason="daily_target_cap_reached",
+                event_type="lead.outreach_ratelimited",
+                event_extra={
+                    "cap": cap_decision.limit,
+                    "used": cap_decision.used,
+                },
+            )
 
         # ------------------------------------------------------------------
         # 8) Deliverability rate-limit — domain-level hourly cap

@@ -41,6 +41,7 @@ from .routes import (
     public,
     tenants,
     territories,
+    usage,
     webhooks,
 )
 
@@ -143,6 +144,7 @@ app.include_router(inboxes.router, prefix="/v1/inboxes", tags=["inboxes"])
 app.include_router(email_domains.router, prefix="/v1/email-domains", tags=["email-domains"])
 app.include_router(b2c_outreach.router, prefix="/v1/b2c", tags=["b2c"])
 app.include_router(b2c_exports.router, prefix="/v1/b2c", tags=["b2c-exports"])
+app.include_router(usage.router, prefix="/v1/usage", tags=["usage"])
 
 
 @app.get("/", tags=["meta"])
