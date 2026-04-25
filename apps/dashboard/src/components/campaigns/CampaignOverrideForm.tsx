@@ -201,7 +201,7 @@ export function CampaignOverrideForm({ campaignId, onCreated }: Props) {
           <p className="mt-1 text-xs text-error">{jsonError}</p>
         )}
         <p className="mt-1 text-xs text-on-surface-variant/60">
-          Esempio per tipo "email":{' '}
+          Esempio per tipo &quot;email&quot;:{' '}
           <code>{'{"tone_of_voice": "friendly", "cta_primary": "Parla con noi"}'}</code>
         </p>
       </div>
