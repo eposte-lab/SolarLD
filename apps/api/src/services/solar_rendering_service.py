@@ -126,6 +126,70 @@ def build_scene3d(
     }
 
 
+async def render_before_only(
+    lat: float,
+    lng: float,
+    insight: RoofInsight,
+    *,
+    api_key: str | None = None,
+    http_client: httpx.AsyncClient | None = None,
+) -> bytes:
+    """Return only the BEFORE png — real Google aerial, panels NOT drawn.
+
+    This is the entry point for the AI-painted pipeline (Sprint
+    "rendering-v2"): we generate a high-quality real aerial crop here
+    and feed it to Gemini Flash Image (via Replicate) which paints
+    photorealistic panels on the visible roof. The output of that call
+    becomes the AFTER frame.
+
+    Why split it from render_before_after:
+      * the legacy PIL-rectangle pipeline was producing the "panels
+        look pasted / cube-shaped" rendering the first paying tenant
+        complained about. Keeping the legacy function intact (still
+        used by tests) lets us swap pipelines without churn.
+      * fewer disk writes + one less PNG encode in the AI hot path.
+    """
+    owns_client = http_client is None
+    client = http_client or httpx.AsyncClient(timeout=60.0)
+
+    try:
+        try:
+            data_layers = await fetch_data_layers(
+                lat, lng, radius_m=50, client=client, api_key=api_key
+            )
+        except SolarApiNotFound as exc:
+            raise SolarRenderingError(f"no imagery at ({lat}, {lng})") from exc
+        except SolarApiError as exc:
+            raise SolarRenderingError(f"Solar API error: {exc}") from exc
+
+        log.info(
+            "solar_rendering.imagery_found",
+            lat=lat,
+            lng=lng,
+            quality=data_layers.imagery_quality,
+            date=data_layers.imagery_date,
+        )
+
+        try:
+            tiff_bytes = await download_geotiff(
+                data_layers.rgb_url, client=client, api_key=api_key
+            )
+        except SolarApiError as exc:
+            raise SolarRenderingError(f"GeoTIFF download failed: {exc}") from exc
+    finally:
+        if owns_client:
+            await client.aclose()
+
+    try:
+        before_img, _transform = _load_and_crop(
+            tiff_bytes, lat, lng, insight, radius_m=50
+        )
+    except Exception as exc:
+        raise SolarRenderingError(f"image processing failed: {exc}") from exc
+
+    return _to_png_bytes(before_img)
+
+
 async def render_before_after(
     lat: float,
     lng: float,

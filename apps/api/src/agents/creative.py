@@ -1,6 +1,6 @@
-"""Creative Agent — Google Solar aerial → deterministic PV overlay → ROI → lead assets.
+"""Creative Agent — Google Solar data + AI photoreal panel paint → ROI → lead assets.
 
-Pipeline:
+Pipeline (rendering-v2):
 
     lead_id
         ↓
@@ -8,31 +8,51 @@ Pipeline:
         ↓
     idempotency: if lead.rendering_image_url already set and not force → skip
         ↓
-    fetch Google Solar buildingInsights (panel geometry) + dataLayers (RGB aerial)
+    fetch Google Solar buildingInsights (panel COUNT, kWp, primary azimuth)
+        + dataLayers (high-res RGB aerial GeoTIFF)
         ↓
-    solar_rendering_service.render_before_after()
-          → "before" image  (Google aerial crop, 1024×1024, 10 cm/px)
-          → "after"  image  (same crop + PIL panel overlay, deterministic)
+    solar_rendering_service.render_before_only()
+          → BEFORE frame: real Google aerial crop, 1536×1536, 10 cm/px
+            (no panels drawn — the photo is left untouched)
         ↓
-    upload before.png + after.png to Supabase Storage
-        renderings/{tenant_id}/{lead_id}/before.png
-        renderings/{tenant_id}/{lead_id}/after.png
+    upload before.png to Supabase Storage
+        ↓
+    ai_panel_paint_service.paint_panels_on_aerial(before_url, panel_count, …)
+          → Gemini 2.5 Flash Image (Replicate google/nano-banana) edits the
+            real aerial: adds photoreal monocrystalline panels on the visible
+            roof, preserves everything else pixel-perfect
+          → AFTER frame: real-photo-with-real-looking-panels (1536²)
+        ↓
+    upload after.png to Supabase Storage
         ↓
     compute_roi(kwp, yearly_kwh, subject_type)  → leads.roi_data
         ↓
-    Remotion sidecar: render_transition(before, after, roi)  → MP4 + GIF
+    Remotion sidecar: render_transition(before_url, after_url, roi)
+          → Kling 1.6-Pro animates the panel-by-panel reveal between the
+            two real-photo frames, with ambient motion (cars, soft cloud
+            shadows, leaf rustle) and ROI stats overlaid in the final 2 s
+          → MP4 + GIF (720×720 @ 15 fps)
         ↓
     UPDATE leads SET rendering_image_url, rendering_video_url, rendering_gif_url, roi_data
     UPDATE roofs.status = 'rendered'
         ↓
     emit lead.rendered event
 
+Why we replaced the old PIL-rectangle path: the deterministic geometric
+draw produced flat blue cuboids that looked "pasted" on the roof, and
+fed Kling a fake end_image so the GIF inherited the same wrongness.
+The Solar API still drives PANEL DATA (count, kWp, dominant azimuth) —
+those numbers shape the AI prompt, the ROI, and the filtering. Only
+the pixel rendering moved off PIL onto the AI engine.
+
 Degradation:
-  * Google Solar 404 (no building data) or bad imagery quality → skip_reason
-    set, ROI still persisted, outreach continues without rendering.
+  * Google Solar 404 / no building → skip_reason, ROI persisted, outreach
+    continues without rendering.
   * Google Solar API key missing → same graceful skip.
-  * PIL rendering error → before uploaded only (no after), Remotion skipped.
-  * Remotion sidecar failure → images still committed, video/GIF skipped.
+  * AI paint failure (Replicate down, OOM, timeout) → before uploaded only,
+    Kling skipped. Email falls back to static aerial.
+  * Kling sidecar failure → before/after committed, MP4/GIF skipped, email
+    falls back to static after image.
 """
 
 from __future__ import annotations
@@ -46,6 +66,10 @@ from ..core.config import settings
 from ..core.logging import get_logger
 from ..core.supabase_client import get_service_client
 from ..models.enums import RoofStatus
+from ..services.ai_panel_paint_service import (
+    AiPaintError,
+    paint_panels_on_aerial,
+)
 from ..services.google_solar_service import (
     SolarApiError,
     SolarApiNotFound,
@@ -59,7 +83,7 @@ from ..services.remotion_service import (
 from ..services.roi_service import compute_roi
 from ..services.solar_rendering_service import (
     SolarRenderingError,
-    render_before_after,
+    render_before_only,
 )
 from ..services.storage_service import upload_bytes
 from .base import AgentBase
@@ -139,10 +163,9 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
         )
         roi_jsonb = roi.to_jsonb() if roi else {}
 
-        # 4) Fetch Google Solar panel geometry + aerial RGB imagery, then
-        # render before/after deterministically with PIL.
-        # Non-fatal: missing coords or Solar API failure → skip rendering,
-        # ROI is still persisted and outreach continues without images.
+        # 4) Fetch Solar API data + real aerial → AI-paint photoreal panels.
+        # Non-fatal: missing coords / Solar key / Replicate token → skip
+        # rendering, ROI still persisted, outreach continues without images.
         before_url: str | None = None
         after_url: str | None = None
         skipped_reason: str | None = None
@@ -155,12 +178,17 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
         elif not settings.google_solar_api_key and not settings.google_solar_mock_mode:
             skipped_reason = "solar_api_key_not_configured"
             log.warning("creative.solar_api_key_missing", lead_id=payload.lead_id)
+        elif not settings.replicate_api_token:
+            skipped_reason = "replicate_token_not_configured"
+            log.warning(
+                "creative.replicate_token_missing", lead_id=payload.lead_id
+            )
         else:
             try:
-                # Re-fetch buildingInsights to get the full solarPanels list.
-                # Hunter L4 already fetched this but the panel geometry is not
-                # stored in the DB, so a second call is necessary here.
-                # Cost: ~$0.02 (buildingInsights) + ~$0.03 (dataLayers) per lead.
+                # Re-fetch buildingInsights to get the full solarPanels list
+                # (Hunter L4 already called this but didn't persist panel
+                # geometry). Cost: ~$0.02 (buildingInsights) + ~$0.03
+                # (dataLayers) per lead.
                 async with httpx.AsyncClient(timeout=30.0) as http:
                     insight = await fetch_building_insight(lat, lng, client=http)
 
@@ -171,16 +199,48 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
                     kwp=insight.estimated_kwp,
                 )
 
-                before_bytes, after_bytes = await render_before_after(
+                # 4a) BEFORE — real Google aerial crop, no panels drawn.
+                before_bytes = await render_before_only(
                     lat, lng, insight,
                     api_key=settings.google_solar_api_key or None,
                 )
-
                 before_url = upload_bytes(
                     bucket=RENDERINGS_BUCKET,
                     path=f"{payload.tenant_id}/{payload.lead_id}/before.png",
                     data=before_bytes,
                     content_type="image/png",
+                )
+
+                # Book-keep Solar API cost early so even if AI paint fails
+                # the call we did make still gets reflected in usage.
+                _log_api_cost(
+                    sb,
+                    tenant_id=payload.tenant_id,
+                    provider="google_solar",
+                    endpoint="solar/buildingInsights+dataLayers",
+                    cost_cents=5,  # $0.02 + $0.03
+                    status="success",
+                    metadata={
+                        "lead_id": payload.lead_id,
+                        "panels": len(insight.panels),
+                    },
+                )
+
+                # 4b) AFTER — Gemini Flash Image paints photoreal panels
+                #     on the real aerial photo. Solar API drives the prompt
+                #     (panel count, dominant azimuth, kWp scale) but the
+                #     pixels are produced by the AI engine, not PIL.
+                primary_az = (
+                    insight.panels[0].segment_azimuth_deg
+                    if insight.panels
+                    else None
+                )
+                after_bytes = await paint_panels_on_aerial(
+                    before_image_url=before_url,
+                    panel_count=len(insight.panels),
+                    primary_azimuth_deg=primary_az,
+                    kwp=insight.estimated_kwp,
+                    subject_type=subject.get("type") or "unknown",
                 )
                 after_url = upload_bytes(
                     bucket=RENDERINGS_BUCKET,
@@ -189,15 +249,14 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
                     content_type="image/png",
                 )
 
-                # Book-keep cost (buildingInsights + dataLayers).
                 _log_api_cost(
                     sb,
                     tenant_id=payload.tenant_id,
-                    provider="google_solar",
-                    endpoint="solar/buildingInsights+dataLayers",
-                    cost_cents=5,  # $0.02 + $0.03
+                    provider="replicate",
+                    endpoint="google/nano-banana",
+                    cost_cents=4,  # ~$0.039 per nano-banana call
                     status="success",
-                    metadata={"lead_id": payload.lead_id, "panels": len(insight.panels)},
+                    metadata={"lead_id": payload.lead_id},
                 )
 
             except SolarApiNotFound:
@@ -207,6 +266,17 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
                     lead_id=payload.lead_id,
                     lat=lat,
                     lng=lng,
+                )
+            except AiPaintError as exc:
+                # Solar+before succeeded; AI step failed. Keep before_url
+                # uploaded so the email can fall back to a real aerial
+                # without panels rather than no image at all.
+                err_msg = str(exc).replace("\n", " ")[:160]
+                skipped_reason = f"ai_paint_error:{err_msg}"
+                log.warning(
+                    "creative.ai_paint_failed",
+                    lead_id=payload.lead_id,
+                    err=err_msg,
                 )
             except (SolarApiError, SolarRenderingError, httpx.HTTPError) as exc:
                 err_msg = str(exc).replace("\n", " ")[:160]
