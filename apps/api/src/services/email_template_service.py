@@ -93,6 +93,7 @@ class OutreachContext:
     recipient_email: str | None = None     # Used in GDPR footer
     tenant_legal_name: str | None = None   # Legal entity name for GDPR footer
     tenant_vat_number: str | None = None   # P.IVA for GDPR footer
+    tenant_legal_address: str | None = None  # Registered address for GDPR footer
     similar_province: str | None = None    # Step-3 case study province hint
     video_landing_url: str | None = None   # Sprint 4: /lead/[slug]/video page
 
@@ -147,6 +148,7 @@ def render_outreach_email(ctx: OutreachContext) -> RenderedEmail:
         "recipient_email": ctx.recipient_email or "",
         "tenant_legal_name": ctx.tenant_legal_name or ctx.tenant_name,
         "tenant_vat_number": ctx.tenant_vat_number,
+        "tenant_legal_address": ctx.tenant_legal_address,
         "similar_province": ctx.similar_province,
         "video_landing_url": ctx.video_landing_url,
     }

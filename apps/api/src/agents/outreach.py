@@ -511,7 +511,13 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
         greeting = _greeting_for(subject, subject_type)
         # Use the per-domain tracking host for all public URLs when available.
         lead_url = _public_lead_url(lead.get("public_slug"), tracking_host=tracking_host)
-        optout_url = _optout_url(lead.get("public_slug"), tracking_host=tracking_host)
+        optout_url = _optout_url(
+            lead.get("public_slug"),
+            tracking_host=tracking_host,
+            lead_id=payload.lead_id,
+            tenant_id=payload.tenant_id,
+            recipient_email=recipient,
+        )
         # Determine the email style for this send:
         # 1. Outreach domain (Gmail) → default plain_conversational
         # 2. Tenant setting in tenant_modules.outreach.email_style overrides
@@ -631,6 +637,7 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
             recipient_email=recipient,
             tenant_legal_name=tenant_row.get("legal_name"),
             tenant_vat_number=tenant_row.get("vat_number"),
+            tenant_legal_address=tenant_row.get("legal_address"),
             similar_province=lead.get("hq_province"),  # Step-3 case study hint
             video_landing_url=_video_landing_url(
                 lead.get("portal_video_slug"),
@@ -656,19 +663,13 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
         #     (`POST /v1/public/lead/{slug}/optout`) accepts this shape.
         # ------------------------------------------------------------------
         extra_headers: dict[str, str] = {}
-        slug = (lead.get("public_slug") or "").strip()
-        if slug:
-            # List-Unsubscribe one-click (RFC 8058).
-            # When a custom tracking host is configured (Sprint 6.2), use
-            # the optout URL on that domain so the header domain matches the
-            # sending domain — Gmail rewards the alignment positively.
-            # Otherwise fall back to the API's public optout endpoint.
-            if tracking_host:
-                one_click_url = f"https://{tracking_host.strip('/')}/optout/{slug}"
-            else:
-                api_base = (settings.api_base_url or "").rstrip("/")
-                one_click_url = f"{api_base}/v1/public/lead/{slug}/optout"
-            extra_headers["List-Unsubscribe"] = f"<{one_click_url}>"
+        # List-Unsubscribe one-click (RFC 8058).
+        # `optout_url` is already built above with HMAC when possible.
+        # We reuse it here — same URL in the footer and the header so
+        # the domain-alignment is consistent across both surfaces.
+        # The header wraps the URL in angle brackets as required by RFC 2369.
+        if optout_url:
+            extra_headers["List-Unsubscribe"] = f"<{optout_url}>"
             extra_headers["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
 
         send_input = SendEmailInput(
@@ -1374,9 +1375,48 @@ def _optout_url(
     public_slug: str | None,
     *,
     tracking_host: str | None = None,
+    lead_id: str | None = None,
+    tenant_id: str | None = None,
+    recipient_email: str | None = None,
 ) -> str:
+    """Build the unsubscribe URL for the email footer + List-Unsubscribe header.
+
+    Upgrade path (Task 12):
+      When `lead_id`, `tenant_id`, and `recipient_email` are all provided
+      AND `APP_SECRET_KEY` is configured, we generate a strongly-authenticated
+      HMAC URL (`/v1/unsubscribe?t=...`) that satisfies RFC 8058 one-click
+      requirements and domain-aligns with the sending domain.
+
+    Fallback (legacy + graceful degradation):
+      When any of the three HMAC inputs are missing, or when the secret key
+      is not configured (dev/test), fall back to the legacy slug-based URL
+      (`/optout/{slug}`) which targets the lead portal. This keeps all
+      already-sent emails working and avoids breaking dev environments.
+    """
+
     from ..core.config import settings
 
+    # Attempt HMAC URL when we have all required inputs.
+    if lead_id and tenant_id and recipient_email:
+        try:
+            from ..services.unsubscribe_token_service import (
+                build_unsubscribe_url,
+                email_to_hash,
+            )
+
+            api_base = (settings.api_base_url or "").rstrip("/")
+            return build_unsubscribe_url(
+                lead_id=lead_id,
+                tenant_id=tenant_id,
+                email_hash=email_to_hash(recipient_email),
+                api_base=api_base,
+                tracking_host=tracking_host,
+            )
+        except (ValueError, ImportError):
+            # APP_SECRET_KEY not configured — silently fall through to legacy.
+            pass
+
+    # Legacy fallback: slug-based URL targeting the lead portal.
     if tracking_host:
         base = f"https://{tracking_host.strip('/')}"
     else:

@@ -41,6 +41,7 @@ from .routes import (
     public,
     tenants,
     territories,
+    unsubscribe,
     usage,
     webhooks,
 )
@@ -144,6 +145,9 @@ app.include_router(inboxes.router, prefix="/v1/inboxes", tags=["inboxes"])
 app.include_router(email_domains.router, prefix="/v1/email-domains", tags=["email-domains"])
 app.include_router(b2c_outreach.router, prefix="/v1/b2c", tags=["b2c"])
 app.include_router(b2c_exports.router, prefix="/v1/b2c", tags=["b2c-exports"])
+# HMAC-signed unsubscribe endpoint (Task 12 / RFC 8058 one-click).
+# No prefix — the routes are already /v1/unsubscribe (GET + POST).
+app.include_router(unsubscribe.router)
 app.include_router(usage.router, prefix="/v1/usage", tags=["usage"])
 
 
