@@ -93,6 +93,7 @@ from ..services.resend_service import (
     ResendError,
     SendEmailInput,
 )
+from ..services.content_validator import validate_email_content, ValidationResult
 from .base import AgentBase
 
 log = get_logger(__name__)
@@ -647,30 +648,91 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
         rendered = render_outreach_email(ctx)
 
         # ------------------------------------------------------------------
-        # 9) Send via Resend
-        # ------------------------------------------------------------------
-        # ------------------------------------------------------------------
-        # 8c) List-Unsubscribe headers (RFC 2369 + RFC 8058 one-click)
+        # Phase 6 — Content validation gate (Task 16)
         #
-        # Gmail & Yahoo require these for any "bulk" sender (>5k/day), and
-        # penalise deliverability significantly when missing even for small
-        # volumes. Two headers, both required for one-click:
-        #   - List-Unsubscribe: <URL> (or <mailto:…>) → visible "Unsubscribe"
-        #     link in the Gmail UI (next to "via agenda-pro.it").
-        #   - List-Unsubscribe-Post: List-Unsubscribe=One-Click → tells Gmail
-        #     that it may POST to the URL directly with that form body, no
-        #     HTML confirmation page required. Our public optout endpoint
-        #     (`POST /v1/public/lead/{slug}/optout`) accepts this shape.
+        # Runs BEFORE the send to catch spam-trigger words, subject-length
+        # violations, excessive links/images. On failure the email is saved
+        # to `quarantine_emails` for manual ops review and the send is
+        # skipped without changing the lead's pipeline_status (so it can be
+        # retried after the copy is fixed).
+        # ------------------------------------------------------------------
+        val_result: ValidationResult = validate_email_content(
+            rendered.subject,
+            rendered.html,
+            rendered.text,
+            email_style=email_style,
+            sequence_step=payload.sequence_step,
+        )
+        if not val_result.passed:
+            await _log_content_quarantine(
+                sb=sb,
+                tenant_id=payload.tenant_id,
+                lead_id=payload.lead_id,
+                rendered=rendered,
+                email_style=email_style,
+                sequence_step=payload.sequence_step,
+                val_result=val_result,
+            )
+            log.warning(
+                "outreach.content_quarantined",
+                lead_id=payload.lead_id,
+                tenant_id=payload.tenant_id,
+                score=val_result.score,
+                violations=[v.rule for v in val_result.violations],
+            )
+            return await self._record_failure(
+                payload=payload,
+                lead=lead,
+                tenant_row=tenant_row,
+                subject=subject,
+                failure_reason="content_quarantined",
+            )
+
+        # ------------------------------------------------------------------
+        # 8c) Anti-spam headers (Task 17: RFC 2369 + RFC 8058 + Gmail 2024)
+        #
+        # Required headers for bulk/cold outreach:
+        #   List-Unsubscribe / List-Unsubscribe-Post  — RFC 8058 one-click
+        #     → Mandatory since Gmail/Yahoo Feb 2024 for >5k/day senders.
+        #     → We include it on ALL outreach sends regardless of volume:
+        #       the header is also what surfaces the "Unsubscribe" button
+        #       in Gmail's UI for individual recipients.
+        #   Precedence: bulk  — RFC 2076 / widely adopted convention.
+        #     → Signals this is a bulk send so ISPs apply bulk reputation
+        #       rules rather than individual-sender rules.
+        #     → Also suppresses automated out-of-office autoreplies,
+        #       preventing false "opens" and accidental unsubscribes.
+        #   X-Auto-Response-Suppress: All  — MS Exchange / O365 extension.
+        #     → Prevents corporate OOO bots from polluting the inbox.
+        #   Feedback-ID  — Google's FBL attribution header.
+        #     → Format: {campaign}:{account}:{job}:{FQDN}
+        #     → Allows complaint data in Google Postmaster Tools to be
+        #       attributed per tenant / per send rather than aggregated.
         # ------------------------------------------------------------------
         extra_headers: dict[str, str] = {}
-        # List-Unsubscribe one-click (RFC 8058).
-        # `optout_url` is already built above with HMAC when possible.
-        # We reuse it here — same URL in the footer and the header so
-        # the domain-alignment is consistent across both surfaces.
-        # The header wraps the URL in angle brackets as required by RFC 2369.
+
+        # List-Unsubscribe one-click (RFC 8058) — mandatory, not optional.
         if optout_url:
             extra_headers["List-Unsubscribe"] = f"<{optout_url}>"
-            extra_headers["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
+        else:
+            # Fallback: mailto: form (RFC 2369). Never left empty.
+            extra_headers["List-Unsubscribe"] = (
+                f"<mailto:{from_address}?subject=unsubscribe>"
+            )
+        extra_headers["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
+
+        # Bulk-send signals
+        extra_headers["Precedence"] = "bulk"
+        extra_headers["X-Auto-Response-Suppress"] = "All"
+
+        # Google Postmaster Tools FBL attribution.
+        # Format allows per-tenant / per-step attribution in complaint reports.
+        _step_tag = f"step{payload.sequence_step}"
+        _tid_short = (payload.tenant_id or "").replace("-", "")[:8]
+        _lid_short = (payload.lead_id or "").replace("-", "")[:8]
+        extra_headers["Feedback-ID"] = (
+            f"{_tid_short}:{_lid_short}:{_step_tag}:solarld"
+        )
 
         send_input = SendEmailInput(
             from_address=from_address,
@@ -1829,3 +1891,59 @@ async def _monthly_campaign_spend_cents(sb: Any, tenant_id: str) -> int:
             "outreach.monthly_spend_lookup_failed", tenant_id=tenant_id, err=str(exc)
         )
         return 0
+
+
+# ---------------------------------------------------------------------------
+# Task 16 — Content quarantine helper
+# ---------------------------------------------------------------------------
+
+
+async def _log_content_quarantine(
+    *,
+    sb: Any,
+    tenant_id: str,
+    lead_id: str,
+    rendered: Any,          # RenderedEmail
+    email_style: str,
+    sequence_step: int,
+    val_result: "ValidationResult",
+) -> None:
+    """Persist a quarantine_emails row so ops can review and approve/reject.
+
+    Non-blocking: write errors are logged but do NOT fail the pipeline.
+    The `_record_failure` call in the agent already marks the send as
+    'failed' in outreach_sends, so the ops dashboard has visibility
+    regardless of whether this write succeeds.
+    """
+    violations_json = [
+        {
+            "rule": v.rule,
+            "field": v.field,
+            "detail": v.detail,
+            "severity": v.severity,
+        }
+        for v in val_result.violations
+    ]
+    row = {
+        "tenant_id": tenant_id,
+        "lead_id": lead_id or None,
+        "subject": rendered.subject[:500],
+        "html_snippet": (rendered.html or "")[:1000],
+        "text_snippet": (rendered.text or "")[:400],
+        "email_style": email_style,
+        "sequence_step": sequence_step,
+        "validation_score": float(val_result.score),
+        "violations": violations_json,
+        "auto_decision": "quarantine",
+        "review_status": "pending_review",
+    }
+    try:
+        await asyncio.to_thread(
+            lambda: sb.table("quarantine_emails").insert(row).execute()
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning(
+            "outreach.quarantine_log_failed",
+            lead_id=lead_id,
+            err=str(exc),
+        )

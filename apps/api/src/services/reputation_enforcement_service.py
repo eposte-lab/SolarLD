@@ -497,3 +497,38 @@ async def check_realtime_bounce_spike(
         window_hours=REALTIME_BOUNCE_WINDOW_HOURS,
     )
     return True
+
+
+async def pause_domain_for_alarm(
+    sb: Any,
+    *,
+    domain_id: str,
+    tenant_id: str,
+    domain_name: str,
+    reason: str,
+    bounce_rate: float,
+    complaint_rate: float,
+    pause_hours: int = PAUSE_HOURS_ON_ALARM,
+) -> None:
+    """Public API for pausing a domain from external callers.
+
+    Called by ``deliverability_monitor_service`` (hourly monitor) and any
+    other service that needs to trigger the full domain-pause cascade
+    (domain update + inbox cascade + dashboard notification) without
+    duplicating the logic.
+
+    The ``pause_hours`` parameter allows the caller to customise the
+    pause duration, though the default (48 h) is used in all current
+    callers.
+    """
+    # Build a minimal domain_row compatible with _pause_domain_and_inboxes.
+    domain_row = {"id": domain_id, "tenant_id": tenant_id, "domain": domain_name}
+    await _pause_domain_and_inboxes(
+        sb,
+        domain_row=domain_row,
+        reason=reason,
+        alarm_bounce=bounce_rate >= BOUNCE_RATE_THRESHOLD,
+        alarm_complaint=complaint_rate >= COMPLAINT_RATE_THRESHOLD,
+        bounce_rate=bounce_rate,
+        complaint_rate=complaint_rate,
+    )

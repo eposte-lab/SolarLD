@@ -49,6 +49,7 @@ from ..services.followup_service import (
     build_candidate_from_rows,
     select_next_step,
 )
+from ..services.deliverability_monitor_service import run_hourly_monitor
 from ..services.engagement_service import run_engagement_rollup
 from ..services.reputation_service import run_reputation_digest
 from ..services.reputation_enforcement_service import run_enforcement
@@ -533,3 +534,45 @@ async def smartlead_warmup_sync_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
         failed=total_failed,
     )
     return {"ok": True, "tenants": len(tenant_ids), "synced": total_synced, "failed": total_failed}
+
+
+async def deliverability_hourly_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
+    """Task 15 — Hourly deliverability monitor.
+
+    Scans all active outreach domains for short-window (4 h) bounce and
+    complaint spikes.  If either threshold is exceeded the domain is
+    auto-paused for 48 h via the same ``pause_domain_for_alarm`` logic
+    used by the nightly enforcement pass.
+
+    Schedule: runs at the top of every hour (:00) UTC.
+    Complements the nightly ``reputation_digest_cron`` (02:30 UTC) which
+    operates on a 7-day aggregate.
+
+    Key thresholds (hourly / short-window — stricter than nightly):
+      bounce rate    ≥ 5%   → pause 48 h
+      complaint rate ≥ 0.1% → pause 48 h  (tighter than nightly 0.3%)
+
+    Non-critical: domain-level errors are logged and skipped; pipeline
+    continues normally.
+    """
+    sb = get_service_client()
+    result = await run_hourly_monitor(sb)
+    log.info(
+        "cron.deliverability_hourly.done",
+        checked=result.domains_checked,
+        paused=result.domains_paused,
+        low_volume_skipped=result.domains_skipped_low_volume,
+        errors=len(result.errors),
+    )
+    if result.domains_paused:
+        log.warning(
+            "cron.deliverability_hourly.domains_paused",
+            count=result.domains_paused,
+            details=result.paused_details,
+        )
+    return {
+        "ok": True,
+        "checked": result.domains_checked,
+        "paused": result.domains_paused,
+        "errors": result.errors,
+    }

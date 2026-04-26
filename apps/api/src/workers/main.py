@@ -28,6 +28,7 @@ from ..services.b2c_qualify_service import qualify_b2c_lead
 from ..services.crm_webhook_service import dispatch_event as crm_dispatch
 from .cron import (
     daily_digest_cron,
+    deliverability_hourly_cron,
     engagement_rollup_cron,
     follow_up_cron,
     reputation_digest_cron,
@@ -168,6 +169,7 @@ class WorkerSettings:
         meta_lead_enrich_task,
     ]
     # Scheduled jobs (UTC):
+    #   :00 every hour   → deliverability_hourly_cron   (bounce/complaint spike check)
     #   02:30 every day  → reputation_digest_cron       (refresh domain_reputation)
     #   03:15 every day  → retention_cron               (GDPR 24-month purge)
     #   03:45 every day  → send_time_rollup_cron        (per-lead best UTC hour)
@@ -178,6 +180,8 @@ class WorkerSettings:
     #   08:00 Mon        → weekly_digest_cron           (opt-in feature flag)
     #   08:30 every day  → sla_first_touch_cron         (notify overdue leads)
     cron_jobs = [
+        # Task 15: hourly deliverability guard — catch domain spikes fast.
+        cron(deliverability_hourly_cron, minute=0, run_at_startup=False),
         cron(reputation_digest_cron, hour=2, minute=30, run_at_startup=False),
         cron(retention_cron, hour=3, minute=15, run_at_startup=False),
         cron(send_time_rollup_cron, hour=3, minute=45, run_at_startup=False),
