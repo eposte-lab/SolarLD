@@ -1,0 +1,532 @@
+{
+  "generated_at": "2026-04-26",
+  "brand_domain": "solarlead.it",
+  "shadow_domains": [
+    {
+      "domain": "solarlead-progetti.it",
+      "purpose_label": "Progetti fotovoltaici (focus manifatturiero / PMI)",
+      "dmarc_rua": "dmarc@solarlead.it",
+      "tracking_host": "go.solarlead-progetti.it",
+      "tracking_cname_target": "track.solarld.app",
+      "dns_records": [
+        {
+          "type": "MX",
+          "host": "@",
+          "value": "ASPMX.L.GOOGLE.COM.",
+          "priority": 1,
+          "ttl": 3600
+        },
+        {
+          "type": "MX",
+          "host": "@",
+          "value": "ALT1.ASPMX.L.GOOGLE.COM.",
+          "priority": 5,
+          "ttl": 3600
+        },
+        {
+          "type": "MX",
+          "host": "@",
+          "value": "ALT2.ASPMX.L.GOOGLE.COM.",
+          "priority": 5,
+          "ttl": 3600
+        },
+        {
+          "type": "MX",
+          "host": "@",
+          "value": "ALT3.ASPMX.L.GOOGLE.COM.",
+          "priority": 10,
+          "ttl": 3600
+        },
+        {
+          "type": "MX",
+          "host": "@",
+          "value": "ALT4.ASPMX.L.GOOGLE.COM.",
+          "priority": 10,
+          "ttl": 3600
+        },
+        {
+          "type": "TXT",
+          "host": "@",
+          "value": "v=spf1 include:_spf.google.com ~all",
+          "ttl": 3600,
+          "note": "SPF — authorises Google Workspace to send on behalf of this domain"
+        },
+        {
+          "type": "TXT",
+          "host": "google._domainkey.solarlead-progetti.it",
+          "value": "v=DKIM1; k=rsa; p=<PASTE_KEY_FROM_GOOGLE_ADMIN_CONSOLE>",
+          "ttl": 3600,
+          "note": "DKIM — key NOT yet generated. Follow Step 3 in the provisioning guide to obtain the real value from Google Admin Console."
+        },
+        {
+          "type": "TXT",
+          "host": "_dmarc.solarlead-progetti.it",
+          "value": "v=DMARC1; p=none; rua=mailto:dmarc@solarlead.it; ruf=mailto:dmarc@solarlead.it; pct=100; adkim=s; aspf=s",
+          "ttl": 3600,
+          "note": "DMARC p=none = monitoring only. After 14 days of clean reports upgrade to p=quarantine via DNS."
+        },
+        {
+          "type": "CNAME",
+          "host": "go.solarlead-progetti.it",
+          "value": "track.solarld.app.",
+          "ttl": 300,
+          "note": "Tracking host — routes click/open events through SolarLead infra"
+        }
+      ],
+      "inboxes": [
+        {
+          "email": "luca.ferrari@solarlead-progetti.it",
+          "display_name": "Luca Ferrari",
+          "local_part": "luca.ferrari",
+          "persona_title": "Responsabile Sviluppo Progetti",
+          "smtp_host": "smtp.gmail.com",
+          "smtp_port": 587,
+          "smtp_use_tls": true,
+          "imap_host": "imap.gmail.com",
+          "imap_port": 993,
+          "imap_use_tls": true,
+          "warmup_enabled": true,
+          "warmup_target_per_day": 40,
+          "warmup_daily_rampup": 2,
+          "warmup_reply_rate_pct": 30,
+          "provider": "gmail_oauth",
+          "purpose": "outreach",
+          "daily_cap": 50
+        },
+        {
+          "email": "giulia.romano@solarlead-progetti.it",
+          "display_name": "Giulia Romano",
+          "local_part": "giulia.romano",
+          "persona_title": "Consulente Impianti Industriali",
+          "smtp_host": "smtp.gmail.com",
+          "smtp_port": 587,
+          "smtp_use_tls": true,
+          "imap_host": "imap.gmail.com",
+          "imap_port": 993,
+          "imap_use_tls": true,
+          "warmup_enabled": true,
+          "warmup_target_per_day": 40,
+          "warmup_daily_rampup": 2,
+          "warmup_reply_rate_pct": 30,
+          "provider": "gmail_oauth",
+          "purpose": "outreach",
+          "daily_cap": 50
+        },
+        {
+          "email": "marco.esposito@solarlead-progetti.it",
+          "display_name": "Marco Esposito",
+          "local_part": "marco.esposito",
+          "persona_title": "Tecnico Fotovoltaico Senior",
+          "smtp_host": "smtp.gmail.com",
+          "smtp_port": 587,
+          "smtp_use_tls": true,
+          "imap_host": "imap.gmail.com",
+          "imap_port": 993,
+          "imap_use_tls": true,
+          "warmup_enabled": true,
+          "warmup_target_per_day": 40,
+          "warmup_daily_rampup": 2,
+          "warmup_reply_rate_pct": 30,
+          "provider": "gmail_oauth",
+          "purpose": "outreach",
+          "daily_cap": 50
+        }
+      ]
+    },
+    {
+      "domain": "solarlead-energia.it",
+      "purpose_label": "Energia rinnovabile (focus logistica / grande distribuzione)",
+      "dmarc_rua": "dmarc@solarlead.it",
+      "tracking_host": "go.solarlead-energia.it",
+      "tracking_cname_target": "track.solarld.app",
+      "dns_records": [
+        {
+          "type": "MX",
+          "host": "@",
+          "value": "ASPMX.L.GOOGLE.COM.",
+          "priority": 1,
+          "ttl": 3600
+        },
+        {
+          "type": "MX",
+          "host": "@",
+          "value": "ALT1.ASPMX.L.GOOGLE.COM.",
+          "priority": 5,
+          "ttl": 3600
+        },
+        {
+          "type": "MX",
+          "host": "@",
+          "value": "ALT2.ASPMX.L.GOOGLE.COM.",
+          "priority": 5,
+          "ttl": 3600
+        },
+        {
+          "type": "MX",
+          "host": "@",
+          "value": "ALT3.ASPMX.L.GOOGLE.COM.",
+          "priority": 10,
+          "ttl": 3600
+        },
+        {
+          "type": "MX",
+          "host": "@",
+          "value": "ALT4.ASPMX.L.GOOGLE.COM.",
+          "priority": 10,
+          "ttl": 3600
+        },
+        {
+          "type": "TXT",
+          "host": "@",
+          "value": "v=spf1 include:_spf.google.com ~all",
+          "ttl": 3600,
+          "note": "SPF — authorises Google Workspace to send on behalf of this domain"
+        },
+        {
+          "type": "TXT",
+          "host": "google._domainkey.solarlead-energia.it",
+          "value": "v=DKIM1; k=rsa; p=<PASTE_KEY_FROM_GOOGLE_ADMIN_CONSOLE>",
+          "ttl": 3600,
+          "note": "DKIM — key NOT yet generated. Follow Step 3 in the provisioning guide to obtain the real value from Google Admin Console."
+        },
+        {
+          "type": "TXT",
+          "host": "_dmarc.solarlead-energia.it",
+          "value": "v=DMARC1; p=none; rua=mailto:dmarc@solarlead.it; ruf=mailto:dmarc@solarlead.it; pct=100; adkim=s; aspf=s",
+          "ttl": 3600,
+          "note": "DMARC p=none = monitoring only. After 14 days of clean reports upgrade to p=quarantine via DNS."
+        },
+        {
+          "type": "CNAME",
+          "host": "go.solarlead-energia.it",
+          "value": "track.solarld.app.",
+          "ttl": 300,
+          "note": "Tracking host — routes click/open events through SolarLead infra"
+        }
+      ],
+      "inboxes": [
+        {
+          "email": "sara.bianchi@solarlead-energia.it",
+          "display_name": "Sara Bianchi",
+          "local_part": "sara.bianchi",
+          "persona_title": "Energy Manager",
+          "smtp_host": "smtp.gmail.com",
+          "smtp_port": 587,
+          "smtp_use_tls": true,
+          "imap_host": "imap.gmail.com",
+          "imap_port": 993,
+          "imap_use_tls": true,
+          "warmup_enabled": true,
+          "warmup_target_per_day": 40,
+          "warmup_daily_rampup": 2,
+          "warmup_reply_rate_pct": 30,
+          "provider": "gmail_oauth",
+          "purpose": "outreach",
+          "daily_cap": 50
+        },
+        {
+          "email": "andrea.conti@solarlead-energia.it",
+          "display_name": "Andrea Conti",
+          "local_part": "andrea.conti",
+          "persona_title": "Consulente Risparmio Energetico",
+          "smtp_host": "smtp.gmail.com",
+          "smtp_port": 587,
+          "smtp_use_tls": true,
+          "imap_host": "imap.gmail.com",
+          "imap_port": 993,
+          "imap_use_tls": true,
+          "warmup_enabled": true,
+          "warmup_target_per_day": 40,
+          "warmup_daily_rampup": 2,
+          "warmup_reply_rate_pct": 30,
+          "provider": "gmail_oauth",
+          "purpose": "outreach",
+          "daily_cap": 50
+        },
+        {
+          "email": "chiara.ricci@solarlead-energia.it",
+          "display_name": "Chiara Ricci",
+          "local_part": "chiara.ricci",
+          "persona_title": "Responsabile Efficienza Energetica",
+          "smtp_host": "smtp.gmail.com",
+          "smtp_port": 587,
+          "smtp_use_tls": true,
+          "imap_host": "imap.gmail.com",
+          "imap_port": 993,
+          "imap_use_tls": true,
+          "warmup_enabled": true,
+          "warmup_target_per_day": 40,
+          "warmup_daily_rampup": 2,
+          "warmup_reply_rate_pct": 30,
+          "provider": "gmail_oauth",
+          "purpose": "outreach",
+          "daily_cap": 50
+        }
+      ]
+    },
+    {
+      "domain": "info-solarlead.it",
+      "purpose_label": "Info / discovery (primo contatto generico)",
+      "dmarc_rua": "dmarc@solarlead.it",
+      "tracking_host": "go.info-solarlead.it",
+      "tracking_cname_target": "track.solarld.app",
+      "dns_records": [
+        {
+          "type": "MX",
+          "host": "@",
+          "value": "ASPMX.L.GOOGLE.COM.",
+          "priority": 1,
+          "ttl": 3600
+        },
+        {
+          "type": "MX",
+          "host": "@",
+          "value": "ALT1.ASPMX.L.GOOGLE.COM.",
+          "priority": 5,
+          "ttl": 3600
+        },
+        {
+          "type": "MX",
+          "host": "@",
+          "value": "ALT2.ASPMX.L.GOOGLE.COM.",
+          "priority": 5,
+          "ttl": 3600
+        },
+        {
+          "type": "MX",
+          "host": "@",
+          "value": "ALT3.ASPMX.L.GOOGLE.COM.",
+          "priority": 10,
+          "ttl": 3600
+        },
+        {
+          "type": "MX",
+          "host": "@",
+          "value": "ALT4.ASPMX.L.GOOGLE.COM.",
+          "priority": 10,
+          "ttl": 3600
+        },
+        {
+          "type": "TXT",
+          "host": "@",
+          "value": "v=spf1 include:_spf.google.com ~all",
+          "ttl": 3600,
+          "note": "SPF — authorises Google Workspace to send on behalf of this domain"
+        },
+        {
+          "type": "TXT",
+          "host": "google._domainkey.info-solarlead.it",
+          "value": "v=DKIM1; k=rsa; p=<PASTE_KEY_FROM_GOOGLE_ADMIN_CONSOLE>",
+          "ttl": 3600,
+          "note": "DKIM — key NOT yet generated. Follow Step 3 in the provisioning guide to obtain the real value from Google Admin Console."
+        },
+        {
+          "type": "TXT",
+          "host": "_dmarc.info-solarlead.it",
+          "value": "v=DMARC1; p=none; rua=mailto:dmarc@solarlead.it; ruf=mailto:dmarc@solarlead.it; pct=100; adkim=s; aspf=s",
+          "ttl": 3600,
+          "note": "DMARC p=none = monitoring only. After 14 days of clean reports upgrade to p=quarantine via DNS."
+        },
+        {
+          "type": "CNAME",
+          "host": "go.info-solarlead.it",
+          "value": "track.solarld.app.",
+          "ttl": 300,
+          "note": "Tracking host — routes click/open events through SolarLead infra"
+        }
+      ],
+      "inboxes": [
+        {
+          "email": "matteo.russo@info-solarlead.it",
+          "display_name": "Matteo Russo",
+          "local_part": "matteo.russo",
+          "persona_title": "Specialista Fotovoltaico",
+          "smtp_host": "smtp.gmail.com",
+          "smtp_port": 587,
+          "smtp_use_tls": true,
+          "imap_host": "imap.gmail.com",
+          "imap_port": 993,
+          "imap_use_tls": true,
+          "warmup_enabled": true,
+          "warmup_target_per_day": 40,
+          "warmup_daily_rampup": 2,
+          "warmup_reply_rate_pct": 30,
+          "provider": "gmail_oauth",
+          "purpose": "outreach",
+          "daily_cap": 50
+        },
+        {
+          "email": "elena.marino@info-solarlead.it",
+          "display_name": "Elena Marino",
+          "local_part": "elena.marino",
+          "persona_title": "Consulente Energie Rinnovabili",
+          "smtp_host": "smtp.gmail.com",
+          "smtp_port": 587,
+          "smtp_use_tls": true,
+          "imap_host": "imap.gmail.com",
+          "imap_port": 993,
+          "imap_use_tls": true,
+          "warmup_enabled": true,
+          "warmup_target_per_day": 40,
+          "warmup_daily_rampup": 2,
+          "warmup_reply_rate_pct": 30,
+          "provider": "gmail_oauth",
+          "purpose": "outreach",
+          "daily_cap": 50
+        },
+        {
+          "email": "davide.greco@info-solarlead.it",
+          "display_name": "Davide Greco",
+          "local_part": "davide.greco",
+          "persona_title": "Account Manager Solare",
+          "smtp_host": "smtp.gmail.com",
+          "smtp_port": 587,
+          "smtp_use_tls": true,
+          "imap_host": "imap.gmail.com",
+          "imap_port": 993,
+          "imap_use_tls": true,
+          "warmup_enabled": true,
+          "warmup_target_per_day": 40,
+          "warmup_daily_rampup": 2,
+          "warmup_reply_rate_pct": 30,
+          "provider": "gmail_oauth",
+          "purpose": "outreach",
+          "daily_cap": 50
+        }
+      ]
+    },
+    {
+      "domain": "pro-solarlead.com",
+      "purpose_label": "Pro (.com) — targeting aziende internazionalizzate / export",
+      "dmarc_rua": "dmarc@solarlead.it",
+      "tracking_host": "go.pro-solarlead.com",
+      "tracking_cname_target": "track.solarld.app",
+      "dns_records": [
+        {
+          "type": "MX",
+          "host": "@",
+          "value": "ASPMX.L.GOOGLE.COM.",
+          "priority": 1,
+          "ttl": 3600
+        },
+        {
+          "type": "MX",
+          "host": "@",
+          "value": "ALT1.ASPMX.L.GOOGLE.COM.",
+          "priority": 5,
+          "ttl": 3600
+        },
+        {
+          "type": "MX",
+          "host": "@",
+          "value": "ALT2.ASPMX.L.GOOGLE.COM.",
+          "priority": 5,
+          "ttl": 3600
+        },
+        {
+          "type": "MX",
+          "host": "@",
+          "value": "ALT3.ASPMX.L.GOOGLE.COM.",
+          "priority": 10,
+          "ttl": 3600
+        },
+        {
+          "type": "MX",
+          "host": "@",
+          "value": "ALT4.ASPMX.L.GOOGLE.COM.",
+          "priority": 10,
+          "ttl": 3600
+        },
+        {
+          "type": "TXT",
+          "host": "@",
+          "value": "v=spf1 include:_spf.google.com ~all",
+          "ttl": 3600,
+          "note": "SPF — authorises Google Workspace to send on behalf of this domain"
+        },
+        {
+          "type": "TXT",
+          "host": "google._domainkey.pro-solarlead.com",
+          "value": "v=DKIM1; k=rsa; p=<PASTE_KEY_FROM_GOOGLE_ADMIN_CONSOLE>",
+          "ttl": 3600,
+          "note": "DKIM — key NOT yet generated. Follow Step 3 in the provisioning guide to obtain the real value from Google Admin Console."
+        },
+        {
+          "type": "TXT",
+          "host": "_dmarc.pro-solarlead.com",
+          "value": "v=DMARC1; p=none; rua=mailto:dmarc@solarlead.it; ruf=mailto:dmarc@solarlead.it; pct=100; adkim=s; aspf=s",
+          "ttl": 3600,
+          "note": "DMARC p=none = monitoring only. After 14 days of clean reports upgrade to p=quarantine via DNS."
+        },
+        {
+          "type": "CNAME",
+          "host": "go.pro-solarlead.com",
+          "value": "track.solarld.app.",
+          "ttl": 300,
+          "note": "Tracking host — routes click/open events through SolarLead infra"
+        }
+      ],
+      "inboxes": [
+        {
+          "email": "sofia.lombardi@pro-solarlead.com",
+          "display_name": "Sofia Lombardi",
+          "local_part": "sofia.lombardi",
+          "persona_title": "Solar Solutions Consultant",
+          "smtp_host": "smtp.gmail.com",
+          "smtp_port": 587,
+          "smtp_use_tls": true,
+          "imap_host": "imap.gmail.com",
+          "imap_port": 993,
+          "imap_use_tls": true,
+          "warmup_enabled": true,
+          "warmup_target_per_day": 40,
+          "warmup_daily_rampup": 2,
+          "warmup_reply_rate_pct": 30,
+          "provider": "gmail_oauth",
+          "purpose": "outreach",
+          "daily_cap": 50
+        },
+        {
+          "email": "roberto.fontana@pro-solarlead.com",
+          "display_name": "Roberto Fontana",
+          "local_part": "roberto.fontana",
+          "persona_title": "Business Development Manager",
+          "smtp_host": "smtp.gmail.com",
+          "smtp_port": 587,
+          "smtp_use_tls": true,
+          "imap_host": "imap.gmail.com",
+          "imap_port": 993,
+          "imap_use_tls": true,
+          "warmup_enabled": true,
+          "warmup_target_per_day": 40,
+          "warmup_daily_rampup": 2,
+          "warmup_reply_rate_pct": 30,
+          "provider": "gmail_oauth",
+          "purpose": "outreach",
+          "daily_cap": 50
+        },
+        {
+          "email": "valentina.caruso@pro-solarlead.com",
+          "display_name": "Valentina Caruso",
+          "local_part": "valentina.caruso",
+          "persona_title": "Senior PV Project Advisor",
+          "smtp_host": "smtp.gmail.com",
+          "smtp_port": 587,
+          "smtp_use_tls": true,
+          "imap_host": "imap.gmail.com",
+          "imap_port": 993,
+          "imap_use_tls": true,
+          "warmup_enabled": true,
+          "warmup_target_per_day": 40,
+          "warmup_daily_rampup": 2,
+          "warmup_reply_rate_pct": 30,
+          "provider": "gmail_oauth",
+          "purpose": "outreach",
+          "daily_cap": 50
+        }
+      ]
+    }
+  ],
+  "total_inboxes": 12,
+  "daily_capacity_at_steady_state": 600
+}

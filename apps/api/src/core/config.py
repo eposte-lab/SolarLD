@@ -121,6 +121,12 @@ class Settings(BaseSettings):
     resend_webhook_secret: str = ""
     resend_inbound_secret: str = ""  # shared secret appended as ?secret= on inbound webhook URL
 
+    # ---- Smartlead.ai (Task 14 — warm-up management) ----
+    # Obtain from https://app.smartlead.ai → Settings → API.
+    # Required for: inbox warm-up enrollment, daily sync cron,
+    # and CLI `python -m src.services.smartlead_service enroll-all`.
+    smartlead_api_key: str = ""
+
     # ---- Postal ----
     pixart_api_key: str = ""
     pixart_webhook_secret: str = ""

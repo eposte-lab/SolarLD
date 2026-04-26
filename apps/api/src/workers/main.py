@@ -34,6 +34,7 @@ from .cron import (
     retention_cron,
     send_time_rollup_cron,
     sla_first_touch_cron,
+    smartlead_warmup_sync_cron,
     weekly_digest_cron,
 )
 
@@ -167,19 +168,23 @@ class WorkerSettings:
         meta_lead_enrich_task,
     ]
     # Scheduled jobs (UTC):
-    #   02:30 every day  → reputation_digest_cron  (refresh domain_reputation)
-    #   03:15 every day  → retention_cron          (GDPR 24-month purge)
-    #   03:45 every day  → send_time_rollup_cron   (per-lead best UTC hour)
-    #   04:00 every day  → engagement_rollup_cron  (portal heat → leads)
-    #   07:00 every day  → daily_digest_cron       (opt-in feature flag)
-    #   07:30 every day  → follow_up_cron          (reads best_send_hour)
-    #   08:00 Mon        → weekly_digest_cron      (opt-in feature flag)
-    #   08:30 every day  → sla_first_touch_cron    (notify overdue leads)
+    #   02:30 every day  → reputation_digest_cron       (refresh domain_reputation)
+    #   03:15 every day  → retention_cron               (GDPR 24-month purge)
+    #   03:45 every day  → send_time_rollup_cron        (per-lead best UTC hour)
+    #   04:00 every day  → engagement_rollup_cron       (portal heat → leads)
+    #   06:00 every day  → smartlead_warmup_sync_cron   (inbox health + warmup caps)
+    #   07:00 every day  → daily_digest_cron            (opt-in feature flag)
+    #   07:30 every day  → follow_up_cron               (reads best_send_hour)
+    #   08:00 Mon        → weekly_digest_cron           (opt-in feature flag)
+    #   08:30 every day  → sla_first_touch_cron         (notify overdue leads)
     cron_jobs = [
         cron(reputation_digest_cron, hour=2, minute=30, run_at_startup=False),
         cron(retention_cron, hour=3, minute=15, run_at_startup=False),
         cron(send_time_rollup_cron, hour=3, minute=45, run_at_startup=False),
         cron(engagement_rollup_cron, hour=4, minute=0, run_at_startup=False),
+        # Task 14: sync Smartlead warm-up health scores before the morning
+        # outreach run so inbox_service.pick_and_claim has fresh caps.
+        cron(smartlead_warmup_sync_cron, hour=6, minute=0, run_at_startup=False),
         cron(daily_digest_cron, hour=7, minute=0, run_at_startup=False),
         cron(follow_up_cron, hour=7, minute=30, run_at_startup=False),
         cron(

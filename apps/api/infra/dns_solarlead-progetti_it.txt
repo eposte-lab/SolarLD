@@ -1,0 +1,12 @@
+DNS records for solarlead-progetti.it
+Generated: 2026-04-26
+========================================================================
+MX      @                                                   TTL=3600  1     ASPMX.L.GOOGLE.COM.
+MX      @                                                   TTL=3600  5     ALT1.ASPMX.L.GOOGLE.COM.
+MX      @                                                   TTL=3600  5     ALT2.ASPMX.L.GOOGLE.COM.
+MX      @                                                   TTL=3600  10    ALT3.ASPMX.L.GOOGLE.COM.
+MX      @                                                   TTL=3600  10    ALT4.ASPMX.L.GOOGLE.COM.
+TXT     @                                                   TTL=3600        v=spf1 include:_spf.google.com ~all
+TXT     google._domainkey.solarlead-progetti.it             TTL=3600        v=DKIM1; k=rsa; p=<PASTE_KEY_FROM_GOOGLE_ADMIN_CONSOLE>
+TXT     _dmarc.solarlead-progetti.it                        TTL=3600        v=DMARC1; p=none; rua=mailto:dmarc@solarlead.it; ruf=mailto:dmarc@solarlead.it; pct=100; adkim=s; aspf=s
+CNAME   go.solarlead-progetti.it                            TTL=300        track.solarld.app.

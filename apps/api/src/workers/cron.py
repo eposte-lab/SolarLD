@@ -35,6 +35,7 @@ included so duplicates are visible in Sentry).
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -52,6 +53,7 @@ from ..services.engagement_service import run_engagement_rollup
 from ..services.reputation_service import run_reputation_digest
 from ..services.reputation_enforcement_service import run_enforcement
 from ..services.send_time_service import pick_next_send_time, run_send_time_rollup
+from ..core.config import settings
 
 log = get_logger(__name__)
 
@@ -432,3 +434,102 @@ async def retention_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
         deleted = len(ids)
     log.info("cron.retention.done", deleted=deleted, cutoff=cutoff)
     return {"ok": True, "deleted": deleted, "cutoff": cutoff}
+
+
+async def smartlead_warmup_sync_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
+    """Daily Smartlead warm-up sync — pull health scores + update inbox caps.
+
+    Runs at 06:00 UTC, before the morning outreach pipeline (07:30), so
+    ``inbox_service.pick_and_claim`` always has fresh warm-up phase data.
+
+    For each active Gmail OAuth inbox across all tenants:
+      1. Look up the Smartlead account ID (from ``tenant_inboxes.smartlead_account_id``).
+      2. Fetch today's warm-up stats.
+      3. Write ``warmup_started_at`` if it's the first sync (marks day 1 of ramp).
+      4. Write ``smartlead_health_score`` so the dashboard can surface inbox health.
+
+    Non-critical: errors per inbox are logged and skipped; a transient
+    Smartlead outage does NOT block the pipeline. The effective daily cap
+    is owned by ``rate_limit_service.inbox_effective_daily_cap`` which
+    reads ``warmup_started_at`` — so even if the sync fails, the existing
+    cap is used (slightly stale, never wrong in direction).
+
+    Skipped entirely when ``SMARTLEAD_API_KEY`` is not configured (dev / testing).
+    """
+    if not settings.smartlead_api_key:
+        log.debug("cron.smartlead_sync.skipped", reason="no_api_key")
+        return {"ok": True, "skipped": True, "reason": "SMARTLEAD_API_KEY not set"}
+
+    # Import here to keep cron.py import-time lightweight (no httpx import at top)
+    from ..services.smartlead_service import (
+        SmartleadError,
+        get_all_smartlead_ids_for_tenant,
+        sync_warmup_to_db,
+    )
+
+    sb = get_service_client()
+
+    # Load all tenants that have at least one Gmail OAuth inbox.
+    try:
+        res = await asyncio.to_thread(
+            lambda: sb.table("tenant_inboxes")
+            .select("tenant_id")
+            .eq("provider", "gmail_oauth")
+            .eq("active", True)
+            .execute()
+        )
+        tenant_ids: list[str] = list(
+            {row["tenant_id"] for row in (res.data or []) if row.get("tenant_id")}
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.error("cron.smartlead_sync.tenant_load_failed", err=str(exc))
+        return {"ok": False, "error": str(exc)}
+
+    total_synced = 0
+    total_failed = 0
+
+    for tenant_id in tenant_ids:
+        try:
+            id_map = await get_all_smartlead_ids_for_tenant(
+                tenant_id=tenant_id,
+                sb=sb,
+            )
+            if not id_map:
+                continue
+            summary = await sync_warmup_to_db(
+                tenant_id=tenant_id,
+                sb=sb,
+                email_to_smartlead_id=id_map,
+            )
+            synced = sum(1 for v in summary.values() if v.get("synced"))
+            failed = sum(1 for v in summary.values() if not v.get("synced"))
+            total_synced += synced
+            total_failed += failed
+            log.info(
+                "cron.smartlead_sync.tenant_done",
+                tenant_id=tenant_id,
+                synced=synced,
+                failed=failed,
+            )
+        except SmartleadError as exc:
+            log.warning(
+                "cron.smartlead_sync.tenant_skipped",
+                tenant_id=tenant_id,
+                err=str(exc),
+            )
+            total_failed += 1
+        except Exception as exc:  # noqa: BLE001
+            log.error(
+                "cron.smartlead_sync.tenant_error",
+                tenant_id=tenant_id,
+                err=str(exc),
+            )
+            total_failed += 1
+
+    log.info(
+        "cron.smartlead_sync.done",
+        tenants=len(tenant_ids),
+        synced=total_synced,
+        failed=total_failed,
+    )
+    return {"ok": True, "tenants": len(tenant_ids), "synced": total_synced, "failed": total_failed}
