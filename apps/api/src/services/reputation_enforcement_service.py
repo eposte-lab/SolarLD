@@ -499,6 +499,155 @@ async def check_realtime_bounce_spike(
     return True
 
 
+async def check_realtime_complaint_rate(
+    sb: Any,
+    *,
+    tenant_id: str,
+    domain_id: str | None,
+    domain_name: str,
+) -> bool:
+    """Rate-based complement to the cluster check (Task 21).
+
+    The cluster guard (``check_realtime_complaint_cluster``) requires ≥3
+    complaints in 60 minutes. For shadow-domain inboxes during warm-up
+    (10 sends/day), reaching 3 complaints means a 30 % complaint rate —
+    far beyond Gmail's 0.3 % threshold where permanent blacklisting occurs.
+
+    This function runs on *every* complaint event. It computes the rolling
+    24-hour complaint rate and pauses the domain immediately when:
+
+    * Sends in last 24 h  ≥ ``MIN_SENDS_FOR_RATE_CHECK`` (5 sends minimum
+      to avoid false positives from a brand-new inbox with 1 send total).
+    * ``complaints / sends  ≥  COMPLAINT_RATE_THRESHOLD`` (0.3 %).
+
+    For 10 sends/day (day-1 warm-up) + 1 complaint: 10 % >> 0.3 % → pause.
+    For 50 sends/day (steady-state) + 1 complaint: 2 % >> 0.3 % → pause.
+    For 500 sends/day + 1 complaint: 0.2 % < 0.3 % → cluster check covers.
+
+    Returns True if the domain was paused, False otherwise.
+    """
+    MIN_SENDS_FOR_RATE_CHECK = 5
+    window_start = (
+        datetime.now(timezone.utc)
+        - timedelta(hours=24)
+    ).isoformat()
+
+    # Count total sends in 24 h (tenant-scoped; domain scope requires a
+    # join that is not yet universal — tenant scope is conservative/correct).
+    try:
+        sent_res = (
+            sb.table("outreach_sends")
+            .select("id", count="exact")
+            .eq("tenant_id", tenant_id)
+            .gte("sent_at", window_start)
+            .execute()
+        )
+        sent_count = sent_res.count or 0
+    except Exception as exc:  # noqa: BLE001
+        log.debug(
+            "reputation_enforcement.rate_check_sent_count_failed",
+            tenant_id=tenant_id,
+            err=str(exc),
+        )
+        return False
+
+    if sent_count < MIN_SENDS_FOR_RATE_CHECK:
+        return False  # Too few sends for a meaningful rate.
+
+    # Count complaint events in the same window.
+    try:
+        complaint_res = (
+            sb.table("outreach_sends")
+            .select("id", count="exact")
+            .eq("tenant_id", tenant_id)
+            .eq("failure_reason", "complained")
+            .gte("updated_at", window_start)
+            .execute()
+        )
+        complaint_count = complaint_res.count or 0
+    except Exception as exc:  # noqa: BLE001
+        log.debug(
+            "reputation_enforcement.rate_check_complaint_count_failed",
+            tenant_id=tenant_id,
+            err=str(exc),
+        )
+        return False
+
+    complaint_rate_24h = complaint_count / sent_count
+    if complaint_rate_24h < COMPLAINT_RATE_THRESHOLD:
+        return False  # Still below threshold.
+
+    log.warning(
+        "reputation_enforcement.rate_check_threshold_breached",
+        tenant_id=tenant_id,
+        domain_id=domain_id,
+        domain=domain_name,
+        complaint_rate_24h=f"{complaint_rate_24h:.2%}",
+        complaints=complaint_count,
+        sends=sent_count,
+    )
+
+    # Resolve the domain row and pause.
+    if domain_id:
+        try:
+            dom_res = (
+                sb.table("tenant_email_domains")
+                .select("id, tenant_id, domain, purpose, paused_until, active")
+                .eq("id", domain_id)
+                .execute()
+            )
+            domain_rows = dom_res.data or []
+        except Exception:  # noqa: BLE001
+            domain_rows = []
+    else:
+        try:
+            dom_res = (
+                sb.table("tenant_email_domains")
+                .select("id, tenant_id, domain, purpose, paused_until, active")
+                .eq("tenant_id", tenant_id)
+                .eq("domain", domain_name.lower())
+                .execute()
+            )
+            domain_rows = dom_res.data or []
+        except Exception:  # noqa: BLE001
+            domain_rows = []
+
+    if not domain_rows:
+        log.warning(
+            "reputation_enforcement.rate_check_domain_not_found",
+            domain=domain_name,
+            tenant_id=tenant_id,
+        )
+        return False
+
+    domain_row = domain_rows[0]
+
+    # Skip if already paused (cluster check may have fired first).
+    now_iso = datetime.now(timezone.utc).isoformat()
+    existing_pause = domain_row.get("paused_until")
+    if existing_pause and str(existing_pause) > now_iso:
+        return False  # Already handled.
+
+    await _pause_domain_and_inboxes(
+        sb,
+        domain_row=domain_row,
+        reason="complaint_rate_realtime",
+        alarm_complaint=True,
+        alarm_bounce=False,
+        bounce_rate=0.0,
+        complaint_rate=complaint_rate_24h,
+    )
+    log.warning(
+        "reputation_enforcement.rate_check_pause",
+        domain=domain_name,
+        tenant_id=tenant_id,
+        complaint_rate_24h=f"{complaint_rate_24h:.2%}",
+        sends=sent_count,
+        complaints=complaint_count,
+    )
+    return True
+
+
 async def pause_domain_for_alarm(
     sb: Any,
     *,

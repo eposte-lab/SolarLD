@@ -94,6 +94,8 @@ from ..services.resend_service import (
     SendEmailInput,
 )
 from ..services.content_validator import validate_email_content, ValidationResult
+from ..services.send_window_service import is_within_send_window
+from ..services.runtime_preflight import check_preflight
 from .base import AgentBase
 
 log = get_logger(__name__)
@@ -324,6 +326,30 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
                 lead=lead,
                 subject=subject,
                 tenant_row=tenant_row,
+            )
+
+        # ------------------------------------------------------------------
+        # 5c) Send-window enforcement — email path only (Task 18)
+        #
+        # Cold B2B email is only dispatched Mon–Fri 08:00–12:00 and
+        # 14:00–18:00 Europe/Rome. Sends outside these windows are
+        # skipped gracefully; the follow-up cron retries the next day so
+        # no leads are permanently lost.
+        #
+        # force=True bypasses the window gate (admin test / manual re-send
+        # from the dashboard). Step 1+ sends all honour the gate.
+        # ------------------------------------------------------------------
+        if not payload.force and not is_within_send_window():
+            log.info(
+                "outreach.outside_send_window",
+                lead_id=payload.lead_id,
+                tenant_id=payload.tenant_id,
+                sequence_step=payload.sequence_step,
+            )
+            return OutreachOutput(
+                lead_id=payload.lead_id,
+                skipped=True,
+                reason="outside_send_window",
             )
 
         # ------------------------------------------------------------------
@@ -748,6 +774,55 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
             },
             headers=extra_headers or None,
         )
+
+        # ------------------------------------------------------------------
+        # Task 20 — Runtime pre-flight gate
+        #
+        # Last-minute concurrent-state check: verify the recipient email /
+        # inbox / domain haven't been blacklisted or paused between the
+        # time this arq job was picked up and now. Runs all four checks
+        # concurrently (asyncio.gather); total overhead ≈ 30-60 ms on a
+        # warm Supabase pool.
+        #
+        # Fail-open: a Supabase timeout does NOT block the send — it logs
+        # a debug message and the individual gate returns ok=True.
+        # The hourly monitor and nightly enforcement provide catch-up
+        # coverage for anything the preflight misses.
+        #
+        # domain_id is read from the joined tenant_email_domains row
+        # embedded on the selected_inbox dict (migration 0050 JOIN).
+        # ------------------------------------------------------------------
+        _preflight_domain_id: str | None = None
+        if selected_inbox is not None:
+            _domain_join = selected_inbox.get("tenant_email_domains") or {}
+            if isinstance(_domain_join, dict):
+                _preflight_domain_id = _domain_join.get("id")
+            else:
+                _preflight_domain_id = selected_inbox.get("domain_id")
+
+        preflight = await check_preflight(
+            sb,
+            recipient_email=recipient,
+            pii_hash=pii_hash,
+            inbox_id=inbox_id,
+            domain_id=_preflight_domain_id,
+            tenant_id=payload.tenant_id,
+        )
+        if not preflight.ok:
+            log.info(
+                "outreach.preflight_blocked",
+                lead_id=payload.lead_id,
+                tenant_id=payload.tenant_id,
+                gate=preflight.gate,
+                reason=preflight.reason,
+            )
+            return await self._record_skip(
+                payload=payload,
+                lead=lead,
+                reason=f"preflight_{preflight.reason}",
+                event_type="lead.outreach_skipped",
+                event_extra={"gate": preflight.gate},
+            )
 
         # Dispatch via the provider registry. The inbox row carries
         # ``provider`` (from migration 0049) — Resend for legacy/brand,

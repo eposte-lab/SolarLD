@@ -55,6 +55,7 @@ from ..models.enums import BlacklistReason, CampaignStatus, LeadStatus
 from ..services.reputation_enforcement_service import (
     check_realtime_bounce_spike,
     check_realtime_complaint_cluster,
+    check_realtime_complaint_rate,
 )
 from .base import AgentBase
 
@@ -421,21 +422,49 @@ class TrackingAgent(AgentBase[TrackingInput, TrackingOutput]):
             )
 
         # -------------------------------------------------------------
-        # 5b) Real-time reputation enforcement (Sprint 6.5)
+        # 5b) Immediate email_blacklist write on complaint (Task 21)
         #
-        #   complained → complaint-cluster guard: if ≥3 complaints from
-        #     the same tenant domain within 60 min → immediate 48h pause.
-        #   bounced    → bounce-spike guard: if rolling 24h bounce rate
-        #     exceeds 8% and at least 10 sends in the window → pause.
+        # Complaints require the address to be blocked IMMEDIATELY — not
+        # after the async compliance_task queue is processed (which may
+        # take seconds to minutes). We upsert to email_blacklist here
+        # synchronously so the next send attempt (even within the same
+        # second from a parallel worker) fails the runtime pre-flight
+        # check and the email_extractor blacklist check.
         #
-        # Both checks are non-fatal: any exception is swallowed to
-        # ensure the webhook ACK is never delayed by a reputation check.
+        # This is additive: the async compliance_task still runs and
+        # adds to global_blacklist via pii_hash; email_blacklist is a
+        # secondary fast-lookup indexed on (email_hash, tenant_id).
+        # -------------------------------------------------------------
+        if event.type == "complained" and lead_row:
+            await _immediate_email_blacklist(
+                sb=sb,
+                tenant_id=tenant_id,
+                subject_id=lead_row.get("subject_id"),
+                source=f"resend.{event.type}",
+            )
+
+        # -------------------------------------------------------------
+        # 5c) Real-time reputation enforcement (Sprint 6.5 + Task 21)
+        #
+        #   complained →
+        #     1. Cluster guard: if ≥3 complaints within 60 min → pause.
+        #     2. Rate guard (Task 21): rolling 24 h complaint rate check.
+        #        Critical for low-volume shadow-domain inboxes (10/day
+        #        warm-up) where 1 complaint = 10 % rate >> 0.3 % Gmail
+        #        threshold — far above the 3-complaint cluster trigger.
+        #
+        #   bounced    → bounce-spike guard: rolling 24h rate > 8% and
+        #     ≥10 sends in window → pause (existing Sprint 6.5 check).
+        #
+        # All checks are non-fatal: any exception is swallowed to ensure
+        # the webhook ACK is never delayed by a reputation check.
         # -------------------------------------------------------------
         if event.type in {"complained", "bounced"}:
             domain_id, domain_name = _resolve_domain_for_inbox(
                 sb, campaign.get("inbox_id")
             )
             if event.type == "complained":
+                # 1) Cluster check (≥3 complaints in 60 min)
                 try:
                     await check_realtime_complaint_cluster(
                         sb,
@@ -446,6 +475,20 @@ class TrackingAgent(AgentBase[TrackingInput, TrackingOutput]):
                 except Exception as exc:  # noqa: BLE001
                     log.warning(
                         "tracking.complaint_cluster_check_failed",
+                        tenant_id=tenant_id,
+                        err=str(exc),
+                    )
+                # 2) Rate check (rolling 24 h, min-volume aware — Task 21)
+                try:
+                    await check_realtime_complaint_rate(
+                        sb,
+                        tenant_id=tenant_id,
+                        domain_id=domain_id,
+                        domain_name=domain_name,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    log.warning(
+                        "tracking.complaint_rate_check_failed",
                         tenant_id=tenant_id,
                         err=str(exc),
                     )
@@ -624,6 +667,71 @@ class TrackingAgent(AgentBase[TrackingInput, TrackingOutput]):
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    async def _immediate_email_blacklist(
+        self,
+        *,
+        sb: Any,
+        tenant_id: str,
+        subject_id: str | None,
+        source: str,
+    ) -> None:
+        """Write a row to email_blacklist immediately on a complaint (Task 21).
+
+        The async compliance_task handles global_blacklist via pii_hash.
+        This method writes to email_blacklist (the secondary fast-lookup
+        table, migration 0057) synchronously inside the webhook handler so
+        any concurrent send attempt is blocked by the runtime preflight
+        before the compliance task has even been picked up.
+
+        Non-fatal: any error is logged and ignored so the webhook ACK is
+        never delayed.
+        """
+        if not subject_id:
+            return
+        try:
+            import asyncio
+            import hashlib
+
+            # Look up the decision_maker_email from subjects.
+            subj_res = await asyncio.to_thread(
+                lambda: sb.table("subjects")
+                .select("decision_maker_email, pii_hash")
+                .eq("id", subject_id)
+                .limit(1)
+                .execute()
+            )
+            subj = (subj_res.data or [{}])[0]
+            email = (subj.get("decision_maker_email") or "").strip().lower()
+            if not email:
+                return
+
+            email_hash = hashlib.sha256(email.encode()).hexdigest()
+            row = {
+                "tenant_id": tenant_id,
+                "email": email,
+                "email_hash": email_hash,
+                "reason": "complaint",
+                "source": source,
+            }
+            await asyncio.to_thread(
+                lambda: sb.table("email_blacklist")
+                .upsert(row, on_conflict="tenant_id,email")
+                .execute()
+            )
+            log.info(
+                "tracking.email_blacklist_immediate_write",
+                tenant_id=tenant_id,
+                email_hash=email_hash[:8] + "...",
+                source=source,
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.warning(
+                "tracking.email_blacklist_immediate_failed",
+                tenant_id=tenant_id,
+                subject_id=subject_id,
+                err=str(exc),
+            )
 
     async def _enqueue_compliance(
         self,

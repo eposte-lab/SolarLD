@@ -51,6 +51,7 @@ from typing import Any
 
 from ..core.logging import get_logger
 from .rate_limit_service import inbox_effective_daily_cap
+from .send_window_service import is_inbox_human_delay_ok
 
 log = get_logger(__name__)
 
@@ -142,8 +143,9 @@ async def pick_and_claim(
         # No active inboxes → caller uses legacy path.
         return None
 
-    # ── 2. Python-side filtering: skip paused and at-cap inboxes ─────────
+    # ── 2. Python-side filtering: skip paused, at-cap, and too-recent inboxes
     # Also skip inboxes whose parent domain is paused.
+    now_dt = datetime.now(timezone.utc)  # used by human-delay check below
     available: list[dict[str, Any]] = []
     for inbox in all_inboxes:
         # Inbox-level pause.
@@ -157,6 +159,19 @@ async def pick_and_claim(
             domain_paused = domain_row.get("paused_until")
             if domain_paused and domain_paused > now_iso:
                 continue
+
+        # Human-delay guard (Task 19): skip inboxes that sent too recently.
+        # MIN_INTER_SEND_SECONDS (180 s) must have elapsed since last_sent_at.
+        # This prevents back-to-back sends from the same inbox that look
+        # robotic to Gmail's spam classifier. Combined with LRU rotation,
+        # the 12-inbox fleet naturally spaces sends 3-5 min apart.
+        if not is_inbox_human_delay_ok(inbox, now=now_dt):
+            log.debug(
+                "inbox_selector.human_delay_skip",
+                inbox_id=inbox.get("id"),
+                last_sent_at=inbox.get("last_sent_at"),
+            )
+            continue
 
         sent_date = inbox.get("sent_date") or ""
         total_sent = int(inbox.get("total_sent_today") or 0)
