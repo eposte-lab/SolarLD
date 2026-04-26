@@ -92,6 +92,13 @@ function NavIcon({ name }: { name: string }) {
           <path d="M4 20h4v-8H4v8zm6 0h4V4h-4v16zm6 0h4v-12h-4v12z" />
         </svg>
       );
+    case 'deliverability':
+      // Shield / inbox health icon — envelope with a checkmark overlay
+      return (
+        <svg viewBox="0 0 24 24" className={common} fill="currentColor">
+          <path d="M12 2L3 7v5c0 5.25 3.75 10.15 9 11.35C17.25 22.15 21 17.25 21 12V7L12 2zm-1 14l-4-4 1.41-1.41L11 13.17l6.59-6.59L19 8l-8 8z" />
+        </svg>
+      );
     case 'settings':
       return (
         <svg viewBox="0 0 24 24" className={common} fill="currentColor">

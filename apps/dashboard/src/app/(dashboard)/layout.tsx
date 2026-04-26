@@ -30,6 +30,7 @@ const NAV: NavItem[] = [
   { href: '/invii', label: 'Invii', icon: 'invii' },
   { href: '/territories', label: 'Territori', icon: 'territories' },
   { href: '/funnel', label: 'Funnel', icon: 'funnel' },
+  { href: '/deliverability', label: 'Deliverability', icon: 'deliverability' },
   { href: '/analytics', label: 'Analytics', icon: 'analytics' },
   { href: '/settings', label: 'Impostazioni', icon: 'settings' },
 ];
