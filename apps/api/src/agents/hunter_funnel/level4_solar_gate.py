@@ -196,36 +196,44 @@ async def _gate_one(
     verdict = "accepted" if verdict_accepted else "rejected_tech"
     _mark_verdict(cand.candidate_id, verdict, roof_id=roof_id)
 
-    # Enqueue Scoring Agent for every accepted candidate.
+    # Enqueue Email Extraction Agent for every accepted candidate.
     #
-    # The scoring task (agents/scoring.py) does two things:
-    #   1. INSERTs a `leads` row with source=NULL — this is the "outreach
-    #      candidate" record that OutreachAgent uses to send the email and
-    #      that the public portal (/lead/{slug}) uses for the CTA landing.
-    #   2. Updates roof.status → 'scored'.
+    # EmailExtractionAgent runs Phase 2 (offline filters) + Phase 3 (email
+    # extraction + GDPR audit) and then enqueues scoring_task itself.
     #
-    # source=NULL means the person has NOT yet actively engaged. The
-    # dashboard "Lead Attivi" counter only includes rows WHERE source IS
-    # NOT NULL (set later by CTA form submit or email reply).
+    # For non-pilot tenants (pipeline_v2_pilot=false), EmailExtractionAgent
+    # is a transparent pass-through that immediately forwards to scoring_task
+    # — so legacy behaviour is unchanged until the pilot is enabled.
     #
-    # Idempotent: deterministic job_id collapses duplicate enqueues if the
-    # scan is retried.
+    # Idempotent: deterministic job_id collapses duplicate enqueues on retry.
     if verdict_accepted and roof_id is not None and subject_id is not None:
         try:
+            from ...agents.email_extraction import build_candidate_dict_from_profile
+
             await enqueue(
-                "scoring_task",
+                "email_extraction_task",
                 {
                     "tenant_id": ctx.tenant_id,
-                    "roof_id": str(roof_id),
                     "subject_id": str(subject_id),
+                    "roof_id": str(roof_id),
+                    "territory_id": ctx.territory_id,
+                    "candidate": build_candidate_dict_from_profile(
+                        cand.profile, cand.enrichment
+                    ),
+                    # Pass a lightweight territory dict (provinces + caps)
+                    # for the sede_operativa offline filter. Permissive when empty.
+                    "territory": {
+                        "provinces": (ctx.territory or {}).get("provinces") or [],
+                        "caps": (ctx.territory or {}).get("caps") or [],
+                    },
                 },
-                job_id=f"scoring:{ctx.tenant_id}:{roof_id}:{subject_id}",
+                job_id=f"email_extraction:{ctx.tenant_id}:{roof_id}:{subject_id}",
             )
         except Exception as exc:  # noqa: BLE001
-            # Scoring enqueue failure must not break the funnel — the manual
+            # Enqueue failure must not break the funnel — the manual
             # POST /v1/leads/score-pending-subjects endpoint is the fallback.
             log.warning(
-                "l4_scoring_enqueue_failed",
+                "l4_email_extraction_enqueue_failed",
                 extra={
                     "vat": cand.profile.vat_number,
                     "roof_id": str(roof_id),

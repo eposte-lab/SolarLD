@@ -1,63 +1,36 @@
-"""9-phase GDPR-compliant pipeline orchestrator (Tasks 7 + 9).
+"""V2 pipeline orchestrator — Phases 2 + 3 only.
 
-Architecture — Parallel Path
------------------------------
-This module implements the V2 pipeline as a fully PARALLEL path to the
-existing V1 (HunterAgent + OutreachAgent). It is NOT a replacement.
+This module is called by EmailExtractionAgent (agents/email_extraction.py)
+which is the official V2 integration point. The tenant pilot gate lives in
+EmailExtractionAgent._is_pilot_tenant(); this module is always executed for
+pilot tenants and never called for non-pilot tenants.
 
-Gate: `tenants.pipeline_version = 2` (migration 0057). Tenants on V1
-(pipeline_version = 1, the default) are never touched by this code. The
-operator opts a tenant into V2 by flipping the flag manually or via the
-future admin endpoint. Roll-back is instant: flip back to 1.
+Hunter.io status
+----------------
+HUNTER_FALLBACK_ENABLED is True by default. The email extractor will try
+Hunter.io as a last resort after Atoka + website scraping fail, provided the
+tenant_modules.email_extraction.hunter_fallback flag is also set. This gives
+comparative data on extraction rates and a one-line rollback path.
 
-Hunter.io status (Task 9)
--------------------------
-Per operator instruction: DO NOT remove Hunter.io code. Instead we
-suppress it at the orchestrator level. When `HUNTER_FALLBACK_ENABLED`
-is True (the default), the identity.py agent may still call Hunter.io
-for email finding IF:
-  * The Atoka record has no email
-  * Website scraping found nothing
-  * The tenant's `hunter_fallback` module flag is set to True
+Set HUNTER_FALLBACK_ENABLED = False once Atoka+scraping consistently hits the
+≥80% extraction coverage target.
 
-This preserves the ability to roll back to full V1 behaviour by a single
-flag change and gives us comparative data on Atoka-only vs Atoka+Hunter
-extraction rates.
+Phases handled here
+-------------------
+Phase 2  OFFLINE GATES  apply_offline_filters() — zero network cost.
+                        Logged to lead_rejection_log on rejection.
+Phase 3  EMAIL EXTRACT  email_extractor.extract_email() — Atoka + scraping
+                        + optional Hunter.io fallback.
+                        Logged to email_extraction_log (every attempt).
 
-The V1 identity.py agent that calls Hunter.io is left completely
-untouched. V2 uses `email_extractor.py` directly and skips identity.py
-entirely unless in fallback mode.
-
-9-Phase flow (per candidate)
------------------------------
-Phase 1  DISCOVERY     Atoka discovery already done by HunterAgent.
-                       This orchestrator receives an AtokaProfile / dict.
-Phase 2  OFFLINE GATES apply_offline_filters() — zero network cost.
-                       Logged to lead_rejection_log on failure.
-Phase 3  EMAIL EXTRACT email_extractor.extract_email() — Atoka + scraping.
-                       Logged to email_extraction_log. Fail → reject.
-Phase 4  SOLAR + RENDER Delegated to CreativeAgent (unchanged). The v2
-                       orchestrator calls the cached wrapper
-                       (google_solar_cache.fetch_building_insight_cached)
-                       to skip already-analysed coordinates.
-                       Logged with phase='phase4_solar'.
-Phase 5  MX + BOUNCE   NeverBounce check already in OutreachAgent.
-                       V2 also checks email_blacklist (in extractor).
-Phase 6  CONTENT VALID  (stub) Future spam-score check before send.
-Phase 7  SEND          Delegated to OutreachAgent (unchanged).
-                       V2 outreach uses the HMAC optout URL.
-Phase 8  TRACKING      TrackingAgent (unchanged) — webhook-driven.
-Phase 9  AUDIENCE      Lookalike export (existing meta_ads_service stub).
-
-This module handles Phases 2 + 3 inline and delegates 4-7 to the
-existing agents. Keeping the existing agents unchanged means V1 tenants
-are unaffected and we can A/B them against each other.
+Phases 4-9 are handled downstream by CreativeAgent, OutreachAgent,
+TrackingAgent, and meta_ads_service (unchanged from V1).
 
 Public API
 ----------
-* `is_v2_tenant(tenant_id, sb)` → bool
-* `run_phase2_offline(candidate, territory, sb)` → FilterResult | None
-* `run_phase3_email(candidate, sb)` → ExtractionResult
+* `run_pre_enrichment(candidate, tenant_id, lead_id, territory, sb)` → (rejection, extraction)
+* `run_phase2_offline(candidate, territory, tenant_id, sb)` → FilterResult | None
+* `run_phase3_email(candidate, tenant_id, lead_id, sb)` → ExtractionResult
 * `log_rejection(candidate, filter_result, tenant_id, phase, sb)` → None
 * `log_extraction(result, tenant_id, lead_id, sb)` → None
 """
@@ -87,37 +60,6 @@ log = structlog.get_logger(__name__)
 # Set to False once we have enough data to confirm Atoka+scraping meets
 # target extraction rates (≥80% coverage).
 HUNTER_FALLBACK_ENABLED: bool = True
-
-
-# ---------------------------------------------------------------------------
-# Tenant version gate
-# ---------------------------------------------------------------------------
-
-
-async def is_v2_tenant(tenant_id: str, sb: Any) -> bool:
-    """Return True if this tenant is opted into the V2 pipeline.
-
-    Reads `tenants.pipeline_version` from DB. Returns False (= use V1)
-    on any DB error so the fallback is always safe.
-    """
-
-    try:
-        res = await asyncio.to_thread(
-            lambda: sb.table("tenants")
-            .select("pipeline_version")
-            .eq("id", tenant_id)
-            .limit(1)
-            .execute()
-        )
-        if res.data:
-            return int(res.data[0].get("pipeline_version") or 1) >= 2
-    except Exception as exc:  # noqa: BLE001
-        log.warning(
-            "pipeline_v2.version_check_failed",
-            tenant_id=tenant_id,
-            err=str(exc),
-        )
-    return False
 
 
 # ---------------------------------------------------------------------------
@@ -376,46 +318,14 @@ async def log_extraction(
 # ---------------------------------------------------------------------------
 
 
-_hunter_fallback_cache: dict[str, tuple[float, bool]] = {}
-
-
 async def _tenant_has_hunter_fallback(tenant_id: str, sb: Any) -> bool:
-    """Return True when the tenant has opted in to the Hunter.io fallback.
+    """Return True when the tenant should use the Hunter.io fallback.
 
-    Cached per-process for 5 minutes (same pattern as `_tenant_has_inboxes`
-    in outreach.py).
+    Currently all V2 tenants inherit the HUNTER_FALLBACK_ENABLED global flag.
+    Future: read from tenant_modules.email_extraction.hunter_fallback so ops
+    can toggle it per-tenant without a deploy.
     """
-
-    import time as _time
-
-    entry = _hunter_fallback_cache.get(tenant_id)
-    if entry and _time.monotonic() - entry[0] < 300:
-        return entry[1]
-
-    try:
-        res = await asyncio.to_thread(
-            lambda: sb.table("tenants")
-            .select("pipeline_version")
-            .eq("id", tenant_id)
-            .limit(1)
-            .execute()
-        )
-        # For now, all V2 tenants inherit HUNTER_FALLBACK_ENABLED global flag.
-        # Future: read from tenant_modules.email_extraction.hunter_fallback.
-        result = HUNTER_FALLBACK_ENABLED
-        _hunter_fallback_cache[tenant_id] = (_time.monotonic(), result)
-        return result
-    except Exception as exc:  # noqa: BLE001
-        log.warning("pipeline_v2.hunter_flag_check_failed", err=str(exc))
-        return False
-
-
-def clear_tenant_cache(tenant_id: str | None = None) -> None:
-    """Clear the in-process config cache. Used by tests."""
-    if tenant_id is None:
-        _hunter_fallback_cache.clear()
-    else:
-        _hunter_fallback_cache.pop(tenant_id, None)
+    return HUNTER_FALLBACK_ENABLED
 
 
 # ---------------------------------------------------------------------------

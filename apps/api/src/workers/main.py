@@ -16,8 +16,8 @@ from arq.connections import RedisSettings
 from ..agents.compliance import ComplianceAgent, ComplianceInput
 from ..agents.conversation import ConversationAgent, ConversationInput
 from ..agents.creative import CreativeAgent, CreativeInput
+from ..agents.email_extraction import EmailExtractionAgent, EmailExtractionInput
 from ..agents.hunter import HunterAgent, HunterInput
-from ..agents.identity import IdentityAgent, IdentityInput
 from ..agents.outreach import OutreachAgent, OutreachInput
 from ..agents.replies import RepliesAgent, RepliesInput
 from ..agents.scoring import ScoringAgent, ScoringInput
@@ -47,8 +47,17 @@ async def hunter_task(_ctx: dict[str, Any], payload: dict[str, Any]) -> dict[str
     return out.model_dump()
 
 
-async def identity_task(_ctx: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
-    out = await IdentityAgent().run(IdentityInput(**payload))
+async def email_extraction_task(
+    _ctx: dict[str, Any], payload: dict[str, Any]
+) -> dict[str, Any]:
+    """Phase 2 (offline filters) + Phase 3 (email extraction + GDPR audit).
+
+    Replaces the legacy identity_task. Enqueued by level4_solar_gate.py
+    for every accepted subject. For non-pilot tenants this is a transparent
+    pass-through to scoring_task — V2 logic only runs when the tenant has
+    pipeline_v2_pilot=true.
+    """
+    out = await EmailExtractionAgent().run(EmailExtractionInput(**payload))
     return out.model_dump()
 
 
@@ -156,7 +165,7 @@ class WorkerSettings:
 
     functions = [
         hunter_task,
-        identity_task,
+        email_extraction_task,
         scoring_task,
         creative_task,
         outreach_task,
