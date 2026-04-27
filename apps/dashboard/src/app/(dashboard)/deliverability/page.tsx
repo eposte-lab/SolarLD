@@ -336,7 +336,7 @@ export default async function DeliverabilityPage() {
                       </td>
                       <td className="py-3 text-right text-xs text-on-surface-variant">
                         {inbox.last_sent_at
-                          ? relativeTime(new Date(inbox.last_sent_at))
+                          ? relativeTime(inbox.last_sent_at)
                           : '—'}
                       </td>
                       <td className="py-3 text-right">
@@ -433,7 +433,7 @@ export default async function DeliverabilityPage() {
                       </p>
                     </div>
                     <p className="text-[10px] text-on-surface-variant">
-                      {relativeTime(new Date(item.created_at))}
+                      {relativeTime(item.created_at)}
                     </p>
                     <QuarantineActions
                       quarantineId={item.id}

@@ -204,14 +204,20 @@ export async function getDeliverabilityData(): Promise<DeliverabilityData> {
     ]);
 
   // ---------- Domains ----------
-  const domains: DomainHealthRow[] = (domainsRes.data ?? []).map((d) => ({
-    ...(d as Omit<DomainHealthRow, 'status'>),
+  const domains: DomainHealthRow[] = ((domainsRes.data ?? []) as unknown as Omit<
+    DomainHealthRow,
+    'status'
+  >[]).map((d) => ({
+    ...d,
     status: computeDomainStatus(d as Pick<DomainHealthRow, 'active' | 'paused_until'>),
   }));
 
   // ---------- Inboxes ----------
-  const inboxes: InboxFleetRow[] = (inboxesRes.data ?? []).map((raw) => {
-    const r = raw as Record<string, unknown>;
+  const inboxes: InboxFleetRow[] = ((inboxesRes.data ?? []) as unknown as Record<
+    string,
+    unknown
+  >[]).map((raw) => {
+    const r = raw;
     const domJoin = r['tenant_email_domains'] as Record<string, string> | null;
     const phase = computeWarmupPhase(r['warmup_started_at'] as string | null);
     return {
@@ -236,7 +242,7 @@ export async function getDeliverabilityData(): Promise<DeliverabilityData> {
   });
 
   // ---------- Quarantine ----------
-  const quarantine_pending: QuarantineRow[] = (qPendingRes.data ?? []) as QuarantineRow[];
+  const quarantine_pending: QuarantineRow[] = (qPendingRes.data ?? []) as unknown as QuarantineRow[];
   const [pendingCountRes, approvedTodayRes] = qCountsRes;
   const quarantine_pending_count = pendingCountRes.count ?? 0;
   const quarantine_approved_today = approvedTodayRes.count ?? 0;
