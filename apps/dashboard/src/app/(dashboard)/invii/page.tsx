@@ -23,6 +23,7 @@ import {
   listCampaigns,
 } from '@/lib/data/campaigns';
 import { getCurrentTenantContext } from '@/lib/data/tenant';
+import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { cn, formatNumber, formatPercent, relativeTime } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
@@ -31,6 +32,7 @@ type Search = Promise<{
   page?: string;
   channel?: string;
   status?: string;
+  tab?: string;
 }>;
 
 const CHANNEL_OPTIONS = [
@@ -50,6 +52,27 @@ const STATUS_OPTIONS = [
 
 const PAGE_SIZE = 100;
 
+/** A deferred lead — triggered daily_target_cap_reached event today. */
+interface DeferredItem {
+  lead_id: string | null;
+  occurred_at: string;
+  payload: Record<string, unknown>;
+}
+
+async function getDeferredToday(): Promise<DeferredItem[]> {
+  const sb = await createSupabaseServerClient();
+  const midnightUtc = new Date();
+  midnightUtc.setUTCHours(0, 0, 0, 0);
+  const { data } = await sb
+    .from('events')
+    .select('lead_id, occurred_at, payload')
+    .eq('event_type', 'lead.outreach_ratelimited')
+    .gte('occurred_at', midnightUtc.toISOString())
+    .order('occurred_at', { ascending: false })
+    .limit(500);
+  return (data ?? []) as DeferredItem[];
+}
+
 export default async function InviiPage({
   searchParams,
 }: {
@@ -59,13 +82,15 @@ export default async function InviiPage({
   const page = Math.max(1, Number(sp.page) || 1);
   const channelFilter = sp.channel || '';
   const statusFilter = sp.status || '';
+  const activeTab = sp.tab === 'rimandati' ? 'rimandati' : 'storico';
 
   const ctx = await getCurrentTenantContext();
   if (!ctx) redirect('/login');
 
-  const [stats, allCampaigns] = await Promise.all([
+  const [stats, allCampaigns, deferred] = await Promise.all([
     getCampaignDeliveryStats(),
     listCampaigns(PAGE_SIZE * page), // simple over-fetch for now; works fine up to ~5k rows
+    getDeferredToday(),
   ]);
 
   // Apply client-side filters (avoids a new DB function for now)
@@ -105,6 +130,102 @@ export default async function InviiPage({
           </h1>
         </div>
       </header>
+
+      {/* Tab bar */}
+      <div className="flex gap-1 rounded-xl bg-surface-container-low p-1">
+        <Link
+          href="/invii"
+          className={cn(
+            'flex-1 rounded-lg px-3 py-2 text-center text-sm font-semibold transition-colors',
+            activeTab === 'storico'
+              ? 'bg-surface text-on-surface shadow-ambient-sm'
+              : 'text-on-surface-variant hover:bg-surface-container-high',
+          )}
+        >
+          Storico invii
+        </Link>
+        <Link
+          href="/invii?tab=rimandati"
+          className={cn(
+            'flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold transition-colors',
+            activeTab === 'rimandati'
+              ? 'bg-surface text-on-surface shadow-ambient-sm'
+              : 'text-on-surface-variant hover:bg-surface-container-high',
+          )}
+        >
+          Rimandati a domani
+          {deferred.length > 0 && (
+            <span className="rounded-full bg-tertiary px-2 py-0.5 text-[10px] font-bold text-on-tertiary">
+              {deferred.length}
+            </span>
+          )}
+        </Link>
+      </div>
+
+      {/* ── Tab: Rimandati a domani ──────────────────────────────────────── */}
+      {activeTab === 'rimandati' && (
+        <BentoCard span="full" padding="tight">
+          <header className="px-4 pb-3 pt-4">
+            <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
+              Cap giornaliero raggiunto · {deferred.length} lead bloccati oggi
+            </p>
+            <h2 className="font-headline text-2xl font-bold tracking-tighter">
+              Rimandati a domani
+            </h2>
+            <p className="mt-1 text-xs text-on-surface-variant">
+              Questi lead avrebbero ricevuto un invio oggi ma il cap contrattuale (250/giorno)
+              era già esaurito. Il follow-up scheduler li riprova automaticamente domani.
+            </p>
+          </header>
+          {deferred.length === 0 ? (
+            <div className="px-4 pb-8 pt-4 text-center">
+              <p className="text-sm text-on-surface-variant">
+                Nessun invio rimandato oggi. 🎉 Il cap non è stato raggiunto.
+              </p>
+            </div>
+          ) : (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-outline-variant/30 text-left text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">
+                  <th className="px-4 py-3">Lead</th>
+                  <th className="px-4 py-3">Cap al momento</th>
+                  <th className="px-4 py-3">Orario</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-outline-variant/20">
+                {deferred.map((item, i) => {
+                  const p = item.payload as { cap?: number; used?: number };
+                  return (
+                    <tr key={`${item.lead_id ?? 'unknown'}-${i}`} className="hover:bg-surface-container-low">
+                      <td className="px-4 py-3">
+                        {item.lead_id ? (
+                          <Link
+                            href={`/leads/${item.lead_id}`}
+                            className="font-mono text-xs text-primary hover:underline"
+                          >
+                            {item.lead_id.slice(0, 8)}…
+                          </Link>
+                        ) : (
+                          <span className="text-xs text-on-surface-variant">—</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-xs text-on-surface-variant">
+                        {p.used ?? '?'} / {p.cap ?? 250}
+                      </td>
+                      <td className="px-4 py-3 text-xs text-on-surface-variant">
+                        {relativeTime(item.occurred_at)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </BentoCard>
+      )}
+
+      {/* ── Tab: Storico invii ───────────────────────────────────────────── */}
+      {activeTab === 'storico' && <>
 
       {/* KPI strip */}
       <BentoGrid cols={5}>
@@ -320,6 +441,7 @@ export default async function InviiPage({
           </div>
         )}
       </BentoCard>
+      </>}
     </div>
   );
 }

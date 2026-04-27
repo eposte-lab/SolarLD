@@ -16,11 +16,13 @@ import { notFound, redirect } from 'next/navigation';
 
 import { CampaignConfigEditor } from '@/components/campaigns/CampaignConfigEditor';
 import { CampaignOverrideList } from '@/components/campaigns/CampaignOverrideList';
+import { DailyCapWidget } from '@/components/dashboard/daily-cap-widget';
 import { BentoCard } from '@/components/ui/bento-card';
 import { KpiChipCard } from '@/components/ui/kpi-chip-card';
 import { getAcquisitionCampaign, getCampaignSendStats } from '@/lib/data/acquisition-campaigns';
 import { getCampaignResults } from '@/lib/data/campaign-results';
 import { getCurrentTenantContext } from '@/lib/data/tenant';
+import { getDailyCapStats } from '@/lib/data/usage';
 import { cn, relativeTime } from '@/lib/utils';
 
 import { updateCampaignStatus } from '../_actions';
@@ -61,7 +63,7 @@ export default async function CampaignDetailPage({
   );
 
   // Parallel data loads for each tab.
-  const [stats, results, overrides] = await Promise.all([
+  const [stats, results, overrides, dailyCap] = await Promise.all([
     getCampaignSendStats(id),
     tab === 'risultati' ? getCampaignResults(id, ctx.tenant.id) : null,
     (() => {
@@ -80,6 +82,7 @@ export default async function CampaignDetailPage({
         return data ?? [];
       });
     })(),
+    getDailyCapStats(),
   ]);
 
   const statusColors: Record<string, string> = {
@@ -188,6 +191,9 @@ export default async function CampaignDetailPage({
             : `Errore: ${error}`}
         </div>
       )}
+
+      {/* Daily cap widget — compact */}
+      <DailyCapWidget stats={dailyCap} compact />
 
       {/* KPI strip */}
       <div className="grid grid-cols-4 gap-3">

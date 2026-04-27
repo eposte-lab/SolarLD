@@ -290,32 +290,7 @@ function IntegrationsCard({ tenant }: { tenant: TenantRow }) {
           <span className="text-on-surface-variant group-hover:text-primary">→</span>
         </Link>
 
-        {/* ── Email domain ── */}
-        <Link
-          href="/settings/email-domain"
-          className={cn(
-            'group flex items-start justify-between gap-4 rounded-lg border border-outline-variant/40 bg-surface-container-lowest px-4 py-4 transition-colors',
-            'hover:border-primary/60 hover:bg-surface-container-low',
-          )}
-        >
-          <div>
-            <p className="font-semibold text-on-surface">Dominio mittente</p>
-            <p className="mt-1 text-xs text-on-surface-variant">
-              Configura{' '}
-              <span className="font-mono">outreach@tuodominio.it</span> con record
-              SPF / DKIM tramite Resend. Verifica DNS guidata.
-            </p>
-          </div>
-          <span className="text-on-surface-variant group-hover:text-primary">
-            {tenant.email_from_domain ? (
-              <span className="text-xs font-semibold text-primary">
-                {tenant.email_from_domain}
-              </span>
-            ) : (
-              '→'
-            )}
-          </span>
-        </Link>
+        {/* legacy /settings/email-domain redirects to /settings/email-domains — link removed */}
 
         <Link
           href="/settings/crm-webhooks"

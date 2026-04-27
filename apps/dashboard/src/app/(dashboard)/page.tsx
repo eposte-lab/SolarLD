@@ -20,6 +20,7 @@ import { GradientButton } from '@/components/ui/gradient-button';
 import { KpiChipCard } from '@/components/ui/kpi-chip-card';
 
 import { AiExecutiveInsights } from '@/components/dashboard/ai-executive-insights';
+import { DailyCapWidget } from '@/components/dashboard/daily-cap-widget';
 import { GeoRadarMap } from '@/components/dashboard/geo-radar-map';
 import { LeadTemperatureBoard } from '@/components/dashboard/lead-temperature-board';
 import { PipelineRevenuePanel } from '@/components/dashboard/pipeline-revenue-panel';
@@ -34,6 +35,7 @@ import { getConversionStats } from '@/lib/data/conversions';
 import { getOverviewKpis, listLeads } from '@/lib/data/leads';
 import { getContattiSummary, getScanFunnel } from '@/lib/data/contatti';
 import { getCurrentTenantContext } from '@/lib/data/tenant';
+import { getDailyCapStats } from '@/lib/data/usage';
 import { cn, formatEurPlain, formatNumber, relativeTime } from '@/lib/utils';
 import type { ConversionStats } from '@/types/db';
 
@@ -53,6 +55,7 @@ export default async function DashboardOverview() {
     pipelineRevenue,
     heatmapCells,
     aiInsights,
+    dailyCap,
   ] = await Promise.all([
     getOverviewKpis(),
     listLeads({ page: 1, pageSize: 25, filter: { tier: 'hot' } }).then((r) =>
@@ -64,6 +67,7 @@ export default async function DashboardOverview() {
     getPipelineRevenue(),
     getSendTimeHeatmap(90),
     getAiInsights(),
+    getDailyCapStats(),
   ]);
 
   const hour = new Date().toLocaleString('it-IT', {
@@ -122,6 +126,9 @@ export default async function DashboardOverview() {
           accent="primary"
         />
       </BentoGrid>
+
+      {/* ── Row 2b: Daily cap SLA widget ─────────────────────────────────── */}
+      <DailyCapWidget stats={dailyCap} />
 
       {/* ── Row 3: Pipeline Revenue (full width) ─────────────────────────── */}
       <BentoCard span="full">
