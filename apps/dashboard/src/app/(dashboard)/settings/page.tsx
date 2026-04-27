@@ -9,6 +9,20 @@
  * shape changes per-module and the module pages already own that UI.
  */
 
+import {
+  AlertTriangle,
+  ArrowUpRight,
+  Check,
+  Compass,
+  Cog,
+  Lock,
+  Mail,
+  Minus,
+  RefreshCcw,
+  Rocket,
+  Wallet,
+} from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 
@@ -34,32 +48,32 @@ import { GradientButton } from '@/components/ui/gradient-button';
 
 const MODULE_META: Record<
   ModuleKey,
-  { title: string; blurb: string; icon: string }
+  { title: string; blurb: string; Icon: LucideIcon }
 > = {
   sorgente: {
     title: 'Sorgente',
     blurb: 'ATECO, dimensioni aziendali, geografia. Guida il Livello 1 del funnel.',
-    icon: '🧭',
+    Icon: Compass,
   },
   tecnico: {
     title: 'Tecnico',
     blurb: 'Soglie tetto (kWp, ombreggiamento, esposizione) per il Solar gate.',
-    icon: '⚙️',
+    Icon: Cog,
   },
   economico: {
     title: 'Economico',
     blurb: 'Ticket medio, budget scan mensile, ROI target.',
-    icon: '💶',
+    Icon: Wallet,
   },
   outreach: {
     title: 'Outreach',
     blurb: 'Canali attivi (email, postale, WhatsApp), tono di voce, CTA.',
-    icon: '✉️',
+    Icon: Mail,
   },
   crm: {
     title: 'CRM',
     blurb: 'Webhook in uscita, label pipeline, criteri di qualifica.',
-    icon: '🔁',
+    Icon: RefreshCcw,
   },
 };
 
@@ -161,13 +175,20 @@ function ModulesCard({ modules }: { modules: TenantModule[] }) {
               key={key}
               href={{ pathname: `/settings/modules/${key}` }}
               className={cn(
-                'group flex items-start justify-between gap-4 rounded-lg border border-outline-variant/40 bg-surface-container-lowest px-4 py-4 transition-colors',
-                'hover:border-primary/60 hover:bg-surface-container-low',
+                'group relative flex items-start justify-between gap-4 overflow-hidden rounded-xl liquid-glass-sm px-4 py-4 transition-all duration-300',
+                'hover:-translate-y-0.5 hover:shadow-liquid-glass',
               )}
             >
-              <div className="flex items-start gap-3">
-                <span aria-hidden className="mt-0.5 text-xl leading-none">
-                  {meta.icon}
+              <span
+                className="pointer-events-none absolute inset-x-0 top-0 h-12 bg-glass-specular"
+                aria-hidden
+              />
+              <div className="relative flex items-start gap-3">
+                <span
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/12 text-primary"
+                  aria-hidden
+                >
+                  <meta.Icon size={16} strokeWidth={2} />
                 </span>
                 <div>
                   <p className="font-semibold text-on-surface">{meta.title}</p>
@@ -176,9 +197,14 @@ function ModulesCard({ modules }: { modules: TenantModule[] }) {
                   </p>
                 </div>
               </div>
-              <div className="flex flex-col items-end gap-1">
+              <div className="relative flex flex-col items-end gap-1">
                 <ModuleStatusChip configured={configured} active={active} />
-                <span className="text-on-surface-variant group-hover:text-primary">→</span>
+                <ArrowUpRight
+                  size={14}
+                  strokeWidth={2}
+                  className="text-on-surface-variant transition-all group-hover:text-primary group-hover:translate-x-0.5 group-hover:-translate-y-0.5"
+                  aria-hidden
+                />
               </div>
             </Link>
           );
@@ -222,6 +248,7 @@ function ModuleStatusChip({
 
 function IntegrationsCard({ tenant }: { tenant: TenantRow }) {
   const crmAllowed = canTenantUse(tenant, 'crm_outbound_webhooks');
+  const abAllowed = canTenantUse(tenant, 'ab_testing_templates');
   return (
     <BentoCard span="full">
       <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
@@ -236,118 +263,86 @@ function IntegrationsCard({ tenant }: { tenant: TenantRow }) {
       </p>
 
       <div className="mt-5 grid gap-3 md:grid-cols-2">
-        {/* ── Inbox mittenti (multi-inbox) ── */}
-        <Link
-          href={'/settings/inboxes'}
-          className={cn(
-            'group flex items-start justify-between gap-4 rounded-lg border border-outline-variant/40 bg-surface-container-lowest px-4 py-4 transition-colors',
-            'hover:border-primary/60 hover:bg-surface-container-low',
-          )}
-        >
-          <div>
-            <p className="font-semibold text-on-surface">Inbox mittenti</p>
-            <p className="mt-1 text-xs text-on-surface-variant">
-              Più indirizzi sullo stesso dominio verificato. Round-robin automatico
-              con cap giornaliero per inbox e pausa auto su errori Resend.
-            </p>
-          </div>
-          <span className="text-on-surface-variant group-hover:text-primary">→</span>
-        </Link>
-
-        {/* ── Multi-domain outreach (Sprint 6.2) ── */}
-        <Link
+        <IntegrationLink
+          href="/settings/inboxes"
+          title="Inbox mittenti"
+          blurb="Più indirizzi sullo stesso dominio verificato. Round-robin automatico con cap giornaliero per inbox e pausa auto su errori Resend."
+        />
+        <IntegrationLink
           href="/settings/email-domains"
-          className={cn(
-            'group flex items-start justify-between gap-4 rounded-lg border border-outline-variant/40 bg-surface-container-lowest px-4 py-4 transition-colors',
-            'hover:border-primary/60 hover:bg-surface-container-low',
-          )}
-        >
-          <div>
-            <p className="font-semibold text-on-surface">Domini email</p>
-            <p className="mt-1 text-xs text-on-surface-variant">
-              Gestisci brand domain (Resend) e outreach domain (Gmail OAuth) con
-              verifica DNS live SPF/DKIM/DMARC e tracking host per-dominio.
-            </p>
-          </div>
-          <span className="text-on-surface-variant group-hover:text-primary">→</span>
-        </Link>
-
-        {/* ── Branding email ── */}
-        <Link
+          title="Domini email"
+          blurb="Gestisci brand domain (Resend) e outreach domain (Gmail OAuth) con verifica DNS live SPF/DKIM/DMARC e tracking host per-dominio."
+        />
+        <IntegrationLink
           href="/settings/branding"
-          className={cn(
-            'group flex items-start justify-between gap-4 rounded-lg border border-outline-variant/40 bg-surface-container-lowest px-4 py-4 transition-colors',
-            'hover:border-primary/60 hover:bg-surface-container-low',
-          )}
-        >
-          <div>
-            <p className="font-semibold text-on-surface">Branding email</p>
-            <p className="mt-1 text-xs text-on-surface-variant">
-              Colore principale, logo e nome mittente con anteprima live del
-              template. Nessun wizard richiesto.
-            </p>
-          </div>
-          <span className="text-on-surface-variant group-hover:text-primary">→</span>
-        </Link>
-
-        {/* legacy /settings/email-domain redirects to /settings/email-domains — link removed */}
-
-        <Link
+          title="Branding email"
+          blurb="Colore principale, logo e nome mittente con anteprima live del template. Nessun wizard richiesto."
+        />
+        <IntegrationLink
           href="/settings/crm-webhooks"
-          className={cn(
-            'group flex items-start justify-between gap-4 rounded-lg border border-outline-variant/40 bg-surface-container-lowest px-4 py-4 transition-colors',
-            'hover:border-primary/60 hover:bg-surface-container-low',
-          )}
-        >
-          <div>
-            <p className="font-semibold text-on-surface">Webhook CRM in uscita</p>
-            <p className="mt-1 text-xs text-on-surface-variant">
-              HMAC-SHA256, retry con backoff, disattivazione automatica dopo 10
-              fallimenti consecutivi.
-            </p>
-          </div>
-          <span className="text-on-surface-variant group-hover:text-primary">
-            {crmAllowed ? '→' : '🔒'}
-          </span>
-        </Link>
-
-        <Link
+          title="Webhook CRM in uscita"
+          blurb="HMAC-SHA256, retry con backoff, disattivazione automatica dopo 10 fallimenti consecutivi."
+          locked={!crmAllowed}
+        />
+        <IntegrationLink
           href="/settings/privacy"
-          className={cn(
-            'group flex items-start justify-between gap-4 rounded-lg border border-outline-variant/40 bg-surface-container-lowest px-4 py-4 transition-colors',
-            'hover:border-primary/60 hover:bg-surface-container-low',
-          )}
-        >
-          <div>
-            <p className="font-semibold text-on-surface">Privacy e GDPR</p>
-            <p className="mt-1 text-xs text-on-surface-variant">
-              Log di audit immutabile, esporta/elimina dati lead per le
-              richieste dei soggetti interessati (Art. 15 / 17).
-            </p>
-          </div>
-          <span className="text-on-surface-variant group-hover:text-primary">→</span>
-        </Link>
-
-        <Link
+          title="Privacy e GDPR"
+          blurb="Log di audit immutabile, esporta/elimina dati lead per le richieste dei soggetti interessati (Art. 15 / 17)."
+        />
+        <IntegrationLink
           href="/experiments"
-          className={cn(
-            'group flex items-start justify-between gap-4 rounded-lg border border-outline-variant/40 bg-surface-container-lowest px-4 py-4 transition-colors',
-            'hover:border-primary/60 hover:bg-surface-container-low',
-          )}
-        >
-          <div>
-            <p className="font-semibold text-on-surface">A/B Testing email</p>
-            <p className="mt-1 text-xs text-on-surface-variant">
-              Testa due oggetti email in parallelo con analisi Bayesiana
-              automatica. Dichiara il vincitore con ≥95% di confidenza.
-            </p>
-          </div>
-          <span className="text-on-surface-variant group-hover:text-primary">
-            {canTenantUse(tenant, 'ab_testing_templates') ? '→' : '🔒'}
-          </span>
-        </Link>
+          title="A/B Testing email"
+          blurb="Testa due oggetti email in parallelo con analisi Bayesiana automatica. Dichiara il vincitore con ≥95% di confidenza."
+          locked={!abAllowed}
+        />
       </div>
     </BentoCard>
+  );
+}
+
+function IntegrationLink({
+  href,
+  title,
+  blurb,
+  locked = false,
+}: {
+  href: string;
+  title: string;
+  blurb: string;
+  locked?: boolean;
+}) {
+  return (
+    <Link
+      href={href}
+      className={cn(
+        'group relative flex items-start justify-between gap-4 overflow-hidden rounded-xl liquid-glass-sm px-4 py-4 transition-all duration-300',
+        'hover:-translate-y-0.5 hover:shadow-liquid-glass',
+      )}
+    >
+      <span
+        className="pointer-events-none absolute inset-x-0 top-0 h-12 bg-glass-specular"
+        aria-hidden
+      />
+      <div className="relative">
+        <p className="font-semibold text-on-surface">{title}</p>
+        <p className="mt-1 text-xs text-on-surface-variant">{blurb}</p>
+      </div>
+      <span className="relative shrink-0 self-center" aria-hidden>
+        {locked ? (
+          <Lock
+            size={14}
+            strokeWidth={2}
+            className="text-on-surface-variant/70"
+          />
+        ) : (
+          <ArrowUpRight
+            size={14}
+            strokeWidth={2}
+            className="text-on-surface-variant transition-all group-hover:text-primary group-hover:translate-x-0.5 group-hover:-translate-y-0.5"
+          />
+        )}
+      </span>
+    </Link>
   );
 }
 
@@ -370,9 +365,14 @@ function ReputationAlarmBanner({ reputation }: { reputation: DomainReputationRow
   return (
     <div
       role="alert"
-      className="flex items-start gap-3 rounded-lg border border-error/40 bg-error-container/40 px-4 py-3 text-sm text-on-error-container"
+      className="flex items-start gap-3 rounded-xl border border-error/40 bg-error-container/40 px-4 py-3 text-sm text-on-error-container"
     >
-      <span aria-hidden className="mt-0.5 text-lg leading-none">⚠️</span>
+      <AlertTriangle
+        size={16}
+        strokeWidth={2}
+        className="mt-0.5 shrink-0"
+        aria-hidden
+      />
       <div className="flex-1">
         <p className="font-semibold">Reputazione del mittente a rischio</p>
         <p className="mt-1 text-on-error-container/90">
@@ -673,7 +673,8 @@ function DevToolsCard() {
           href="/settings/pipeline-test"
           className="inline-flex items-center gap-2 rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-on-primary transition-opacity hover:opacity-90"
         >
-          🚀 Test pipeline end-to-end
+          <Rocket size={14} strokeWidth={2.25} aria-hidden />
+          Test pipeline end-to-end
         </Link>
       </div>
     </BentoCard>
@@ -712,12 +713,18 @@ function PlanRow({
           )}
         >
           {yes ? (
-            <span className="text-primary" aria-label="incluso">
-              ✓
+            <span
+              className="inline-flex items-center justify-center text-primary"
+              aria-label="incluso"
+            >
+              <Check size={14} strokeWidth={2.5} aria-hidden />
             </span>
           ) : (
-            <span className="text-on-surface-variant/50" aria-label="non incluso">
-              —
+            <span
+              className="inline-flex items-center justify-center text-on-surface-variant/40"
+              aria-label="non incluso"
+            >
+              <Minus size={14} strokeWidth={2} aria-hidden />
             </span>
           )}
         </td>

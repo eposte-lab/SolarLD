@@ -9,7 +9,7 @@
  * Uso:
  *   <EditorialSparkline
  *     data={[10, 12, 8, 14, 22, 20, 18]}
- *     tone="amber"
+ *     tone="mint"
  *     height={32}
  *   />
  */
@@ -20,14 +20,14 @@ import { cn } from '@/lib/utils';
 
 interface Props {
   data: number[];
-  tone?: 'white' | 'amber';
+  tone?: 'white' | 'mint';
   height?: number;
   className?: string;
 }
 
 const COLOR = {
   white: '#ECEFF0',
-  amber: '#F4A45C',
+  mint: '#6FCF97',
 } as const;
 
 export function EditorialSparkline({

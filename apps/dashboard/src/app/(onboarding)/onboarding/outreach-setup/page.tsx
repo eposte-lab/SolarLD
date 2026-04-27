@@ -15,8 +15,18 @@
  * No data loss on back-navigation: all state lives in component memory.
  */
 
+import {
+  ArrowLeft,
+  ArrowRight,
+  Check,
+  CheckCircle2,
+  PartyPopper,
+  X,
+  XCircle,
+} from 'lucide-react';
 import { useState, useTransition } from 'react';
 import Link from 'next/link';
+
 import { apiClient } from '@/lib/api-client';
 
 // ---------------------------------------------------------------------------
@@ -65,7 +75,7 @@ function ProgressBar({ step }: { step: Step }) {
               active ? 'bg-primary-container text-on-primary-container ring-2 ring-primary' :
               'bg-surface-container-high text-on-surface-variant'
             }`}>
-              {done ? '✓' : n}
+              {done ? <Check size={14} strokeWidth={2.5} aria-hidden /> : n}
             </div>
             <span className={`ml-1.5 mr-3 hidden text-xs font-medium sm:inline ${
               active ? 'text-on-surface' : 'text-on-surface-variant'
@@ -102,8 +112,9 @@ export default function OutreachSetupPage() {
     <div className="mx-auto max-w-3xl space-y-8 px-4 py-10">
       {/* Header */}
       <div>
-        <Link href="/onboarding" className="text-xs text-on-surface-variant hover:underline">
-          ← Onboarding
+        <Link href="/onboarding" className="inline-flex items-center gap-1 text-xs text-on-surface-variant hover:underline">
+          <ArrowLeft size={11} strokeWidth={2.25} aria-hidden />
+          Onboarding
         </Link>
         <h1 className="mt-3 font-headline text-4xl font-bold tracking-tighter">
           Setup outreach
@@ -275,9 +286,10 @@ function StepDomains({
                 <button
                   type="button"
                   onClick={() => removeDomain(i)}
+                  aria-label="Rimuovi dominio"
                   className="self-start rounded-lg px-2.5 py-2.5 text-on-surface-variant hover:bg-surface-container-low"
                 >
-                  ✕
+                  <X size={14} strokeWidth={2.25} aria-hidden />
                 </button>
               )}
             </div>
@@ -308,7 +320,14 @@ function StepDomains({
           onClick={handleNext}
           className="rounded-full bg-gradient-primary px-6 py-3 text-sm font-bold text-on-primary shadow-ambient-sm transition-opacity hover:opacity-90 disabled:opacity-40"
         >
-          {saving ? 'Salvataggio…' : 'Avanti → Configura DNS'}
+          {saving ? (
+            'Salvataggio…'
+          ) : (
+            <>
+              Avanti · Configura DNS
+              <ArrowRight size={13} strokeWidth={2.25} aria-hidden className="ml-1.5 inline" />
+            </>
+          )}
         </button>
       </div>
     </div>
@@ -417,7 +436,7 @@ function StepDns({
                   />
                   <DnsRow
                     type="CNAME" host={`google._domainkey`}
-                    value={`google._domainkey.${d.name} → goog-dkim-target`}
+                    value={`google._domainkey.${d.name} -> goog-dkim-target`}
                     ok={d.dnsChecked ? d.dkimOk : null}
                     label="DKIM"
                     note="Ottieni il record CNAME esatto dalla tua Google Workspace Admin Console › Apps › Gmail › Authenticate email"
@@ -454,15 +473,17 @@ function StepDns({
       </div>
 
       <div className="flex justify-between">
-        <button type="button" onClick={onBack} className="rounded-full border border-outline-variant px-5 py-2.5 text-sm font-semibold text-on-surface hover:bg-surface-container-low">
-          ← Indietro
+        <button type="button" onClick={onBack} className="inline-flex items-center gap-1.5 rounded-full border border-outline-variant px-5 py-2.5 text-sm font-semibold text-on-surface hover:bg-surface-container-low">
+          <ArrowLeft size={13} strokeWidth={2.25} aria-hidden />
+          Indietro
         </button>
         <button
           type="button"
           onClick={onNext}
           className="rounded-full bg-gradient-primary px-6 py-3 text-sm font-bold text-on-primary shadow-ambient-sm transition-opacity hover:opacity-90"
         >
-          {canProceed ? 'Avanti → Google Workspace' : 'Salta (configura dopo) →'}
+          {canProceed ? 'Avanti · Google Workspace' : 'Salta (configura dopo)'}
+          <ArrowRight size={13} strokeWidth={2.25} aria-hidden className="ml-1.5 inline" />
         </button>
       </div>
     </div>
@@ -489,9 +510,19 @@ function DnsRow({
         {ok === null ? (
           <span className="text-on-surface-variant">—</span>
         ) : ok ? (
-          <span className="text-primary font-semibold">✅</span>
+          <CheckCircle2
+            size={14}
+            strokeWidth={2.25}
+            className="text-primary"
+            aria-label="OK"
+          />
         ) : (
-          <span className="text-error font-semibold">❌</span>
+          <XCircle
+            size={14}
+            strokeWidth={2.25}
+            className="text-error"
+            aria-label="Mancante"
+          />
         )}
       </td>
     </tr>
@@ -500,10 +531,17 @@ function DnsRow({
 
 function DnsPill({ label, ok }: { label: string; ok: boolean }) {
   return (
-    <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${
-      ok ? 'bg-primary-container text-on-primary-container' : 'bg-error-container text-on-error-container'
-    }`}>
-      {ok ? '✓' : '✗'} {label}
+    <span
+      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+        ok ? 'bg-primary-container text-on-primary-container' : 'bg-error-container text-on-error-container'
+      }`}
+    >
+      {ok ? (
+        <Check size={11} strokeWidth={2.5} aria-hidden />
+      ) : (
+        <X size={11} strokeWidth={2.5} aria-hidden />
+      )}
+      {label}
     </span>
   );
 }
@@ -660,15 +698,17 @@ function StepWorkspace({
       </div>
 
       <div className="flex justify-between">
-        <button type="button" onClick={onBack} className="rounded-full border border-outline-variant px-5 py-2.5 text-sm font-semibold text-on-surface hover:bg-surface-container-low">
-          ← Indietro
+        <button type="button" onClick={onBack} className="inline-flex items-center gap-1.5 rounded-full border border-outline-variant px-5 py-2.5 text-sm font-semibold text-on-surface hover:bg-surface-container-low">
+          <ArrowLeft size={13} strokeWidth={2.25} aria-hidden />
+          Indietro
         </button>
         <button
           type="button"
           onClick={onNext}
           className="rounded-full bg-gradient-primary px-6 py-3 text-sm font-bold text-on-primary shadow-ambient-sm transition-opacity hover:opacity-90"
         >
-          {inboxes.length > 0 ? 'Avanti → Connetti Gmail' : 'Salta (configura dopo) →'}
+          {inboxes.length > 0 ? 'Avanti · Connetti Gmail' : 'Salta (configura dopo)'}
+          <ArrowRight size={13} strokeWidth={2.25} aria-hidden className="ml-1.5 inline" />
         </button>
       </div>
     </div>
@@ -744,8 +784,9 @@ function StepOAuth({
                   )}
                 </div>
                 {inbox.oauthConnected ? (
-                  <span className="rounded-full bg-primary-container px-3 py-1 text-xs font-semibold text-on-primary-container">
-                    Gmail OAuth ✓
+                  <span className="inline-flex items-center gap-1 rounded-full bg-primary-container px-3 py-1 text-xs font-semibold text-on-primary-container">
+                    Gmail OAuth
+                    <Check size={12} strokeWidth={2.5} aria-hidden />
                   </span>
                 ) : (
                   <button
@@ -764,22 +805,25 @@ function StepOAuth({
         )}
 
         {connectedCount > 0 && (
-          <p className="mt-4 text-sm text-primary">
-            ✓ {connectedCount}/{inboxes.length} inbox collegate.
+          <p className="mt-4 inline-flex items-center gap-1.5 text-sm text-primary">
+            <Check size={14} strokeWidth={2.5} aria-hidden />
+            {connectedCount}/{inboxes.length} inbox collegate.
           </p>
         )}
       </div>
 
       <div className="flex justify-between">
-        <button type="button" onClick={onBack} className="rounded-full border border-outline-variant px-5 py-2.5 text-sm font-semibold text-on-surface hover:bg-surface-container-low">
-          ← Indietro
+        <button type="button" onClick={onBack} className="inline-flex items-center gap-1.5 rounded-full border border-outline-variant px-5 py-2.5 text-sm font-semibold text-on-surface hover:bg-surface-container-low">
+          <ArrowLeft size={13} strokeWidth={2.25} aria-hidden />
+          Indietro
         </button>
         <button
           type="button"
           onClick={onNext}
           className="rounded-full bg-gradient-primary px-6 py-3 text-sm font-bold text-on-primary shadow-ambient-sm transition-opacity hover:opacity-90"
         >
-          {connectedCount > 0 ? 'Avanti → Test invio' : 'Salta per ora →'}
+          {connectedCount > 0 ? 'Avanti · Test invio' : 'Salta per ora'}
+          <ArrowRight size={13} strokeWidth={2.25} aria-hidden className="ml-1.5 inline" />
         </button>
       </div>
     </div>
@@ -875,10 +919,16 @@ function StepTest({
                   <span className="font-mono text-sm text-on-surface">{inbox.email}</span>
                   <div className="flex items-center gap-3">
                     {result === 'ok' && (
-                      <span className="text-xs font-semibold text-primary">✅ Inviata</span>
+                      <span className="inline-flex items-center gap-1 text-xs font-semibold text-primary">
+                        <CheckCircle2 size={13} strokeWidth={2.25} aria-hidden />
+                        Inviata
+                      </span>
                     )}
                     {result === 'error' && (
-                      <span className="text-xs font-semibold text-error">❌ Errore</span>
+                      <span className="inline-flex items-center gap-1 text-xs font-semibold text-error">
+                        <XCircle size={13} strokeWidth={2.25} aria-hidden />
+                        Errore
+                      </span>
                     )}
                     <button
                       type="button"
@@ -896,10 +946,13 @@ function StepTest({
         )}
 
         {allOk && (
-          <div className="rounded-lg bg-primary-container/30 px-4 py-3 text-sm text-on-primary-container">
-            🎉 Tutte le inbox funzionano. Il tuo sistema outreach è pronto!
-            La curva di warm-up partirà automaticamente dal primo invio reale
-            (10 → 25 → 40 → 50 email/inbox/giorno in 21 giorni).
+          <div className="flex items-start gap-3 rounded-lg bg-primary-container/30 px-4 py-3 text-sm text-on-primary-container">
+            <PartyPopper size={16} strokeWidth={2} aria-hidden className="mt-0.5 shrink-0 text-primary" />
+            <span>
+              Tutte le inbox funzionano. Il tuo sistema outreach è pronto.
+              La curva di warm-up partirà automaticamente dal primo invio reale
+              (10 · 25 · 40 · 50 email/inbox/giorno in 21 giorni).
+            </span>
           </div>
         )}
       </div>
@@ -908,9 +961,10 @@ function StepTest({
         <button
           type="button"
           onClick={onDone}
-          className="rounded-full bg-gradient-primary px-6 py-3 text-sm font-bold text-on-primary shadow-ambient-sm transition-opacity hover:opacity-90"
+          className="inline-flex items-center gap-2 rounded-full bg-gradient-primary px-6 py-3 text-sm font-bold text-on-primary shadow-ambient-sm transition-opacity hover:opacity-90"
         >
-          {allOk ? 'Setup completato → Vai ai domini' : 'Vai ai domini →'}
+          {allOk ? 'Setup completato · Vai ai domini' : 'Vai ai domini'}
+          <ArrowRight size={14} strokeWidth={2.25} aria-hidden />
         </button>
       </div>
     </div>

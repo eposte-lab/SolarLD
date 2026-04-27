@@ -280,12 +280,29 @@ export function SolarApiInspector({ lead }: Props) {
             </p>
             {roof.lat != null && roof.lng != null && (
               <a
-                className="mt-1 inline-block font-semibold text-primary hover:underline"
+                className="mt-1 inline-flex items-center gap-1 font-semibold text-primary hover:underline"
                 href={`https://www.google.com/maps/@${roof.lat},${roof.lng},20z`}
                 target="_blank"
                 rel="noreferrer"
               >
-                Apri in Google Maps ↗
+                Apri in Google Maps
+                <span aria-hidden className="inline-block">
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    width="11"
+                    height="11"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.25"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M15 3h6v6" />
+                    <path d="m10 14 11-11" />
+                    <path d="M21 14v6a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h6" />
+                  </svg>
+                </span>
               </a>
             )}
           </div>

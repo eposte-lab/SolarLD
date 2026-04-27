@@ -13,6 +13,7 @@
  * Mutations use server actions — no client JS, pure server component.
  */
 
+import { AlertTriangle, ArrowRight, Check, Lock } from 'lucide-react';
 import { redirect } from 'next/navigation';
 
 import { BentoCard, BentoGrid } from '@/components/ui/bento-card';
@@ -50,7 +51,7 @@ const ERROR_COPY: Record<string, string> = {
   missing_id: 'ID territorio non valido.',
   no_bbox:
     'Questo territorio non ha un\'area geografica — eliminalo e ri-aggiungilo ' +
-    'usando il tasto "📍 Rileva zona" nel form.',
+    'usando il tasto "Rileva zona" nel form.',
   scan_failed:
     'La scansione non è partita — il worker arq non ha risposto. ' +
     'Controlla che il servizio worker sia attivo su Railway e che REDIS_URL sia configurato.',
@@ -172,7 +173,7 @@ function LockBanner({ lockedAt }: { lockedAt: string }) {
       role="status"
       className="flex flex-wrap items-center gap-3 rounded-xl bg-primary-container px-5 py-3 text-sm font-semibold text-on-primary-container shadow-ambient-sm"
     >
-      <span aria-hidden>🔒</span>
+      <Lock size={14} strokeWidth={2.25} aria-hidden className="shrink-0" />
       <span>
         Zona di esclusiva confermata il <strong>{when}</strong>. Per
         modificare i territori contatta il supporto.
@@ -203,7 +204,12 @@ function PipelineBanner() {
       {steps.map((s, i) => (
         <div key={s.label} className="flex items-center">
           {i > 0 && (
-            <span className="mx-1.5 text-on-surface-variant opacity-40">→</span>
+            <ArrowRight
+              size={11}
+              strokeWidth={2}
+              className="mx-1.5 text-on-surface-variant/40"
+              aria-hidden
+            />
           )}
           <div className="flex flex-col items-center">
             <span
@@ -581,8 +587,9 @@ function LastScanBadge({ summary }: { summary?: ScanSummary }) {
         className="inline-flex flex-col gap-0.5"
         title="Atoka non ha trovato aziende — verifica ATOKA_API_KEY su Railway"
       >
-        <span className="text-[10px] font-semibold text-error">
-          ⚠ 0 aziende (Atoka)
+        <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-error">
+          <AlertTriangle size={10} strokeWidth={2.5} aria-hidden />
+          0 aziende (Atoka)
         </span>
         <span className="text-[9px] text-on-surface-variant">{date}</span>
       </span>
@@ -602,8 +609,9 @@ function LastScanBadge({ summary }: { summary?: ScanSummary }) {
 
   return (
     <span className="inline-flex flex-col gap-0.5">
-      <span className="text-[10px] font-semibold text-primary">
-        ✓ {summary.leads_qualified} lead
+      <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-primary">
+        <Check size={10} strokeWidth={2.75} aria-hidden />
+        {summary.leads_qualified} lead
       </span>
       <span className="text-[9px] text-on-surface-variant">{date}</span>
     </span>

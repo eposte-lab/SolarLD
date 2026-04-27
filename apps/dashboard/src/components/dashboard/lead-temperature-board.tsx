@@ -15,6 +15,7 @@
  * Data is passed as a prop from the server page component.
  */
 
+import { ArrowDown, ArrowUp, ArrowUpRight, ArrowUpDown } from 'lucide-react';
 import Link from 'next/link';
 import { useState, useMemo, useCallback } from 'react';
 
@@ -80,29 +81,29 @@ function lastEvent(lead: LeadListRow): string | null {
 const TIER_CHIP: Record<string, { label: string; style: string; dot: string }> = {
   hot: {
     label: 'Hot',
-    style: 'bg-primary/15 text-primary',
-    dot: 'bg-primary animate-pulse',
+    style: 'bg-warning/15 text-warning',
+    dot: 'bg-warning animate-pulse',
   },
   warm: {
     label: 'Warm',
-    style: 'bg-primary/8 text-primary-dim',
-    dot: 'bg-primary-dim',
+    style: 'bg-primary/15 text-primary',
+    dot: 'bg-primary',
   },
   cold: {
     label: 'Freddo',
-    style: 'bg-surface-container-high text-on-surface-variant',
+    style: 'bg-white/[0.04] text-on-surface-variant',
     dot: 'bg-on-surface-variant/40',
   },
   rejected: {
     label: 'Scartato',
-    style: 'bg-surface-container text-on-surface-variant/50',
+    style: 'bg-white/[0.02] text-on-surface-variant/50',
     dot: 'bg-outline-variant/30',
   },
 };
 
 const DEFAULT_TIER_CFG = {
   label: 'Freddo',
-  style: 'bg-surface-container-high text-on-surface-variant',
+  style: 'bg-white/[0.04] text-on-surface-variant',
   dot: 'bg-on-surface-variant/40',
 } as const;
 
@@ -124,8 +125,25 @@ function TemperatureChip({ tier }: { tier: string }) {
 // ── Sort indicator ────────────────────────────────────────────────────────────
 
 function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
-  if (!active) return <span className="text-on-surface-variant/30">↕</span>;
-  return <span className="text-primary">{dir === 'asc' ? '↑' : '↓'}</span>;
+  if (!active) {
+    return (
+      <ArrowUpDown
+        size={11}
+        strokeWidth={2}
+        className="ml-1 inline text-on-surface-variant/40"
+        aria-hidden
+      />
+    );
+  }
+  const Icon = dir === 'asc' ? ArrowUp : ArrowDown;
+  return (
+    <Icon
+      size={11}
+      strokeWidth={2.5}
+      className="ml-1 inline text-primary"
+      aria-hidden
+    />
+  );
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
@@ -216,8 +234,12 @@ export function LeadTemperatureBoard({ leads, className }: LeadTemperatureBoardP
 
   return (
     <div className={className}>
-      <div className="overflow-hidden rounded-xl bg-surface-container-low">
-        <table className="w-full text-sm">
+      <div className="overflow-hidden rounded-2xl liquid-glass-sm relative">
+        <span
+          className="pointer-events-none absolute inset-x-0 top-0 h-12 bg-glass-specular"
+          aria-hidden
+        />
+        <table className="w-full text-sm relative">
           <thead>
             <tr>
               <th className={thCls('tier')} onClick={() => handleSort('tier')}>
@@ -244,7 +266,7 @@ export function LeadTemperatureBoard({ leads, className }: LeadTemperatureBoardP
               <th className="px-4 py-3" />
             </tr>
           </thead>
-          <tbody className="bg-surface-container-lowest">
+          <tbody>
             {sorted.map((lead, idx) => {
               const name = displayName(lead);
               const last = lastEvent(lead);
@@ -254,10 +276,10 @@ export function LeadTemperatureBoard({ leads, className }: LeadTemperatureBoardP
               return (
                 <tr
                   key={lead.id}
-                  className="transition-colors hover:bg-surface-container-low"
+                  className="transition-colors hover:bg-white/[0.03]"
                   style={
                     idx !== 0
-                      ? { boxShadow: 'inset 0 1px 0 rgba(170,174,173,0.12)' }
+                      ? { boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05)' }
                       : undefined
                   }
                 >
@@ -288,8 +310,8 @@ export function LeadTemperatureBoard({ leads, className }: LeadTemperatureBoardP
                               pConv >= 0.5
                                 ? '#6FCF97'
                                 : pConv >= 0.2
-                                  ? '#F4A45C'
-                                  : '#8A9094',
+                                  ? '#5BB880'
+                                  : '#8A9499',
                           }}
                         />
                       </div>
@@ -304,9 +326,15 @@ export function LeadTemperatureBoard({ leads, className }: LeadTemperatureBoardP
                   <td className="px-4 py-3 text-right">
                     <Link
                       href={`/leads/${lead.id}`}
-                      className="text-xs font-semibold text-primary hover:underline"
+                      className="group/link inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
                     >
-                      apri →
+                      Apri
+                      <ArrowUpRight
+                        size={12}
+                        strokeWidth={2.5}
+                        className="transition-transform group-hover/link:translate-x-0.5 group-hover/link:-translate-y-0.5"
+                        aria-hidden
+                      />
                     </Link>
                   </td>
                 </tr>

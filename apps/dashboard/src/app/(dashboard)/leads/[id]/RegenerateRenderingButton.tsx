@@ -16,6 +16,7 @@
  * CTA. Single small button with status text below.
  */
 
+import { Check, RefreshCw, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
@@ -73,13 +74,25 @@ export function RegenerateRenderingButton({ leadId }: Props) {
         disabled={busy}
         className="inline-flex items-center gap-2 rounded-lg bg-surface-container-highest px-4 py-2 text-xs font-semibold text-on-surface transition-colors hover:bg-surface-container-high disabled:cursor-not-allowed disabled:opacity-60"
       >
-        {busy ? 'Rigenerazione in coda…' : '↻ Rigenera rendering'}
+        <RefreshCw
+          size={12}
+          strokeWidth={2.25}
+          className={busy ? 'animate-spin' : ''}
+          aria-hidden
+        />
+        {busy ? 'Rigenerazione in coda…' : 'Rigenera rendering'}
       </button>
       {state.kind === 'success' && (
-        <p className="text-xs font-semibold text-primary">✓ {state.message}</p>
+        <p className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary">
+          <Check size={12} strokeWidth={2.5} aria-hidden />
+          {state.message}
+        </p>
       )}
       {state.kind === 'error' && (
-        <p className="text-xs font-semibold text-secondary">✗ {state.message}</p>
+        <p className="inline-flex items-start gap-1.5 text-xs font-semibold text-error">
+          <X size={12} strokeWidth={2.5} className="mt-0.5 shrink-0" aria-hidden />
+          {state.message}
+        </p>
       )}
     </div>
   );

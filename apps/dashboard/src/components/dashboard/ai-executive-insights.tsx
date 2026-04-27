@@ -1,47 +1,51 @@
 /**
- * AiExecutiveInsights — rule-based actionable insights panel.
+ * AiExecutiveInsights — rule-based actionable insights panel (V2).
  *
- * Server component. Insights are computed from Supabase queries in
- * getAiInsights() — no LLM call, just pattern matching on real data.
+ * Server component. Insights computed in `getAiInsights()` — no LLM,
+ * solo pattern matching su dati Supabase.
  *
- * Displays up to 5 prioritised insight cards with type icons,
- * metric callout, and action CTA.
+ * V2 polish: liquid glass cards + Lucide icons (no emoji), tone
+ * semantics chiare per warning/opportunity/info/success.
  */
 
+import {
+  AlertTriangle,
+  ArrowUpRight,
+  CalendarClock,
+  CheckCircle2,
+  Sparkle,
+  Target,
+} from 'lucide-react';
 import Link from 'next/link';
+import type { LucideIcon } from 'lucide-react';
 
 import type { AiInsight } from '@/lib/data/geo-analytics';
+import { SectionEyebrow } from '@/components/ui/section-eyebrow';
 import { cn } from '@/lib/utils';
-
-// ── icons (inline SVG to avoid icon-lib dep) ────────────────────────────────
 
 const TYPE_CONFIG: Record<
   AiInsight['type'],
-  { icon: string; bg: string; text: string; border: string }
+  { Icon: LucideIcon; iconWrap: string; title: string }
 > = {
   warning: {
-    icon: '⚠️',
-    bg: 'bg-secondary-container/40',
-    text: 'text-on-secondary-container',
-    border: 'border-secondary-container',
+    Icon: AlertTriangle,
+    iconWrap: 'bg-warning/15 text-warning',
+    title: 'text-on-surface',
   },
   opportunity: {
-    icon: '⚡',
-    bg: 'bg-tertiary-container/40',
-    text: 'text-on-tertiary-container',
-    border: 'border-tertiary-container',
+    Icon: Sparkle,
+    iconWrap: 'bg-primary/15 text-primary',
+    title: 'text-on-surface',
   },
   info: {
-    icon: '📅',
-    bg: 'bg-surface-container-high',
-    text: 'text-on-surface',
-    border: 'border-outline-variant/30',
+    Icon: CalendarClock,
+    iconWrap: 'bg-white/[0.06] text-on-surface-variant',
+    title: 'text-on-surface',
   },
   success: {
-    icon: '✅',
-    bg: 'bg-primary-container/30',
-    text: 'text-on-primary-container',
-    border: 'border-primary-container',
+    Icon: CheckCircle2,
+    iconWrap: 'bg-primary/15 text-primary',
+    title: 'text-on-surface',
   },
 };
 
@@ -56,84 +60,78 @@ export function AiExecutiveInsights({
 }: AiExecutiveInsightsProps) {
   return (
     <div className={className}>
-      {/* Header */}
       <div className="mb-4">
-        <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
-          AI Insights · Auto
-        </p>
-        <h2 className="font-headline text-2xl font-bold tracking-tighter">
+        <SectionEyebrow>AI Insights · Auto</SectionEyebrow>
+        <h2 className="mt-1 font-headline text-2xl font-bold tracking-tighter text-on-surface">
           Azioni prioritarie
         </h2>
       </div>
 
-      {/* Insight cards */}
       {insights.length === 0 ? (
-        <div className="flex flex-col items-center justify-center rounded-xl bg-surface-container-low py-8">
-          <p className="text-2xl">🎯</p>
-          <p className="mt-2 text-sm font-semibold text-on-surface">
+        <div className="flex flex-col items-center justify-center rounded-2xl liquid-glass-sm py-10 px-6 relative overflow-hidden">
+          <span
+            className="pointer-events-none absolute inset-x-0 top-0 h-1/2 bg-glass-specular"
+            aria-hidden
+          />
+          <div className="relative flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/15 text-primary">
+            <Target size={22} strokeWidth={1.75} aria-hidden />
+          </div>
+          <p className="relative mt-3 text-sm font-semibold text-on-surface">
             Tutto sotto controllo
           </p>
-          <p className="mt-1 text-xs text-on-surface-variant">
+          <p className="relative mt-1 text-[12px] text-on-surface-variant">
             Nessuna azione urgente al momento.
           </p>
         </div>
       ) : (
-        <div className="flex flex-col gap-2.5">
+        <div className="flex flex-col gap-3">
           {insights.map((insight, i) => {
             const config = TYPE_CONFIG[insight.type];
+            const { Icon } = config;
             return (
               <div
                 key={i}
-                className={cn(
-                  'group flex flex-col gap-2 rounded-xl border p-3.5 transition-all',
-                  config.bg,
-                  config.border,
-                )}
+                className="group relative overflow-hidden rounded-2xl liquid-glass-sm p-4 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-liquid-glass"
               >
-                {/* Top row: icon + title + metric */}
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex items-start gap-2 min-w-0">
-                    <span className="mt-0.5 shrink-0 text-base leading-none">
-                      {config.icon}
-                    </span>
-                    <p
-                      className={cn(
-                        'text-sm font-semibold leading-snug',
-                        config.text,
-                      )}
-                    >
-                      {insight.title}
-                    </p>
-                  </div>
-                  {insight.metric && (
-                    <span
-                      className={cn(
-                        'shrink-0 font-headline text-xl font-bold tabular-nums leading-none',
-                        config.text,
-                      )}
-                    >
-                      {insight.metric}
-                    </span>
-                  )}
-                </div>
-
-                {/* Body */}
-                <p className="text-xs leading-relaxed text-on-surface-variant">
-                  {insight.body}
-                </p>
-
-                {/* CTA */}
-                {insight.action_href && (
-                  <Link
-                    href={insight.action_href}
+                <span
+                  className="pointer-events-none absolute inset-x-0 top-0 h-12 bg-glass-specular"
+                  aria-hidden
+                />
+                <div className="relative flex items-start gap-3">
+                  <div
                     className={cn(
-                      'self-start rounded-lg px-3 py-1 text-xs font-semibold transition-colors',
-                      'bg-surface-container-lowest/60 hover:bg-surface-container-lowest text-on-surface',
+                      'flex h-9 w-9 shrink-0 items-center justify-center rounded-xl',
+                      config.iconWrap,
                     )}
+                    aria-hidden
                   >
-                    {insight.action_label ?? 'Vedi →'}
-                  </Link>
-                )}
+                    <Icon size={16} strokeWidth={2} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-start justify-between gap-3">
+                      <p className={cn('text-[13.5px] font-semibold leading-snug', config.title)}>
+                        {insight.title}
+                      </p>
+                      {insight.metric && (
+                        <span className="shrink-0 font-headline text-xl font-bold tabular-nums leading-none text-on-surface tracking-tightest">
+                          {insight.metric}
+                        </span>
+                      )}
+                    </div>
+                    <p className="mt-1.5 text-[12.5px] leading-relaxed text-on-surface-variant">
+                      {insight.body}
+                    </p>
+                    {insight.action_href && (
+                      <Link
+                        href={insight.action_href}
+                        className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] px-3 py-1.5 text-[12px] font-semibold text-on-surface transition-colors"
+                      >
+                        {insight.action_label ?? 'Vedi'}
+                        <ArrowUpRight size={12} strokeWidth={2.5} aria-hidden />
+                      </Link>
+                    )}
+                  </div>
+                </div>
               </div>
             );
           })}

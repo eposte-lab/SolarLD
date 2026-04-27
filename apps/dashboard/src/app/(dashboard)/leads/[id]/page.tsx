@@ -10,6 +10,13 @@
  *   Row 6 — Timeline (bento)
  */
 
+import {
+  AlertTriangle,
+  ArrowLeft,
+  ArrowUpRight,
+  Check,
+  ExternalLink,
+} from 'lucide-react';
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 
@@ -80,9 +87,10 @@ export default async function LeadDetailPage({ params }: PageProps) {
         <div className="space-y-3">
           <Link
             href="/leads"
-            className="text-xs font-medium text-on-surface-variant transition-colors hover:text-primary"
+            className="inline-flex items-center gap-1 text-xs font-medium text-on-surface-variant transition-colors hover:text-primary"
           >
-            ← Tutti i lead
+            <ArrowLeft size={12} strokeWidth={2.25} aria-hidden />
+            Tutti i lead
           </Link>
           <h1 className="font-headline text-4xl font-bold tracking-tighter">
             {name}
@@ -109,9 +117,10 @@ export default async function LeadDetailPage({ params }: PageProps) {
               href={publicLeadLink}
               target="_blank"
               rel="noreferrer"
-              className="text-xs font-semibold text-primary hover:underline"
+              className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
             >
-              Pagina pubblica ↗
+              Pagina pubblica
+              <ExternalLink size={11} strokeWidth={2.25} aria-hidden />
             </a>
           </div>
         </div>
@@ -256,19 +265,22 @@ export default async function LeadDetailPage({ params }: PageProps) {
             label="Email"
             value={
               lead.subjects?.decision_maker_email ? (
-                <span className="flex items-center justify-end gap-1.5">
+                <span className="inline-flex items-center justify-end gap-1.5">
                   {lead.subjects.decision_maker_email}
                   {lead.subjects.decision_maker_email_verified ? (
-                    <span className="text-primary" title="Verificata">
-                      ✓
-                    </span>
+                    <Check
+                      size={12}
+                      strokeWidth={2.5}
+                      className="text-primary"
+                      aria-label="Verificata"
+                    />
                   ) : (
-                    <span
-                      className="text-tertiary"
-                      title="Non verificata — Hunter/NeverBounce pending"
-                    >
-                      ⚠
-                    </span>
+                    <AlertTriangle
+                      size={12}
+                      strokeWidth={2.25}
+                      className="text-warning"
+                      aria-label="Non verificata"
+                    />
                   )}
                 </span>
               ) : (
@@ -427,9 +439,15 @@ export default async function LeadDetailPage({ params }: PageProps) {
               </span>
               <Link
                 href="/settings#plan"
-                className="font-semibold text-primary hover:underline"
+                className="group/link inline-flex items-center gap-1 font-semibold text-primary hover:underline"
               >
-                Scopri →
+                Scopri
+                <ArrowUpRight
+                  size={12}
+                  strokeWidth={2.5}
+                  className="transition-transform group-hover/link:translate-x-0.5 group-hover/link:-translate-y-0.5"
+                  aria-hidden
+                />
               </Link>
             </div>
             {events.length === 0 ? (

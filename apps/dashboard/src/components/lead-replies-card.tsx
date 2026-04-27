@@ -8,6 +8,7 @@
  * this client component handles copy-to-clipboard interactivity only.
  */
 
+import { Check, Copy, Zap } from 'lucide-react';
 import { useState } from 'react';
 
 import { cn, relativeTime } from '@/lib/utils';
@@ -134,13 +135,23 @@ function ReplyRow({ reply }: { reply: LeadReplyRow }) {
             <button
               onClick={copyReply}
               className={cn(
-                'shrink-0 rounded-md px-2.5 py-1 text-xs font-semibold transition-colors',
+                'shrink-0 inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-semibold transition-colors',
                 copied
-                  ? 'bg-primary-container text-on-primary-container'
-                  : 'bg-surface-container-high text-on-surface hover:bg-surface-container-highest',
+                  ? 'bg-primary/15 text-primary'
+                  : 'bg-white/[0.06] text-on-surface hover:bg-white/[0.12]',
               )}
             >
-              {copied ? '✓ Copiato' : 'Copia'}
+              {copied ? (
+                <>
+                  <Check size={12} strokeWidth={2.5} aria-hidden />
+                  Copiato
+                </>
+              ) : (
+                <>
+                  <Copy size={12} strokeWidth={2} aria-hidden />
+                  Copia
+                </>
+              )}
             </button>
           </div>
           <p className="whitespace-pre-wrap text-xs text-on-surface leading-relaxed">
@@ -202,18 +213,22 @@ const INTENT_MAP: Record<ReplyIntent, { label: string; cls: string }> = {
   },
 };
 
-const URGENCY_MAP: Record<ReplyUrgency, { label: string; cls: string }> = {
+const URGENCY_MAP: Record<
+  ReplyUrgency,
+  { label: string; cls: string; withIcon?: boolean }
+> = {
   high: {
-    label: '⚡ Urgente',
+    label: 'Urgente',
     cls: 'bg-error/15 text-error font-semibold',
+    withIcon: true,
   },
   medium: {
     label: 'Media priorità',
-    cls: 'bg-secondary-container/40 text-on-secondary-container',
+    cls: 'bg-warning/15 text-warning',
   },
   low: {
     label: 'Bassa priorità',
-    cls: 'bg-surface-container-high text-on-surface-variant',
+    cls: 'bg-white/[0.06] text-on-surface-variant',
   },
 };
 
@@ -228,8 +243,18 @@ function IntentBadge({ intent }: { intent: ReplyIntent }) {
 }
 
 function UrgencyBadge({ urgency }: { urgency: ReplyUrgency }) {
-  const { label, cls } = URGENCY_MAP[urgency] ?? URGENCY_MAP.low;
-  return <Badge label={label} extraCls={cls} />;
+  const cfg = URGENCY_MAP[urgency] ?? URGENCY_MAP.low;
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[11px]',
+        cfg.cls,
+      )}
+    >
+      {cfg.withIcon && <Zap size={10} strokeWidth={2.5} aria-hidden />}
+      {cfg.label}
+    </span>
+  );
 }
 
 function Badge({ label, extraCls }: { label: string; extraCls: string }) {

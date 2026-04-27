@@ -36,11 +36,12 @@ const TONE_STYLES: Record<BadgeTone, { bg: string; text: string; dot: string }> 
     dot: 'bg-error',
   },
   warning: {
-    // L'unico uso "legittimo" dell'amber sui badge: warm-up / cap reached / ecc.
-    // Tutti gli altri stati neutri/positivi/critici NON usano amber.
-    bg: 'bg-primary/12',
-    text: 'text-primary',
-    dot: 'bg-primary',
+    // L'unico uso "legittimo" dell'amber: warm-up / cap reached / DMARC none.
+    // Mint è riservato a "tutto va bene"; warning serve a distinguere
+    // l'attenzione che richiede azione manuale.
+    bg: 'bg-warning/15',
+    text: 'text-warning',
+    dot: 'bg-warning',
   },
   neutral: {
     bg: 'bg-surface-container-high',

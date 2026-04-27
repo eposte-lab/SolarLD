@@ -14,6 +14,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { AlertTriangle, Sparkles } from 'lucide-react';
 
 import { api, ApiError } from '@/lib/api-client';
 import { cn, relativeTime } from '@/lib/utils';
@@ -136,7 +137,7 @@ export function ExperimentsManager({ initialRows }: Props) {
       {/* Global error banner */}
       {errorMsg && (
         <div className="flex items-start gap-3 rounded-lg bg-error-container/40 px-4 py-3 text-sm text-on-error-container">
-          <span aria-hidden className="mt-0.5">⚠</span>
+          <AlertTriangle size={14} strokeWidth={2.25} aria-hidden className="mt-0.5 shrink-0" />
           <p className="flex-1">{errorMsg}</p>
           <button
             onClick={() => setErrorMsg(null)}
@@ -151,8 +152,9 @@ export function ExperimentsManager({ initialRows }: Props) {
       <div className="rounded-xl border border-primary/20 bg-primary-container/10 p-4">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <p className="text-sm font-semibold text-primary">
-              ✨ Genera oggetti email con AI
+            <p className="inline-flex items-center gap-1.5 text-sm font-semibold text-primary">
+              <Sparkles size={14} strokeWidth={2.25} aria-hidden />
+              Genera oggetti email con AI
             </p>
             <p className="mt-0.5 text-xs text-on-surface-variant">
               Claude genera varianti ottimizzate — assegna le migliori a
@@ -164,14 +166,15 @@ export function ExperimentsManager({ initialRows }: Props) {
             onClick={() => setShowTopAi((p) => !p)}
             disabled={phase !== 'idle'}
             className={cn(
-              'shrink-0 rounded-lg px-4 py-2 text-xs font-semibold transition-colors',
+              'inline-flex shrink-0 items-center gap-1.5 rounded-lg px-4 py-2 text-xs font-semibold transition-colors',
               showTopAi
                 ? 'bg-surface-container-high text-on-surface'
                 : 'bg-primary text-on-primary hover:bg-primary/90',
               'disabled:cursor-not-allowed disabled:opacity-50',
             )}
           >
-            {showTopAi ? 'Chiudi' : '✨ Apri generatore'}
+            {!showTopAi && <Sparkles size={12} strokeWidth={2.25} aria-hidden />}
+            {showTopAi ? 'Chiudi' : 'Apri generatore'}
           </button>
         </div>
 
@@ -287,8 +290,9 @@ function CreateForm({
           Nuovo esperimento A/B
         </p>
         {(subjA || subjB) && (
-          <span className="text-[10px] font-semibold text-primary bg-primary-container/30 rounded-full px-2 py-0.5">
-            ✨ Oggetti pre-compilati dall&apos;AI
+          <span className="inline-flex items-center gap-1 rounded-full bg-primary-container/30 px-2 py-0.5 text-[10px] font-semibold text-primary">
+            <Sparkles size={10} strokeWidth={2.5} aria-hidden />
+            Oggetti pre-compilati dall&apos;AI
           </span>
         )}
       </div>
@@ -422,8 +426,9 @@ function AiVariantPicker({
 
   return (
     <div className="mb-4 rounded-xl border border-primary/20 bg-primary-container/10 p-4">
-      <p className="mb-3 text-xs font-semibold text-primary">
-        ✨ Genera oggetti email con AI — poi assegnali alla variante A o B
+      <p className="mb-3 inline-flex items-center gap-1.5 text-xs font-semibold text-primary">
+        <Sparkles size={12} strokeWidth={2.25} aria-hidden />
+        Genera oggetti email con AI — poi assegnali alla variante A o B
       </p>
 
       <div className="grid gap-3 md:grid-cols-3">
@@ -489,9 +494,10 @@ function AiVariantPicker({
         type="button"
         disabled={loading}
         onClick={generate}
-        className="mt-3 rounded-lg bg-primary px-4 py-1.5 text-xs font-semibold text-on-primary transition-opacity disabled:opacity-50 hover:opacity-90"
+        className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-1.5 text-xs font-semibold text-on-primary transition-opacity disabled:opacity-50 hover:opacity-90"
       >
-        {loading ? 'Generazione in corso…' : '✨ Genera varianti'}
+        {!loading && <Sparkles size={11} strokeWidth={2.25} aria-hidden />}
+        {loading ? 'Generazione in corso…' : 'Genera varianti'}
       </button>
 
       {error && (

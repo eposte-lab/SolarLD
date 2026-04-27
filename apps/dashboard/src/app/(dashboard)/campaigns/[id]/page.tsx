@@ -321,7 +321,7 @@ function ResultsChart({ rows }: { rows: CampaignResultRow[] }) {
     <BentoCard span="full" variant="glass">
       <div className="mb-4 flex items-end justify-between">
         <div className="space-y-1">
-          <SectionEyebrow tone="amber">Open rate trend per variante</SectionEyebrow>
+          <SectionEyebrow tone="mint">Open rate trend per variante</SectionEyebrow>
           <p className="font-headline text-3xl font-bold tabular-nums tracking-tightest text-on-surface">
             {totalOpened}
             <span className="hero-decimal text-base"> / {totalSent} aperti</span>
@@ -334,7 +334,7 @@ function ResultsChart({ rows }: { rows: CampaignResultRow[] }) {
         height={220}
         series={[
           { key: 'sent', label: 'Inviati', color: 'whiteDim' },
-          { key: 'opened', label: 'Aperti', color: 'amber', focused: true },
+          { key: 'opened', label: 'Aperti', color: 'mint', focused: true },
         ]}
         yReferenceLines={[Math.max(...data.map((d) => d.sent)) * 0.25, Math.max(...data.map((d) => d.sent)) * 0.5, Math.max(...data.map((d) => d.sent)) * 0.75]}
         yReferenceLabels={['25%', '50%', '75%']}

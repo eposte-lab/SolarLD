@@ -18,6 +18,7 @@ import {
   useState,
   useTransition,
 } from 'react';
+import { Palette, Sparkles } from 'lucide-react';
 
 import { LogoUpload } from '@/components/ui/logo-upload';
 import { createBrowserClient } from '@/lib/supabase/client';
@@ -361,8 +362,9 @@ export function BrandingEditor({ tenant }: BrandingEditorProps) {
         <div className="rounded-xl border border-primary/20 bg-primary-container/10 p-4">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <p className="text-sm font-semibold text-primary">
-                🎨 Rigenera contenuto con AI
+              <p className="inline-flex items-center gap-1.5 text-sm font-semibold text-primary">
+                <Palette size={14} strokeWidth={2.25} aria-hidden />
+                Rigenera contenuto con AI
               </p>
               <p className="mt-0.5 text-xs text-on-surface-variant">
                 Claude scrive headline, testo e CTA basandosi sul tuo brand e
@@ -373,9 +375,10 @@ export function BrandingEditor({ tenant }: BrandingEditorProps) {
               type="button"
               disabled={aiLoading}
               onClick={handleAiRegenerate}
-              className="shrink-0 rounded-lg bg-primary px-4 py-2 text-xs font-semibold text-on-primary transition-opacity disabled:opacity-50 hover:opacity-90"
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-xs font-semibold text-on-primary transition-opacity disabled:opacity-50 hover:opacity-90"
             >
-              {aiLoading ? 'Generazione…' : '✨ Genera'}
+              {!aiLoading && <Sparkles size={12} strokeWidth={2.25} aria-hidden />}
+              {aiLoading ? 'Generazione…' : 'Genera'}
             </button>
           </div>
 

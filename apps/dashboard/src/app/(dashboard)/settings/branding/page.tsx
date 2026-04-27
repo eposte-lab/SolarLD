@@ -6,6 +6,8 @@
  * The live preview iframe renders the actual Jinja2 template.
  */
 
+import { Image as ImageIcon, Mail, Palette, Sparkles } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 
@@ -59,22 +61,22 @@ export default async function BrandingPage() {
         </p>
         <div className="mt-4 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           <HowCard
-            icon="🎨"
+            Icon={Palette}
             title="Colore principale"
             desc="Usato per barra superiore (Classic), header gradiente (Bold) e CTA. CSS inline via Premailer."
           />
           <HowCard
-            icon="🖼️"
+            Icon={ImageIcon}
             title="Logo"
             desc="Mostrato nel header di ogni stile. Consigliato: PNG 300 × 80 px, sfondo trasparente."
           />
           <HowCard
-            icon="✉️"
+            Icon={Mail}
             title="Nome mittente"
             desc={'Appare nell\u2019inbox come "Nome <outreach@tuodominio.it>". Configura il dominio nella sezione Email Domain.'}
           />
           <HowCard
-            icon="🤖"
+            Icon={Sparkles}
             title="Stile & AI copy"
             desc="Scegli tra Classic, Bold e Minimal. L'AI genera headline, testo e CTA calibrati sul tuo brand."
           />
@@ -85,19 +87,25 @@ export default async function BrandingPage() {
 }
 
 function HowCard({
-  icon,
+  Icon,
   title,
   desc,
 }: {
-  icon: string;
+  Icon: LucideIcon;
   title: string;
   desc: string;
 }) {
   return (
-    <div className="rounded-lg bg-surface-container-low p-4">
-      <div className="mb-2 text-xl">{icon}</div>
-      <p className="font-semibold text-on-surface">{title}</p>
-      <p className="mt-1 text-xs text-on-surface-variant">{desc}</p>
+    <div className="relative overflow-hidden rounded-xl liquid-glass-sm p-4">
+      <span
+        className="pointer-events-none absolute inset-x-0 top-0 h-10 bg-glass-specular"
+        aria-hidden
+      />
+      <div className="relative mb-3 flex h-9 w-9 items-center justify-center rounded-xl bg-primary/12 text-primary">
+        <Icon size={16} strokeWidth={2} aria-hidden />
+      </div>
+      <p className="relative font-semibold text-on-surface">{title}</p>
+      <p className="relative mt-1 text-xs text-on-surface-variant">{desc}</p>
     </div>
   );
 }

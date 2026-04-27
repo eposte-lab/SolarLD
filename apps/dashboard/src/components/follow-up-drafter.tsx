@@ -23,6 +23,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { AlertTriangle } from 'lucide-react';
 
 import { api, ApiError } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
@@ -131,7 +132,7 @@ export function FollowUpDrafter({ leadId }: { leadId: string }) {
       {/* Error banner */}
       {errorMsg && phase === 'error' && (
         <div className="flex items-start gap-3 rounded-lg bg-error-container/40 px-4 py-3 text-sm text-on-error-container">
-          <span aria-hidden className="mt-0.5">⚠</span>
+          <AlertTriangle size={14} strokeWidth={2.25} aria-hidden className="mt-0.5 shrink-0" />
           <p>{errorMsg}</p>
           <button
             onClick={() => { setPhase('idle'); setErrorMsg(null); }}
@@ -145,7 +146,7 @@ export function FollowUpDrafter({ leadId }: { leadId: string }) {
       {/* Inline send error (stays on drafted state) */}
       {errorMsg && phase === 'drafted' && (
         <div className="flex items-start gap-3 rounded-lg bg-error-container/40 px-4 py-3 text-sm text-on-error-container">
-          <span aria-hidden className="mt-0.5">⚠</span>
+          <AlertTriangle size={14} strokeWidth={2.25} aria-hidden className="mt-0.5 shrink-0" />
           <p>{errorMsg}</p>
         </div>
       )}

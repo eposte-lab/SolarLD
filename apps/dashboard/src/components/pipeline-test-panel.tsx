@@ -13,6 +13,7 @@
  */
 
 import { useState } from 'react';
+import { AlertTriangle, Loader2, Mail, Rocket } from 'lucide-react';
 
 import { api, API_URL } from '@/lib/api-client';
 
@@ -145,8 +146,9 @@ export function PipelineTestPanel({ tenantId }: Props) {
       }`}>
         <span className="font-mono">{API_URL}</span>
         {apiIsLocalhost && (
-          <span className="font-semibold">
-            ⚠️ localhost — imposta NEXT_PUBLIC_API_URL su Vercel
+          <span className="inline-flex items-center gap-1.5 font-semibold">
+            <AlertTriangle size={12} strokeWidth={2.25} aria-hidden />
+            localhost — imposta NEXT_PUBLIC_API_URL su Vercel
           </span>
         )}
       </div>
@@ -209,9 +211,14 @@ export function PipelineTestPanel({ tenantId }: Props) {
         <button
           type="submit"
           disabled={loading}
-          className="rounded-lg bg-primary px-6 py-2.5 text-sm font-semibold text-on-primary transition-opacity disabled:opacity-50 hover:opacity-90"
+          className="inline-flex items-center gap-2 rounded-lg bg-primary px-6 py-2.5 text-sm font-semibold text-on-primary transition-opacity disabled:opacity-50 hover:opacity-90"
         >
-          {loading ? '⏳ Pipeline in corso…' : '🚀 Avvia test pipeline'}
+          {loading ? (
+            <Loader2 size={14} strokeWidth={2.25} aria-hidden className="animate-spin" />
+          ) : (
+            <Rocket size={14} strokeWidth={2.25} aria-hidden />
+          )}
+          {loading ? 'Pipeline in corso…' : 'Avvia test pipeline'}
         </button>
       </form>
 
@@ -235,12 +242,14 @@ export function PipelineTestPanel({ tenantId }: Props) {
 
           {/* Outreach result badge */}
           {result.outreach_result && (
-            <div className={`rounded-lg px-3 py-2 text-sm font-medium ${
+            <div className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium ${
               result.outreach_result.startsWith('sent')
-                ? 'bg-green-500/10 text-green-700 border border-green-500/20'
-                : 'bg-amber-500/10 text-amber-700 border border-amber-500/20'
+                ? 'bg-primary/10 text-primary border border-primary/20'
+                : 'bg-warning/10 text-warning border border-warning/20'
             }`}>
-              {result.outreach_result.startsWith('sent') ? '✉️ ' : '⚠️ '}
+              {result.outreach_result.startsWith('sent')
+                ? <Mail size={14} strokeWidth={2.25} aria-hidden />
+                : <AlertTriangle size={14} strokeWidth={2.25} aria-hidden />}
               {result.outreach_result}
             </div>
           )}

@@ -12,6 +12,12 @@
  * Reads from `outreach_sends` (ex `campaigns`, renamed in migration 0043).
  */
 
+import {
+  ArrowLeft,
+  ArrowRight,
+  ArrowUpRight,
+  Check,
+} from 'lucide-react';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 
@@ -180,7 +186,7 @@ export default async function InviiPage({
           {deferred.length === 0 ? (
             <div className="px-4 pb-8 pt-4 text-center">
               <p className="text-sm text-on-surface-variant">
-                Nessun invio rimandato oggi. 🎉 Il cap non è stato raggiunto.
+                Nessun invio rimandato oggi. Il cap non è stato raggiunto.
               </p>
             </div>
           ) : (
@@ -305,9 +311,15 @@ export default async function InviiPage({
           {/* Link to A/B experiments */}
           <Link
             href="/experiments"
-            className="text-xs font-semibold text-primary hover:underline"
+            className="group/link inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
           >
-            A/B Testing →
+            A/B Testing
+            <ArrowUpRight
+              size={12}
+              strokeWidth={2.5}
+              className="transition-transform group-hover/link:translate-x-0.5 group-hover/link:-translate-y-0.5"
+              aria-hidden
+            />
           </Link>
         </header>
 
@@ -365,21 +377,21 @@ export default async function InviiPage({
                     {/* Engagement — read from lead */}
                     <td className="px-5 py-3 text-xs">
                       {c.leads?.outreach_delivered_at || c.status === 'delivered' ? (
-                        <span className="font-semibold text-primary">✓</span>
+                        <Check size={14} strokeWidth={2.5} className="text-primary" aria-label="Consegnato" />
                       ) : (
                         <span className="text-on-surface-variant">—</span>
                       )}
                     </td>
                     <td className="px-5 py-3 text-xs">
                       {c.leads?.outreach_opened_at ? (
-                        <span className="font-semibold text-primary">✓</span>
+                        <Check size={14} strokeWidth={2.5} className="text-primary" aria-label="Aperto" />
                       ) : (
                         <span className="text-on-surface-variant">—</span>
                       )}
                     </td>
                     <td className="px-5 py-3 text-xs">
                       {c.leads?.outreach_clicked_at ? (
-                        <span className="font-semibold text-primary">✓</span>
+                        <Check size={14} strokeWidth={2.5} className="text-primary" aria-label="Cliccato" />
                       ) : (
                         <span className="text-on-surface-variant">—</span>
                       )}
@@ -393,15 +405,27 @@ export default async function InviiPage({
                       <div className="flex items-center justify-end gap-3">
                         <Link
                           href={`/invii/${c.id}`}
-                          className="text-xs font-semibold text-on-surface-variant hover:text-primary hover:underline"
+                          className="group/link inline-flex items-center gap-1 text-xs font-semibold text-on-surface-variant hover:text-primary hover:underline"
                         >
-                          dettaglio →
+                          dettaglio
+                          <ArrowUpRight
+                            size={11}
+                            strokeWidth={2.5}
+                            className="transition-transform group-hover/link:translate-x-0.5 group-hover/link:-translate-y-0.5"
+                            aria-hidden
+                          />
                         </Link>
                         <Link
                           href={`/leads/${c.lead_id}`}
-                          className="text-xs font-semibold text-primary hover:underline"
+                          className="group/link inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
                         >
-                          lead →
+                          lead
+                          <ArrowUpRight
+                            size={11}
+                            strokeWidth={2.5}
+                            className="transition-transform group-hover/link:translate-x-0.5 group-hover/link:-translate-y-0.5"
+                            aria-hidden
+                          />
                         </Link>
                       </div>
                     </td>
@@ -425,7 +449,8 @@ export default async function InviiPage({
                   variant="secondary"
                   size="sm"
                 >
-                  ← Precedente
+                  <ArrowLeft size={12} strokeWidth={2.25} aria-hidden />
+                  Precedente
                 </GradientButton>
               )}
               {page < totalPages && (
@@ -434,7 +459,8 @@ export default async function InviiPage({
                   variant="secondary"
                   size="sm"
                 >
-                  Successiva →
+                  Successiva
+                  <ArrowRight size={12} strokeWidth={2.25} aria-hidden />
                 </GradientButton>
               )}
             </div>

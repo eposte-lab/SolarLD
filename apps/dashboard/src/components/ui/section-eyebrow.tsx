@@ -6,19 +6,20 @@
  *
  * Variants:
  *   - default → on-surface-variant (#8A9094)
- *   - amber   → primary tint (highlight per metriche eyebrow critiche)
+ *   - mint    → primary tint (highlight per metriche eyebrow positive)
  *   - dim     → on-surface-muted (#5A6066) per breadcrumb-like
  *
  * Esempio:
  *   <SectionEyebrow>Panoramica · Lunedì 27 Aprile</SectionEyebrow>
- *   <SectionEyebrow tone="amber" icon={<AlertIcon/>}>Anomalie 24h</SectionEyebrow>
+ *   <SectionEyebrow tone="mint" icon={<AlertIcon/>}>Trend positivi</SectionEyebrow>
  */
 
 import { cn } from '@/lib/utils';
 
 interface Props {
   children: React.ReactNode;
-  tone?: 'default' | 'amber' | 'dim';
+  /** `amber` is kept as backward-compat alias of `mint`. */
+  tone?: 'default' | 'mint' | 'amber' | 'dim';
   icon?: React.ReactNode;
   className?: string;
   as?: 'p' | 'div' | 'span';
@@ -26,7 +27,8 @@ interface Props {
 
 const TONE_TEXT = {
   default: 'text-on-surface-variant',
-  amber: 'text-primary',
+  mint: 'text-primary',
+  amber: 'text-primary', // legacy alias → mint
   dim: 'text-on-surface-muted',
 } as const;
 

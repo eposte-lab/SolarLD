@@ -93,7 +93,7 @@ export function ModuleSorgente({
         title="Geografia"
         hint={
           geoLocked
-            ? '🔒 Zona di esclusiva confermata — contatta il supporto per modifiche.'
+            ? 'Zona di esclusiva confermata — contatta il supporto per modifiche.'
             : 'Vince il più specifico: CAP > Provincia > Regione.'
         }
       >

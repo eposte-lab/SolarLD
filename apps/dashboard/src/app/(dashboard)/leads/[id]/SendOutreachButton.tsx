@@ -7,6 +7,7 @@
  * guard against double-click with a local state machine.
  */
 
+import { Check, Send, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
@@ -64,7 +65,10 @@ export function SendOutreachButton({ leadId, alreadySent }: Props) {
           className="inline-flex items-center gap-2 rounded-full bg-gradient-primary px-6 py-3 text-sm font-bold text-on-primary shadow-ambient-sm transition-all hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-50 disabled:saturate-50"
           title={alreadySent ? 'Già inviato — usa "Re-invia" per forzare' : undefined}
         >
-          {busy ? 'Invio in corso…' : alreadySent ? 'Outreach già inviato' : '📧 Invia outreach'}
+          {!busy && !alreadySent && (
+            <Send size={14} strokeWidth={2.25} aria-hidden />
+          )}
+          {busy ? 'Invio in corso…' : alreadySent ? 'Outreach già inviato' : 'Invia outreach'}
         </button>
         {alreadySent && (
           <button
@@ -78,10 +82,16 @@ export function SendOutreachButton({ leadId, alreadySent }: Props) {
       </div>
 
       {state.kind === 'success' && (
-        <p className="text-xs font-semibold text-primary">✓ {state.message}</p>
+        <p className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary">
+          <Check size={12} strokeWidth={2.5} aria-hidden />
+          {state.message}
+        </p>
       )}
       {state.kind === 'error' && (
-        <p className="text-xs font-semibold text-secondary">✗ {state.message}</p>
+        <p className="inline-flex items-start gap-1.5 text-xs font-semibold text-error">
+          <X size={12} strokeWidth={2.5} className="mt-0.5 shrink-0" aria-hidden />
+          {state.message}
+        </p>
       )}
     </div>
   );

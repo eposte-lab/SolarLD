@@ -20,16 +20,16 @@ import { getCentroid } from './italy-provinces';
 
 // ── colour helpers ────────────────────────────────────────────────────────────
 
-// Editorial Glass palette: amber-only highlights + desaturated success green.
-const COLOR_WON = '#6FCF97';
-const COLOR_AMBER = '#F4A45C';
-const COLOR_AMBER_DIM = '#E8924A';
-const COLOR_DIM = '#8A9094';
+// Liquid Glass palette: mint single-accent + warning amber + dim grey.
+const COLOR_MINT = '#6FCF97';
+const COLOR_MINT_DIM = '#5BB880';
+const COLOR_WARNING = '#F4A45C';
+const COLOR_DIM = '#8A9499';
 
 function dominantColor(agg: ProvinceAggregate): string {
-  if (agg.won > 0) return COLOR_WON;
-  if (agg.appointments > 0) return COLOR_AMBER;
-  if (agg.hot > 0) return COLOR_AMBER_DIM;
+  if (agg.won > 0) return COLOR_MINT;
+  if (agg.appointments > 0) return COLOR_MINT_DIM;
+  if (agg.hot > 0) return COLOR_WARNING;
   return COLOR_DIM;
 }
 
@@ -84,8 +84,6 @@ export function GeoRadarMapClient({
       // Il risultato è "satellite ma cinema-dark" come i reference RonDesignLab.
       try {
         const layers = map.getStyle()?.layers ?? [];
-        // Trova il primo layer label per inserire il tint sotto, così le
-        // etichette delle città restano leggibili sopra il velo scuro.
         const firstLabelLayer = layers.find(
           (l) => l.type === 'symbol' && l.id.includes('label'),
         );
@@ -94,8 +92,8 @@ export function GeoRadarMapClient({
             id: 'editorial-dark-tint',
             type: 'background',
             paint: {
-              'background-color': '#0A0B0C',
-              'background-opacity': 0.55,
+              'background-color': '#07090A',
+              'background-opacity': 0.58,
             },
           },
           firstLabelLayer?.id,
@@ -172,27 +170,26 @@ export function GeoRadarMapClient({
         el.appendChild(badge);
       }
 
-      // Pulse ring for hot/appointment provinces — sempre amber editoriale
+      // Pulse ring per province con hot/appointment — mint editoriale
       if (isPulsing) {
         const ring = document.createElement('div');
         ring.style.cssText = `
           position: absolute;
           inset: -6px;
           border-radius: 50%;
-          border: 2px solid ${COLOR_AMBER};
+          border: 2px solid ${COLOR_MINT};
           animation: radarPulse 2s ease-out infinite;
           pointer-events: none;
           opacity: 0.7;
         `;
         el.appendChild(ring);
 
-        // Second ring, offset phase
         const ring2 = document.createElement('div');
         ring2.style.cssText = `
           position: absolute;
           inset: -6px;
           border-radius: 50%;
-          border: 1.5px solid ${COLOR_AMBER};
+          border: 1.5px solid ${COLOR_MINT};
           animation: radarPulse 2s ease-out infinite;
           animation-delay: 0.8s;
           pointer-events: none;
@@ -205,18 +202,20 @@ export function GeoRadarMapClient({
         .setLngLat([centroid.lng, centroid.lat])
         .addTo(mapRef.current!);
 
-      // Hover popup
+      // Hover popup — niente emoji, dot indicator + label sobria
       el.addEventListener('mouseenter', () => {
+        const dot = (color: string) =>
+          `<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background-color:${color};margin-right:8px;vertical-align:middle"></span>`;
         const content = `
-          <div style="font-family:'Plus Jakarta Sans',sans-serif;font-size:12px;line-height:1.5">
-            <div style="font-weight:700;font-size:13px;margin-bottom:4px">
+          <div style="font-family:'Plus Jakarta Sans',sans-serif;font-size:12px;line-height:1.6">
+            <div style="font-weight:700;font-size:13px;margin-bottom:6px;letter-spacing:-0.01em">
               ${centroid.name}
             </div>
-            <div style="color:#8A9094;display:flex;flex-direction:column;gap:2px">
-              <span>${agg.total} lead totali</span>
-              ${agg.hot > 0 ? `<span style="color:${COLOR_AMBER_DIM}">🔥 ${agg.hot} hot</span>` : ''}
-              ${agg.appointments > 0 ? `<span style="color:${COLOR_AMBER}">📅 ${agg.appointments} appuntamenti</span>` : ''}
-              ${agg.won > 0 ? `<span style="color:${COLOR_WON}">✓ ${agg.won} firmati</span>` : ''}
+            <div style="color:#8A9499;display:flex;flex-direction:column;gap:3px">
+              <span>${dot('#8A9499')}${agg.total} lead totali</span>
+              ${agg.hot > 0 ? `<span style="color:#ECEFF0">${dot(COLOR_WARNING)}${agg.hot} hot</span>` : ''}
+              ${agg.appointments > 0 ? `<span style="color:#ECEFF0">${dot(COLOR_MINT_DIM)}${agg.appointments} appuntamenti</span>` : ''}
+              ${agg.won > 0 ? `<span style="color:#ECEFF0">${dot(COLOR_MINT)}${agg.won} firmati</span>` : ''}
             </div>
           </div>
         `;

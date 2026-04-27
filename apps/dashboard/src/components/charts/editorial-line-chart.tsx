@@ -3,24 +3,20 @@
 /**
  * EditorialLineChart — line chart minimalista con label inline.
  *
- * Stile (cfr. reference IMG_0923 / IMG_0925):
- *   - Linee sottili bianche + UNA linea amber per la metrica focused
- *   - No CartesianGrid; solo dashed horizontal a percentile presets
+ * Stile Liquid Glass:
+ *   - Linee sottili bianche + UNA linea mint per la metrica focused
+ *   - No CartesianGrid (solo dashed horizontal su percentile presets)
  *   - No tooltip esterno → label inline sulla curva con valore + delta
- *   - Custom dot SVG (ring bianco) sui punti, riempito amber sul focus
- *   - Asse X minimal, asse Y nascosto (label inline lo sostituiscono)
+ *   - Custom dot SVG (ring bianco) sui punti, riempito mint sul focus
  *
  * Uso:
  *   <EditorialLineChart
- *     data={[{ t: '06:00', open: 12, click: 3 }, ...]}
+ *     data={[...]}
  *     xKey="t"
  *     series={[
  *       { key: 'open', label: 'Aperture', color: 'white' },
- *       { key: 'click', label: 'Click', color: 'amber', focused: true },
+ *       { key: 'click', label: 'Click', color: 'mint', focused: true },
  *     ]}
- *     height={220}
- *     yReferenceLines={[25, 50, 75, 100]}
- *     yReferenceLabels={['25%', '50%', '75%', '100%']}
  *   />
  */
 
@@ -38,18 +34,18 @@ import { cn } from '@/lib/utils';
 
 const COLORS = {
   white: '#ECEFF0',
-  whiteDim: '#8A9094',
-  amber: '#F4A45C',
-  amberDim: '#B86F2C',
+  whiteDim: '#8A9499',
+  mint: '#6FCF97',
+  mintDim: '#5BB880',
   grid: 'rgba(255,255,255,0.08)',
 } as const;
 
 export interface ChartSeries {
   key: string;
   label: string;
-  /** Color theme — `white` is the default / unfocused; `amber` is the focused metric. */
-  color?: 'white' | 'amber' | 'whiteDim';
-  /** Render the focus dot (filled amber circle) on the last point. */
+  /** Color theme — `white` is the default / unfocused; `mint` is the focused metric. */
+  color?: 'white' | 'mint' | 'whiteDim';
+  /** Render the focus dot (filled mint circle) on the last point. */
   focused?: boolean;
 }
 
@@ -124,8 +120,8 @@ export function EditorialLineChart<T extends Record<string, unknown>>({
 
           {series.map((s) => {
             const stroke =
-              s.color === 'amber'
-                ? COLORS.amber
+              s.color === 'mint'
+                ? COLORS.mint
                 : s.color === 'whiteDim'
                   ? COLORS.whiteDim
                   : COLORS.white;
@@ -140,7 +136,7 @@ export function EditorialLineChart<T extends Record<string, unknown>>({
                 activeDot={{
                   r: 5,
                   fill: stroke,
-                  stroke: '#0A0B0C',
+                  stroke: '#07090A',
                   strokeWidth: 2,
                 }}
                 isAnimationActive

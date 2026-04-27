@@ -2,7 +2,7 @@ import { redirect } from 'next/navigation';
 
 import { RealtimeToaster } from '@/components/realtime-toaster';
 import { NotificationsBell } from '@/components/ui/notifications-bell';
-import { SideNav, type NavItem } from '@/components/ui/side-nav';
+import { SideNav, type NavSection } from '@/components/ui/side-nav';
 import {
   countUnreadNotifications,
   listRecentNotifications,
@@ -23,16 +23,37 @@ import { createSupabaseServerClient } from '@/lib/supabase/server';
  *   - No 1px borders anywhere — separation is purely tonal
  */
 
-const NAV: NavItem[] = [
-  { href: '/', label: 'Panoramica', icon: 'dashboard' },
-  { href: '/contatti', label: 'Contatti', icon: 'contatti' },
-  { href: '/leads', label: 'Lead Attivi', icon: 'leads' },
-  { href: '/invii', label: 'Invii', icon: 'invii' },
-  { href: '/territories', label: 'Territori', icon: 'territories' },
-  { href: '/funnel', label: 'Funnel', icon: 'funnel' },
-  { href: '/deliverability', label: 'Deliverability', icon: 'deliverability' },
-  { href: '/analytics', label: 'Analytics', icon: 'analytics' },
-  { href: '/settings', label: 'Impostazioni', icon: 'settings' },
+/**
+ * Navigation è raggruppata per cluster di task:
+ *   - Acquisizione → cosa entra (lead, contatti, territori)
+ *   - Operatività  → cosa succede ai lead (panoramica, funnel, invii, deliverability)
+ *   - Setup        → analytics + configurazione
+ */
+const NAV_SECTIONS: NavSection[] = [
+  {
+    label: 'Acquisizione',
+    items: [
+      { href: '/leads', label: 'Lead Attivi', icon: 'leads' },
+      { href: '/contatti', label: 'Contatti', icon: 'contatti' },
+      { href: '/territories', label: 'Territori', icon: 'territories' },
+    ],
+  },
+  {
+    label: 'Operatività',
+    items: [
+      { href: '/', label: 'Panoramica', icon: 'dashboard' },
+      { href: '/funnel', label: 'Funnel', icon: 'funnel' },
+      { href: '/invii', label: 'Invii', icon: 'invii' },
+      { href: '/deliverability', label: 'Deliverability', icon: 'deliverability' },
+    ],
+  },
+  {
+    label: 'Setup',
+    items: [
+      { href: '/analytics', label: 'Analytics', icon: 'analytics' },
+      { href: '/settings', label: 'Impostazioni', icon: 'settings' },
+    ],
+  },
 ];
 
 export default async function DashboardLayout({
@@ -84,7 +105,7 @@ export default async function DashboardLayout({
   return (
     <div className="flex min-h-screen bg-surface">
       <SideNav
-        items={NAV}
+        sections={NAV_SECTIONS}
         tenant={{ business_name: ctx.tenant.business_name }}
         user_email={ctx.user_email}
       />

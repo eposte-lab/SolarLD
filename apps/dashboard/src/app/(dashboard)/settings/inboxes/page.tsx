@@ -16,6 +16,7 @@
  */
 
 import { useEffect, useState, useTransition } from 'react';
+import { AlertTriangle, Check } from 'lucide-react';
 import { BentoCard } from '@/components/ui/bento-card';
 import { apiClient } from '@/lib/api-client';
 
@@ -301,10 +302,13 @@ function InboxCard({
 
           {/* OAuth error banner */}
           {isGmailExpired && inbox.oauth_last_error && (
-            <p className="mt-1 text-xs text-tertiary">
-              ⚠️ Token scaduto o revocato:{' '}
-              <span className="font-mono">{inbox.oauth_last_error}</span>.{' '}
-              Ri-autorizza per continuare a inviare via Gmail.
+            <p className="mt-1 inline-flex items-start gap-1.5 text-xs text-tertiary">
+              <AlertTriangle size={13} strokeWidth={2.25} aria-hidden className="mt-0.5 shrink-0" />
+              <span>
+                Token scaduto o revocato:{' '}
+                <span className="font-mono">{inbox.oauth_last_error}</span>.{' '}
+                Ri-autorizza per continuare a inviare via Gmail.
+              </span>
             </p>
           )}
 
@@ -409,8 +413,9 @@ function ProviderBadge({
     }
     if (connected) {
       return (
-        <span className="rounded-full bg-primary-container px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-on-primary-container">
-          Gmail OAuth ✓
+        <span className="inline-flex items-center gap-1 rounded-full bg-primary-container px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-on-primary-container">
+          <Check size={11} strokeWidth={2.5} aria-hidden />
+          Gmail OAuth
         </span>
       );
     }

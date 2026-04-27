@@ -46,10 +46,10 @@ function statusBadge(s: string) {
     failed: 'bg-error-container text-on-error-container',
   };
   const labels: Record<string, string> = {
-    verified: '✓ Verificato',
-    pending: '⏳ In attesa DNS',
-    not_started: '○ Non avviato',
-    failed: '✗ Verifica fallita',
+    verified: 'Verificato',
+    pending: 'In attesa DNS',
+    not_started: 'Non avviato',
+    failed: 'Verifica fallita',
   };
   return { cls: map[s] ?? map.not_started, label: labels[s] ?? s };
 }

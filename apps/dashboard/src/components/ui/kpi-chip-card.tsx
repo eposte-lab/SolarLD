@@ -1,20 +1,18 @@
 /**
- * KPI chip card — Editorial Glass (Sprint 7).
+ * KPI chip card — Liquid Glass (V2).
  *
  * Two sizes:
  *   - default → compact tile per le KPI strip standard
  *   - hero    → numero gigante con composizione "big + dimmed decimal"
- *               (es. "78.3%" → "78" full + ".3%" @60% opacità)
  *
- * Single-accent system: l'unico highlight cromatico è amber. I vecchi
- * accent "primary green / tertiary gold / secondary terracotta" sono
- * mappati allo stesso amber per backward-compat — la scelta semantica
- * vera vive nel nuovo prop `tone`:
+ * Single-accent system: l'unico highlight cromatico è mint. La scelta
+ * semantica vive nel prop `tone`:
  *
  *   - 'neutral'    → no stripe, solo grigi
- *   - 'highlight'  → stripe + numero in amber (per metriche che richiedono attenzione)
- *   - 'success'    → stripe verde desaturato (won, online, healthy)
+ *   - 'highlight'  → stripe + numero in mint (metriche positive)
+ *   - 'success'    → stripe mint (won, online, healthy) — alias di highlight
  *   - 'critical'   → stripe rosso desaturato (alarm)
+ *   - 'warning'    → stripe amber (rare: warm-up, cap reached)
  */
 
 import { cn } from '@/lib/utils';
@@ -23,28 +21,30 @@ import { cn } from '@/lib/utils';
 // rimappati semanticamente sui nuovi tone.
 type KpiAccent = 'primary' | 'tertiary' | 'secondary' | 'neutral';
 
-type KpiTone = 'neutral' | 'highlight' | 'success' | 'critical';
+type KpiTone = 'neutral' | 'highlight' | 'success' | 'critical' | 'warning';
 type KpiSize = 'default' | 'hero';
 
 const TONE_STRIPE: Record<KpiTone, string> = {
-  neutral: 'before:bg-white/8',
+  neutral: 'before:bg-white/10',
   highlight: 'before:bg-primary',
-  success: 'before:bg-success',
+  success: 'before:bg-primary',
   critical: 'before:bg-error',
+  warning: 'before:bg-warning',
 };
 
 const TONE_TEXT: Record<KpiTone, string> = {
   neutral: 'text-on-surface',
   highlight: 'text-primary',
-  success: 'text-success',
+  success: 'text-primary',
   critical: 'text-error',
+  warning: 'text-warning',
 };
 
 // Legacy `accent` → new `tone` rimapping
 const ACCENT_TO_TONE: Record<KpiAccent, KpiTone> = {
-  primary: 'highlight', // legacy primary green → amber highlight
-  tertiary: 'highlight', // legacy gold → amber highlight (same single accent)
-  secondary: 'critical', // legacy terracotta urgency → critical red
+  primary: 'highlight',
+  tertiary: 'highlight',
+  secondary: 'critical',
   neutral: 'neutral',
 };
 
@@ -109,48 +109,91 @@ export function KpiChipCard({
   return (
     <div
       className={cn(
-        'relative overflow-hidden rounded-xl bg-surface-container-lowest ghost-border shadow-ambient',
-        isHero ? 'p-7' : 'p-6',
+        'group relative overflow-hidden rounded-2xl liquid-glass-sm transition-all duration-300 hover:-translate-y-0.5 hover:shadow-liquid-glass',
+        isHero ? 'p-7' : 'p-5',
         // Top accent stripe
-        'before:absolute before:left-0 before:right-0 before:top-0 before:h-1',
+        'before:absolute before:left-0 before:right-0 before:top-0 before:h-[3px]',
+        'before:rounded-t-2xl',
         TONE_STRIPE[effectiveTone],
         className,
       )}
     >
-      <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
-        {label}
-      </p>
-      <p
-        className={cn(
-          'mt-3 font-headline font-bold leading-none tracking-tightest tabular-nums',
-          isHero ? 'text-6xl md:text-7xl animate-numeric-reveal' : 'text-4xl tracking-tighter',
-          TONE_TEXT[effectiveTone],
-          effectiveTone === 'highlight' && isHero && 'editorial-glow',
-        )}
-      >
-        <span>{mainPart}</span>
-        {decimalPart && <span className="hero-decimal">{decimalPart}</span>}
-      </p>
-      <div className="mt-3 flex items-center gap-2">
-        {trend !== undefined && (
-          <span
-            className={cn(
-              'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold tabular-nums',
-              trend.delta > 0
-                ? 'bg-success-container text-on-success-container'
-                : trend.delta < 0
-                  ? 'bg-error-container text-on-error-container'
-                  : 'bg-surface-container-high text-on-surface-variant',
-            )}
-          >
-            <span aria-hidden>
-              {trend.delta > 0 ? '↑' : trend.delta < 0 ? '↓' : '→'}
-            </span>
-            {formatDelta(trend.delta, trend.unit)}
-          </span>
-        )}
-        {hint && <p className="text-xs text-on-surface-variant">{hint}</p>}
+      {/* Specular top-edge highlight */}
+      <span
+        className="pointer-events-none absolute inset-x-0 top-0 h-[40%] bg-glass-specular"
+        aria-hidden
+      />
+      <div className="relative">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-on-surface-variant">
+          {label}
+        </p>
+        <p
+          className={cn(
+            'mt-3 font-headline font-bold leading-none tracking-tightest tabular-nums',
+            isHero
+              ? 'text-6xl md:text-7xl animate-numeric-reveal'
+              : 'text-[2.25rem] tracking-tighter',
+            TONE_TEXT[effectiveTone],
+            (effectiveTone === 'highlight' || effectiveTone === 'success') &&
+              isHero &&
+              'editorial-glow',
+          )}
+        >
+          <span>{mainPart}</span>
+          {decimalPart && <span className="hero-decimal">{decimalPart}</span>}
+        </p>
+        <div className="mt-3 flex items-center gap-2">
+          {trend !== undefined && (
+            <TrendChip delta={trend.delta} unit={trend.unit} />
+          )}
+          {hint && (
+            <p className="text-[11px] text-on-surface-variant">{hint}</p>
+          )}
+        </div>
       </div>
     </div>
+  );
+}
+
+function TrendChip({ delta, unit }: { delta: number; unit?: string }) {
+  const positive = delta > 0;
+  const negative = delta < 0;
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10.5px] font-semibold tabular-nums',
+        positive
+          ? 'bg-primary/15 text-primary'
+          : negative
+            ? 'bg-error/15 text-error'
+            : 'bg-white/[0.06] text-on-surface-variant',
+      )}
+    >
+      <ArrowGlyph direction={positive ? 'up' : negative ? 'down' : 'flat'} />
+      {formatDelta(delta, unit)}
+    </span>
+  );
+}
+
+function ArrowGlyph({ direction }: { direction: 'up' | 'down' | 'flat' }) {
+  // Inline SVG triangoli — no unicode arrow, sempre crisp.
+  if (direction === 'up') {
+    return (
+      <svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor" aria-hidden>
+        <path d="M4 1L7 6.5H1L4 1Z" />
+      </svg>
+    );
+  }
+  if (direction === 'down') {
+    return (
+      <svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor" aria-hidden>
+        <path d="M4 7L1 1.5H7L4 7Z" />
+      </svg>
+    );
+  }
+  return (
+    <svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor" aria-hidden>
+      <rect x="1" y="3.25" width="6" height="1.5" rx="0.75" />
+    </svg>
   );
 }

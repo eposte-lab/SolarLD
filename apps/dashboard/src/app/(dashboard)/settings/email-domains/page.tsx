@@ -12,7 +12,15 @@
  *  • Add domain modal
  */
 
+import {
+  AlertOctagon,
+  AlertTriangle,
+  Check,
+  CheckCircle2,
+  XCircle,
+} from 'lucide-react';
 import { useEffect, useState, useTransition } from 'react';
+
 import { apiClient } from '@/lib/api-client';
 
 // ---------------------------------------------------------------------------
@@ -274,7 +282,12 @@ function DomainCard({
       {/* Suspension banner */}
       {isSuspended && (
         <div className="mb-4 flex items-start gap-3 rounded-lg bg-error-container px-4 py-3">
-          <span className="text-base">🚨</span>
+          <AlertOctagon
+            size={16}
+            strokeWidth={2}
+            className="mt-0.5 shrink-0 text-error"
+            aria-hidden
+          />
           <div className="flex-1 text-sm text-on-error-container">
             <span className="font-bold">Dominio sospeso</span> fino al{' '}
             {new Date(domain.paused_until!).toLocaleString('it-IT', {
@@ -318,18 +331,33 @@ function DomainCard({
               </span>
             )}
             {allDnsOk && (
-              <span className="rounded-full bg-primary-container px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-on-primary-container">
-                DNS ✓
+              <span className="inline-flex items-center gap-1 rounded-full bg-primary-container px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-on-primary-container">
+                <Check size={10} strokeWidth={2.75} aria-hidden />
+                DNS
               </span>
             )}
           </div>
 
           {/* Tracking host */}
           {domain.tracking_host && (
-            <p className="mt-1 text-xs text-on-surface-variant">
-              Tracking host:{' '}
-              <span className="font-mono">{domain.tracking_host}</span>
-              {trackingOk ? ' ✅' : ' ⚠️ CNAME non configurato'}
+            <p className="mt-1 inline-flex items-center gap-1.5 text-xs text-on-surface-variant">
+              <span>
+                Tracking host:{' '}
+                <span className="font-mono">{domain.tracking_host}</span>
+              </span>
+              {trackingOk ? (
+                <CheckCircle2
+                  size={12}
+                  strokeWidth={2}
+                  className="text-primary"
+                  aria-label="Verificato"
+                />
+              ) : (
+                <span className="inline-flex items-center gap-1 text-warning">
+                  <AlertTriangle size={12} strokeWidth={2} aria-hidden />
+                  CNAME non configurato
+                </span>
+              )}
             </p>
           )}
 
@@ -343,10 +371,18 @@ function DomainCard({
 
           {/* DMARC policy nudge */}
           {dmarcOk && dnsResult?.dmarc_policy === 'none' && (
-            <p className="mt-2 text-xs text-tertiary">
-              ⚠️ DMARC policy è <span className="font-mono">none</span> — passa a{' '}
-              <span className="font-mono">quarantine</span> dopo 14 giorni clean per
-              massimizzare la deliverability.
+            <p className="mt-2 inline-flex items-start gap-1.5 text-xs text-warning">
+              <AlertTriangle
+                size={12}
+                strokeWidth={2}
+                className="mt-0.5 shrink-0"
+                aria-hidden
+              />
+              <span>
+                DMARC policy è <span className="font-mono">none</span> — passa a{' '}
+                <span className="font-mono">quarantine</span> dopo 14 giorni clean per
+                massimizzare la deliverability.
+              </span>
             </p>
           )}
 
@@ -438,24 +474,32 @@ function ProviderBadge({ provider }: { provider: string }) {
 function DnsDot({ label, ok }: { label: string; ok: boolean }) {
   return (
     <span
-      className={`flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+      className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold ${
         ok
           ? 'bg-primary-container/60 text-on-primary-container'
           : 'bg-error-container/60 text-on-error-container'
       }`}
     >
-      <span className="text-[9px]">{ok ? '●' : '○'}</span>
+      <span
+        className={`h-1.5 w-1.5 rounded-full ${ok ? 'bg-primary' : 'bg-error/70'}`}
+        aria-hidden
+      />
       {label}
     </span>
   );
 }
 
 function DnsDetailRow({ label, rec }: { label: string; rec: RecordStatus }) {
+  const Icon = rec.ok ? CheckCircle2 : rec.found ? AlertTriangle : XCircle;
+  const color = rec.ok ? 'text-primary' : rec.found ? 'text-warning' : 'text-error';
   return (
     <div className="flex items-start gap-2">
-      <span className={`mt-0.5 text-[10px] ${rec.ok ? 'text-primary' : 'text-error'}`}>
-        {rec.ok ? '✅' : rec.found ? '⚠️' : '❌'}
-      </span>
+      <Icon
+        size={14}
+        strokeWidth={2}
+        className={`mt-0.5 shrink-0 ${color}`}
+        aria-hidden
+      />
       <div className="flex-1">
         <span className="font-semibold text-on-surface">{label}</span>
         {rec.value && (

@@ -9,6 +9,7 @@
  * Falls back gracefully when NEXT_PUBLIC_MAPBOX_TOKEN is not set.
  */
 
+import { ArrowUpRight } from 'lucide-react';
 import Link from 'next/link';
 
 import { SectionEyebrow } from '@/components/ui/section-eyebrow';
@@ -74,9 +75,9 @@ export async function GeoRadarMap({ className }: GeoRadarMapProps) {
         <div className="mb-3 flex flex-wrap gap-3">
           {[
             { color: '#6FCF97', label: 'Firmato' },
-            { color: '#F4A45C', label: 'Appuntamento' },
-            { color: '#E8924A', label: 'Hot' },
-            { color: '#8A9094', label: 'Inviato' },
+            { color: '#5BB880', label: 'Appuntamento' },
+            { color: '#F4A45C', label: 'Hot' },
+            { color: '#8A9499', label: 'Inviato' },
           ].map(({ color, label }) => (
             <span key={label} className="flex items-center gap-1.5 text-[10px] text-on-surface-variant">
               <span
@@ -106,20 +107,31 @@ export async function GeoRadarMap({ className }: GeoRadarMapProps) {
             {hotProvinces > 0 && (
               <Link
                 href="/leads"
-                className="group absolute left-4 top-4 max-w-[220px] rounded-2xl glass-panel-sm p-4 transition-transform hover:-translate-y-0.5"
+                className="group absolute left-4 top-4 max-w-[240px] rounded-2xl liquid-glass-sm p-5 transition-all duration-300 hover:-translate-y-0.5 hover:shadow-liquid-glass relative overflow-hidden"
               >
-                <SectionEyebrow tone="amber">Lead caldi</SectionEyebrow>
-                <p className="mt-1 font-headline text-4xl font-bold tracking-tightest text-on-surface">
-                  <span>{hotProvinces}</span>
-                  <span className="hero-decimal text-2xl"> province</span>
-                </p>
-                <p className="mt-1 text-[11px] text-on-surface-variant">
-                  con concentrazione hot/appointment attiva
-                </p>
-                <span className="mt-3 inline-flex items-center gap-1 text-[11px] font-semibold text-primary">
-                  Esplora
-                  <span aria-hidden className="transition-transform group-hover:translate-x-0.5">→</span>
-                </span>
+                <span
+                  className="pointer-events-none absolute inset-0 bg-glass-specular"
+                  aria-hidden
+                />
+                <div className="relative">
+                  <SectionEyebrow tone="mint">Lead caldi</SectionEyebrow>
+                  <p className="mt-1.5 font-headline text-4xl font-bold tracking-tightest text-on-surface">
+                    <span>{hotProvinces}</span>
+                    <span className="hero-decimal text-2xl"> province</span>
+                  </p>
+                  <p className="mt-1.5 text-[11px] leading-snug text-on-surface-variant">
+                    con concentrazione hot/appointment attiva
+                  </p>
+                  <span className="mt-3.5 inline-flex items-center gap-1.5 text-[11px] font-semibold text-primary">
+                    Esplora
+                    <ArrowUpRight
+                      size={12}
+                      strokeWidth={2.5}
+                      className="transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5"
+                      aria-hidden
+                    />
+                  </span>
+                </div>
               </Link>
             )}
           </>

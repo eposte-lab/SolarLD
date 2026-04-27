@@ -3,93 +3,92 @@
 @tailwind utilities;
 
 /*
- * Editorial Glass — global CSS (Sprint 7).
+ * Liquid Glass — global CSS (V2).
  *
- * Dark-only single-accent system. Named MD3 tokens vivono in
- * tailwind.config.ts; le HSL variables qui sotto restano per i pochi
- * componenti shadcn-style legacy. Nuovo codice usa i token diretti
- * (es. `bg-surface-container-lowest`) invece di `bg-card`.
+ * Dark-only, mint accent (#6FCF97). MD3 token names live in
+ * tailwind.config.ts; HSL variables qui sotto restano per i pochi
+ * componenti shadcn-style legacy.
+ *
+ * Liquid glass = heavy backdrop-filter (40-60px) + saturate(180%)
+ * + specular top-edge highlight + ghost border @ 6% white. Riferimento:
+ * iOS 18 control center, visionOS windows, Apple Music macOS Sonoma+.
  */
 
 @layer base {
   :root {
-    /* Mappato a surface dark #0A0B0C */
-    --background: 220 8% 4%;
+    /* Surface dark cool #07090A */
+    --background: 200 14% 4%;
     --foreground: 195 5% 93%;
 
-    /* Cards (surface-container-lowest #0F1112) */
-    --card: 210 8% 6%;
+    /* Cards (surface-container-lowest #0B0F11) */
+    --card: 200 14% 6%;
     --card-foreground: 195 5% 93%;
 
-    /* Primary — amber editorial #F4A45C */
-    --primary: 27 87% 66%;
-    --primary-foreground: 26 80% 6%;
+    /* Primary — mint #6FCF97 (HSL 142 47% 62%) */
+    --primary: 142 47% 62%;
+    --primary-foreground: 142 60% 5%;
 
     /* Secondary — desaturated grey */
-    --secondary: 210 8% 14%;
+    --secondary: 200 14% 12%;
     --secondary-foreground: 195 5% 93%;
 
-    --muted: 210 8% 14%;
-    --muted-foreground: 210 4% 56%;
+    --muted: 200 14% 12%;
+    --muted-foreground: 200 5% 56%;
 
-    --accent: 210 8% 14%;
+    --accent: 200 14% 12%;
     --accent-foreground: 195 5% 93%;
 
     /* Error — desaturated red #E85C5C */
     --destructive: 0 75% 64%;
     --destructive-foreground: 0 100% 95%;
 
-    --border: 210 8% 18%;
-    --input: 210 8% 18%;
-    --ring: 27 87% 66%;
+    --border: 200 14% 16%;
+    --input: 200 14% 16%;
+    --ring: 142 47% 62%;
 
     --radius: 1rem;
   }
 
-  /* `.dark` is hardcoded on <html> in app/layout.tsx — these vars
-   * therefore take effect site-wide. Kept under .dark selector for
-   * forward-compat in case we ever re-enable a light toggle. */
   .dark {
-    --background: 220 8% 4%;
+    --background: 200 14% 4%;
     --foreground: 195 5% 93%;
-    --card: 210 8% 6%;
+    --card: 200 14% 6%;
     --card-foreground: 195 5% 93%;
-    --primary: 27 87% 66%;
-    --primary-foreground: 26 80% 6%;
-    --secondary: 210 8% 14%;
+    --primary: 142 47% 62%;
+    --primary-foreground: 142 60% 5%;
+    --secondary: 200 14% 12%;
     --secondary-foreground: 195 5% 93%;
-    --muted: 210 8% 14%;
-    --muted-foreground: 210 4% 56%;
-    --accent: 210 8% 14%;
+    --muted: 200 14% 12%;
+    --muted-foreground: 200 5% 56%;
+    --accent: 200 14% 12%;
     --accent-foreground: 195 5% 93%;
     --destructive: 0 75% 64%;
     --destructive-foreground: 0 100% 95%;
-    --border: 210 8% 18%;
-    --input: 210 8% 18%;
-    --ring: 27 87% 66%;
+    --border: 200 14% 16%;
+    --input: 200 14% 16%;
+    --ring: 142 47% 62%;
   }
 }
 
 @layer base {
   body {
     @apply bg-surface text-on-surface antialiased;
-    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11', 'ss01';
 
-    /* Subtle noise overlay riduce banding sui dark gradient.
-     * Si applica al body per coprire l'intera viewport. */
+    /* Soft mint aurora wash on top + cool deep field below.
+     * Two radial gradients posizionati top-left (mint) e bottom-right
+     * (cool blue-green) creano profondità senza sembrare un wallpaper. */
+    background-color: #07090A;
     background-image:
-      url("data:image/svg+xml;utf8,<svg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/></filter><rect width='100%25' height='100%25' filter='url(%23n)' opacity='0.4'/></svg>");
-    background-size: 200px 200px;
+      radial-gradient(ellipse 80% 60% at 15% -10%, rgba(111, 207, 151, 0.10), transparent 60%),
+      radial-gradient(ellipse 70% 50% at 90% 110%, rgba(91, 184, 128, 0.06), transparent 55%),
+      url("data:image/svg+xml;utf8,<svg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/></filter><rect width='100%25' height='100%25' filter='url(%23n)' opacity='0.35'/></svg>");
+    background-size: auto, auto, 200px 200px;
     background-attachment: fixed;
-    background-blend-mode: overlay;
+    background-blend-mode: normal, normal, overlay;
   }
 
-  h1,
-  h2,
-  h3,
-  h4,
-  h5,
-  h6 {
+  h1, h2, h3, h4, h5, h6 {
     @apply font-headline tracking-tighter;
     color: #ECEFF0;
   }
@@ -97,136 +96,177 @@
 
 @layer utilities {
   /*
-   * Glass panel utilities — usate per overlay flottanti su mappe / hero.
+   * Liquid Glass panel — primary card surface.
    *
-   * `.glass-panel` è il default (medium blur). `.glass-panel-sm` per
-   * pill compatti, `.glass-panel-lg` per hero card che floattano sopra
-   * fotografie / mappe satellitari (max blur).
+   * Composto da:
+   *   - bg semi-trasparente (cool dark @ 50-60%)
+   *   - backdrop-filter blur(36px) saturate(180%) per il "fluid glass" feel
+   *   - inset top-edge specular highlight @ 12% white (1px)
+   *   - inset bottom-edge subtle line @ 4% white per chiusura visiva
+   *   - outer shadow profondo per stacco dal bg
    *
-   * Tutti includono un sottile bordo bianco @ 8% per definire l'edge
-   * senza usare un border vero (che spezzerebbe il blur sui bordi).
+   * Usare `.liquid-glass` per card primarie, `.liquid-glass-sm` per
+   * pill compatti, `.liquid-glass-lg` per hero card sopra mappe.
    */
-  .glass-panel {
-    background-color: rgb(20 23 26 / 0.55);
-    -webkit-backdrop-filter: blur(28px) saturate(140%);
-    backdrop-filter: blur(28px) saturate(140%);
-    box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.08);
+  .liquid-glass {
+    background-color: rgb(16 22 26 / 0.55);
+    -webkit-backdrop-filter: blur(36px) saturate(180%);
+    backdrop-filter: blur(36px) saturate(180%);
+    box-shadow:
+      0 24px 48px -12px rgba(0, 0, 0, 0.50),
+      0 0 0 1px rgba(255, 255, 255, 0.06),
+      inset 0 1px 0 rgba(255, 255, 255, 0.12),
+      inset 0 -1px 0 rgba(255, 255, 255, 0.04);
   }
 
-  .glass-panel-sm {
-    background-color: rgb(20 23 26 / 0.50);
-    -webkit-backdrop-filter: blur(16px) saturate(140%);
-    backdrop-filter: blur(16px) saturate(140%);
-    box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.06);
+  .liquid-glass-sm {
+    background-color: rgb(16 22 26 / 0.50);
+    -webkit-backdrop-filter: blur(20px) saturate(170%);
+    backdrop-filter: blur(20px) saturate(170%);
+    box-shadow:
+      0 12px 24px -6px rgba(0, 0, 0, 0.40),
+      0 0 0 1px rgba(255, 255, 255, 0.05),
+      inset 0 1px 0 rgba(255, 255, 255, 0.08);
   }
 
-  .glass-panel-lg {
-    background-color: rgb(15 17 18 / 0.45);
-    -webkit-backdrop-filter: blur(40px) saturate(150%);
-    backdrop-filter: blur(40px) saturate(150%);
-    box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.10);
+  .liquid-glass-lg {
+    background-color: rgb(11 15 17 / 0.45);
+    -webkit-backdrop-filter: blur(52px) saturate(190%);
+    backdrop-filter: blur(52px) saturate(190%);
+    box-shadow:
+      0 40px 80px -20px rgba(0, 0, 0, 0.60),
+      0 0 0 1px rgba(255, 255, 255, 0.08),
+      inset 0 1px 0 rgba(255, 255, 255, 0.16),
+      inset 0 -1px 0 rgba(255, 255, 255, 0.04);
+  }
+
+  /* Backward-compat aliases: il vecchio codice .glass-panel-* mappa
+   * direttamente sui nuovi liquid-glass. Permette il refactor incrementale. */
+  .glass-panel { @apply liquid-glass; }
+  .glass-panel-sm { @apply liquid-glass-sm; }
+  .glass-panel-lg { @apply liquid-glass-lg; }
+
+  /*
+   * Specular highlight overlay — gradient pseudo-element per simulare
+   * il riflesso curvo sul top-edge di una superficie vetrosa.
+   * Va applicato a un wrapper con `position: relative; overflow: hidden`.
+   */
+  .liquid-specular::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.10) 0%,
+      rgba(255, 255, 255, 0.02) 24%,
+      transparent 50%
+    );
+    pointer-events: none;
+    z-index: 1;
   }
 
   /*
-   * Ghost border — single-pixel @ 8% white. Da usare per definire
-   * card edges quando il blur non è disponibile (fallback bg).
+   * Ghost border — single-pixel @ 6-14% white per definire card edges.
+   * Usato come fallback quando il blur non è disponibile.
    */
   .ghost-border {
-    border: 1px solid rgb(255 255 255 / 0.08);
+    border: 1px solid rgb(255 255 255 / 0.06);
   }
   .ghost-border-strong {
-    border: 1px solid rgb(255 255 255 / 0.14);
+    border: 1px solid rgb(255 255 255 / 0.12);
   }
 
   /*
-   * Editorial glow — usato sui numeri hero KPI per dare un alone amber
-   * subtle sotto il testo. Compatibile con tabular-nums e font-headline.
+   * Editorial glow — alone mint subtle sotto i numeri hero.
    */
   .editorial-glow {
-    text-shadow: 0 0 32px rgba(244, 164, 92, 0.18);
+    text-shadow: 0 0 40px rgba(111, 207, 151, 0.22);
   }
 
   /*
-   * Hero number composition: il numero principale a piena opacità,
-   * la parte decimale e il suffisso (% / unit) dimmed @ 60%.
-   * Mimica IMG_0925 reference ("78.3%" → "78" + ".3%" più piccolo).
+   * Hero number composition: numero principale a piena opacità,
+   * decimale + suffisso dimmed @ 60%.
    */
   .hero-decimal {
-    opacity: 0.6;
+    opacity: 0.55;
     font-weight: 500;
+  }
+
+  /*
+   * Section header label — micro uppercase eyebrow, usato sopra
+   * ogni sezione come breadcrumb tipografico.
+   */
+  .eyebrow {
+    @apply text-[10px] font-semibold uppercase tracking-[0.18em] text-on-surface-variant;
+  }
+  .eyebrow-bright {
+    @apply text-[10px] font-semibold uppercase tracking-[0.18em] text-on-surface;
   }
 }
 
 /*
- * Accessibility fallback — utenti con prefers-reduced-transparency
- * (incluso macOS Reduce Transparency, iOS, Win High Contrast) ricevono
- * solid backgrounds invece del backdrop-filter blur (espensivo + non
- * sempre supportato da assistive tech).
+ * Accessibility — utenti con prefers-reduced-transparency ricevono
+ * solid backgrounds invece di backdrop-filter blur.
  */
 @media (prefers-reduced-transparency: reduce) {
+  .liquid-glass,
+  .liquid-glass-sm,
+  .liquid-glass-lg,
   .glass-panel,
   .glass-panel-sm,
   .glass-panel-lg {
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
-    background-color: rgb(26 30 34 / 0.95);
+    background-color: rgb(22 29 34 / 0.96);
   }
 }
 
-/*
- * Geo Radar Map — pulse animation per province markers attivi.
- * Definita in scope globale così Mapbox può referenziarla dai DOM
- * nodes generati dinamicamente.
- */
+/* ── Geo Radar pulse keyframe (used inline by mapbox markers) ─────────── */
 @keyframes radarPulse {
-  0% {
-    transform: scale(0.8);
-    opacity: 0.8;
-  }
-  70% {
-    transform: scale(2.5);
-    opacity: 0;
-  }
-  100% {
-    transform: scale(2.5);
-    opacity: 0;
-  }
+  0% { transform: scale(0.8); opacity: 0.8; }
+  70% { transform: scale(2.5); opacity: 0; }
+  100% { transform: scale(2.5); opacity: 0; }
 }
 
-/* ── Mapbox GL popup override — Editorial dark theme. ──────────────────── */
+/* ── Mapbox GL popup override — Liquid Glass dark theme ──────────────── */
 .geo-popup .mapboxgl-popup-content {
-  background: rgba(20, 23, 26, 0.92);
-  -webkit-backdrop-filter: blur(28px);
-  backdrop-filter: blur(28px);
+  background: rgba(16, 22, 26, 0.85);
+  -webkit-backdrop-filter: blur(36px) saturate(180%);
+  backdrop-filter: blur(36px) saturate(180%);
   color: #ECEFF0;
-  border-radius: 12px;
-  padding: 12px 16px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  padding: 14px 18px;
+  box-shadow:
+    0 20px 48px rgba(0, 0, 0, 0.6),
+    0 0 0 1px rgba(255, 255, 255, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
   font-family: var(--font-headline), 'Plus Jakarta Sans', system-ui, sans-serif;
   font-size: 12px;
   letter-spacing: -0.01em;
 }
 
 .geo-popup .mapboxgl-popup-tip {
-  border-top-color: rgba(20, 23, 26, 0.92);
-  border-bottom-color: rgba(20, 23, 26, 0.92);
+  border-top-color: rgba(16, 22, 26, 0.85);
+  border-bottom-color: rgba(16, 22, 26, 0.85);
 }
 
 .geo-popup .mapboxgl-popup-close-button {
-  color: #8A9094;
+  color: #8A9499;
   font-size: 16px;
   padding: 4px 8px;
 }
 
-/* ── Mapbox controls (zoom/compass) — dark editorial styling ────────────── */
+/* ── Mapbox controls (zoom/compass) — liquid glass ──────────────────── */
 .mapboxgl-ctrl-group {
-  background: rgba(20, 23, 26, 0.85) !important;
-  -webkit-backdrop-filter: blur(20px);
-  backdrop-filter: blur(20px);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.08) !important;
-  border-radius: 10px !important;
+  background: rgba(16, 22, 26, 0.75) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(170%);
+  backdrop-filter: blur(20px) saturate(170%);
+  box-shadow:
+    0 8px 24px rgba(0, 0, 0, 0.4),
+    0 0 0 1px rgba(255, 255, 255, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.10) !important;
+  border-radius: 12px !important;
 }
 
 .mapboxgl-ctrl-group button {
@@ -246,7 +286,7 @@
   opacity: 1;
 }
 
-/* ── Scrollbars — match dark surface ───────────────────────────────────── */
+/* ── Scrollbars — match dark surface ────────────────────────────────── */
 @layer base {
   ::-webkit-scrollbar {
     width: 10px;
@@ -267,8 +307,8 @@
   }
 }
 
-/* ── Selection — amber tint ────────────────────────────────────────────── */
+/* ── Selection — mint tint ──────────────────────────────────────────── */
 ::selection {
-  background-color: rgba(244, 164, 92, 0.30);
+  background-color: rgba(111, 207, 151, 0.30);
   color: #ECEFF0;
 }

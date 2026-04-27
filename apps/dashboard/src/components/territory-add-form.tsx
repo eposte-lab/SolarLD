@@ -17,6 +17,7 @@
  */
 
 import { useEffect, useState } from 'react';
+import { AlertTriangle, CheckCircle2, Loader2, MapPin } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 import { createTerritory } from '@/app/(dashboard)/territories/_actions';
@@ -263,14 +264,21 @@ export function TerritoryAddForm() {
                   : 'bg-primary text-on-primary hover:bg-primary/90',
             )}
           >
-            {resolving ? '⏳ Ricerca…' : '📍 Rileva zona'}
+            <span className="inline-flex items-center gap-1.5">
+              {resolving ? (
+                <Loader2 size={12} strokeWidth={2.25} aria-hidden className="animate-spin" />
+              ) : (
+                <MapPin size={12} strokeWidth={2.25} aria-hidden />
+              )}
+              {resolving ? 'Ricerca…' : 'Rileva zona'}
+            </span>
           </button>
         </div>
 
         {/* Stato: trovata */}
         {bbox && (
           <div className="flex items-start gap-2.5 rounded-lg bg-primary-container/20 border border-primary/10 px-3 py-2.5">
-            <span className="text-base shrink-0">✅</span>
+            <CheckCircle2 size={16} strokeWidth={2.25} aria-hidden className="mt-0.5 shrink-0 text-primary" />
             <div className="min-w-0">
               <p className="text-xs font-semibold text-on-surface">
                 Zona trovata
@@ -289,7 +297,7 @@ export function TerritoryAddForm() {
         {/* Stato: errore */}
         {resolveError && !bbox && (
           <div className="flex items-start gap-2.5 rounded-lg bg-error-container/20 border border-error/10 px-3 py-2.5">
-            <span className="text-base shrink-0">⚠️</span>
+            <AlertTriangle size={16} strokeWidth={2.25} aria-hidden className="mt-0.5 shrink-0 text-error" />
             <div>
               <p className="text-xs font-semibold text-on-surface">
                 Rilevamento fallito
@@ -316,7 +324,7 @@ export function TerritoryAddForm() {
         {/* Stato: iniziale */}
         {!bbox && !resolveError && !resolving && (
           <p className="text-[11px] text-on-surface-variant italic">
-            Premi Tab dopo il codice o clicca &ldquo;📍 Rileva zona&rdquo; — le
+            Premi Tab dopo il codice o clicca &ldquo;Rileva zona&rdquo; — le
             coordinate vengono trovate in automatico.
           </p>
         )}

@@ -1,18 +1,38 @@
 'use client';
 
 /**
- * SideNavBar — Editorial Glass vertical rail (Sprint 7).
+ * SideNav — Liquid Glass vertical rail (V2).
  *
  * Visual spec:
- *   - Dark surface (surface-container-lowest #0F1112) con ghost border
- *   - Logo monogram monocromatico bianco — il forest-green è scomparso
- *   - Active item: subtle amber tint pill (bg-primary/10 + text-primary +
- *     left amber bar 2px) — no fill saturated come prima
- *   - Idle item: text-on-surface-variant, hover passa a text-on-surface
- *     senza translate-x (più calmo/editorial)
- *   - Tenant footer in glass-panel-sm
+ *   - Sticky 256px rail su surface-container-lowest con liquid-glass
+ *     subtle (backdrop-blur 20px) per dare profondità senza saturare
+ *   - Brand lockup: monogram mint quadrato + wordmark SolarLead
+ *   - Sezioni raggruppate (Acquisizione · Operatività · Setup) con
+ *     micro eyebrow uppercase tra i gruppi
+ *   - Active item: pill con bg-primary/10, left mint bar 2px, icona
+ *     e label in primary; idle in on-surface-variant con hover bg-white/4
+ *   - Footer: tenant card glass + sign-out
+ *   - Icone Lucide professionali (24px stroke 1.75) — niente emoji
  */
 
+import {
+  ActivitySquare,
+  BarChart3,
+  Filter,
+  Globe2,
+  Home,
+  Inbox,
+  LineChart,
+  Mail,
+  type LucideIcon,
+  Plus,
+  Send,
+  Settings,
+  ShieldCheck,
+  Sparkles,
+  Target,
+  Users,
+} from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
@@ -20,91 +40,53 @@ import { GradientButton } from '@/components/ui/gradient-button';
 import { SignOutButton } from '@/components/ui/sign-out-button';
 import { cn } from '@/lib/utils';
 
+export type NavIconKey =
+  | 'dashboard'
+  | 'leads'
+  | 'campaigns'
+  | 'contatti'
+  | 'invii'
+  | 'funnel'
+  | 'territories'
+  | 'analytics'
+  | 'deliverability'
+  | 'settings'
+  | 'audiences'
+  | 'experiments';
+
+const ICON_MAP: Record<NavIconKey, LucideIcon> = {
+  dashboard: Home,
+  leads: Users,
+  campaigns: Target,
+  contatti: Inbox,
+  invii: Send,
+  funnel: Filter,
+  territories: Globe2,
+  analytics: BarChart3,
+  deliverability: ShieldCheck,
+  settings: Settings,
+  audiences: Mail,
+  experiments: ActivitySquare,
+};
+
 export interface NavItem {
   href: string;
   label: string;
-  /** Material Symbols Outlined ligature name. */
-  icon?: string;
+  icon?: NavIconKey;
+}
+
+export interface NavSection {
+  /** Section label rendered as eyebrow above its items. */
+  label: string;
+  items: NavItem[];
 }
 
 export interface SideNavProps {
-  items: NavItem[];
+  /** Either a flat list (legacy) or grouped sections (preferred). */
+  items?: NavItem[];
+  sections?: NavSection[];
   tenant: { business_name: string };
   user_email: string | null;
-}
-
-/**
- * Minimal inline SVG icon set — avoids pulling the full Material
- * Symbols font for 6 glyphs. Each returns a 20px icon suitable for
- * a row in the rail.
- */
-function NavIcon({ name }: { name: string }) {
-  const common = 'h-5 w-5 shrink-0';
-  switch (name) {
-    case 'dashboard':
-      return (
-        <svg viewBox="0 0 24 24" className={common} fill="currentColor">
-          <path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z" />
-        </svg>
-      );
-    case 'leads':
-      return (
-        <svg viewBox="0 0 24 24" className={common} fill="currentColor">
-          <path d="M12 12a4 4 0 100-8 4 4 0 000 8zm0 2c-3.33 0-8 1.67-8 5v3h16v-3c0-3.33-4.67-5-8-5z" />
-        </svg>
-      );
-    case 'campaigns':
-      return (
-        <svg viewBox="0 0 24 24" className={common} fill="currentColor">
-          <path d="M3 10v4h3l5 5V5L6 10H3zm13.5 2a4.5 4.5 0 00-2.5-4v8a4.5 4.5 0 002.5-4zM14 3.2v2.1a7 7 0 010 13.4v2.1a9 9 0 000-17.6z" />
-        </svg>
-      );
-    case 'contatti':
-      return (
-        <svg viewBox="0 0 24 24" className={common} fill="currentColor">
-          <path d="M15 12a3 3 0 100-6 3 3 0 000 6zm-9-1a2.5 2.5 0 100-5 2.5 2.5 0 000 5zM15 14c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4zm-9 1c-.29 0-.62.02-.97.05C6.19 15.93 7 16.8 7 18v2H0v-2c0-2.21 2.69-3.4 6-3.95z" />
-        </svg>
-      );
-    case 'invii':
-      return (
-        <svg viewBox="0 0 24 24" className={common} fill="currentColor">
-          <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
-        </svg>
-      );
-    case 'funnel':
-      return (
-        <svg viewBox="0 0 24 24" className={common} fill="currentColor">
-          <path d="M4.25 5.61C6.27 8.2 10 13 10 13v6c0 .55.45 1 1 1h2c.55 0 1-.45 1-1v-6s3.72-4.8 5.74-7.39A1 1 0 0018.95 4H5.04a1 1 0 00-.79 1.61z" />
-        </svg>
-      );
-    case 'territories':
-      return (
-        <svg viewBox="0 0 24 24" className={common} fill="currentColor">
-          <path d="M12 2C7.6 2 4 5.6 4 10c0 5.5 8 12 8 12s8-6.5 8-12c0-4.4-3.6-8-8-8zm0 11a3 3 0 110-6 3 3 0 010 6z" />
-        </svg>
-      );
-    case 'analytics':
-      return (
-        <svg viewBox="0 0 24 24" className={common} fill="currentColor">
-          <path d="M4 20h4v-8H4v8zm6 0h4V4h-4v16zm6 0h4v-12h-4v12z" />
-        </svg>
-      );
-    case 'deliverability':
-      // Shield / inbox health icon — envelope with a checkmark overlay
-      return (
-        <svg viewBox="0 0 24 24" className={common} fill="currentColor">
-          <path d="M12 2L3 7v5c0 5.25 3.75 10.15 9 11.35C17.25 22.15 21 17.25 21 12V7L12 2zm-1 14l-4-4 1.41-1.41L11 13.17l6.59-6.59L19 8l-8 8z" />
-        </svg>
-      );
-    case 'settings':
-      return (
-        <svg viewBox="0 0 24 24" className={common} fill="currentColor">
-          <path d="M19.14 12.94a7.14 7.14 0 000-1.88l2.03-1.58a.5.5 0 00.12-.64l-1.92-3.32a.5.5 0 00-.6-.22l-2.39.96a7.1 7.1 0 00-1.62-.94l-.36-2.54a.5.5 0 00-.5-.43h-3.84a.5.5 0 00-.5.43l-.36 2.54a7.1 7.1 0 00-1.62.94l-2.39-.96a.5.5 0 00-.6.22L2.71 8.84a.5.5 0 00.12.64l2.03 1.58a7.14 7.14 0 000 1.88L2.83 14.52a.5.5 0 00-.12.64l1.92 3.32a.5.5 0 00.6.22l2.39-.96a7.1 7.1 0 001.62.94l.36 2.54a.5.5 0 00.5.43h3.84a.5.5 0 00.5-.43l.36-2.54a7.1 7.1 0 001.62-.94l2.39.96a.5.5 0 00.6-.22l1.92-3.32a.5.5 0 00-.12-.64l-2.03-1.58zM12 15.5a3.5 3.5 0 110-7 3.5 3.5 0 010 7z" />
-        </svg>
-      );
-    default:
-      return <span className={common} aria-hidden />;
-  }
 }
 
 function isActive(pathname: string, href: string): boolean {
@@ -112,77 +94,115 @@ function isActive(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-export function SideNav({ items, tenant, user_email }: SideNavProps) {
+function NavLink({ item, active }: { item: NavItem; active: boolean }) {
+  const Icon = item.icon ? ICON_MAP[item.icon] : null;
+  return (
+    <li className="relative">
+      {active && (
+        <span
+          className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-full bg-primary shadow-[0_0_12px_rgba(111,207,151,0.6)]"
+          aria-hidden
+        />
+      )}
+      <Link
+        href={item.href}
+        className={cn(
+          'group flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-[13.5px] font-medium transition-all duration-200',
+          active
+            ? 'bg-primary/10 text-primary'
+            : 'text-on-surface-variant hover:bg-white/[0.04] hover:text-on-surface',
+        )}
+      >
+        {Icon && (
+          <Icon
+            size={18}
+            strokeWidth={active ? 2 : 1.75}
+            className="shrink-0"
+            aria-hidden
+          />
+        )}
+        <span className="tracking-tight">{item.label}</span>
+      </Link>
+    </li>
+  );
+}
+
+export function SideNav({ items, sections, tenant, user_email }: SideNavProps) {
   const pathname = usePathname() ?? '/';
 
+  // Normalize input: prefer sections, fall back to flat items.
+  const renderSections: NavSection[] =
+    sections ?? (items ? [{ label: 'Navigazione', items }] : []);
+
   return (
-    <nav className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col bg-surface-container-lowest p-6 ghost-border md:flex">
-      {/* Brand lockup — monocromatico bianco */}
-      <div className="mb-8 flex items-center gap-3">
-        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/8 ghost-border-strong text-on-surface">
-          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-            <path d="M12 18a6 6 0 100-12 6 6 0 000 12zm0-17v3M12 20v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M1 12h3M20 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" fill="none" />
-          </svg>
+    <nav className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col bg-surface-container-lowest/80 backdrop-blur-glass-sm p-5 ghost-border md:flex">
+      {/* Brand lockup */}
+      <div className="mb-7 flex items-center gap-3 px-1.5">
+        <div className="relative flex h-10 w-10 items-center justify-center rounded-2xl bg-primary/15 ghost-border-strong text-primary overflow-hidden">
+          <Sparkles size={20} strokeWidth={2} aria-hidden />
+          <span
+            className="pointer-events-none absolute inset-0 bg-glass-specular opacity-70"
+            aria-hidden
+          />
         </div>
         <div className="leading-tight">
-          <h1 className="font-headline text-lg font-bold tracking-tightest text-on-surface">
+          <h1 className="font-headline text-[17px] font-bold tracking-tightest text-on-surface">
             SolarLead
           </h1>
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-on-surface-variant">
             Installer Pro
           </p>
         </div>
       </div>
 
-      {/* Hero CTA — amber gradient */}
-      <GradientButton href="/territories" size="md" className="mb-8 w-full">
-        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
-          <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6z" />
-        </svg>
+      {/* Hero CTA */}
+      <GradientButton href="/territories" size="md" className="mb-6 w-full justify-center">
+        <Plus size={16} strokeWidth={2.25} aria-hidden />
         Nuovo territorio
       </GradientButton>
 
-      {/* Nav items — single active pill style */}
-      <ul className="flex-1 space-y-0.5">
-        {items.map((item) => {
-          const active = isActive(pathname, item.href);
-          return (
-            <li key={item.href} className="relative">
-              {/* Left amber bar per active state — sostituisce il fill saturated */}
-              {active && (
-                <span
-                  className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-primary"
-                  aria-hidden
+      {/* Grouped nav */}
+      <div className="flex-1 overflow-y-auto -mx-1 px-1 space-y-5">
+        {renderSections.map((section) => (
+          <div key={section.label}>
+            <p className="mb-2 px-3.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-on-surface-muted">
+              {section.label}
+            </p>
+            <ul className="space-y-0.5">
+              {section.items.map((item) => (
+                <NavLink
+                  key={item.href}
+                  item={item}
+                  active={isActive(pathname, item.href)}
                 />
-              )}
-              <Link
-                href={item.href}
-                className={cn(
-                  'group flex items-center gap-3 rounded-lg px-4 py-2.5 text-sm font-medium transition-colors duration-150',
-                  active
-                    ? 'bg-primary/10 text-primary'
-                    : 'text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface',
-                )}
-              >
-                {item.icon && <NavIcon name={item.icon} />}
-                <span>{item.label}</span>
-              </Link>
-            </li>
-          );
-        })}
-      </ul>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
 
-      {/* Tenant footer — glass panel sm */}
-      <div className="mt-4 rounded-xl glass-panel-sm p-4">
-        <p className="truncate text-sm font-semibold text-on-surface">
-          {tenant.business_name}
-        </p>
-        {user_email && (
-          <p className="truncate text-xs text-on-surface-variant">
-            {user_email}
-          </p>
-        )}
-        <div className="mt-3">
+      {/* Tenant footer */}
+      <div className="mt-5 rounded-2xl liquid-glass-sm p-4 relative overflow-hidden">
+        <span
+          className="pointer-events-none absolute inset-0 bg-glass-specular"
+          aria-hidden
+        />
+        <div className="relative flex items-center gap-2.5 mb-3">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/15 text-primary shrink-0">
+            <LineChart size={14} strokeWidth={2} aria-hidden />
+          </div>
+          <div className="min-w-0">
+            <p className="truncate text-[13px] font-semibold text-on-surface leading-tight">
+              {tenant.business_name}
+            </p>
+            {user_email && (
+              <p className="truncate text-[11px] text-on-surface-variant leading-tight mt-0.5">
+                {user_email}
+              </p>
+            )}
+          </div>
+        </div>
+        <div className="relative">
           <SignOutButton />
         </div>
       </div>

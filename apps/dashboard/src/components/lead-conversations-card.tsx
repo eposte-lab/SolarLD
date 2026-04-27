@@ -19,6 +19,8 @@
  */
 
 import { useEffect, useState } from 'react';
+import { Bot, Check, User } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 
 import { createBrowserClient } from '@/lib/supabase/client';
 import { cn, relativeTime } from '@/lib/utils';
@@ -27,17 +29,20 @@ import type { ConversationMessage, ConversationRow, ConversationState } from '@/
 // ------------------------------------------------------------------ helpers
 
 function stateBadge(state: ConversationState) {
-  const map: Record<ConversationState, { label: string; cls: string }> = {
+  const map: Record<ConversationState, { label: string; Icon: LucideIcon; cls: string }> = {
     active: {
-      label: '🤖 Auto',
+      label: 'Auto',
+      Icon: Bot,
       cls: 'bg-primary-container/60 text-on-primary-container',
     },
     handoff: {
-      label: '👤 Operatore',
+      label: 'Operatore',
+      Icon: User,
       cls: 'bg-tertiary-container/60 text-on-tertiary-container',
     },
     closed: {
-      label: '✓ Chiusa',
+      label: 'Chiusa',
+      Icon: Check,
       cls: 'bg-surface-container-high text-on-surface-variant',
     },
   };
@@ -131,10 +136,11 @@ export function LeadConversationsCard({
                     </span>
                     <span
                       className={cn(
-                        'rounded-full px-2 py-0.5 text-[10px] font-semibold',
+                        'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold',
                         badge.cls,
                       )}
                     >
+                      <badge.Icon size={10} strokeWidth={2.5} aria-hidden />
                       {badge.label}
                     </span>
                   </div>
