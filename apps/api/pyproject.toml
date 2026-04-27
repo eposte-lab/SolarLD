@@ -44,6 +44,9 @@ dependencies = [
   # Email validation (required by pydantic EmailStr used in inboxes.py)
   "email-validator>=2.2.0",
 
+  # Form parsing (required by FastAPI Form() in unsubscribe.py — RFC 8058 one-click POST)
+  "python-multipart>=0.0.18",
+
   # DNS record verification for outreach domain setup (SPF/DKIM/DMARC)
   "dnspython>=2.7.0",
 
