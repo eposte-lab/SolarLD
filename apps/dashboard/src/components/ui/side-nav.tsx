@@ -1,19 +1,16 @@
 'use client';
 
 /**
- * SideNavBar — Luminous Curator vertical rail (Fase B).
+ * SideNavBar — Editorial Glass vertical rail (Sprint 7).
  *
- * Visual spec (from stitch mockup `solarlead_overview_bento`):
- *   - White surface floating against the f4f7f6 body bg
- *   - Right-side rounded-xl, with the rail shadow bleeding rightward
- *   - Active item: primary background + ambient white ring
- *   - Idle item: on-surface-variant text, subtle hover translate-x
- *   - Top: brand lockup, then a primary gradient "Nuovo progetto" CTA
- *   - Bottom: tenant card + sign-out
- *
- * The route highlight relies on `usePathname`; everything else is
- * presentational and safe to render as a server child if we ever
- * decide to pre-render the nav shell.
+ * Visual spec:
+ *   - Dark surface (surface-container-lowest #0F1112) con ghost border
+ *   - Logo monogram monocromatico bianco — il forest-green è scomparso
+ *   - Active item: subtle amber tint pill (bg-primary/10 + text-primary +
+ *     left amber bar 2px) — no fill saturated come prima
+ *   - Idle item: text-on-surface-variant, hover passa a text-on-surface
+ *     senza translate-x (più calmo/editorial)
+ *   - Tenant footer in glass-panel-sm
  */
 
 import Link from 'next/link';
@@ -119,45 +116,52 @@ export function SideNav({ items, tenant, user_email }: SideNavProps) {
   const pathname = usePathname() ?? '/';
 
   return (
-    <nav className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col rounded-r-xl bg-surface-container-lowest p-6 shadow-rail md:flex">
-      {/* Brand lockup */}
+    <nav className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col bg-surface-container-lowest p-6 ghost-border md:flex">
+      {/* Brand lockup — monocromatico bianco */}
       <div className="mb-8 flex items-center gap-3">
-        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-primary text-on-primary">
-          <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
+        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/8 ghost-border-strong text-on-surface">
+          <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
             <path d="M12 18a6 6 0 100-12 6 6 0 000 12zm0-17v3M12 20v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M1 12h3M20 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" fill="none" />
           </svg>
         </div>
         <div className="leading-tight">
-          <h1 className="font-headline text-xl font-extrabold tracking-tighter text-primary">
+          <h1 className="font-headline text-lg font-bold tracking-tightest text-on-surface">
             SolarLead
           </h1>
-          <p className="text-[11px] font-medium text-on-surface-variant">
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">
             Installer Pro
           </p>
         </div>
       </div>
 
-      {/* Hero CTA */}
-      <GradientButton href="/territories" size="md" className="mb-6 w-full">
+      {/* Hero CTA — amber gradient */}
+      <GradientButton href="/territories" size="md" className="mb-8 w-full">
         <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
           <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6z" />
         </svg>
         Nuovo territorio
       </GradientButton>
 
-      {/* Nav items */}
-      <ul className="flex-1 space-y-1">
+      {/* Nav items — single active pill style */}
+      <ul className="flex-1 space-y-0.5">
         {items.map((item) => {
           const active = isActive(pathname, item.href);
           return (
-            <li key={item.href}>
+            <li key={item.href} className="relative">
+              {/* Left amber bar per active state — sostituisce il fill saturated */}
+              {active && (
+                <span
+                  className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-primary"
+                  aria-hidden
+                />
+              )}
               <Link
                 href={item.href}
                 className={cn(
-                  'group flex items-center gap-3 rounded-xl px-4 py-2.5 text-sm font-semibold transition-all duration-150',
+                  'group flex items-center gap-3 rounded-lg px-4 py-2.5 text-sm font-medium transition-colors duration-150',
                   active
-                    ? 'bg-primary text-on-primary shadow-ambient-sm'
-                    : 'text-on-surface-variant hover:translate-x-0.5 hover:bg-surface-container-low hover:text-primary',
+                    ? 'bg-primary/10 text-primary'
+                    : 'text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface',
                 )}
               >
                 {item.icon && <NavIcon name={item.icon} />}
@@ -168,8 +172,8 @@ export function SideNav({ items, tenant, user_email }: SideNavProps) {
         })}
       </ul>
 
-      {/* Tenant footer */}
-      <div className="mt-4 rounded-xl bg-surface-container-low p-4">
+      {/* Tenant footer — glass panel sm */}
+      <div className="mt-4 rounded-xl glass-panel-sm p-4">
         <p className="truncate text-sm font-semibold text-on-surface">
           {tenant.business_name}
         </p>

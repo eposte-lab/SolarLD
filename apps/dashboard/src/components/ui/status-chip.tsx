@@ -18,13 +18,10 @@ import type { LeadScoreTier, LeadStatus } from '@/types/db';
 // ---------------------------------------------------------------------------
 
 const TIER_STYLES: Record<LeadScoreTier, string> = {
-  // Hot → terracotta container (heat)
-  hot: 'bg-secondary-container text-on-secondary-container',
-  // Warm → solar gold
-  warm: 'bg-tertiary-container text-on-tertiary-container',
-  // Cold → tonal neutral
+  // Editorial Glass: amber-only highlights, intensity differs by tier.
+  hot: 'bg-primary/15 text-primary',
+  warm: 'bg-primary/8 text-primary-dim',
   cold: 'bg-surface-container-high text-on-surface-variant',
-  // Rejected → muted + slightly dimmer
   rejected: 'bg-surface-container text-on-surface-variant opacity-70',
 };
 
@@ -68,18 +65,20 @@ export function TierChip({
  *   - won         → primary gradient
  *   - lost / blk  → secondary/error container
  */
+// Editorial Glass — single accent: amber per stati pre-win, success per won,
+// error per blacklist. Pre-send/lost stay neutral grey.
 const STATUS_STYLES: Record<LeadStatus, string> = {
   new: 'bg-surface-container-high text-on-surface-variant',
   sent: 'bg-surface-container-highest text-on-surface',
   delivered: 'bg-surface-container-highest text-on-surface',
-  opened: 'bg-primary-container/60 text-on-primary-container',
-  clicked: 'bg-primary-container text-on-primary-container',
-  engaged: 'bg-primary-container text-on-primary-container',
-  whatsapp: 'bg-primary-container text-on-primary-container',
-  appointment: 'bg-tertiary-container text-on-tertiary-container',
-  closed_won: 'bg-primary text-on-primary',
+  opened: 'bg-primary/8 text-primary-dim',
+  clicked: 'bg-primary/12 text-primary',
+  engaged: 'bg-primary/15 text-primary',
+  whatsapp: 'bg-primary/15 text-primary',
+  appointment: 'bg-primary/20 text-primary',
+  closed_won: 'bg-success/15 text-success',
   closed_lost: 'bg-surface-container-high text-on-surface-variant',
-  blacklisted: 'bg-secondary-container text-on-secondary-container',
+  blacklisted: 'bg-error/15 text-error',
 };
 
 const STATUS_LABEL: Record<LeadStatus, string> = {

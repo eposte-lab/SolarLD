@@ -80,13 +80,13 @@ function lastEvent(lead: LeadListRow): string | null {
 const TIER_CHIP: Record<string, { label: string; style: string; dot: string }> = {
   hot: {
     label: 'Hot',
-    style: 'bg-[#1a73e8]/15 text-[#1a73e8]',
-    dot: 'bg-[#1a73e8] animate-pulse',
+    style: 'bg-primary/15 text-primary',
+    dot: 'bg-primary animate-pulse',
   },
   warm: {
     label: 'Warm',
-    style: 'bg-[#fdbb31]/20 text-[#a07000]',
-    dot: 'bg-[#fdbb31]',
+    style: 'bg-primary/8 text-primary-dim',
+    dot: 'bg-primary-dim',
   },
   cold: {
     label: 'Freddo',
@@ -286,10 +286,10 @@ export function LeadTemperatureBoard({ leads, className }: LeadTemperatureBoardP
                             width: `${pConv * 100}%`,
                             backgroundColor:
                               pConv >= 0.5
-                                ? '#006a37'
+                                ? '#6FCF97'
                                 : pConv >= 0.2
-                                  ? '#fdbb31'
-                                  : '#aaaead',
+                                  ? '#F4A45C'
+                                  : '#8A9094',
                           }}
                         />
                       </div>

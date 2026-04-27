@@ -20,9 +20,9 @@ import type { NotificationRow } from '@/lib/data/notifications';
 
 const SEVERITY_DOT: Record<NotificationRow['severity'], string> = {
   info: 'bg-on-surface-variant',
-  success: 'bg-primary',
-  warning: 'bg-tertiary',
-  error: 'bg-secondary',
+  success: 'bg-success',
+  warning: 'bg-primary',
+  error: 'bg-error',
 };
 
 function timeAgo(iso: string): string {
@@ -104,7 +104,7 @@ export function NotificationsBell({
         onClick={() => setOpen((o) => !o)}
         className={cn(
           'relative flex h-10 w-10 items-center justify-center rounded-full',
-          'bg-surface-container-lowest shadow-ambient transition-colors',
+          'bg-surface-container-lowest ghost-border transition-colors',
           'hover:bg-surface-container-low',
         )}
       >
@@ -119,7 +119,7 @@ export function NotificationsBell({
           <span
             className={cn(
               'absolute -right-0.5 -top-0.5 flex h-5 min-w-[20px] items-center justify-center',
-              'rounded-full bg-secondary px-1 text-[10px] font-bold text-on-secondary',
+              'rounded-full bg-primary px-1 text-[10px] font-bold text-on-primary',
             )}
           >
             {unread > 99 ? '99+' : unread}
@@ -137,11 +137,11 @@ export function NotificationsBell({
           <div
             className={cn(
               'absolute right-0 top-12 z-50 w-[360px] max-h-[480px] overflow-hidden',
-              'rounded-xl bg-surface-container-lowest shadow-ambient',
+              'rounded-2xl glass-panel shadow-ambient',
             )}
             role="dialog"
           >
-            <header className="flex items-center justify-between border-b border-surface-container-high px-4 py-3">
+            <header className="flex items-center justify-between border-b border-white/8 px-4 py-3">
               <p className="font-headline text-sm font-bold tracking-tighter">
                 Notifiche
               </p>
@@ -170,8 +170,8 @@ export function NotificationsBell({
                     const content = (
                       <div
                         className={cn(
-                          'flex gap-3 px-4 py-3 transition-colors hover:bg-surface-container-low',
-                          !n.read_at && 'bg-primary-container/10',
+                          'flex gap-3 px-4 py-3 transition-colors hover:bg-white/5',
+                          !n.read_at && 'bg-primary/8',
                         )}
                       >
                         <span

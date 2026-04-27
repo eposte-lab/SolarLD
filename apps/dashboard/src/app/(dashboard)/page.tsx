@@ -18,6 +18,7 @@ import { redirect } from 'next/navigation';
 import { BentoCard, BentoGrid } from '@/components/ui/bento-card';
 import { GradientButton } from '@/components/ui/gradient-button';
 import { KpiChipCard } from '@/components/ui/kpi-chip-card';
+import { SectionEyebrow } from '@/components/ui/section-eyebrow';
 
 import { AiExecutiveInsights } from '@/components/dashboard/ai-executive-insights';
 import { DailyCapWidget } from '@/components/dashboard/daily-cap-widget';
@@ -81,18 +82,20 @@ export default async function DashboardOverview() {
   return (
     <div className="space-y-8">
       {/* ── Row 1: Header ─────────────────────────────────────────────────── */}
-      <header className="flex flex-col gap-1">
-        <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
+      <header className="flex flex-col gap-2">
+        <SectionEyebrow>
           Panoramica · {new Date().toLocaleDateString('it-IT', {
             weekday: 'long',
             day: 'numeric',
             month: 'long',
           })}
-        </p>
+        </SectionEyebrow>
         <div className="flex items-end justify-between gap-4">
-          <h1 className="font-headline text-4xl font-bold tracking-tighter text-on-surface">
-            {greeting},{' '}
-            <span className="text-primary">{ctx.tenant.business_name}</span>
+          <h1 className="font-headline text-5xl font-bold leading-[1.05] tracking-tightest">
+            <span className="text-on-surface">{greeting}, </span>
+            <span className="bg-gradient-headline bg-clip-text text-transparent">
+              {ctx.tenant.business_name}
+            </span>
           </h1>
           <GradientButton href="/leads" variant="secondary" size="sm">
             Tutti i lead →
@@ -100,30 +103,33 @@ export default async function DashboardOverview() {
         </div>
       </header>
 
-      {/* ── Row 2: Quick KPI strip ────────────────────────────────────────── */}
+      {/* ── Row 2: Hero KPI strip — single hero (Hot leads) + 3 default ─── */}
       <BentoGrid cols={4}>
-        <KpiChipCard
-          label="Scansionati"
-          value={formatNumber(contattiSummary.l1)}
-          hint={`${formatNumber(contattiSummary.l4_qualified)} Solar OK`}
-          accent="neutral"
-        />
         <KpiChipCard
           label="Hot leads"
           value={formatNumber(kpis.hot_leads)}
           hint="in pipeline"
-          accent="primary"
+          tone="highlight"
+          size="hero"
+          className="md:col-span-2"
+        />
+        <KpiChipCard
+          label="Scansionati"
+          value={formatNumber(contattiSummary.l1)}
+          hint={`${formatNumber(contattiSummary.l4_qualified)} Solar OK`}
+          tone="neutral"
         />
         <KpiChipCard
           label="Appuntamenti 30gg"
           value={formatNumber(kpis.appointments_30d)}
-          accent="tertiary"
+          tone="neutral"
         />
         <KpiChipCard
           label="Contratti firmati"
           value={formatNumber(kpis.closed_won_30d)}
           hint="30gg"
-          accent="primary"
+          tone="success"
+          className="md:col-span-1"
         />
       </BentoGrid>
 
@@ -165,11 +171,9 @@ export default async function DashboardOverview() {
       {/* ── Row 6: Lead Temperature Board (full width) ───────────────────── */}
       <BentoCard span="full" padding="tight">
         <header className="flex items-center justify-between px-2 pb-5 pt-2">
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
-              Classificazione termica
-            </p>
-            <h2 className="font-headline text-2xl font-bold tracking-tighter">
+          <div className="space-y-1">
+            <SectionEyebrow>Classificazione termica</SectionEyebrow>
+            <h2 className="font-headline text-2xl font-bold tracking-tighter text-on-surface">
               Lead Temperature Board
             </h2>
           </div>
@@ -212,20 +216,16 @@ function ConversionFunnelCard({ stats }: { stats: ConversionStats }) {
   return (
     <div>
       <div className="flex flex-col gap-1 md:flex-row md:items-end md:justify-between">
-        <div>
-          <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
-            Attribution conversioni · 30gg
-          </p>
-          <h2 className="font-headline text-2xl font-bold tracking-tighter">
+        <div className="space-y-1">
+          <SectionEyebrow>Attribution conversioni · 30gg</SectionEyebrow>
+          <h2 className="font-headline text-2xl font-bold tracking-tighter text-on-surface">
             Chiusure commerciali
           </h2>
         </div>
         {stats.won_value_cents > 0 && (
           <div className="text-right">
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">
-              Pipeline chiuso
-            </p>
-            <p className="font-headline text-3xl font-bold tabular-nums tracking-tighter text-primary">
+            <SectionEyebrow tone="dim">Pipeline chiuso</SectionEyebrow>
+            <p className="font-headline text-3xl font-bold tabular-nums tracking-tightest text-primary editorial-glow">
               {formatEurFromCents(stats.won_value_cents)}
             </p>
           </div>
@@ -253,18 +253,13 @@ function ConversionFunnelCard({ stats }: { stats: ConversionStats }) {
                 )}
                 <div
                   className={cn(
-                    'flex min-w-[72px] flex-col items-center rounded-xl px-4 py-3',
+                    'flex min-w-[72px] flex-col items-center rounded-xl px-4 py-3 ghost-border',
                     stage === 'won'
-                      ? 'bg-primary-container text-on-primary-container'
-                      : 'bg-surface-container text-on-surface',
+                      ? 'bg-primary/10 text-primary'
+                      : 'bg-surface-container-low text-on-surface',
                   )}
                 >
-                  <span
-                    className={cn(
-                      'font-headline text-3xl font-bold tabular-nums tracking-tighter',
-                      stage === 'won' ? '' : 'text-on-surface',
-                    )}
-                  >
+                  <span className="font-headline text-3xl font-bold tabular-nums tracking-tightest">
                     {stats[stage]}
                   </span>
                   <span className="mt-0.5 text-[10px] font-semibold uppercase tracking-wider">

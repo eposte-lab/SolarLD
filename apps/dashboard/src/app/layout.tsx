@@ -38,7 +38,7 @@ export default function RootLayout({
   return (
     <html
       lang="it"
-      className={`${headline.variable} ${body.variable}`}
+      className={`dark ${headline.variable} ${body.variable}`}
       suppressHydrationWarning
     >
       <body className="min-h-screen bg-surface font-body text-on-surface antialiased">

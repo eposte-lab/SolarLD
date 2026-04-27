@@ -1,16 +1,17 @@
 /**
- * Bento unit — the fundamental container of the Luminous Curator
- * system. Every dashboard page composes these into a grid with a
- * fixed 20px gutter (`bento-gutter` = `gap-5`).
+ * Bento unit — the fundamental container of the Editorial Glass
+ * system (Sprint 7). Every dashboard page composes these into a grid
+ * with a fixed 20px gutter (`gap-5`).
  *
- * Rules enforced by the defaults (per DESIGN.md §5):
- *   - Corner radius `xl` for main, `lg` for nested (`variant="nested"`)
- *   - No 1px borders — surface-shift + ambient shadow define edges
- *   - `variant="feature"` gets a gradient background (primary CTAs)
+ * Variants:
+ *   - default  → solid surface-container-lowest, ghost-border, ambient
+ *   - nested   → tinted sub-card inside a default (no border)
+ *   - feature  → amber gradient CTA / hero (white text)
+ *   - muted    → tonal layer for inline stat strips
+ *   - glass    → backdrop-blur-glass over photo / map / dark surface
+ *                (signature visual: floats on top of satellite imagery)
  *
- * The `span` prop is a thin sugar over grid-span classes so pages can
- * read as: `<BentoCard span="2x1">...</BentoCard>` without raw
- * `col-span-2 row-span-1` strings everywhere.
+ * The `span` prop is a thin sugar over grid-span classes.
  */
 
 import { cn } from '@/lib/utils';
@@ -26,18 +27,22 @@ const SPAN: Record<BentoSpan, string> = {
   full: 'col-span-full',
 };
 
-type BentoVariant = 'default' | 'nested' | 'feature' | 'muted';
+type BentoVariant = 'default' | 'nested' | 'feature' | 'muted' | 'glass';
 
 const VARIANT: Record<BentoVariant, string> = {
-  // Default: white surface floating over the f4f7f6 background
-  default: 'bg-surface-container-lowest shadow-ambient',
-  // Nested: slightly tinted card for sub-sections inside a default
+  // Default: solid dark card, ghost border, ambient soft glow shadow
+  default:
+    'bg-surface-container-lowest ghost-border shadow-ambient',
+  // Nested: tinted sub-card inside a default — no border, just tonal shift
   nested: 'bg-surface-container-low',
-  // Feature: gradient CTA / hero card with white text
+  // Feature: amber gradient hero / CTA card (text-on-primary = near-black)
   feature:
-    'bg-gradient-primary text-on-primary shadow-ambient ring-1 ring-white/10',
+    'bg-gradient-primary text-on-primary shadow-editorial-glow ring-1 ring-white/10',
   // Muted: tonal layer used for inline stat strips
-  muted: 'bg-surface-container-low',
+  muted: 'bg-surface-container-low ghost-border',
+  // Glass: signature glass card flottante su mappe / foto / hero bg.
+  // Bordo gestito dall'inset shadow del .glass-panel utility (vedi globals.css).
+  glass: 'glass-panel shadow-ambient',
 };
 
 const RADIUS: Record<BentoVariant, string> = {
@@ -45,6 +50,7 @@ const RADIUS: Record<BentoVariant, string> = {
   nested: 'rounded-lg',
   feature: 'rounded-xl',
   muted: 'rounded-lg',
+  glass: 'rounded-2xl',
 };
 
 export interface BentoCardProps extends React.HTMLAttributes<HTMLDivElement> {

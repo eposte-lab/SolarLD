@@ -17,8 +17,10 @@ import { notFound, redirect } from 'next/navigation';
 import { CampaignConfigEditor } from '@/components/campaigns/CampaignConfigEditor';
 import { CampaignOverrideList } from '@/components/campaigns/CampaignOverrideList';
 import { DailyCapWidget } from '@/components/dashboard/daily-cap-widget';
+import { BadgeStatus } from '@/components/ui/badge-status';
 import { BentoCard } from '@/components/ui/bento-card';
 import { KpiChipCard } from '@/components/ui/kpi-chip-card';
+import { SectionEyebrow } from '@/components/ui/section-eyebrow';
 import { getAcquisitionCampaign, getCampaignSendStats } from '@/lib/data/acquisition-campaigns';
 import { getCampaignResults } from '@/lib/data/campaign-results';
 import { getCurrentTenantContext } from '@/lib/data/tenant';
@@ -85,48 +87,34 @@ export default async function CampaignDetailPage({
     getDailyCapStats(),
   ]);
 
-  const statusColors: Record<string, string> = {
-    active: 'bg-primary-container text-on-primary-container',
-    draft: 'bg-surface-container-high text-on-surface-variant',
-    paused: 'bg-tertiary-container text-on-tertiary-container',
-    archived: 'bg-surface-container text-on-surface-variant opacity-60',
+  const statusToBadge: Record<string, { tone: 'success' | 'warning' | 'neutral'; label: string }> = {
+    active: { tone: 'success', label: 'Attiva' },
+    draft: { tone: 'neutral', label: 'Bozza' },
+    paused: { tone: 'warning', label: 'In pausa' },
+    archived: { tone: 'neutral', label: 'Archiviata' },
   };
-  const statusLabels: Record<string, string> = {
-    active: 'Attiva',
-    draft: 'Bozza',
-    paused: 'In pausa',
-    archived: 'Archiviata',
-  };
+  const statusBadge = statusToBadge[campaign.status] ?? { tone: 'neutral' as const, label: campaign.status };
 
   return (
     <div className="space-y-6">
       {/* Header */}
       <header className="space-y-2">
-        <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
+        <SectionEyebrow>
           <Link href="/campaigns" className="hover:underline">
             Campagne
           </Link>
           {' · '}{campaign.name}
-        </p>
+        </SectionEyebrow>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="space-y-1">
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="font-headline text-3xl font-bold tracking-tighter">
+              <h1 className="font-headline text-4xl font-bold tracking-tightest text-on-surface">
                 {campaign.name}
               </h1>
               {campaign.is_default && (
-                <span className="rounded-full bg-surface-container-high px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-on-surface-variant">
-                  Default
-                </span>
+                <BadgeStatus tone="neutral" label="Default" dotless />
               )}
-              <span
-                className={cn(
-                  'rounded-full px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider',
-                  statusColors[campaign.status] ?? 'bg-surface-container text-on-surface-variant',
-                )}
-              >
-                {statusLabels[campaign.status] ?? campaign.status}
-              </span>
+              <BadgeStatus tone={statusBadge.tone} label={statusBadge.label} />
             </div>
             {campaign.description && (
               <p className="max-w-xl text-sm text-on-surface-variant">
@@ -146,7 +134,7 @@ export default async function CampaignDetailPage({
                 <input type="hidden" name="action" value="activate" />
                 <button
                   type="submit"
-                  className="rounded-xl bg-primary px-3 py-1.5 text-xs font-semibold text-on-primary shadow-ambient-sm"
+                  className="rounded-xl bg-primary px-3 py-1.5 text-xs font-semibold text-on-primary shadow-editorial-glow transition-transform hover:-translate-y-0.5"
                 >
                   Attiva
                 </button>
@@ -158,7 +146,7 @@ export default async function CampaignDetailPage({
                 <input type="hidden" name="action" value="pause" />
                 <button
                   type="submit"
-                  className="rounded-xl border border-outline-variant/60 px-3 py-1.5 text-xs font-semibold text-on-surface hover:bg-surface-container-low"
+                  className="rounded-xl ghost-border bg-surface-container-lowest px-3 py-1.5 text-xs font-semibold text-on-surface hover:bg-white/5"
                 >
                   Metti in pausa
                 </button>
@@ -170,7 +158,7 @@ export default async function CampaignDetailPage({
                 <input type="hidden" name="action" value="archive" />
                 <button
                   type="submit"
-                  className="rounded-xl border border-outline-variant/40 px-3 py-1.5 text-xs font-semibold text-on-surface-variant hover:bg-surface-container-low"
+                  className="rounded-xl ghost-border bg-surface-container-lowest px-3 py-1.5 text-xs font-semibold text-on-surface-variant hover:bg-white/5 hover:text-on-surface"
                 >
                   Archivia
                 </button>
@@ -197,27 +185,27 @@ export default async function CampaignDetailPage({
 
       {/* KPI strip */}
       <div className="grid grid-cols-4 gap-3">
-        <KpiChipCard label="Inviati" value={String(stats.total)} accent="primary" />
-        <KpiChipCard label="Consegnati" value={String(stats.delivered)} accent="secondary" />
-        <KpiChipCard label="Falliti" value={String(stats.failed)} accent={stats.failed > 0 ? 'tertiary' : 'neutral'} />
+        <KpiChipCard label="Inviati" value={String(stats.total)} tone="highlight" />
+        <KpiChipCard label="Consegnati" value={String(stats.delivered)} tone="success" />
+        <KpiChipCard label="Falliti" value={String(stats.failed)} tone={stats.failed > 0 ? 'critical' : 'neutral'} />
         <KpiChipCard label="Override attivi" value={String((overrides as unknown[]).filter((o) => {
           const row = o as { start_at: string; end_at: string };
           const now = Date.now();
           return new Date(row.start_at).getTime() <= now && new Date(row.end_at).getTime() >= now;
-        }).length)} accent="neutral" />
+        }).length)} tone="neutral" />
       </div>
 
-      {/* Tab bar */}
-      <div className="flex gap-1 rounded-xl bg-surface-container-low p-1">
+      {/* Tab bar — single active pill, ghost border, no shadow swap */}
+      <div className="flex gap-1 rounded-2xl ghost-border bg-surface-container-lowest p-1">
         {TABS.map((t) => (
           <Link
             key={t}
             href={`/campaigns/${id}?tab=${t}`}
             className={cn(
-              'flex-1 rounded-lg px-3 py-2 text-center text-sm font-semibold transition-colors',
+              'flex-1 rounded-xl px-3 py-2 text-center text-sm font-semibold transition-colors',
               tab === t
-                ? 'bg-surface text-on-surface shadow-ambient-sm'
-                : 'text-on-surface-variant hover:bg-surface-container-high',
+                ? 'bg-primary/10 text-primary'
+                : 'text-on-surface-variant hover:bg-white/5 hover:text-on-surface',
             )}
           >
             {TAB_LABELS[t]}
@@ -265,21 +253,27 @@ export default async function CampaignDetailPage({
       )}
 
       {tab === 'risultati' && (
-        <BentoCard span="full">
-          <div className="space-y-4 p-1">
-            <h2 className="font-headline text-lg font-bold text-on-surface">
-              Risultati per variante
-            </h2>
-            {!results || results.length === 0 ? (
-              <p className="py-8 text-center text-sm text-on-surface-variant">
-                Nessun invio ancora — i risultati appariranno non appena la
-                campagna inizia a inviare.
-              </p>
-            ) : (
-              <ResultsTable rows={results} />
-            )}
-          </div>
-        </BentoCard>
+        <div className="space-y-6">
+          {results && results.length > 0 && <ResultsChart rows={results} />}
+          <BentoCard span="full">
+            <div className="space-y-4 p-1">
+              <div className="space-y-1">
+                <SectionEyebrow>Risultati per variante · 30gg</SectionEyebrow>
+                <h2 className="font-headline text-2xl font-bold tracking-tighter text-on-surface">
+                  Performance breakdown
+                </h2>
+              </div>
+              {!results || results.length === 0 ? (
+                <p className="py-8 text-center text-sm text-on-surface-variant">
+                  Nessun invio ancora — i risultati appariranno non appena la
+                  campagna inizia a inviare.
+                </p>
+              ) : (
+                <ResultsTable rows={results} />
+              )}
+            </div>
+          </BentoCard>
+        </div>
       )}
     </div>
   );
@@ -289,14 +283,73 @@ export default async function CampaignDetailPage({
 // Results table
 // ---------------------------------------------------------------------------
 
+import { EditorialLineChart } from '@/components/charts/editorial-line-chart';
 import type { CampaignResultRow } from '@/lib/data/campaign-results';
+
+/**
+ * ResultsChart — Editorial line chart top-of-page nei risultati campagna.
+ *
+ * Aggrega per variante (max 4): linea bianca per "Inviati", linea amber
+ * focused per "Aperti" (la metrica che il marketer guarda di più). Le
+ * etichette inline + reference lines a 25/50/75% sostituiscono il tooltip.
+ */
+function ResultsChart({ rows }: { rows: CampaignResultRow[] }) {
+  // Aggrega per variante per dare una serie tabellare (Recharts data shape)
+  const byVariant = new Map<string, { sent: number; opened: number; clicked: number }>();
+  for (const r of rows) {
+    const key = r.variant ?? 'Controllo';
+    const cur = byVariant.get(key) ?? { sent: 0, opened: 0, clicked: 0 };
+    cur.sent += r.sent;
+    cur.opened += r.opened;
+    cur.clicked += r.clicked;
+    byVariant.set(key, cur);
+  }
+  const data = Array.from(byVariant.entries()).map(([variant, v]) => ({
+    variant,
+    sent: v.sent,
+    opened: v.opened,
+    clicked: v.clicked,
+  }));
+
+  if (data.length < 2) return null; // serve almeno 2 punti per una line
+
+  const totalSent = data.reduce((s, d) => s + d.sent, 0);
+  const totalOpened = data.reduce((s, d) => s + d.opened, 0);
+  const openRate = totalSent > 0 ? Math.round((totalOpened / totalSent) * 100) : 0;
+
+  return (
+    <BentoCard span="full" variant="glass">
+      <div className="mb-4 flex items-end justify-between">
+        <div className="space-y-1">
+          <SectionEyebrow tone="amber">Open rate trend per variante</SectionEyebrow>
+          <p className="font-headline text-3xl font-bold tabular-nums tracking-tightest text-on-surface">
+            {totalOpened}
+            <span className="hero-decimal text-base"> / {totalSent} aperti</span>
+          </p>
+        </div>
+      </div>
+      <EditorialLineChart
+        data={data}
+        xKey="variant"
+        height={220}
+        series={[
+          { key: 'sent', label: 'Inviati', color: 'whiteDim' },
+          { key: 'opened', label: 'Aperti', color: 'amber', focused: true },
+        ]}
+        yReferenceLines={[Math.max(...data.map((d) => d.sent)) * 0.25, Math.max(...data.map((d) => d.sent)) * 0.5, Math.max(...data.map((d) => d.sent)) * 0.75]}
+        yReferenceLabels={['25%', '50%', '75%']}
+        inlineLabel={{ value: `${totalOpened}`, delta: `${openRate}%` }}
+      />
+    </BentoCard>
+  );
+}
 
 function ResultsTable({ rows }: { rows: CampaignResultRow[] }) {
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
-          <tr className="border-b border-outline-variant/40 text-left">
+          <tr className="border-b border-white/8 text-left">
             {[
               'Variante',
               'Provincia',
@@ -310,18 +363,18 @@ function ResultsTable({ rows }: { rows: CampaignResultRow[] }) {
             ].map((h) => (
               <th
                 key={h}
-                className="pb-2 pr-4 text-xs font-semibold text-on-surface-variant"
+                className="pb-2 pr-4 text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant"
               >
                 {h}
               </th>
             ))}
           </tr>
         </thead>
-        <tbody className="divide-y divide-outline-variant/20">
+        <tbody className="divide-y divide-white/5">
           {rows.map((row, i) => {
             const openRate = row.sent > 0 ? ((row.opened / row.sent) * 100).toFixed(1) : '—';
             return (
-              <tr key={i} className="hover:bg-surface-container-low/50">
+              <tr key={i} className="hover:bg-white/3">
                 <td className="py-2 pr-4 font-medium text-on-surface">
                   {row.variant ?? 'Controllo'}
                 </td>

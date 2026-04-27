@@ -9,6 +9,9 @@
  * Falls back gracefully when NEXT_PUBLIC_MAPBOX_TOKEN is not set.
  */
 
+import Link from 'next/link';
+
+import { SectionEyebrow } from '@/components/ui/section-eyebrow';
 import { getGeoLeads } from '@/lib/data/geo-analytics';
 import type { ProvinceAggregate } from '@/lib/data/geo-analytics';
 import { GeoRadarMapLoader } from './geo-radar-map-loader';
@@ -34,38 +37,30 @@ export async function GeoRadarMap({ className }: GeoRadarMapProps) {
     <div className={className}>
       {/* Card header */}
       <div className="mb-3 flex items-end justify-between">
-        <div>
-          <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
-            Geo Radar · Live
-          </p>
-          <h2 className="font-headline text-2xl font-bold tracking-tighter">
+        <div className="space-y-1">
+          <SectionEyebrow>Geo Radar · Live</SectionEyebrow>
+          <h2 className="font-headline text-2xl font-bold tracking-tighter text-on-surface">
             Lead Map
           </h2>
         </div>
         {totalLeads > 0 && (
           <div className="flex gap-3 text-right">
             <div>
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">
-                Province
-              </p>
-              <p className="font-headline text-xl font-bold tabular-nums text-primary">
+              <SectionEyebrow tone="dim">Province</SectionEyebrow>
+              <p className="font-headline text-xl font-bold tabular-nums tracking-tightest text-on-surface">
                 {aggregates.length}
               </p>
             </div>
             <div>
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">
-                Lead
-              </p>
-              <p className="font-headline text-xl font-bold tabular-nums text-on-surface">
+              <SectionEyebrow tone="dim">Lead</SectionEyebrow>
+              <p className="font-headline text-xl font-bold tabular-nums tracking-tightest text-on-surface">
                 {totalLeads}
               </p>
             </div>
             {hotProvinces > 0 && (
               <div>
-                <p className="text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">
-                  Hot zone
-                </p>
-                <p className="font-headline text-xl font-bold tabular-nums text-[#1a73e8]">
+                <SectionEyebrow tone="dim">Hot zone</SectionEyebrow>
+                <p className="font-headline text-xl font-bold tabular-nums tracking-tightest text-primary editorial-glow">
                   {hotProvinces}
                 </p>
               </div>
@@ -78,10 +73,10 @@ export async function GeoRadarMap({ className }: GeoRadarMapProps) {
       {totalLeads > 0 && (
         <div className="mb-3 flex flex-wrap gap-3">
           {[
-            { color: '#6afea0', label: 'Firmato' },
-            { color: '#fdbb31', label: 'Appuntamento' },
-            { color: '#1a73e8', label: 'Hot' },
-            { color: '#aaaead', label: 'Inviato' },
+            { color: '#6FCF97', label: 'Firmato' },
+            { color: '#F4A45C', label: 'Appuntamento' },
+            { color: '#E8924A', label: 'Hot' },
+            { color: '#8A9094', label: 'Inviato' },
           ].map(({ color, label }) => (
             <span key={label} className="flex items-center gap-1.5 text-[10px] text-on-surface-variant">
               <span
@@ -94,10 +89,10 @@ export async function GeoRadarMap({ className }: GeoRadarMapProps) {
         </div>
       )}
 
-      {/* Map container — fixed height */}
-      <div className="h-[320px] overflow-hidden rounded-xl">
+      {/* Map container — fixed height with floating glass overlay */}
+      <div className="relative h-[360px] overflow-hidden rounded-2xl ghost-border-strong">
         {aggregates.length === 0 ? (
-          <div className="flex h-full items-center justify-center rounded-xl bg-surface-container-low">
+          <div className="flex h-full items-center justify-center rounded-2xl bg-surface-container-low">
             <p className="text-sm text-on-surface-variant">
               Nessun lead con provincia ancora.{' '}
               <a href="/territories" className="font-semibold text-primary hover:underline">
@@ -106,7 +101,28 @@ export async function GeoRadarMap({ className }: GeoRadarMapProps) {
             </p>
           </div>
         ) : (
-          <GeoRadarMapLoader aggregates={aggregates} />
+          <>
+            <GeoRadarMapLoader aggregates={aggregates} />
+            {hotProvinces > 0 && (
+              <Link
+                href="/leads"
+                className="group absolute left-4 top-4 max-w-[220px] rounded-2xl glass-panel-sm p-4 transition-transform hover:-translate-y-0.5"
+              >
+                <SectionEyebrow tone="amber">Lead caldi</SectionEyebrow>
+                <p className="mt-1 font-headline text-4xl font-bold tracking-tightest text-on-surface">
+                  <span>{hotProvinces}</span>
+                  <span className="hero-decimal text-2xl"> province</span>
+                </p>
+                <p className="mt-1 text-[11px] text-on-surface-variant">
+                  con concentrazione hot/appointment attiva
+                </p>
+                <span className="mt-3 inline-flex items-center gap-1 text-[11px] font-semibold text-primary">
+                  Esplora
+                  <span aria-hidden className="transition-transform group-hover:translate-x-0.5">→</span>
+                </span>
+              </Link>
+            )}
+          </>
         )}
       </div>
     </div>

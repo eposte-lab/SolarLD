@@ -1,11 +1,14 @@
 /**
- * SolarLead dashboard Tailwind config — "Luminous Curator" design
- * system (Sprint 9, Fase B).
+ * SolarLead dashboard Tailwind config — "Editorial Glass" design system.
  *
- * Token naming mirrors Material Design 3 surface/role tokens from
- * DESIGN.md so we can copy-paste snippets from the stitch mockups.
- * HSL-backed CSS variables are still available (legacy shadcn-style)
- * but the canonical surface is the named token below.
+ * Dark-only, single-accent (amber editorial #F4A45C). Replaces the legacy
+ * "Luminous Curator" light palette (forest green + terracotta + solar gold).
+ *
+ * Token naming preserves the MD3 surface/role nomenclature so existing
+ * components keep working — but the values are recolored to a near-black
+ * tonal hierarchy with one warm accent.
+ *
+ * See plan: ~/.claude/plans/shimmying-painting-backus.md (Sprint 7).
  */
 
 import type { Config } from 'tailwindcss';
@@ -25,55 +28,66 @@ const config: Config = {
     extend: {
       colors: {
         // ------------------------------------------------------------
-        // Luminous Curator palette (MD3 role tokens)
+        // Editorial Glass — surface tonal hierarchy (near-black)
         // ------------------------------------------------------------
-        // Surface layers — tonal layering, not borders
-        surface: '#f4f7f6',
-        'surface-container-lowest': '#ffffff',
-        'surface-container-low': '#eef1f0',
-        'surface-container': '#e5e9e8',
-        'surface-container-high': '#dee3e2',
-        'surface-container-highest': '#d8dedd',
-        'surface-dim': '#cfd6d5',
-        'surface-bright': '#f4f7f6',
-        'surface-variant': '#d8dedd',
+        surface: '#0A0B0C',
+        'surface-container-lowest': '#0F1112',
+        'surface-container-low': '#14171A',
+        'surface-container': '#1A1E22',
+        'surface-container-high': '#22262B',
+        'surface-container-highest': '#2B3036',
+        'surface-dim': '#0A0B0C',
+        'surface-bright': '#1A1E22',
+        'surface-variant': '#22262B',
 
-        // Text on surfaces — never pure black
-        'on-surface': '#2b2f2f',
-        'on-surface-variant': '#585c5c',
-        'on-background': '#2b2f2f',
+        // Text on surfaces
+        'on-surface': '#ECEFF0',
+        'on-surface-variant': '#8A9094',
+        'on-surface-muted': '#5A6066',
+        'on-background': '#ECEFF0',
 
-        // Outlines (use sparingly — Ghost Border only)
-        outline: '#747877',
-        'outline-variant': '#aaaead',
+        // Outlines (rare — most edges are tonal shifts, not borders)
+        outline: '#2B3036',
+        'outline-variant': 'rgba(255,255,255,0.08)',
 
-        // Primary — forest green for actions
-        primary: '#006a37',
-        'primary-dim': '#005c2f',
-        'primary-container': '#6afea0',
-        'on-primary': '#ccffd5',
-        'on-primary-container': '#005f31',
+        // Primary — Amber Editorial (sostituisce forest green)
+        // L'unico accent del sistema. Usato per CTA, chart focused line,
+        // delta negativi, focus ring, hover state.
+        primary: '#F4A45C',
+        'primary-dim': '#E8924A',
+        'primary-container': '#B86F2C',
+        'on-primary': '#1A1004',
+        'on-primary-container': '#FFE8CC',
 
-        // Secondary — terracotta for urgency/heat
-        secondary: '#b22200',
-        'secondary-container': '#ffc4b7',
-        'on-secondary': '#ffefec',
-        'on-secondary-container': '#8d1900',
+        // Secondary — desaturated grey for non-critical pills
+        secondary: '#5A6066',
+        'secondary-container': '#22262B',
+        'on-secondary': '#ECEFF0',
+        'on-secondary-container': '#ECEFF0',
 
-        // Tertiary — solar gold for high-value highlights
-        tertiary: '#795500',
-        'tertiary-container': '#fdbb31',
-        'on-tertiary': '#fff1de',
-        'on-tertiary-container': '#563b00',
+        // Tertiary — alias of primary (keep token, route to amber)
+        // Manteniamo il nome per backward-compat ma il colore è amber-dim.
+        tertiary: '#E8924A',
+        'tertiary-container': '#22262B',
+        'on-tertiary': '#1A1004',
+        'on-tertiary-container': '#F4A45C',
 
-        // Error
-        error: '#b31b25',
-        'error-container': '#fb5151',
-        'on-error': '#ffefee',
-        'on-error-container': '#570008',
+        // Error — desaturated red, leggibile su dark
+        error: '#E85C5C',
+        'error-container': '#3D1414',
+        'on-error': '#FFE5E5',
+        'on-error-container': '#FFB4B4',
+
+        // Success — verde desaturato, solo per status semantici positivi
+        // (won, online, healthy). Usato sparingly: la regola è "amber per
+        // tutto ciò che richiede attenzione, success per ciò che non la richiede".
+        success: '#6FCF97',
+        'success-container': '#0F2418',
+        'on-success': '#0A1A10',
+        'on-success-container': '#A7E2BC',
 
         // ------------------------------------------------------------
-        // Legacy shadcn HSL tokens (still used by a few components)
+        // Legacy shadcn HSL tokens (mapped to dark surfaces)
         // ------------------------------------------------------------
         border: 'hsl(var(--border))',
         input: 'hsl(var(--input))',
@@ -98,9 +112,7 @@ const config: Config = {
         },
       },
       fontFamily: {
-        // Headlines: geometric + editorial
         headline: ['var(--font-headline)', 'Plus Jakarta Sans', 'sans-serif'],
-        // Body + labels: dense tech-focused
         body: ['var(--font-body)', 'Manrope', 'sans-serif'],
         sans: ['var(--font-body)', 'Manrope', 'sans-serif'],
       },
@@ -108,31 +120,57 @@ const config: Config = {
         DEFAULT: '0.25rem',
         lg: '1rem', // nested bento items
         xl: '1.5rem', // main bento containers
+        '2xl': '2rem', // hero cards / glass panels
         full: '9999px',
       },
       boxShadow: {
-        // Ambient shadow — tucked, soft, follows DESIGN.md §4
-        ambient: '0 30px 50px -5px rgba(43,47,47,0.06)',
-        'ambient-sm': '0 20px 30px -5px rgba(43,47,47,0.04)',
-        // Side-nav ambient bleed
-        rail: '30px 0 50px -20px rgba(43,47,47,0.04)',
-        // Gradient-button focus ring (primary @ 20%)
-        'gradient-focus': '0 0 0 4px rgba(0,106,55,0.20)',
+        // Ambient — su dark è una luce soft, non un'ombra
+        ambient:
+          '0 30px 50px -5px rgba(0,0,0,0.45), 0 0 0 1px rgba(255,255,255,0.04)',
+        'ambient-sm':
+          '0 20px 30px -5px rgba(0,0,0,0.35), 0 0 0 1px rgba(255,255,255,0.04)',
+        rail: '30px 0 50px -20px rgba(0,0,0,0.50)',
+        // Amber focus ring (primary @ 28%)
+        'gradient-focus': '0 0 0 4px rgba(244,164,92,0.28)',
+        // Amber subtle glow for hero numbers
+        'editorial-glow': '0 0 32px rgba(244,164,92,0.18)',
       },
       backgroundImage: {
-        // Signature primary gradient (CTAs, chart fills)
-        'gradient-primary': 'linear-gradient(135deg, #006a37 0%, #6afea0 100%)',
-        // Heat scale (primary → tertiary → secondary)
-        'gradient-heat':
-          'linear-gradient(135deg, #006a37 0%, #fdbb31 55%, #b22200 100%)',
+        // Hero gradient — amber wash su superficie
+        'gradient-primary':
+          'linear-gradient(135deg, #F4A45C 0%, #B86F2C 100%)',
+        // Gradient delicato bianco→amber per headline hero
+        'gradient-headline':
+          'linear-gradient(135deg, #ECEFF0 0%, #F4A45C 100%)',
+        // Glass tint warm — usato dietro card flottanti su map
+        'glass-warm':
+          'linear-gradient(135deg, rgba(244,164,92,0.06) 0%, rgba(0,0,0,0.30) 100%)',
+        // Noise overlay PNG-equivalent via SVG turbulence — riduce banding
+        noise:
+          "url(\"data:image/svg+xml;utf8,<svg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/></filter><rect width='100%25' height='100%25' filter='url(%23n)' opacity='0.5'/></svg>\")",
       },
       backdropBlur: {
-        // Glassmorphism for floating overlays only
-        glass: '24px',
+        'glass-sm': '16px',
+        glass: '28px',
+        'glass-lg': '40px',
       },
       letterSpacing: {
-        // DESIGN.md §3: -2% tracking on large headlines
         tighter: '-0.02em',
+        tightest: '-0.035em', // hero numbers
+      },
+      keyframes: {
+        numericReveal: {
+          '0%': { opacity: '0', transform: 'scale(0.95) translateY(4px)' },
+          '100%': { opacity: '1', transform: 'scale(1) translateY(0)' },
+        },
+        radarPulse: {
+          '0%': { transform: 'scale(0.8)', opacity: '0.8' },
+          '70%': { transform: 'scale(2.5)', opacity: '0' },
+          '100%': { transform: 'scale(2.5)', opacity: '0' },
+        },
+      },
+      animation: {
+        'numeric-reveal': 'numericReveal 0.6s cubic-bezier(0.22,1,0.36,1) both',
       },
     },
   },

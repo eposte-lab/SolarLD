@@ -3,17 +3,11 @@
 /**
  * GeoRadarMapClient — interactive Italy lead map powered by Mapbox GL.
  *
- * Visual spec:
- *   - Dark-minimal Mapbox base style ("dark-v11")
- *   - One circle marker per province, radius proportional to lead count
- *   - Colour encodes dominant pipeline status:
- *       closed_won   → #6afea0 (green)
- *       appointment  → #fdbb31 (amber)
- *       opened/clicked → #1a73e8 (blue)
- *       sent/delivered → #aaaead (grey)
- *       default       → #aaaead
- *   - Hot provinces get a pulsing CSS ring (@keyframes radarPulse from globals.css)
- *   - Popup on click: province name, total / hot / appointment / won counts
+ * Visual spec (Editorial Glass — Sprint 7):
+ *   - Satellite-streets base style with dark tint overlay (sat-v9 + black @55%)
+ *   - Markers usano la nuova palette: amber per hot/appointment,
+ *     success per won, dim grey per default. Pulse ring sempre amber.
+ *   - Popup on hover: province name, total / hot / appointment / won counts
  *   - Graceful fallback when NEXT_PUBLIC_MAPBOX_TOKEN is absent
  */
 
@@ -26,11 +20,17 @@ import { getCentroid } from './italy-provinces';
 
 // ── colour helpers ────────────────────────────────────────────────────────────
 
+// Editorial Glass palette: amber-only highlights + desaturated success green.
+const COLOR_WON = '#6FCF97';
+const COLOR_AMBER = '#F4A45C';
+const COLOR_AMBER_DIM = '#E8924A';
+const COLOR_DIM = '#8A9094';
+
 function dominantColor(agg: ProvinceAggregate): string {
-  if (agg.won > 0) return '#6afea0';
-  if (agg.appointments > 0) return '#fdbb31';
-  if (agg.hot > 0) return '#1a73e8';
-  return '#aaaead';
+  if (agg.won > 0) return COLOR_WON;
+  if (agg.appointments > 0) return COLOR_AMBER;
+  if (agg.hot > 0) return COLOR_AMBER_DIM;
+  return COLOR_DIM;
 }
 
 function markerSize(count: number): number {
@@ -63,7 +63,7 @@ export function GeoRadarMapClient({
 
     const map = new mapboxgl.Map({
       container: containerRef.current,
-      style: 'mapbox://styles/mapbox/dark-v11',
+      style: 'mapbox://styles/mapbox/satellite-streets-v12',
       center: [12.5, 41.9], // Italy centre
       zoom: 4.8,
       minZoom: 3,
@@ -79,6 +79,31 @@ export function GeoRadarMapClient({
     map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'top-right');
 
     map.on('load', () => {
+      // Editorial dark tint: scurire la satellite imagery sovrapponendo
+      // un layer pieno scuro a 55% opacity sopra il "background" mapbox.
+      // Il risultato è "satellite ma cinema-dark" come i reference RonDesignLab.
+      try {
+        const layers = map.getStyle()?.layers ?? [];
+        // Trova il primo layer label per inserire il tint sotto, così le
+        // etichette delle città restano leggibili sopra il velo scuro.
+        const firstLabelLayer = layers.find(
+          (l) => l.type === 'symbol' && l.id.includes('label'),
+        );
+        map.addLayer(
+          {
+            id: 'editorial-dark-tint',
+            type: 'background',
+            paint: {
+              'background-color': '#0A0B0C',
+              'background-opacity': 0.55,
+            },
+          },
+          firstLabelLayer?.id,
+        );
+      } catch {
+        // Style mutation can fail in older mapbox versions or offline mode;
+        // mappa resta funzionante (solo meno editorial).
+      }
       setReady(true);
     });
 
@@ -147,14 +172,14 @@ export function GeoRadarMapClient({
         el.appendChild(badge);
       }
 
-      // Pulse ring for hot/appointment provinces
+      // Pulse ring for hot/appointment provinces — sempre amber editoriale
       if (isPulsing) {
         const ring = document.createElement('div');
         ring.style.cssText = `
           position: absolute;
           inset: -6px;
           border-radius: 50%;
-          border: 2px solid ${color};
+          border: 2px solid ${COLOR_AMBER};
           animation: radarPulse 2s ease-out infinite;
           pointer-events: none;
           opacity: 0.7;
@@ -167,7 +192,7 @@ export function GeoRadarMapClient({
           position: absolute;
           inset: -6px;
           border-radius: 50%;
-          border: 1.5px solid ${color};
+          border: 1.5px solid ${COLOR_AMBER};
           animation: radarPulse 2s ease-out infinite;
           animation-delay: 0.8s;
           pointer-events: none;
@@ -187,11 +212,11 @@ export function GeoRadarMapClient({
             <div style="font-weight:700;font-size:13px;margin-bottom:4px">
               ${centroid.name}
             </div>
-            <div style="color:#aaa;display:flex;flex-direction:column;gap:2px">
+            <div style="color:#8A9094;display:flex;flex-direction:column;gap:2px">
               <span>${agg.total} lead totali</span>
-              ${agg.hot > 0 ? `<span style="color:#1a73e8">🔥 ${agg.hot} hot</span>` : ''}
-              ${agg.appointments > 0 ? `<span style="color:#fdbb31">📅 ${agg.appointments} appuntamenti</span>` : ''}
-              ${agg.won > 0 ? `<span style="color:#6afea0">✓ ${agg.won} firmati</span>` : ''}
+              ${agg.hot > 0 ? `<span style="color:${COLOR_AMBER_DIM}">🔥 ${agg.hot} hot</span>` : ''}
+              ${agg.appointments > 0 ? `<span style="color:${COLOR_AMBER}">📅 ${agg.appointments} appuntamenti</span>` : ''}
+              ${agg.won > 0 ? `<span style="color:${COLOR_WON}">✓ ${agg.won} firmati</span>` : ''}
             </div>
           </div>
         `;

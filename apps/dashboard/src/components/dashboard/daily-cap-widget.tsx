@@ -10,6 +10,7 @@
 
 import Link from 'next/link';
 
+import { SectionEyebrow } from '@/components/ui/section-eyebrow';
 import type { DailyCapStats } from '@/lib/data/usage';
 import { cn } from '@/lib/utils';
 
@@ -24,37 +25,25 @@ export function DailyCapWidget({ stats, compact = false }: Props) {
   const pct = cap > 0 ? Math.min(1, sent_today / cap) : 0;
   const pctDisplay = Math.round(pct * 100);
 
-  // Color coding: verde < 70%, giallo 70-90%, rosso > 90%
-  const barColor =
-    pct < 0.7
-      ? 'bg-primary'
-      : pct < 0.9
-        ? 'bg-tertiary'
-        : 'bg-error';
-
-  const textColor =
-    pct < 0.7
-      ? 'text-primary'
-      : pct < 0.9
-        ? 'text-tertiary'
-        : 'text-error';
+  // Color coding: amber < 90%, error >= 90%. La success green è riservata a eventi
+  // semantici "won/online", non al cap quotidiano.
+  const barColor = pct < 0.9 ? 'bg-primary' : 'bg-error';
+  const textColor = pct < 0.9 ? 'text-primary' : 'text-error';
 
   if (compact) {
     return (
-      <div className="flex items-center gap-3 rounded-xl border border-outline-variant/40 bg-surface-container-lowest px-4 py-3">
+      <div className="flex items-center gap-3 rounded-xl glass-panel-sm px-4 py-3">
         <div className="min-w-0 flex-1">
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">
-            Invii in target oggi
-          </p>
+          <SectionEyebrow tone="dim">Invii in target oggi</SectionEyebrow>
           <div className="mt-1 flex items-baseline gap-1.5">
-            <span className={cn('font-headline text-2xl font-bold tabular-nums', textColor)}>
+            <span className={cn('font-headline text-2xl font-bold tabular-nums tracking-tightest', textColor)}>
               {sent_today}
             </span>
             <span className="text-sm text-on-surface-variant">/ {cap}</span>
           </div>
         </div>
         {/* Mini progress bar */}
-        <div className="h-1.5 w-20 shrink-0 overflow-hidden rounded-full bg-surface-container-high">
+        <div className="h-1.5 w-20 shrink-0 overflow-hidden rounded-full bg-white/8">
           <div
             className={cn('h-full rounded-full transition-all', barColor)}
             style={{ width: `${pctDisplay}%` }}
@@ -63,7 +52,7 @@ export function DailyCapWidget({ stats, compact = false }: Props) {
         {deferred_today > 0 && (
           <Link
             href="/invii?tab=rimandati"
-            className="shrink-0 rounded-lg bg-tertiary-container px-2 py-1 text-[10px] font-semibold text-on-tertiary-container hover:opacity-80"
+            className="shrink-0 rounded-lg bg-primary/15 px-2 py-1 text-[10px] font-semibold text-primary hover:bg-primary/25"
           >
             {deferred_today} rimand.
           </Link>
@@ -73,14 +62,12 @@ export function DailyCapWidget({ stats, compact = false }: Props) {
   }
 
   return (
-    <div className="rounded-2xl border border-outline-variant/40 bg-surface-container-lowest px-5 py-4">
+    <div className="rounded-2xl glass-panel px-5 py-4">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
-            Invii in target oggi · Europe/Rome
-          </p>
+          <SectionEyebrow>Invii in target oggi · Europe/Rome</SectionEyebrow>
           <div className="mt-1 flex items-baseline gap-2">
-            <span className={cn('font-headline text-4xl font-bold tabular-nums', textColor)}>
+            <span className={cn('font-headline text-4xl font-bold tabular-nums tracking-tightest', textColor)}>
               {sent_today}
             </span>
             <span className="text-lg text-on-surface-variant">/ {cap}</span>
@@ -104,7 +91,7 @@ export function DailyCapWidget({ stats, compact = false }: Props) {
       </div>
 
       {/* Progress bar */}
-      <div className="mt-4 h-2 overflow-hidden rounded-full bg-surface-container-high">
+      <div className="mt-4 h-2 overflow-hidden rounded-full bg-white/8">
         <div
           className={cn('h-full rounded-full transition-all duration-500', barColor)}
           style={{ width: `${pctDisplay}%` }}
