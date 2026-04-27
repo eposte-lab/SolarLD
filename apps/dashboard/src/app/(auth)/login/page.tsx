@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { createBrowserClient } from '@/lib/supabase/client';
+import { BrandLogo } from '@/components/ui/brand-logo';
 
 export default function LoginPage() {
   const supabase = createBrowserClient();
@@ -31,7 +32,10 @@ export default function LoginPage() {
     <main className="flex min-h-screen items-center justify-center bg-surface px-4 py-12">
       <div className="w-full max-w-sm">
         {/* Brand mark */}
-        <div className="mb-8 text-center">
+        <div className="mb-8 flex flex-col items-center text-center">
+          <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/15 text-primary ghost-border-strong">
+            <BrandLogo size={32} title="SolarLead" />
+          </div>
           <span className="font-headline text-4xl font-extrabold tracking-tighter text-primary">
             SolarLead
           </span>

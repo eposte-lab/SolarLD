@@ -29,10 +29,10 @@ import {
   Send,
   Settings,
   ShieldCheck,
-  Sparkles,
   Target,
   Users,
 } from 'lucide-react';
+import { BrandLogo } from '@/components/ui/brand-logo';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
@@ -139,7 +139,7 @@ export function SideNav({ items, sections, tenant, user_email }: SideNavProps) {
       {/* Brand lockup */}
       <div className="mb-7 flex items-center gap-3 px-1.5">
         <div className="relative flex h-10 w-10 items-center justify-center rounded-2xl bg-primary/15 ghost-border-strong text-primary overflow-hidden">
-          <Sparkles size={20} strokeWidth={2} aria-hidden />
+          <BrandLogo size={22} title="SolarLead" />
           <span
             className="pointer-events-none absolute inset-0 bg-glass-specular opacity-70"
             aria-hidden
