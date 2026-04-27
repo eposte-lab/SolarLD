@@ -26,6 +26,7 @@ import {
   Mail,
   type LucideIcon,
   Plus,
+  Search,
   Send,
   Settings,
   ShieldCheck,
@@ -52,7 +53,8 @@ export type NavIconKey =
   | 'deliverability'
   | 'settings'
   | 'audiences'
-  | 'experiments';
+  | 'experiments'
+  | 'scoperta';
 
 const ICON_MAP: Record<NavIconKey, LucideIcon> = {
   dashboard: Home,
@@ -67,6 +69,7 @@ const ICON_MAP: Record<NavIconKey, LucideIcon> = {
   settings: Settings,
   audiences: Mail,
   experiments: ActivitySquare,
+  scoperta: Search,
 };
 
 export interface NavItem {

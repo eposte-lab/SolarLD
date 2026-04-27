@@ -38,6 +38,7 @@ from .routes import (
     notifications,
     onboarding,
     outreach_sends,
+    prospector,
     public,
     quarantine,
     tenants,
@@ -127,6 +128,7 @@ app.include_router(
     tags=["acquisition-campaigns"],
 )
 app.include_router(contatti.router, prefix="/v1/contatti", tags=["contatti"])
+app.include_router(prospector.router, prefix="/v1/prospector", tags=["prospector"])
 app.include_router(events.router, prefix="/v1/events", tags=["events"])
 app.include_router(webhooks.router, prefix="/v1/webhooks", tags=["webhooks"])
 app.include_router(public.router, prefix="/v1/public", tags=["public"])
