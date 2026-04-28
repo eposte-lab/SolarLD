@@ -92,9 +92,28 @@ export interface SideNavProps {
   user_email: string | null;
 }
 
-function isActive(pathname: string, href: string): boolean {
-  if (href === '/') return pathname === '/';
-  return pathname === href || pathname.startsWith(`${href}/`);
+/**
+ * Pick the single best-matching href for the current pathname:
+ * the one that is equal to it, or — failing that — the longest
+ * href that is a prefix of `${pathname}/`. This avoids the bug
+ * where `/leads/follow-up` would highlight both `/leads` and
+ * `/leads/follow-up` because `pathname.startsWith('/leads/')`
+ * is true in both cases.
+ */
+function bestActiveHref(pathname: string, allHrefs: string[]): string | null {
+  let best: string | null = null;
+  for (const href of allHrefs) {
+    if (href === '/') {
+      if (pathname === '/') {
+        if (!best || best.length < href.length) best = href;
+      }
+      continue;
+    }
+    if (pathname === href || pathname.startsWith(`${href}/`)) {
+      if (!best || href.length > best.length) best = href;
+    }
+  }
+  return best;
 }
 
 function NavLink({ item, active }: { item: NavItem; active: boolean }) {
@@ -137,6 +156,12 @@ export function SideNav({ items, sections, tenant, user_email }: SideNavProps) {
   const renderSections: NavSection[] =
     sections ?? (items ? [{ label: 'Navigazione', items }] : []);
 
+  // Resolve the single active href across all sections so that nested
+  // routes (e.g. /leads/follow-up) don't also highlight their parent
+  // (/leads).
+  const allHrefs = renderSections.flatMap((s) => s.items.map((i) => i.href));
+  const activeHref = bestActiveHref(pathname, allHrefs);
+
   return (
     <nav className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col bg-surface-container-lowest/80 backdrop-blur-glass-sm p-5 ghost-border md:flex">
       {/* Brand lockup */}
@@ -176,7 +201,7 @@ export function SideNav({ items, sections, tenant, user_email }: SideNavProps) {
                 <NavLink
                   key={item.href}
                   item={item}
-                  active={isActive(pathname, item.href)}
+                  active={item.href === activeHref}
                 />
               ))}
             </ul>

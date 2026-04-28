@@ -114,13 +114,15 @@ export default async function DashboardLayout({
       />
       <main className="flex-1 px-6 py-8 md:px-10">
         <div className="mx-auto max-w-[1400px]">
-          <div className="mb-6 flex items-center justify-between">
+          <div className="mb-6 flex items-center gap-3">
             <BackButton />
-            <NotificationsBell
-              initialUnread={unread}
-              initialItems={recent}
-              tenantId={ctx.tenant.id}
-            />
+            <div className="ml-auto">
+              <NotificationsBell
+                initialUnread={unread}
+                initialItems={recent}
+                tenantId={ctx.tenant.id}
+              />
+            </div>
           </div>
           {children}
         </div>
