@@ -45,6 +45,7 @@ import type {
   TenantTier,
 } from '@/types/db';
 import { GradientButton } from '@/components/ui/gradient-button';
+import { FollowupSettings } from '@/components/settings/followup-settings';
 
 const MODULE_META: Record<
   ModuleKey,
@@ -116,6 +117,8 @@ export default async function SettingsPage() {
       <ModulesCard modules={modules} />
 
       <IntegrationsCard tenant={ctx.tenant} />
+
+      <FollowupCard tenant={ctx.tenant} />
 
       <PlanCard tenant={ctx.tenant} />
 
@@ -547,6 +550,42 @@ function formatPercentPrecise(v: number | null | undefined): string {
   const pct = v * 100;
   if (pct >= 10) return `${pct.toFixed(0)}%`;
   return `${pct.toFixed(1)}%`;
+}
+
+// ---------------------------------------------------------------------------
+// Follow-up configuration card
+// ---------------------------------------------------------------------------
+
+function FollowupCard({ tenant }: { tenant: TenantRow }) {
+  return (
+    <BentoCard span="full">
+      <div className="flex flex-col gap-1 md:flex-row md:items-end md:justify-between">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
+            Follow-up email
+          </p>
+          <h2 className="font-headline text-2xl font-bold tracking-tighter">
+            Mittente dedicato ai follow-up
+          </h2>
+          <p className="mt-1 max-w-xl text-sm text-on-surface-variant">
+            Separa il traffico di follow-up dall&apos;outreach iniziale per proteggere
+            la reputazione del dominio principale. Lascia vuoto per usare
+            lo stesso indirizzo di tutti gli altri invii.
+          </p>
+        </div>
+        <Link
+          href="/leads"
+          className="inline-flex items-center gap-1.5 rounded-lg bg-surface-container px-3 py-2 text-sm font-medium text-on-surface transition-colors hover:bg-surface-container-high"
+        >
+          <ArrowUpRight size={14} strokeWidth={2} aria-hidden />
+          Vai ai lead
+        </Link>
+      </div>
+      <div className="mt-5 max-w-md">
+        <FollowupSettings initialEmail={tenant.followup_from_email ?? null} />
+      </div>
+    </BentoCard>
+  );
 }
 
 // ---------------------------------------------------------------------------

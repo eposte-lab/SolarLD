@@ -791,6 +791,130 @@ async def engagement_followup_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+async def engagement_followup_for_tenant(tenant_id: str) -> dict[str, Any]:
+    """Run engagement follow-up evaluation for a single tenant immediately.
+
+    Same logic as ``engagement_followup_cron`` but scoped to one tenant
+    and callable on-demand (used by POST /v1/followup/trigger).
+    """
+    sb = get_service_client()
+    now = datetime.now(timezone.utc)
+    cold_cutoff = (now - timedelta(days=STEP_4_DELAY_DAYS + 1)).isoformat()
+    terminal = [
+        LeadStatus.CLOSED_WON.value,
+        LeadStatus.CLOSED_LOST.value,
+        LeadStatus.BLACKLISTED.value,
+    ]
+
+    leads_res = (
+        sb.table("leads")
+        .select(
+            "id, tenant_id, pipeline_status, outreach_sent_at, "
+            "engagement_score, engagement_peak_score, "
+            "last_portal_event_at, last_followup_scenario, "
+            "last_followup_sent_at, hot_lead_alerted_at"
+        )
+        .eq("tenant_id", tenant_id)
+        .not_.is_("outreach_sent_at", "null")
+        .not_.in_("pipeline_status", terminal)
+        .order("engagement_score", desc=True)
+        .limit(ENGAGEMENT_FOLLOWUP_BATCH)
+        .execute()
+    )
+    leads = leads_res.data or []
+
+    queued = 0
+    skipped: dict[str, int] = {}
+
+    for lead in leads:
+        cold_complete = False
+        outreach_sent_at = _parse_ts(lead.get("outreach_sent_at"))
+        if outreach_sent_at is not None and outreach_sent_at.isoformat() <= cold_cutoff:
+            step4 = (
+                sb.table("outreach_sends")
+                .select("id")
+                .eq("lead_id", lead["id"])
+                .eq("sequence_step", 4)
+                .limit(1)
+                .execute()
+            )
+            cold_complete = bool(step4.data) or (
+                (now - outreach_sent_at).days >= STEP_4_DELAY_DAYS + 7
+            )
+
+        snap = FollowupSnapshot(
+            lead_id=str(lead["id"]),
+            tenant_id=str(lead["tenant_id"]),
+            pipeline_status=str(lead.get("pipeline_status") or ""),
+            engagement_score=int(lead.get("engagement_score") or 0),
+            engagement_peak_score=int(
+                lead.get("engagement_peak_score")
+                or lead.get("engagement_score")
+                or 0
+            ),
+            last_engagement_at=_parse_ts(lead.get("last_portal_event_at")),
+            initial_outreach_at=outreach_sent_at,
+            last_followup_scenario=lead.get("last_followup_scenario"),
+            last_followup_sent_at=_parse_ts(lead.get("last_followup_sent_at")),
+            hot_lead_alerted_at=_parse_ts(lead.get("hot_lead_alerted_at")),
+            cold_sequence_complete=cold_complete,
+        )
+
+        decision = evaluate_followup_scenario(snap, now=now)
+        if not decision.should_act:
+            reason = decision.reason or "no_action"
+            skipped[reason] = skipped.get(reason, 0) + 1
+            continue
+
+        if decision.notify_only:
+            await _notify_inapp(
+                tenant_id=snap.tenant_id,
+                title="Lead caldo: contatto manuale consigliato",
+                body=(
+                    f"Engagement score {snap.engagement_score}/100. "
+                    "Il sistema ha sospeso le email automatiche — "
+                    "prendi tu in mano il follow-up."
+                ),
+                severity="success",
+                href=f"/leads/{snap.lead_id}",
+                metadata={
+                    "lead_id": snap.lead_id,
+                    "engagement_score": snap.engagement_score,
+                    "scenario": "hot",
+                },
+            )
+            sb.table("leads").update(
+                {"hot_lead_alerted_at": now.isoformat()}
+            ).eq("id", snap.lead_id).execute()
+            continue
+
+        scenario = decision.scenario or "cold"
+        step = _SCENARIO_TO_STEP.get(scenario, 5)
+        await enqueue(
+            "outreach_task",
+            {
+                "tenant_id": snap.tenant_id,
+                "lead_id": snap.lead_id,
+                "channel": OutreachChannel.EMAIL.value,
+                "sequence_step": step,
+                "engagement_scenario": scenario,
+                "force": False,
+            },
+            job_id=(
+                f"engagement_followup:{snap.tenant_id}:{snap.lead_id}:"
+                f"{scenario}:{now.strftime('%Y%m%d')}"
+            ),
+        )
+        queued += 1
+
+    return {
+        "ok": True,
+        "queued": queued,
+        "candidates": len(leads),
+        "skipped": skipped,
+    }
+
+
 def _parse_ts(raw: Any) -> datetime | None:
     """Parse Supabase ISO timestamp strings defensively."""
     if raw is None:

@@ -21,6 +21,7 @@ import { usePathname, useRouter } from 'next/navigation';
 const TOP_LEVEL = new Set([
   '/',
   '/leads',
+  '/leads/follow-up',
   '/invii',
   '/contatti',
   '/scoperta',

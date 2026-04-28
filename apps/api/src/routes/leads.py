@@ -853,7 +853,10 @@ async def send_draft(
 
     tenant_res = (
         sb.table("tenants")
-        .select("tier, settings, business_name, email_from_domain, email_from_name, contact_email")
+        .select(
+            "tier, settings, business_name, email_from_domain, email_from_name, "
+            "contact_email, followup_from_email"
+        )
         .eq("id", tenant_id)
         .limit(1)
         .execute()
@@ -873,15 +876,29 @@ async def send_draft(
             detail="No verified email address on this lead.",
         )
 
-    # Build from address (reuse OutreachAgent's helper)
-    name = (tenant.get("email_from_name") or "").strip()
-    domain = (tenant.get("email_from_domain") or "").strip()
-    from_address = (
-        f"{name or tenant.get('business_name', 'SolarLead')} "
-        f"<outreach@{domain}>"
-        if domain
-        else f"{name or 'SolarLead'} <outreach@solarlead.it>"
-    )
+    # Build from address: prefer dedicated followup_from_email when set.
+    # Accepts either a bare address or full "Name <addr>" format.
+    followup_addr = (tenant.get("followup_from_email") or "").strip()
+    if followup_addr:
+        # If the operator supplied a bare address, wrap with the sender name.
+        if "<" not in followup_addr:
+            sender_name = (
+                tenant.get("email_from_name")
+                or tenant.get("business_name")
+                or "SolarLead"
+            ).strip()
+            from_address = f"{sender_name} <{followup_addr}>"
+        else:
+            from_address = followup_addr
+    else:
+        name = (tenant.get("email_from_name") or "").strip()
+        domain = (tenant.get("email_from_domain") or "").strip()
+        from_address = (
+            f"{name or tenant.get('business_name', 'SolarLead')} "
+            f"<outreach@{domain}>"
+            if domain
+            else f"{name or 'SolarLead'} <outreach@solarlead.it>"
+        )
 
     html_body = _text_to_html(body.body)
 

@@ -78,6 +78,8 @@ export interface TenantRow {
   email_from_domain: string | null;
   email_from_name: string | null;
   email_from_domain_verified_at?: string | null;
+  /** Dedicated FROM address for follow-up emails. Falls back to outreach@{email_from_domain}. */
+  followup_from_email?: string | null;
   tier: TenantTier;
   settings: TenantSettings;
   /**

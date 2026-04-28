@@ -9,14 +9,16 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 import sentry_sdk
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import ORJSONResponse
+from starlette.responses import JSONResponse
 
 from .core.config import settings
 from .core.logging import configure_logging, get_logger
 from .core.queue import close_pool as close_queue_pool
 from .core.redis import close_redis
+from .core.tier import BudgetExceededError, TierGateError
 from .routes import (
     acquisition_campaigns,
     admin,
@@ -32,6 +34,7 @@ from .routes import (
     email_domains,
     events,
     experiments,
+    followup,
     health,
     inboxes,
     leads,
@@ -158,6 +161,23 @@ app.include_router(b2c_exports.router, prefix="/v1/b2c", tags=["b2c-exports"])
 app.include_router(unsubscribe.router)
 app.include_router(usage.router, prefix="/v1/usage", tags=["usage"])
 app.include_router(quarantine.router, prefix="/v1/quarantine", tags=["quarantine"])
+app.include_router(followup.router, prefix="/v1/followup", tags=["followup"])
+
+
+@app.exception_handler(TierGateError)
+async def tier_gate_handler(_req: Request, exc: TierGateError) -> JSONResponse:
+    return JSONResponse(
+        status_code=403,
+        content={"detail": str(exc)},
+    )
+
+
+@app.exception_handler(BudgetExceededError)
+async def budget_exceeded_handler(_req: Request, exc: BudgetExceededError) -> JSONResponse:
+    return JSONResponse(
+        status_code=402,
+        content={"detail": str(exc)},
+    )
 
 
 @app.get("/", tags=["meta"])

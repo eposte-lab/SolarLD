@@ -36,6 +36,7 @@ async def update_my_tenant(ctx: CurrentUser, payload: dict[str, object]) -> dict
         "brand_primary_color",
         "email_from_domain",
         "email_from_name",
+        "followup_from_email",
         "settings",
     }
     update = {k: v for k, v in payload.items() if k in allowed}
