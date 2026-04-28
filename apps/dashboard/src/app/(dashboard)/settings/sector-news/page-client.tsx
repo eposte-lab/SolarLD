@@ -415,7 +415,7 @@ function NewsFormDialog({
           </h2>
           <p className="mt-1 text-xs text-on-surface-variant">
             Il motore cita questo titolo + corpo nelle email follow-up agli
-            interessati. Niente "abbiamo visto che hai aperto" — solo fatti di
+            interessati. Niente &ldquo;abbiamo visto che hai aperto&rdquo; — solo fatti di
             settore.
           </p>
         </div>
@@ -442,7 +442,7 @@ function NewsFormDialog({
               placeholder="25"
             />
             <p className="mt-1 text-[10px] text-on-surface-variant">
-              Es. "25" = metalmeccanico, "41" = costruzioni
+              Es. &ldquo;25&rdquo; = metalmeccanico, &ldquo;41&rdquo; = costruzioni
             </p>
           </div>
 
@@ -543,7 +543,7 @@ function NewsFormDialog({
             placeholder="https://www.mise.gov.it/..."
           />
           <p className="mt-1 text-[10px] text-on-surface-variant">
-            Se valorizzata, viene linkata in fondo al messaggio "Fonte: …".
+            Se valorizzata, viene linkata in fondo al messaggio &ldquo;Fonte: &hellip;&rdquo;.
           </p>
         </div>
 
