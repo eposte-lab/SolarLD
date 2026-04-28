@@ -279,6 +279,16 @@ function IntegrationsCard({ tenant }: { tenant: TenantRow }) {
           blurb="Colore principale, logo e nome mittente con anteprima live del template. Nessun wizard richiesto."
         />
         <IntegrationLink
+          href="/settings/email-template"
+          title="Template & A/B per cluster"
+          blurb="Scegli Premium SolarLead, legacy o carica un HTML personalizzato. A/B test per-cluster con copy generato da Claude e promozione automatica chi-square."
+        />
+        <IntegrationLink
+          href="/settings/sector-news"
+          title="News di settore"
+          blurb="Cura i fatti di settore (incentivi, normative, prezzi) che il motore di follow-up cita ai lead engaged — senza mai citare il loro comportamento tracciato."
+        />
+        <IntegrationLink
           href="/settings/crm-webhooks"
           title="Webhook CRM in uscita"
           blurb="HMAC-SHA256, retry con backoff, disattivazione automatica dopo 10 fallimenti consecutivi."

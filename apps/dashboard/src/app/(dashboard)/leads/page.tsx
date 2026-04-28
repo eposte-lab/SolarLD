@@ -21,6 +21,7 @@ import { HotLeadsNow } from '@/components/hot-leads-now';
 import { StatusChip, TierChip } from '@/components/ui/status-chip';
 import {
   LEADS_PAGE_SIZE,
+  listHotLeadsAwaitingResponse,
   listLeads,
   type LeadListFilter,
 } from '@/lib/data/leads';
@@ -38,6 +39,7 @@ type Search = Promise<{
   tier?: string;
   status?: string;
   q?: string;
+  mode?: string;
 }>;
 
 const TIERS: { value: '' | LeadScoreTier; label: string }[] = [
@@ -66,19 +68,33 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
   // first then fire ctx + data in parallel.
   const sp = await searchParams;
   const page = Math.max(1, Number(sp.page) || 1);
+  const isHotMode = sp.mode === 'hot';
   const filter: LeadListFilter = {
     tier: (sp.tier as LeadScoreTier) || undefined,
     status: (sp.status as LeadStatus) || undefined,
     q: sp.q || undefined,
   };
 
-  const [ctx, { rows, total }, contattiSummary] = await Promise.all([
+  // In "Caldi adesso" mode we ignore the tier/status filters because
+  // they would conflict with the operational definition (engagement
+  // ≥ 60, recent portal event, NOT in a closing pipeline stage).
+  const [ctx, listResult, hotRows, contattiSummary] = await Promise.all([
     getCurrentTenantContext(),
-    listLeads({ page, filter }),
+    isHotMode
+      ? Promise.resolve({ rows: [], total: 0 })
+      : listLeads({ page, filter }),
+    isHotMode
+      ? listHotLeadsAwaitingResponse({ sinceHours: 72, minScore: 60, limit: 50 })
+      : Promise.resolve([]),
     getContattiSummary(),
   ]);
   if (!ctx) redirect('/login');
-  const totalPages = Math.max(1, Math.ceil(total / LEADS_PAGE_SIZE));
+  const { rows: regularRows, total } = listResult;
+  const rows = isHotMode ? hotRows : regularRows;
+  const effectiveTotal = isHotMode ? hotRows.length : total;
+  const totalPages = isHotMode
+    ? 1
+    : Math.max(1, Math.ceil(total / LEADS_PAGE_SIZE));
 
   // Contatti in attesa = quelli arrivati a L4 ma non ancora in pipeline
   // (l4_qualified > total leads → differenza = ancora da promuovere)
@@ -94,6 +110,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
 
   const queryFor = (overrides: Record<string, string | undefined>) => {
     const params = new URLSearchParams();
+    if (isHotMode) params.set('mode', 'hot');
     if (filter.tier) params.set('tier', filter.tier);
     if (filter.status) params.set('status', filter.status);
     if (filter.q) params.set('q', filter.q);
@@ -112,16 +129,52 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
       <header className="flex items-end justify-between">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
-            Pipeline attiva · {total.toLocaleString('it-IT')} lead
+            {isHotMode
+              ? `Caldi adesso · ${effectiveTotal.toLocaleString('it-IT')} da chiamare`
+              : `Pipeline attiva · ${effectiveTotal.toLocaleString('it-IT')} lead`}
           </p>
           <h1 className="font-headline text-4xl font-bold tracking-tighter">
-            Lead Attivi
+            {isHotMode ? '🔥 Caldi adesso' : 'Lead Attivi'}
           </h1>
         </div>
         <GradientButton href="/territories" size="sm" variant="secondary">
           Aggiungi territorio
         </GradientButton>
       </header>
+
+      {/* Mode tabs ---------------------------------------------------- */}
+      <div className="flex gap-2">
+        <Link
+          href="/leads"
+          className={cn(
+            'rounded-full px-4 py-1.5 text-xs font-semibold transition-colors',
+            !isHotMode
+              ? 'bg-primary text-on-primary shadow-ambient-sm'
+              : 'bg-surface-container-high text-on-surface-variant hover:bg-surface-container-highest hover:text-on-surface',
+          )}
+        >
+          Tutti i lead
+        </Link>
+        <Link
+          href="/leads?mode=hot"
+          className={cn(
+            'rounded-full px-4 py-1.5 text-xs font-semibold transition-colors',
+            isHotMode
+              ? 'bg-primary text-on-primary shadow-ambient-sm'
+              : 'bg-surface-container-high text-on-surface-variant hover:bg-surface-container-highest hover:text-on-surface',
+          )}
+        >
+          🔥 Caldi adesso
+        </Link>
+      </div>
+
+      {isHotMode && (
+        <div className="rounded-xl bg-surface-container-low px-5 py-3 text-xs text-on-surface-variant">
+          Lead con engagement ≥ 60, evento sul portale nelle ultime 72h, non
+          ancora in pipeline (engaged / WhatsApp / appuntamento / chiusi).
+          Ordinati per score e ultimo evento.
+        </div>
+      )}
 
       {/* Contatti in attesa banner ------------------------------------ */}
       {contattiSummary.l1 > 0 && (
@@ -153,43 +206,47 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
         </div>
       )}
 
-      {/* Real-time heat panel ---------------------------------------- */}
-      <HotLeadsNow minutes={60} limit={5} />
+      {/* Real-time heat panel (only on default mode) ----------------- */}
+      {!isHotMode && <HotLeadsNow minutes={60} limit={5} />}
 
       {/* Filters ------------------------------------------------------ */}
-      <BentoCard padding="tight" span="full">
-        <div className="flex flex-wrap gap-6 px-2 py-2">
-          <FilterGroup label="Tier">
-            {TIERS.map((t) => (
-              <FilterChip
-                key={t.value || 'all'}
-                active={(filter.tier ?? '') === t.value}
-                href={queryFor({ tier: t.value || undefined, page: undefined })}
-              >
-                {t.label}
-              </FilterChip>
-            ))}
-          </FilterGroup>
-          <FilterGroup label="Stato">
-            {STATUSES.map((s) => (
-              <FilterChip
-                key={s.value || 'all'}
-                active={(filter.status ?? '') === s.value}
-                href={queryFor({ status: s.value || undefined, page: undefined })}
-              >
-                {s.label}
-              </FilterChip>
-            ))}
-          </FilterGroup>
-        </div>
-      </BentoCard>
+      {!isHotMode && (
+        <BentoCard padding="tight" span="full">
+          <div className="flex flex-wrap gap-6 px-2 py-2">
+            <FilterGroup label="Tier">
+              {TIERS.map((t) => (
+                <FilterChip
+                  key={t.value || 'all'}
+                  active={(filter.tier ?? '') === t.value}
+                  href={queryFor({ tier: t.value || undefined, page: undefined })}
+                >
+                  {t.label}
+                </FilterChip>
+              ))}
+            </FilterGroup>
+            <FilterGroup label="Stato">
+              {STATUSES.map((s) => (
+                <FilterChip
+                  key={s.value || 'all'}
+                  active={(filter.status ?? '') === s.value}
+                  href={queryFor({ status: s.value || undefined, page: undefined })}
+                >
+                  {s.label}
+                </FilterChip>
+              ))}
+            </FilterGroup>
+          </div>
+        </BentoCard>
+      )}
 
       {/* Table -------------------------------------------------------- */}
       <BentoCard padding="tight" span="full">
         {rows.length === 0 ? (
           <div className="rounded-lg bg-surface-container-low p-12 text-center">
             <p className="text-sm text-on-surface-variant">
-              Nessun lead trovato con questi filtri.
+              {isHotMode
+                ? 'Nessun lead caldo da chiamare. Manda un round di outreach per riscaldare la pipeline.'
+                : 'Nessun lead trovato con questi filtri.'}
             </p>
           </div>
         ) : (

@@ -165,6 +165,10 @@ export interface LeadListRow {
   // never null for rows written after the migration.
   engagement_score: number;
   engagement_score_updated_at: string | null;
+  // Stamped by bump_engagement_score (migration 0066) every time the
+  // public portal track endpoint fires. Used by the "Caldi adesso"
+  // surface to filter to leads that are currently moving.
+  last_portal_event_at: string | null;
   portal_sessions: number;
   portal_total_time_sec: number;
   deepest_scroll_pct: number;

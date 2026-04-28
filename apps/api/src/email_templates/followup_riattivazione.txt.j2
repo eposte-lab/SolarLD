@@ -1,0 +1,21 @@
+{{ headline | default('Capisco che il tempismo non era ottimale', true) }}
+
+Per {{ greeting_name }},
+
+{{ copy_opening_line | default('Quando ci siamo sentiti l\'ultima volta avevamo l\'analisi pronta sul tavolo. È normale che certe scelte richiedano tempo — ma se le priorità si sono allineate, ripartiamo da dove eravamo rimasti.', true) }}
+
+{{ main_copy_1 | default('I numeri della vostra simulazione sono ancora validi. Posso aggiornarli al volo se ci sono novità — sui consumi, sulla sede, sui prezzi dell\'energia che pagate oggi.', true) }}
+
+{% if roi and roi.yearly_savings_eur is defined -%}
+Stima ancora attiva: €{{ roi.yearly_savings_eur | int | format_money }}/anno.
+
+{% endif -%}
+{{ copy_proposition_line | default('Se invece il progetto è chiuso, mi basta una riga per archiviare il tutto e non disturbarvi più.', true) }}
+
+Riprendi da qui: {{ lead_url }}
+
+---
+{{ sender_first_name | default(tenant_name, true) }} — {{ tenant_name }}
+
+{{ tenant_legal_name | default(tenant_name, true) }}{% if tenant_vat_number %} · P.IVA {{ tenant_vat_number }}{% endif %}.
+Email B2B (art. 6.1.f GDPR). Annulla: {{ optout_url }}

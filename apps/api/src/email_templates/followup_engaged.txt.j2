@@ -1,0 +1,29 @@
+{{ sector_news_headline | default(headline | default('Un dato che vale la pena commentare insieme', true), true) }}
+
+Per {{ greeting_name }},
+
+{% if sector_news_body -%}
+{{ sector_news_body }}
+{%- if sector_news_source_url %}
+
+Fonte: {{ sector_news_source_url }}
+{%- endif %}
+{% else -%}
+{{ copy_opening_line | default('Sto seguendo da vicino il vostro settore e c\'è un dato recente che vorrei commentare con voi.', true) }}
+
+{{ main_copy_1 | default('Le aziende che si stanno muovendo per prime sull\'autoproduzione energetica stanno guadagnando un margine concreto rispetto a chi resta esposto al mercato libero.', true) }}
+{%- endif %}
+
+{% if roi and roi.yearly_savings_eur is defined -%}
+La vostra simulazione: €{{ roi.yearly_savings_eur | int | format_money }}/anno di risparmio.
+
+{% endif -%}
+{{ copy_proposition_line | default('Mi farebbe piacere capire come la vostra realtà sta affrontando il tema. Bastano cinque minuti.', true) }}
+
+Analisi completa: {{ lead_url }}
+
+---
+{{ sender_first_name | default(tenant_name, true) }} — {{ tenant_name }}
+
+{{ tenant_legal_name | default(tenant_name, true) }}{% if tenant_vat_number %} · P.IVA {{ tenant_vat_number }}{% endif %}.
+Email B2B (art. 6.1.f GDPR). Annulla: {{ optout_url }}

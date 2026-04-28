@@ -6,6 +6,13 @@ Routes:
   GET  /v1/branding/domain/status          Poll Resend for verification status + DNS records
   POST /v1/branding/generate-variants      Claude-powered subject+preheader variant generation (B.13)
   POST /v1/branding/regenerate-email       Claude-powered full email content + style generation (B.14)
+  GET  /v1/branding/about                  Read tenant "Chi siamo" narrative + identity fields
+  PATCH /v1/branding/about                 Update tenant "Chi siamo" — surfaced on public lead portal
+  --- Sprint 9 Fase C (custom email template) ---
+  POST /v1/branding/email-template         Upload + validate + sanitize custom Jinja2 HTML template
+  DELETE /v1/branding/email-template       Deactivate the custom template (keep file, switch fallback)
+  GET  /v1/branding/email-template/preview Render custom template with sample data → iframe src
+  GET  /v1/branding/email-template/info    Read upload metadata (path, uploaded_at, active flag)
 """
 
 from __future__ import annotations
@@ -759,6 +766,287 @@ Rispondi SOLO con JSON valido, senza markdown né ```json```:
         )
 
     return result
+
+
+# ============================================================
+# E. About / "Chi siamo" — Sprint 8 Fase A.2
+# ============================================================
+#
+# These endpoints back the editor at /settings/branding/about and
+# the public AboutSection rendered on the lead portal. They write
+# directly to the columns added in migration 0064_tenant_about.sql.
+
+
+_ABOUT_MD_MAX_BYTES = 4096          # mirrors DB CHECK
+_ABOUT_TAGLINE_MAX_CHARS = 120      # mirrors DB CHECK
+_ABOUT_CERTIFICATIONS_MAX = 12      # arbitrary but generous; portal chips would wrap past this
+
+
+class TenantAbout(BaseModel):
+    about_md: str | None = None
+    about_year_founded: int | None = Field(default=None, ge=1900, le=2100)
+    about_team_size: str | None = Field(default=None, max_length=40)
+    about_certifications: list[str] = Field(default_factory=list)
+    about_hero_image_url: str | None = Field(default=None, max_length=500)
+    about_tagline: str | None = Field(default=None, max_length=_ABOUT_TAGLINE_MAX_CHARS)
+
+
+@router.get("/about", response_model=TenantAbout)
+async def get_about(ctx: CurrentUser) -> TenantAbout:
+    """Read the tenant's About narrative + identity fields."""
+    tenant_id = require_tenant(ctx)
+    sb = get_service_client()
+
+    res = (
+        sb.table("tenants")
+        .select(
+            "about_md, about_year_founded, about_team_size, "
+            "about_certifications, about_hero_image_url, about_tagline"
+        )
+        .eq("id", tenant_id)
+        .limit(1)
+        .execute()
+    )
+    if not res.data:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+    row = res.data[0]
+    # `about_certifications` may come back as None on tenants migrated
+    # before the DEFAULT was applied — coerce to [].
+    certs = row.get("about_certifications") or []
+    if not isinstance(certs, list):
+        certs = []
+    return TenantAbout(
+        about_md=row.get("about_md"),
+        about_year_founded=row.get("about_year_founded"),
+        about_team_size=row.get("about_team_size"),
+        about_certifications=[str(c).strip() for c in certs if str(c).strip()],
+        about_hero_image_url=row.get("about_hero_image_url"),
+        about_tagline=row.get("about_tagline"),
+    )
+
+
+@router.patch("/about", response_model=TenantAbout)
+async def update_about(ctx: CurrentUser, body: TenantAbout) -> TenantAbout:
+    """Replace the tenant's About fields atomically.
+
+    Validation:
+      - Markdown is byte-capped at 4 KB to match the DB CHECK.
+      - Tagline char-capped at 120 (DB CHECK).
+      - Certifications list deduplicated + trimmed + capped at 12.
+
+    The endpoint is idempotent: passing `null` for a field clears it.
+    """
+    tenant_id = require_tenant(ctx)
+    sb = get_service_client()
+
+    # ------------------------------------------------------------
+    # Markdown byte budget. Pydantic max_length counts characters,
+    # but Postgres CHECK uses octet_length — multibyte chars (é, à,
+    # …) take 2 bytes in UTF-8, so a 4096-char string can exceed
+    # 4096 bytes. Enforce the byte budget here so we 422 cleanly
+    # instead of letting Postgres surface a constraint violation.
+    # ------------------------------------------------------------
+    md = (body.about_md or "").strip() or None
+    if md is not None and len(md.encode("utf-8")) > _ABOUT_MD_MAX_BYTES:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"about_md exceeds {_ABOUT_MD_MAX_BYTES}-byte limit "
+                "(roughly 4000 characters)."
+            ),
+        )
+
+    # Certifications: dedupe (case-insensitive), trim, cap, drop empty.
+    raw_certs = body.about_certifications or []
+    seen: set[str] = set()
+    certs: list[str] = []
+    for c in raw_certs:
+        s = str(c).strip()
+        if not s:
+            continue
+        if len(s) > 80:  # arbitrary chip max; protect from pasted noise
+            s = s[:80]
+        key = s.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        certs.append(s)
+        if len(certs) >= _ABOUT_CERTIFICATIONS_MAX:
+            break
+
+    payload: dict[str, Any] = {
+        "about_md": md,
+        "about_year_founded": body.about_year_founded,
+        "about_team_size": (body.about_team_size or "").strip() or None,
+        "about_certifications": certs,
+        "about_hero_image_url": (body.about_hero_image_url or "").strip() or None,
+        "about_tagline": (body.about_tagline or "").strip() or None,
+    }
+
+    sb.table("tenants").update(payload).eq("id", tenant_id).execute()
+    log.info(
+        "branding.about_updated",
+        tenant_id=tenant_id,
+        md_len=len(md) if md else 0,
+        cert_count=len(certs),
+        has_hero=bool(payload["about_hero_image_url"]),
+    )
+
+    return TenantAbout(
+        about_md=md,
+        about_year_founded=body.about_year_founded,
+        about_team_size=payload["about_team_size"],
+        about_certifications=certs,
+        about_hero_image_url=payload["about_hero_image_url"],
+        about_tagline=payload["about_tagline"],
+    )
+
+
+# ============================================================
+# F. Custom email template upload (Sprint 9 Fase C.3)
+# ============================================================
+
+
+class CustomTemplateUpload(BaseModel):
+    html: str = Field(
+        min_length=100,
+        max_length=250_000,
+        description="Full Jinja2-compatible HTML email template (raw string).",
+    )
+
+
+class CustomTemplateInfo(BaseModel):
+    active: bool
+    path: str | None = None
+    uploaded_at: str | None = None
+    required_variables: list[str]
+    optional_variables: list[str]
+
+
+@router.post("/email-template", status_code=status.HTTP_201_CREATED)
+async def upload_email_template(
+    ctx: CurrentUser,
+    body: CustomTemplateUpload,
+) -> dict[str, Any]:
+    """Upload, validate and activate a custom Jinja2 HTML email template.
+
+    The template is sanitized via ``bleach`` and validated for GDPR-required
+    variables.  On success the template is stored in Supabase Storage and the
+    tenant's ``custom_email_template_active`` flag is set to ``True``.
+
+    Returns the storage path and validation summary.
+    """
+    tenant_id = require_tenant(ctx)
+    sb = get_service_client()
+
+    from ..services.custom_template_service import (
+        OPTIONAL_VARIABLES,
+        REQUIRED_VARIABLES,
+        save_custom_template,
+    )
+
+    try:
+        path = await save_custom_template(sb, tenant_id, body.html)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        log.error("branding.email_template_save_failed", tenant_id=tenant_id, err=str(exc))
+        raise HTTPException(status_code=502, detail="Errore durante il salvataggio del template.") from exc
+
+    return {
+        "status": "saved",
+        "path": path,
+        "required_variables": sorted(REQUIRED_VARIABLES),
+        "optional_variables": sorted(OPTIONAL_VARIABLES),
+    }
+
+
+@router.delete("/email-template", status_code=status.HTTP_200_OK)
+async def deactivate_email_template(ctx: CurrentUser) -> dict[str, str]:
+    """Deactivate the custom template — next sends fall back to premium/legacy.
+
+    The file is NOT deleted from Storage (keeps upload history and allows
+    re-activation by re-uploading the same file).
+    """
+    tenant_id = require_tenant(ctx)
+    sb = get_service_client()
+
+    from ..services.custom_template_service import deactivate_custom_template
+
+    await deactivate_custom_template(sb, tenant_id)
+    return {"status": "deactivated"}
+
+
+@router.get("/email-template/preview", response_class=HTMLResponse)
+async def preview_custom_email_template(ctx: CurrentUser) -> HTMLResponse:
+    """Render the uploaded custom template with sample data.
+
+    Returns raw HTML suitable for embedding in an ``<iframe srcdoc="…">``.
+    Returns 404 if no custom template has been uploaded yet.
+    """
+    tenant_id = require_tenant(ctx)
+    sb = get_service_client()
+
+    t_res = (
+        sb.table("tenants")
+        .select("custom_email_template_path, custom_email_template_active")
+        .eq("id", tenant_id)
+        .limit(1)
+        .execute()
+    )
+    if not t_res.data:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+    row = t_res.data[0]
+    path = row.get("custom_email_template_path")
+    if not path:
+        raise HTTPException(
+            status_code=404,
+            detail="Nessun template personalizzato caricato. Usa POST /email-template.",
+        )
+
+    from ..services.custom_template_service import get_preview_html
+
+    try:
+        html = await get_preview_html(sb, tenant_id, path)
+    except Exception as exc:
+        log.warning("branding.custom_template_preview_failed", tenant_id=tenant_id, err=str(exc))
+        raise HTTPException(
+            status_code=500,
+            detail=f"Rendering del template fallito: {exc}",
+        ) from exc
+
+    return HTMLResponse(content=html, status_code=200)
+
+
+@router.get("/email-template/info", response_model=CustomTemplateInfo)
+async def get_email_template_info(ctx: CurrentUser) -> CustomTemplateInfo:
+    """Return metadata about the tenant's custom email template."""
+    tenant_id = require_tenant(ctx)
+    sb = get_service_client()
+
+    t_res = (
+        sb.table("tenants")
+        .select(
+            "custom_email_template_path, custom_email_template_uploaded_at, "
+            "custom_email_template_active"
+        )
+        .eq("id", tenant_id)
+        .limit(1)
+        .execute()
+    )
+    if not t_res.data:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+    row = t_res.data[0]
+
+    from ..services.custom_template_service import OPTIONAL_VARIABLES, REQUIRED_VARIABLES
+
+    return CustomTemplateInfo(
+        active=bool(row.get("custom_email_template_active")),
+        path=row.get("custom_email_template_path"),
+        uploaded_at=row.get("custom_email_template_uploaded_at"),
+        required_variables=sorted(REQUIRED_VARIABLES),
+        optional_variables=sorted(OPTIONAL_VARIABLES),
+    )
 
 
 # ============================================================

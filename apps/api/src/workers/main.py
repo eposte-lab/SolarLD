@@ -27,8 +27,10 @@ from ..core.logging import configure_logging
 from ..services.b2c_qualify_service import qualify_b2c_lead
 from ..services.crm_webhook_service import dispatch_event as crm_dispatch
 from .cron import (
+    cluster_ab_evaluation_cron,
     daily_digest_cron,
     deliverability_hourly_cron,
+    engagement_followup_cron,
     engagement_rollup_cron,
     follow_up_cron,
     reputation_digest_cron,
@@ -181,6 +183,7 @@ class WorkerSettings:
     #   :00 every hour   → deliverability_hourly_cron   (bounce/complaint spike check)
     #   02:30 every day  → reputation_digest_cron       (refresh domain_reputation)
     #   03:15 every day  → retention_cron               (GDPR 24-month purge)
+    #   03:30 every day  → cluster_ab_evaluation_cron   (Sprint 9: promote A/B winners)
     #   03:45 every day  → send_time_rollup_cron        (per-lead best UTC hour)
     #   04:00 every day  → engagement_rollup_cron       (portal heat → leads)
     #   06:00 every day  → smartlead_warmup_sync_cron   (inbox health + warmup caps)
@@ -193,6 +196,8 @@ class WorkerSettings:
         cron(deliverability_hourly_cron, minute=0, run_at_startup=False),
         cron(reputation_digest_cron, hour=2, minute=30, run_at_startup=False),
         cron(retention_cron, hour=3, minute=15, run_at_startup=False),
+        # Sprint 9 B.5: cluster A/B chi-square evaluation + auto-promotion.
+        cron(cluster_ab_evaluation_cron, hour=3, minute=30, run_at_startup=False),
         cron(send_time_rollup_cron, hour=3, minute=45, run_at_startup=False),
         cron(engagement_rollup_cron, hour=4, minute=0, run_at_startup=False),
         # Task 14: sync Smartlead warm-up health scores before the morning
@@ -207,6 +212,8 @@ class WorkerSettings:
             minute=0,
             run_at_startup=False,
         ),
+        # Sprint 10: engagement-based follow-up scenarios.
+        cron(engagement_followup_cron, hour=8, minute=15, run_at_startup=False),
         cron(sla_first_touch_cron, hour=8, minute=30, run_at_startup=False),
     ]
     redis_settings = RedisSettings.from_dsn(settings.redis_url)

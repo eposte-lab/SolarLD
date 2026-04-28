@@ -23,6 +23,7 @@ import { SectionEyebrow } from '@/components/ui/section-eyebrow';
 import { AiExecutiveInsights } from '@/components/dashboard/ai-executive-insights';
 import { DailyCapWidget } from '@/components/dashboard/daily-cap-widget';
 import { GeoRadarMap } from '@/components/dashboard/geo-radar-map';
+import { HotLeadsWidget } from '@/components/dashboard/hot-leads-widget';
 import { LeadTemperatureBoard } from '@/components/dashboard/lead-temperature-board';
 import { PipelineRevenuePanel } from '@/components/dashboard/pipeline-revenue-panel';
 import { SmartTimeHeatmap } from '@/components/dashboard/smart-time-heatmap';
@@ -158,15 +159,18 @@ export default async function DashboardOverview() {
         </div>
       </div>
 
-      {/* ── Row 5: Smart Time Heatmap + Conversion Funnel (1/2 | 1/2) ───── */}
+      {/* ── Row 5: Hot leads call list + Conversion Funnel (1/2 | 1/2) ──── */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <BentoCard span="full">
-          <SmartTimeHeatmap cells={heatmapCells} />
-        </BentoCard>
+        <HotLeadsWidget />
         <BentoCard span="full">
           <ConversionFunnelCard stats={conversions} />
         </BentoCard>
       </div>
+
+      {/* ── Row 5b: Smart Time Heatmap (full width) ──────────────────────── */}
+      <BentoCard span="full">
+        <SmartTimeHeatmap cells={heatmapCells} />
+      </BentoCard>
 
       {/* ── Row 6: Lead Temperature Board (full width) ───────────────────── */}
       <BentoCard span="full" padding="tight">

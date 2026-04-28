@@ -182,13 +182,15 @@ def test_build_from_uses_default_display_when_no_names() -> None:
 
 def test_public_lead_url_contains_slug() -> None:
     url = _public_lead_url("abc123")
-    assert url.endswith("/l/abc123")
+    # Portal page lives at /lead/[slug]; the legacy /l/[slug] alias is
+    # served by a redirect-only Next.js route for old emails.
+    assert url.endswith("/lead/abc123")
 
 
 def test_public_lead_url_missing_slug_returns_base() -> None:
     url = _public_lead_url(None)
-    # No trailing /l when slug is missing.
-    assert "/l/" not in url
+    # No trailing /lead when slug is missing.
+    assert "/lead/" not in url
 
 
 def test_optout_url_contains_slug() -> None:

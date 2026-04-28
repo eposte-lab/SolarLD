@@ -26,6 +26,7 @@ from .routes import (
     b2c_outreach,
     branding,
     campaigns,
+    cluster_ab,
     contatti,
     crm_webhooks,
     email_domains,
@@ -41,6 +42,7 @@ from .routes import (
     prospector,
     public,
     quarantine,
+    sector_news,
     tenants,
     territories,
     unsubscribe,
@@ -143,6 +145,9 @@ app.include_router(
 app.include_router(
     experiments.router, prefix="/v1/experiments", tags=["experiments"]
 )
+# Sprint 9 B.6: cluster-level A/B variant management
+app.include_router(cluster_ab.router, prefix="/v1", tags=["cluster-ab"])
+app.include_router(sector_news.router, prefix="/v1", tags=["sector-news"])
 app.include_router(branding.router, prefix="/v1/branding", tags=["branding"])
 app.include_router(inboxes.router, prefix="/v1/inboxes", tags=["inboxes"])
 app.include_router(email_domains.router, prefix="/v1/email-domains", tags=["email-domains"])

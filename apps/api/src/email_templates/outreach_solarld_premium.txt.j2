@@ -1,0 +1,41 @@
+{{ copy_subject | default(subject, true) }}
+
+Per {{ greeting_name }},
+
+{{ copy_opening_line | default('Abbiamo analizzato la vostra sede via satellite.', true) }}
+
+{{ copy_proposition_line | default('Vi proponiamo un sopralluogo gratuito per validare i dati e presentare un preventivo completo.', true) }}
+
+{% if roi and roi.yearly_savings_eur is defined -%}
+I NUMERI PER VOI:
+
+  Risparmio stimato / anno:  €{{ roi.yearly_savings_eur | int | format_money }}
+{%- if roi.payback_years is defined %}
+  Ritorno investimento:       {{ roi.payback_years }} anni
+{%- endif %}
+{%- if roi.yearly_kwh is defined %}
+  Producibilità annua:        {{ roi.yearly_kwh | int | format_money }} kWh
+{%- endif %}
+{%- if roi.estimated_kwp is defined %}
+  Potenza installabile:       {{ roi.estimated_kwp | round(1) }} kWp
+{%- endif %}
+
+{% endif -%}
+Cosa offriamo:
+✓ Sopralluogo tecnico gratuito
+✓ Analisi incentivi (Transizione 5.0, CER)
+✓ Finanziamento a zero anticipi
+✓ Garanzia 25 anni su pannelli e produzione
+
+Apri la tua analisi completa:
+{{ lead_url }}
+
+---
+A disposizione, {{ sender_first_name | default(tenant_name, true) }}
+{{ tenant_name }}
+
+---
+{{ tenant_legal_name | default(tenant_name, true) }}{% if tenant_vat_number %} · P.IVA {{ tenant_vat_number }}{% endif %}{% if tenant_legal_address %} · {{ tenant_legal_address }}{% endif %}
+
+Email inviata per finalità di contatto commerciale B2B (art. 6.1.f GDPR — legittimo interesse).
+Per non ricevere altre comunicazioni: {{ optout_url }}

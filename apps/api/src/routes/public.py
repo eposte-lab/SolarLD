@@ -11,10 +11,19 @@ produce user-visible duplicate effects.
 
 from __future__ import annotations
 
+import uuid
 from datetime import datetime, timezone
 from typing import Any, Literal
 
-from fastapi import APIRouter, HTTPException, Query, Response, status
+from fastapi import (
+    APIRouter,
+    File,
+    HTTPException,
+    Query,
+    Response,
+    UploadFile,
+    status,
+)
 from pydantic import BaseModel, Field
 
 from ..core.logging import get_logger
@@ -22,6 +31,12 @@ from ..core.queue import enqueue
 from ..core.redis import get_redis
 from ..core.supabase_client import get_service_client
 from ..models.enums import BlacklistReason, LeadStatus
+from ..services.bolletta_ocr_service import (
+    OCR_PROVIDER_TAG,
+    OcrResult,
+    extract_from_image,
+)
+from ..services.savings_compare_service import compute_savings_compare
 
 log = get_logger(__name__)
 router = APIRouter()
@@ -64,12 +79,17 @@ async def get_public_lead(slug: str) -> dict[str, object]:
             detail="Lead unsubscribed",
         )
 
-    # Fetch tenant branding
+    # Fetch tenant branding + About narrative (Sprint 8 Fase A.2/A.3).
+    # The portal AboutSection consumes about_md/year_founded/team_size/
+    # certifications/hero_image/tagline; legal_* feeds the GDPR footer.
     tenant = (
         sb.table("tenants")
         .select(
             "business_name, brand_logo_url, brand_primary_color, "
-            "whatsapp_number, contact_email"
+            "whatsapp_number, contact_email, "
+            "legal_name, vat_number, legal_address, "
+            "about_md, about_year_founded, about_team_size, "
+            "about_certifications, about_hero_image_url, about_tagline"
         )
         .eq("id", lead["tenant_id"])
         .limit(1)
@@ -225,6 +245,451 @@ async def request_appointment(
 
 
 # ---------------------------------------------------------------------------
+# Bolletta upload (Sprint 8 Fase B.2)
+# ---------------------------------------------------------------------------
+#
+# Lead uploads a utility bill from the portal. We:
+#
+#   1. Validate slug → (tenant_id, lead_id) and bounce blacklisted leads.
+#   2. Rate-limit per (slug, IP-bucket-hash) — max 3 uploads / hour.
+#   3. Validate MIME + byte length (whitelist + 5 MB hard cap).
+#   4. Stream the file to ``bollette/{tenant_id}/{lead_id}/{uuid}.{ext}``
+#      via the service-role Storage client.
+#   5. Run Claude Vision OCR (sync — typical latency 3-8s; if it
+#      times out, persist the row with ocr_error and let the user
+#      enter values manually from the BillUploadCard UI).
+#   6. Insert a ``bolletta_uploads`` row + emit
+#      ``portal.bolletta_uploaded`` portal event so Fase C.1 bumps
+#      engagement_score by +50.
+#   7. Stamp ``leads.bolletta_uploaded_at = now()`` for the dashboard
+#      "ha caricato bolletta" filter.
+#
+# We return the OCR readout so the BillUploadCard can offer an inline
+# edit form when ``manual_required=True`` (low confidence).
+
+_BOLLETTA_ALLOWED_MIME: frozenset[str] = frozenset({
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "application/pdf",
+})
+_BOLLETTA_MAX_BYTES = 10 * 1024 * 1024  # 10 MB (matches the storage bucket cap)
+_BOLLETTA_RATE_PER_HOUR = 3
+_BOLLETTA_RATE_KEY_TTL = 60 * 60 + 60  # 1h + 1m grace
+
+
+def _bolletta_ext_from_mime(mime: str) -> str:
+    return {
+        "image/jpeg": "jpg",
+        "image/png": "png",
+        "image/webp": "webp",
+        "application/pdf": "pdf",
+    }.get(mime, "bin")
+
+
+async def _bolletta_rate_allows(slug: str) -> bool:
+    """Cap upload bursts at 3/hour per slug.
+
+    Per-slug is the right axis: each lead is one cold target, three
+    bills/hour covers any honest scenario (upload, retry on failure,
+    upload a second bill for the husband's apartment), and any abuse
+    pattern is rate-limited by the slug's URL itself being unguessable.
+    """
+    try:
+        r = get_redis()
+        key = f"bolletta:upload:{slug}:{datetime.now(timezone.utc):%Y%m%d%H}"
+        pipe = r.pipeline()
+        pipe.incr(key, 1)
+        pipe.expire(key, _BOLLETTA_RATE_KEY_TTL)
+        results = await pipe.execute()
+        used = int(results[0])
+        return used <= _BOLLETTA_RATE_PER_HOUR
+    except Exception as exc:  # noqa: BLE001
+        # Fail open — better to accept a possible duplicate than to
+        # tell a paying customer their upload was refused.
+        log.warning("bolletta.rate_check_failed", err=str(exc))
+        return True
+
+
+def _bolletta_response_from_row(
+    *,
+    upload_id: str,
+    ocr: OcrResult | None,
+    source: str,
+    manual_kwh: float | None = None,
+    manual_eur: float | None = None,
+) -> dict[str, Any]:
+    """Shape the upload response consumed by BillUploadCard."""
+    if ocr and ocr.success:
+        return {
+            "upload_id": upload_id,
+            "source": source,
+            "status": "manual_required" if ocr.manual_required else "ok",
+            "ocr_kwh_yearly": ocr.kwh_yearly,
+            "ocr_eur_yearly": ocr.eur_yearly,
+            "ocr_confidence": ocr.confidence,
+            "ocr_provider_name": ocr.provider_name,
+        }
+    return {
+        "upload_id": upload_id,
+        "source": source,
+        "status": "manual_required",
+        "ocr_kwh_yearly": None,
+        "ocr_eur_yearly": None,
+        "ocr_confidence": None,
+        "ocr_error": ocr.error if ocr else None,
+        "manual_kwh_yearly": manual_kwh,
+        "manual_eur_yearly": manual_eur,
+    }
+
+
+@router.post(
+    "/lead/{slug}/bolletta",
+    status_code=status.HTTP_200_OK,
+)
+async def upload_bolletta(
+    slug: str,
+    file: UploadFile = File(..., description="Utility bill (image or PDF)"),
+) -> dict[str, Any]:
+    """Receive a bolletta upload, run OCR, persist + return readout.
+
+    Soft-fails OCR: if the model errors out or returns low confidence,
+    the upload still lands in storage and the row in
+    ``bolletta_uploads`` records the error so the UI can show a manual
+    entry form. Only schema-level rejections (oversized, unsupported
+    MIME, unknown slug, blacklisted lead) raise 4xx.
+    """
+    # ---- 1. Slug → lead resolution
+    sb = get_service_client()
+    lead = _load_lead_by_slug(sb, slug)
+    if lead is None:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    if lead.get("pipeline_status") == LeadStatus.BLACKLISTED.value:
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail="Lead unsubscribed",
+        )
+
+    # ---- 2. Rate-limit (soft — returns 429 only when exceeded)
+    if not await _bolletta_rate_allows(slug):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many uploads — riprova fra un'ora",
+        )
+
+    # ---- 3. MIME + size validation
+    mime = (file.content_type or "").lower()
+    if mime not in _BOLLETTA_ALLOWED_MIME:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail=f"Tipo file non supportato: {mime or 'unknown'}",
+        )
+    body = await file.read()
+    if not body:
+        raise HTTPException(status_code=400, detail="File vuoto")
+    if len(body) > _BOLLETTA_MAX_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"File troppo grande ({len(body)} bytes, max {_BOLLETTA_MAX_BYTES})",
+        )
+
+    # ---- 4. Storage upload
+    upload_id = str(uuid.uuid4())
+    ext = _bolletta_ext_from_mime(mime)
+    storage_path = f"{lead['tenant_id']}/{lead['id']}/{upload_id}.{ext}"
+    try:
+        sb.storage.from_("bollette").upload(
+            storage_path,
+            body,
+            {"content-type": mime, "upsert": "false"},
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.error("bolletta.storage_upload_failed", slug=slug, err=str(exc))
+        raise HTTPException(
+            status_code=502,
+            detail="Upload non riuscito — riprova",
+        ) from exc
+
+    # ---- 5. OCR (sync, soft-fail). PDFs are not directly supported by
+    #         Claude Vision — for now we record the upload with an
+    #         error and let the user enter values manually. A future
+    #         worker can rasterise the first page and re-run OCR.
+    ocr: OcrResult | None = None
+    if mime == "application/pdf":
+        ocr = OcrResult(
+            success=False,
+            error="pdf_ocr_not_implemented",
+            raw_response={"reason": "pdf_pending_rasterise"},
+        )
+    else:
+        try:
+            ocr = await extract_from_image(body, mime_type=mime)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("bolletta.ocr_failed", slug=slug, err=str(exc))
+            ocr = OcrResult(
+                success=False,
+                error=f"ocr_exception:{type(exc).__name__}",
+            )
+
+    # ---- 6. Insert row
+    source = (
+        "upload_ocr"
+        if (ocr and ocr.success and not ocr.manual_required)
+        else "upload_manual"
+    )
+    row: dict[str, Any] = {
+        "id": upload_id,
+        "tenant_id": lead["tenant_id"],
+        "lead_id": lead["id"],
+        "storage_path": storage_path,
+        "mime_type": mime,
+        "file_size_bytes": len(body),
+        "ocr_provider": OCR_PROVIDER_TAG if ocr and ocr.success else None,
+        "ocr_kwh_yearly": ocr.kwh_yearly if ocr and ocr.success else None,
+        "ocr_eur_yearly": ocr.eur_yearly if ocr and ocr.success else None,
+        "ocr_confidence": ocr.confidence if ocr and ocr.success else None,
+        "ocr_raw_response": ocr.raw_response if ocr else None,
+        "ocr_error": ocr.error if ocr and not ocr.success else None,
+        "source": source,
+    }
+    try:
+        sb.table("bolletta_uploads").insert(row).execute()
+    except Exception as exc:  # noqa: BLE001
+        log.error("bolletta.row_insert_failed", slug=slug, err=str(exc))
+        raise HTTPException(
+            status_code=500, detail="Salvataggio non riuscito"
+        ) from exc
+
+    # ---- 7. Stamp lead + emit events
+    try:
+        sb.table("leads").update(
+            {"bolletta_uploaded_at": datetime.now(timezone.utc).isoformat()}
+        ).eq("id", lead["id"]).execute()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("bolletta.lead_stamp_failed", err=str(exc))
+
+    _emit_public_event(
+        sb,
+        event_type="lead.bolletta_uploaded",
+        tenant_id=lead["tenant_id"],
+        lead_id=lead["id"],
+        payload={
+            "slug": slug,
+            "upload_id": upload_id,
+            "ocr_confidence": ocr.confidence if ocr and ocr.success else None,
+            "kwh": ocr.kwh_yearly if ocr and ocr.success else None,
+            "eur": ocr.eur_yearly if ocr and ocr.success else None,
+        },
+    )
+
+    # Best-effort portal event so the engagement score bumps in real
+    # time. The portal client also fires this beacon directly on
+    # success, but the server-side fire is the source of truth (the
+    # client may not still be on-page when OCR finishes).
+    try:
+        sb.table("portal_events").insert(
+            {
+                "tenant_id": lead["tenant_id"],
+                "lead_id": lead["id"],
+                "session_id": f"server:{upload_id}",
+                "event_kind": "portal.bolletta_uploaded",
+                "metadata": {
+                    "upload_id": upload_id,
+                    "ocr_confidence": (
+                        ocr.confidence if ocr and ocr.success else None
+                    ),
+                },
+                "elapsed_ms": 0,
+                "occurred_at": datetime.now(timezone.utc).isoformat(),
+            }
+        ).execute()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("bolletta.portal_event_failed", err=str(exc))
+
+    return _bolletta_response_from_row(
+        upload_id=upload_id,
+        ocr=ocr,
+        source=source,
+    )
+
+
+class ManualBollettaBody(BaseModel):
+    """Manual values when the user couldn't / didn't upload a bill.
+
+    Two callers:
+      * the BillUploadCard "I'll type it instead" branch (no file)
+      * the inline-edit form when OCR confidence is low and the user
+        corrects the values (passes ``upload_id`` of the prior row)
+    """
+
+    kwh_yearly: float = Field(..., gt=0, le=250_000)
+    eur_yearly: float = Field(..., gt=0, le=100_000)
+    upload_id: str | None = Field(
+        default=None,
+        description="If patching an existing OCR row, the upload_id "
+        "from the prior /bolletta call. Omit to create a manual_only "
+        "row from scratch.",
+    )
+
+
+@router.post(
+    "/lead/{slug}/bolletta/manual",
+    status_code=status.HTTP_200_OK,
+)
+async def upload_bolletta_manual(
+    slug: str, body: ManualBollettaBody
+) -> dict[str, Any]:
+    """Record manual kWh/€ values, with or without a prior OCR row."""
+    sb = get_service_client()
+    lead = _load_lead_by_slug(sb, slug)
+    if lead is None:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    if lead.get("pipeline_status") == LeadStatus.BLACKLISTED.value:
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail="Lead unsubscribed",
+        )
+
+    if body.upload_id:
+        # PATCH path: fold manual values onto the existing row.
+        try:
+            sb.table("bolletta_uploads").update(
+                {
+                    "manual_kwh_yearly": body.kwh_yearly,
+                    "manual_eur_yearly": body.eur_yearly,
+                    "source": "upload_manual",
+                }
+            ).eq("id", body.upload_id).eq("lead_id", lead["id"]).execute()
+        except Exception as exc:  # noqa: BLE001
+            log.error("bolletta.manual_patch_failed", err=str(exc))
+            raise HTTPException(
+                status_code=500, detail="Salvataggio non riuscito"
+            ) from exc
+        upload_id = body.upload_id
+        source = "upload_manual"
+    else:
+        # INSERT path: create a manual-only row (no file, no OCR).
+        upload_id = str(uuid.uuid4())
+        try:
+            sb.table("bolletta_uploads").insert(
+                {
+                    "id": upload_id,
+                    "tenant_id": lead["tenant_id"],
+                    "lead_id": lead["id"],
+                    # No storage object — but the column is NOT NULL.
+                    # Use a sentinel that won't collide with a real path.
+                    "storage_path": f"manual_only/{upload_id}",
+                    "mime_type": "manual/none",
+                    "file_size_bytes": 0,
+                    "manual_kwh_yearly": body.kwh_yearly,
+                    "manual_eur_yearly": body.eur_yearly,
+                    "source": "manual_only",
+                }
+            ).execute()
+        except Exception as exc:  # noqa: BLE001
+            log.error("bolletta.manual_insert_failed", err=str(exc))
+            raise HTTPException(
+                status_code=500, detail="Salvataggio non riuscito"
+            ) from exc
+        source = "manual_only"
+
+    try:
+        sb.table("leads").update(
+            {"bolletta_uploaded_at": datetime.now(timezone.utc).isoformat()}
+        ).eq("id", lead["id"]).execute()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("bolletta.lead_stamp_failed", err=str(exc))
+
+    _emit_public_event(
+        sb,
+        event_type="lead.bolletta_uploaded",
+        tenant_id=lead["tenant_id"],
+        lead_id=lead["id"],
+        payload={
+            "slug": slug,
+            "upload_id": upload_id,
+            "kwh": body.kwh_yearly,
+            "eur": body.eur_yearly,
+            "source": source,
+        },
+    )
+
+    return _bolletta_response_from_row(
+        upload_id=upload_id,
+        ocr=None,
+        source=source,
+        manual_kwh=body.kwh_yearly,
+        manual_eur=body.eur_yearly,
+    )
+
+
+@router.get("/lead/{slug}/savings-compare")
+async def get_savings_compare(slug: str) -> dict[str, Any]:
+    """Return the predicted-vs-actual savings comparison.
+
+    Pulls the lead's ROI estimate from ``leads.roi_data`` plus the
+    latest ``bolletta_uploads`` row (manual values take precedence
+    when present, OCR values fall through). Returns ``available=False``
+    until at least one bolletta has been uploaded — the
+    SavingsComparePanel hides itself in that case.
+    """
+    sb = get_service_client()
+    lead_res = (
+        sb.table("leads")
+        .select(
+            "id, tenant_id, pipeline_status, roi_data, "
+            "subjects(type)"
+        )
+        .eq("public_slug", slug)
+        .limit(1)
+        .execute()
+    )
+    if not lead_res.data:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    lead = lead_res.data[0]
+    if lead.get("pipeline_status") == LeadStatus.BLACKLISTED.value:
+        raise HTTPException(status_code=410, detail="Lead unsubscribed")
+
+    bill_res = (
+        sb.table("bolletta_uploads")
+        .select(
+            "id, ocr_kwh_yearly, ocr_eur_yearly, "
+            "manual_kwh_yearly, manual_eur_yearly, source, uploaded_at"
+        )
+        .eq("lead_id", lead["id"])
+        .order("uploaded_at", desc=True)
+        .limit(1)
+        .execute()
+    )
+    if not bill_res.data:
+        return {"available": False, "reason": "no_bolletta_uploaded"}
+    bill = bill_res.data[0]
+
+    # Manual values override OCR — that's the user's correction.
+    kwh = bill.get("manual_kwh_yearly") or bill.get("ocr_kwh_yearly")
+    eur = bill.get("manual_eur_yearly") or bill.get("ocr_eur_yearly")
+    if not kwh or not eur:
+        return {"available": False, "reason": "bolletta_values_missing"}
+
+    subject_type = ((lead.get("subjects") or {}).get("type") or "unknown")
+    result = compute_savings_compare(
+        roi_data=lead.get("roi_data"),
+        bolletta_kwh_yearly=float(kwh),
+        bolletta_eur_yearly=float(eur),
+        subject_type=subject_type,
+    )
+    if result is None:
+        return {"available": False, "reason": "roi_data_missing"}
+
+    return {
+        "available": True,
+        "uploaded_at": bill.get("uploaded_at"),
+        "source": bill.get("source"),
+        **result.to_jsonb(),
+    }
+
+
+# ---------------------------------------------------------------------------
 # Portal engagement beacon (Part B.1 — deep-tracking)
 # ---------------------------------------------------------------------------
 #
@@ -262,6 +727,12 @@ _ALLOWED_EVENT_KINDS: frozenset[str] = frozenset({
     "portal.video_complete",
     "portal.heartbeat",
     "portal.leave",
+    # Sprint 8 — high-intent portal interactions surfaced by the
+    # editorial redesign + bolletta upload + email reply CTA.
+    "portal.audio_on",          # user un-muted the hero video (intent signal)
+    "portal.video_fullscreen",  # entered fullscreen on hero video
+    "portal.email_reply_click", # clicked the secondary "Rispondi via email" CTA
+    "portal.bolletta_uploaded", # uploaded a bill (B-tier signal — score +50)
 })
 
 # Cap per (session, slug) per minute. 60 is generous for a human
@@ -269,6 +740,44 @@ _ALLOWED_EVENT_KINDS: frozenset[str] = frozenset({
 # tight enough to stop a runaway client.
 _BEACON_RATE_PER_MIN = 60
 _BEACON_KEY_TTL = 90  # seconds
+
+
+# ---------------------------------------------------------------------------
+# Real-time engagement scoring (Sprint 8 Fase C.1)
+# ---------------------------------------------------------------------------
+#
+# Per-event score deltas applied via the ``bump_engagement_score``
+# Postgres function (migration 0066). Anything not listed contributes
+# 0 (heartbeat, leave, view) — those are signals for the nightly
+# rollup but not strong enough to deserve a real-time bump.
+#
+# Keep these in lockstep with the ground-truth weights in
+# ``apps/api/src/services/engagement_service.py`` — they intentionally
+# mirror the cron formula so the realtime score never diverges by
+# more than the daily decay step.
+#
+# Multiple firings of the same kind in one session are softly
+# bounded by the per-session rate limiter (60/min) and harder
+# bounded by the nightly rollup's idempotent recompute.
+
+_EVENT_DELTA: dict[str, int] = {
+    # Curiosity signals
+    "portal.scroll_50": 3,
+    "portal.scroll_90": 7,
+    "portal.roi_viewed": 10,
+    "portal.cta_hover": 2,
+    # Strong intent signals
+    "portal.video_play": 15,
+    "portal.video_complete": 25,
+    # CTA clicks
+    "portal.whatsapp_click": 40,
+    "portal.appointment_click": 60,
+    # Sprint 8 high-intent additions
+    "portal.audio_on": 8,
+    "portal.video_fullscreen": 8,
+    "portal.email_reply_click": 35,
+    "portal.bolletta_uploaded": 50,
+}
 
 
 class PortalTrackEvent(BaseModel):
@@ -292,6 +801,11 @@ class PortalTrackEvent(BaseModel):
         "portal.video_complete",
         "portal.heartbeat",
         "portal.leave",
+        # Sprint 8 high-intent events
+        "portal.audio_on",
+        "portal.video_fullscreen",
+        "portal.email_reply_click",
+        "portal.bolletta_uploaded",
     ]
     metadata: dict[str, Any] = Field(default_factory=dict)
     elapsed_ms: int | None = Field(default=None, ge=0, le=24 * 60 * 60 * 1000)
@@ -358,6 +872,27 @@ async def portal_track(event: PortalTrackEvent) -> Response:
             event_kind=event.event_kind,
             err=str(exc),
         )
+
+    # Real-time engagement bump (Fase C.1). The RPC clamps to [0, 100]
+    # internally and stamps last_portal_event_at, which the
+    # /v1/leads/hot endpoint uses to filter recently-active leads.
+    delta = _EVENT_DELTA.get(event.event_kind, 0)
+    if delta > 0:
+        try:
+            sb.rpc(
+                "bump_engagement_score",
+                {"p_lead_id": lead["id"], "p_delta": delta},
+            ).execute()
+        except Exception as exc:  # noqa: BLE001
+            # Non-fatal — the nightly rollup still reconciles the
+            # score. We log so a cluster of failures shows up in
+            # monitoring without taking down the beacon.
+            log.warning(
+                "portal.track.bump_failed",
+                slug=event.slug,
+                event_kind=event.event_kind,
+                err=str(exc),
+            )
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 

@@ -1,0 +1,21 @@
+{{ headline | default('Un dato che vale la pena rivedere', true) }}
+
+Per {{ greeting_name }},
+
+{{ copy_opening_line | default('Vi scrivo perché un\'analisi solare per la vostra sede potrebbe meritare un secondo sguardo.', true) }}
+
+{{ main_copy_1 | default('Negli ultimi mesi il costo dell\'energia per le aziende italiane è rimasto sopra la media UE. Un impianto fotovoltaico ben dimensionato copre tipicamente il 40-70% del fabbisogno e si ripaga in 4-7 anni — anche senza incentivi straordinari.', true) }}
+
+{% if roi and roi.yearly_savings_eur is defined -%}
+Stima per la vostra sede: €{{ roi.yearly_savings_eur | int | format_money }}/anno di risparmio.
+
+{% endif -%}
+{{ copy_proposition_line | default('Se il momento non è quello giusto, basta non rispondere — non insisteremo.', true) }}
+
+Analisi completa: {{ lead_url }}
+
+---
+{{ sender_first_name | default(tenant_name, true) }} — {{ tenant_name }}
+
+{{ tenant_legal_name | default(tenant_name, true) }}{% if tenant_vat_number %} · P.IVA {{ tenant_vat_number }}{% endif %}.
+Email B2B (art. 6.1.f GDPR). Annulla: {{ optout_url }}

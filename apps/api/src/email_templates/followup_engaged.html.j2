@@ -1,0 +1,95 @@
+{# Engagement-based follow-up — ENGAGED scenario (score 21-40).
+   Tone: sector context + soft CTA. Leverages sector_news_* heavily.
+   The lead has shown interest; we feed sector-relevant material to
+   keep the conversation warm without being intrusive. #}
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ headline | default('Un aggiornamento dal vostro settore', true) }}</title>
+</head>
+<body style="margin:0; padding:0; background-color:#f5f2eb; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;">
+<div style="display:none; max-height:0; overflow:hidden; mso-hide:all; font-size:1px; color:#f5f2eb;">
+  {{ sector_news_headline | default('Cosa sta succedendo nel vostro settore — e perché conta per voi.', true) }}
+</div>
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color:#f5f2eb;">
+  <tr><td align="center" style="padding:24px 12px;">
+    <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="600" style="max-width:600px; background:#fff; border-radius:8px; overflow:hidden;">
+      <tr>
+        <td style="padding:20px 32px; background-color:{{ brand_primary_color | default('#0B3D2E', true) }};">
+          {%- if brand_logo_url %}
+          <img src="{{ brand_logo_url }}" alt="{{ tenant_name }}" width="140" style="max-height:40px; width:auto; display:block;">
+          {%- else %}
+          <span style="color:#fff; font-size:15px; font-weight:700;">{{ tenant_name }}</span>
+          {%- endif %}
+        </td>
+      </tr>
+      <tr>
+        <td style="padding:32px 36px 28px;">
+          <p style="margin:0 0 8px; font-size:12px; color:#6b6b6b; text-transform:uppercase; letter-spacing:0.5px;">
+            {{ ateco_description | default('Aggiornamento di settore', true) }} · per {{ greeting_name }}
+          </p>
+          <h1 style="margin:0 0 18px; font-size:24px; line-height:30px; font-weight:700; color:#0b3d2e;">
+            {{ sector_news_headline | default(headline | default('Un dato che vale la pena commentare insieme', true), true) }}
+          </h1>
+          {%- if sector_news_body %}
+          <p style="margin:0 0 18px; font-size:15px; line-height:23px; color:#2b2b2b;">
+            {{ sector_news_body }}
+          </p>
+          {%- if sector_news_source_url %}
+          <p style="margin:0 0 22px; font-size:12px; color:#6b6b6b;">
+            Fonte: <a href="{{ sector_news_source_url }}" style="color:{{ brand_primary_color | default('#0B3D2E', true) }};">{{ sector_news_source_url }}</a>
+          </p>
+          {%- endif %}
+          {%- else %}
+          <p style="margin:0 0 18px; font-size:15px; line-height:23px; color:#2b2b2b;">
+            {{ copy_opening_line | default('Sto seguendo da vicino il vostro settore e c&apos;è un dato recente che vorrei commentare con voi.', true) }}
+          </p>
+          <p style="margin:0 0 22px; font-size:14px; line-height:22px; color:#444;">
+            {{ main_copy_1 | default('Le aziende che si stanno muovendo per primi sull&apos;autoproduzione energetica stanno guadagnando un margine concreto rispetto a chi resta esposto al mercato libero.', true) }}
+          </p>
+          {%- endif %}
+          {%- if roi and roi.yearly_savings_eur is defined %}
+          <div style="background:#f5f2eb; border-left:4px solid {{ brand_color_accent | default('#F4A300', true) }}; padding:14px 18px; border-radius:4px; margin:0 0 22px;">
+            <p style="margin:0 0 2px; font-size:11px; color:#6b6b6b; text-transform:uppercase; letter-spacing:0.6px;">La vostra simulazione</p>
+            <p style="margin:0; font-size:24px; line-height:30px; font-weight:700; color:#0b3d2e;">€{{ roi.yearly_savings_eur | int | format_money }}<span style="font-size:14px; font-weight:400; color:#6b6b6b;">/anno di risparmio</span></p>
+          </div>
+          {%- endif %}
+          <p style="margin:0 0 18px; font-size:14px; line-height:22px; color:#444;">
+            {{ copy_proposition_line | default('Mi farebbe piacere capire come la vostra realtà sta affrontando il tema. Bastano cinque minuti.', true) }}
+          </p>
+          <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="margin:0 0 18px;">
+            <tr><td align="center">
+              <table role="presentation" border="0" cellpadding="0" cellspacing="0">
+                <tr><td style="background-color:{{ brand_color_accent | default('#F4A300', true) }}; border-radius:6px;">
+                  <a href="{{ lead_url }}" target="_blank" style="display:inline-block; padding:14px 28px; font-size:14px; font-weight:700; color:#0b3d2e; text-decoration:none;">
+                    {{ cta_primary_label | default('Rivedi l&apos;analisi', true) }} &rarr;
+                  </a>
+                </td></tr>
+              </table>
+            </td></tr>
+          </table>
+        </td>
+      </tr>
+      <tr>
+        <td style="padding:0 36px 28px; border-top:1px solid #e8e3d4;">
+          <p style="margin:22px 0 4px; font-size:14px; color:#2b2b2b;">{{ sender_first_name | default(tenant_name, true) }}</p>
+          <p style="margin:0; font-size:13px; color:#6b6b6b;">{{ tenant_name }}</p>
+        </td>
+      </tr>
+      <tr>
+        <td style="padding:18px 36px; background:#f5f2eb;">
+          <p style="margin:0 0 6px; font-size:10px; line-height:14px; color:#888;">
+            {{ tenant_legal_name | default(tenant_name, true) }}{% if tenant_vat_number %} · P.IVA {{ tenant_vat_number }}{% endif %}{% if tenant_legal_address %} · {{ tenant_legal_address }}{% endif %}
+          </p>
+          <p style="margin:0; font-size:10px; line-height:14px; color:#888;">
+            Email B2B per legittimo interesse (art. 6.1.f GDPR). <a href="{{ optout_url }}" style="color:#888;">Annulla iscrizione</a>
+          </p>
+        </td>
+      </tr>
+    </table>
+  </td></tr>
+</table>
+{%- if tracking_pixel_url %}<img src="{{ tracking_pixel_url }}" width="1" height="1" alt="" style="display:block;width:1px;height:1px;border:0;">{%- endif %}
+</body></html>

@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<title>Re: Analisi fotovoltaica per {{ business_name | default(greeting_name, true) }}</title>
+<style type="text/css">
+  body, table, td, a { -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; }
+  table, td { mso-table-lspace: 0pt; mso-table-rspace: 0pt; }
+  img { border: 0; height: auto; line-height: 100%; outline: none; text-decoration: none; }
+  body { margin: 0 !important; padding: 0 !important; width: 100% !important; }
+  @media only screen and (max-width: 600px) {
+    .container { width: 100% !important; }
+    .padding-mobile { padding: 24px !important; }
+  }
+</style>
+</head>
+<body style="margin:0; padding:0; background-color:#f5f2eb; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;">
+
+<div style="display:none; max-height:0; overflow:hidden; mso-hide:all; font-size:1px; color:#f5f2eb; line-height:1px;">
+  Ripasso veloce sui numeri per {{ business_name | default('la vostra sede', true) }} — avete già visto l'analisi?
+</div>
+
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color:#f5f2eb;">
+  <tr>
+    <td align="center" style="padding:24px 12px;">
+      <table class="container" role="presentation" border="0" cellpadding="0" cellspacing="0" width="600" style="max-width:600px; background-color:#ffffff; border-radius:8px; overflow:hidden; box-shadow:0 1px 3px rgba(0,0,0,0.05);">
+
+        <!-- HEADER -->
+        <tr>
+          <td style="padding:24px 32px; background-color:{{ brand_primary_color | default('#0B3D2E', true) }};">
+            {%- if brand_logo_url %}
+            <img src="{{ brand_logo_url }}" alt="{{ tenant_name }}" width="140" height="auto" style="display:block; max-height:40px; width:auto;">
+            {%- else %}
+            <span style="color:#ffffff; font-size:15px; font-weight:700; font-family:Arial,sans-serif;">{{ tenant_name }}</span>
+            {%- endif %}
+          </td>
+        </tr>
+
+        <!-- BODY: brief follow-up -->
+        <tr>
+          <td class="padding-mobile" style="padding:36px 40px 32px 40px;">
+            <p style="margin:0 0 8px 0; font-size:13px; color:#6b6b6b; font-family:Arial,sans-serif; text-transform:uppercase; letter-spacing:0.5px;">
+              Per {{ greeting_name }}
+            </p>
+            <h1 style="margin:0 0 20px 0; font-size:24px; line-height:30px; font-weight:700; color:#0b3d2e; font-family:Arial,sans-serif;">
+              Ho visto che non avete ancora aperto l'analisi — vi rimando i dati chiave
+            </h1>
+
+            <p style="margin:0 0 20px 0; font-size:15px; line-height:22px; color:#2b2b2b; font-family:Arial,sans-serif;">
+              {{ copy_opening_line | default('Capisco che ci siano molte priorità. Vi lascio un rapido riepilogo per valutare se vale la pena approfondire.', true) }}
+            </p>
+
+            {%- if roi and roi.yearly_savings_eur is defined %}
+            <div style="background-color:#f5f2eb; border-left:4px solid {{ brand_color_accent | default('#F4A300', true) }}; padding:16px 20px; border-radius:4px; margin:0 0 24px 0;">
+              <p style="margin:0 0 4px 0; font-size:12px; color:#6b6b6b; font-family:Arial,sans-serif; text-transform:uppercase; letter-spacing:0.8px;">Il numero più importante per voi</p>
+              <p style="margin:0; font-size:32px; line-height:38px; font-weight:700; color:#0b3d2e; font-family:Arial,sans-serif;">€{{ roi.yearly_savings_eur | int | format_money }}<span style="font-size:16px; font-weight:400; color:#6b6b6b;">/anno</span></p>
+              <p style="margin:4px 0 0 0; font-size:12px; color:#6b6b6b; font-family:Arial,sans-serif;">risparmio stimato sulla bolletta energetica</p>
+            </div>
+            {%- endif %}
+
+            <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="margin:0 0 24px 0;">
+              <tr>
+                <td align="center">
+                  <table role="presentation" border="0" cellpadding="0" cellspacing="0">
+                    <tr>
+                      <td style="background-color:{{ brand_color_accent | default('#F4A300', true) }}; border-radius:6px;">
+                        <a href="{{ lead_url }}" target="_blank" style="display:inline-block; padding:16px 36px; font-size:15px; font-weight:700; color:#0b3d2e; text-decoration:none; font-family:Arial,sans-serif;">
+                          {{ cta_primary_label | default('Apri l\'analisi completa', true) }} →
+                        </a>
+                      </td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+            </table>
+
+            <p style="margin:0; font-size:14px; line-height:20px; color:#2b2b2b; font-family:Arial,sans-serif;">
+              {{ copy_proposition_line | default('Se preferite un contatto diretto, risponda a questa email e concorderemo un momento comodo per voi.', true) }}
+            </p>
+          </td>
+        </tr>
+
+        <!-- FIRMA -->
+        <tr>
+          <td style="padding:0 40px 32px 40px; border-top:1px solid #e8e3d4;">
+            <p style="margin:24px 0 4px 0; font-size:14px; color:#2b2b2b; font-family:Arial,sans-serif;">{{ sender_first_name | default(tenant_name, true) }}</p>
+            <p style="margin:0; font-size:13px; color:#6b6b6b; font-family:Arial,sans-serif;">{{ tenant_name }}</p>
+          </td>
+        </tr>
+
+        <!-- FOOTER GDPR -->
+        <tr>
+          <td style="padding:20px 40px; background-color:#f5f2eb;">
+            <p style="margin:0 0 8px 0; font-size:10px; line-height:15px; color:#888888; font-family:Arial,sans-serif;">
+              {{ tenant_legal_name | default(tenant_name, true) }}{% if tenant_vat_number %} · P.IVA {{ tenant_vat_number }}{% endif %}{% if tenant_legal_address %} · {{ tenant_legal_address }}{% endif %}
+            </p>
+            <p style="margin:0; font-size:10px; line-height:15px; color:#888888; font-family:Arial,sans-serif;">
+              Email B2B per legittimo interesse (art. 6.1.f GDPR). <a href="{{ optout_url }}" style="color:#888888;">Annulla iscrizione</a>
+            </p>
+          </td>
+        </tr>
+
+      </table>
+    </td>
+  </tr>
+</table>
+{%- if tracking_pixel_url %}<img src="{{ tracking_pixel_url }}" width="1" height="1" alt="" style="display:block; width:1px; height:1px; border:0;">{%- endif %}
+</body>
+</html>

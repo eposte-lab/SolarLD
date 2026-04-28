@@ -69,6 +69,7 @@ from ..services.email_template_service import (
     OutreachContext,
     default_subject_for,
     render_outreach_email,
+    render_outreach_email_with_fallback,
 )
 from ..services import dialog360_service
 from ..services.dialog360_service import WA_COST_PER_MESSAGE_CENTS
@@ -120,12 +121,26 @@ class OutreachInput(BaseModel):
     sequence_step: int = Field(
         default=1,
         ge=1,
-        le=4,
+        le=99,
         description=(
             "Which step of the sequence we're sending. 1 = initial "
             "outreach (OutreachAgent default), 2/3 = follow-ups enqueued "
             "by the follow-up cron, 4 = breakup email at d+14 "
-            "(conversational template only)."
+            "(conversational template only). 5..9 = Sprint 10 engagement-"
+            "based scenarios (paired with engagement_scenario)."
+        ),
+    )
+    # Sprint 10 — engagement-based follow-up.
+    # When set, the OutreachAgent renders ``followup_{scenario}.j2`` instead
+    # of the regular sequence_step template chain. The scenario is decided
+    # by ``engagement_followup_cron`` based on the lead's engagement_score.
+    engagement_scenario: str | None = Field(
+        default=None,
+        description=(
+            "When set, render a scenario-specific follow-up email instead of "
+            "the standard sequence_step template. One of: cold | lukewarm | "
+            "engaged | interessato | riattivazione. (Hot leads are not sent — "
+            "they trigger an in-app notification path.)"
         ),
     )
 
@@ -167,7 +182,10 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
                 "contact_email, email_from_domain, email_from_name, "
                 "email_from_domain_verified_at, tier, settings, "
                 "legal_name, vat_number, legal_address, "
-                "daily_target_send_cap"
+                "daily_target_send_cap, "
+                # Sprint 9 Fase C: custom template + template family
+                "email_template_family, custom_email_template_active, "
+                "custom_email_template_path"
             )
             .eq("id", payload.tenant_id)
             .single()
@@ -625,6 +643,123 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
                         variant=chosen,
                     )
 
+        # ------------------------------------------------------------------
+        # 8b) Cluster A/B copy variant — Sprint 9 Fase B.4
+        #
+        # For every tenant that uses the premium template (or plain
+        # conversational) we look up the active A+B pair for this lead's
+        # cluster_signature and assign the lead deterministically via:
+        #   variant = 'A' if hash(uuid bytes) % 2 == 0 else 'B'
+        # Same lead → same variant across retries and follow-up steps.
+        #
+        # If no variants exist for this cluster yet we kick off generation
+        # asynchronously (fire-and-forget for step 1; wait for step>1 since
+        # the lead should already be assigned).  On any error we fall back
+        # gracefully — the send uses default Jinja copy.
+        # ------------------------------------------------------------------
+        cluster_variant_id: str | None = None
+        copy_overrides: dict[str, str] | None = None
+
+        try:
+            # Resolve or compute the cluster_signature for this lead.
+            cluster_sig = lead.get("cluster_signature")
+            if not cluster_sig:
+                from .cluster_service import compute_cluster_signature
+                cluster_sig = compute_cluster_signature(subject)
+                # Persist so follow-up steps don't recompute.
+                sb.table("leads").update(
+                    {"cluster_signature": cluster_sig}
+                ).eq("id", payload.lead_id).execute()
+
+            # Fetch active variants for (tenant, cluster).
+            cv_resp = (
+                sb.table("cluster_copy_variants")
+                .select("id, variant_label, copy_subject, copy_opening_line, "
+                        "copy_proposition_line, cta_primary_label, round_number")
+                .eq("tenant_id", payload.tenant_id)
+                .eq("cluster_signature", cluster_sig)
+                .eq("status", "active")
+                .order("round_number", desc=True)
+                .limit(2)
+                .execute()
+            )
+            variants = cv_resp.data or []
+
+            if len(variants) < 2 and payload.sequence_step == 1:
+                # No variants yet — generate a pair async (non-blocking).
+                # The current send uses default copy; next send in this cluster
+                # will have variants ready.
+                from .variant_generator_service import (
+                    generate_variant_pair,
+                    persist_variant_pair,
+                )
+                import asyncio
+
+                async def _gen_and_persist() -> None:
+                    try:
+                        va, vb = await generate_variant_pair(
+                            tenant_name=tenant_row.get("business_name") or "SolarLead",
+                            cluster_signature=cluster_sig,
+                            round_number=1,
+                        )
+                        await persist_variant_pair(
+                            sb, payload.tenant_id, cluster_sig, 1, va, vb
+                        )
+                    except Exception as _exc:  # noqa: BLE001
+                        log.warning(
+                            "outreach.cluster_variant_gen_failed",
+                            cluster=cluster_sig,
+                            error=str(_exc),
+                        )
+
+                asyncio.create_task(_gen_and_persist())
+
+            elif len(variants) >= 2:
+                # Deterministic assignment.
+                import uuid as _uuid_mod
+                lead_uuid = _uuid_mod.UUID(payload.lead_id)
+                bucket = int.from_bytes(lead_uuid.bytes, "big") % 2
+                assigned_label = "A" if bucket == 0 else "B"
+
+                # Find the variant matching the assigned label.
+                chosen_variant = next(
+                    (v for v in variants if v["variant_label"] == assigned_label),
+                    variants[0],
+                )
+
+                cluster_variant_id = chosen_variant["id"]
+                copy_overrides = {
+                    "copy_subject": chosen_variant.get("copy_subject") or "",
+                    "copy_opening_line": chosen_variant.get("copy_opening_line") or "",
+                    "copy_proposition_line": chosen_variant.get("copy_proposition_line") or "",
+                    "cta_primary_label": chosen_variant.get("cta_primary_label") or "",
+                }
+                # Persist the assignment on the lead for follow-up steps.
+                if not lead.get("assigned_variant"):
+                    sb.table("leads").update({
+                        "assigned_variant": assigned_label,
+                        "assigned_round": chosen_variant.get("round_number", 1),
+                    }).eq("id", payload.lead_id).execute()
+
+                # Override the email subject when copy_subject is set.
+                if copy_overrides.get("copy_subject"):
+                    final_subject = copy_overrides["copy_subject"]
+
+                log.info(
+                    "outreach.cluster_variant_assigned",
+                    lead_id=payload.lead_id,
+                    cluster=cluster_sig,
+                    variant=assigned_label,
+                    variant_id=cluster_variant_id,
+                )
+
+        except Exception as _cv_exc:  # noqa: BLE001
+            log.warning(
+                "outreach.cluster_variant_lookup_failed",
+                lead_id=payload.lead_id,
+                error=str(_cv_exc),
+            )
+
         # Read tenant's saved copy overrides (B.14)
         email_copy: dict = dict(t_settings.get("email_copy_overrides") or {})
 
@@ -666,12 +801,51 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
             tenant_vat_number=tenant_row.get("vat_number"),
             tenant_legal_address=tenant_row.get("legal_address"),
             similar_province=lead.get("hq_province"),  # Step-3 case study hint
+            # Sprint 9 — cluster A/B copy overrides + premium template fields
+            brand_color_accent=tenant_row.get("brand_color_accent"),
+            tracking_pixel_url=_tracking_pixel_url(
+                lead.get("public_slug"),
+                tracking_host=tracking_host,
+            ),
+            copy_overrides=copy_overrides,
+            # Use CDN GIF if available (Sprint 9 Fase A.1) — fall back to
+            # the Supabase signed URL already in hero_gif_url field.
+            hero_gif_url=(
+                lead.get("rendering_gif_cdn_url")
+                or lead.get("rendering_gif_url")
+            ),
             video_landing_url=_video_landing_url(
                 lead.get("portal_video_slug"),
                 tracking_host=tracking_host,
             ),
         )
-        rendered = render_outreach_email(ctx)
+        # Sprint 10 — engagement-based follow-up scenario branch.
+        # When the cron decided this is a scenario fire (cold/lukewarm/...),
+        # render the dedicated followup_{scenario}.j2 template instead of
+        # the standard sequence_step chain. Sector news + scenario flags
+        # are populated in copy_overrides by the cron.
+        if payload.engagement_scenario:
+            from ..services.email_template_service import render_followup_email
+            from ..services import sector_news_service
+
+            sector_news = await sector_news_service.pick_news(
+                sb,
+                tenant_id=payload.tenant_id,
+                ateco_code=subject.get("ateco_code"),
+            )
+            rendered = render_followup_email(
+                ctx,
+                scenario=payload.engagement_scenario,
+                sector_news=sector_news,
+            )
+        else:
+            # Sprint 9 Fase C.4: 3-tier fallback (custom → premium → legacy).
+            # Pass sb + tenant_row so the async wrapper can check custom template.
+            rendered = await render_outreach_email_with_fallback(
+                ctx,
+                supabase=sb,
+                tenant_row=tenant_row,
+            )
 
         # ------------------------------------------------------------------
         # Phase 6 — Content validation gate (Task 16)
@@ -921,6 +1095,8 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
         if experiment_id and experiment_variant:
             campaign_insert["experiment_id"] = experiment_id
             campaign_insert["experiment_variant"] = experiment_variant
+        if cluster_variant_id:
+            campaign_insert["cluster_variant_id"] = cluster_variant_id
         campaign_res = (
             sb.table("outreach_sends").insert(campaign_insert).execute()
         )
@@ -942,6 +1118,36 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
                     "pipeline_status": LeadStatus.SENT.value,
                 }
             ).eq("id", payload.lead_id).execute()
+
+        # Sprint 10 — engagement-based follow-up bookkeeping.
+        # When a scenario fired, persist a row in ``followup_emails_sent``
+        # for retro analysis and bump the lead-level pointers so the
+        # cron's cooldown logic sees this fire on the next tick.
+        if payload.engagement_scenario:
+            try:
+                sb.table("followup_emails_sent").insert(
+                    {
+                        "tenant_id": payload.tenant_id,
+                        "lead_id": payload.lead_id,
+                        "scenario": payload.engagement_scenario,
+                        "score_at_send": int(lead.get("engagement_score") or 0),
+                        "outreach_send_id": campaign_id,
+                    }
+                ).execute()
+                sb.table("leads").update(
+                    {
+                        "last_followup_scenario": payload.engagement_scenario,
+                        "last_followup_sent_at": now_iso,
+                    }
+                ).eq("id", payload.lead_id).execute()
+            except Exception as exc:  # noqa: BLE001
+                # Best-effort — the email already went out, never block.
+                log.warning(
+                    "outreach.followup_audit_insert_failed",
+                    lead_id=payload.lead_id,
+                    scenario=payload.engagement_scenario,
+                    err=str(exc),
+                )
 
         _log_api_cost(
             sb,
@@ -1495,8 +1701,13 @@ def _public_lead_url(
     domain — better deliverability + brand alignment.
 
     Example:
-        ``"https://go.agendasolar.it/l/abc123"`` instead of
-        ``"https://portal.solarld.app/l/abc123"``
+        ``"https://go.agendasolar.it/lead/abc123"`` instead of
+        ``"https://portal.solarld.app/lead/abc123"``
+
+    Path note:
+        The portal page lives at ``/lead/[slug]`` in the Next.js app. A
+        legacy ``/l/[slug]`` alias route exists for backwards compatibility
+        with already-sent emails (it redirects server-side to ``/lead/...``).
     """
     from ..core.config import settings
 
@@ -1505,7 +1716,7 @@ def _public_lead_url(
     else:
         base = (settings.next_public_lead_portal_url or "").rstrip("/")
     slug = (public_slug or "").strip()
-    return f"{base}/l/{slug}" if slug else base
+    return f"{base}/lead/{slug}" if slug else base
 
 
 def _optout_url(
@@ -1579,6 +1790,30 @@ def _video_landing_url(
     else:
         base = (settings.next_public_lead_portal_url or "").rstrip("/")
     return f"{base}/lead/{portal_video_slug.strip()}/video"
+
+
+def _tracking_pixel_url(
+    public_slug: str | None,
+    *,
+    tracking_host: str | None = None,
+) -> str | None:
+    """Build the 1x1 tracking pixel URL for email open tracking.
+
+    Used by the premium template and the custom tenant HTML template.
+    The Resend open-tracking pixel (if enabled) supersedes this on the
+    Resend path — this is the fallback for Gmail OAuth senders that
+    don't have Resend's built-in pixel injection.
+    """
+    if not public_slug:
+        return None
+    from ..core.config import settings
+
+    if tracking_host:
+        base = f"https://{tracking_host.strip('/')}"
+    else:
+        base = (settings.api_base_url or "").rstrip("/")
+    slug = public_slug.strip()
+    return f"{base}/v1/public/track/open/{slug}"
 
 
 # ---------------------------------------------------------------------------

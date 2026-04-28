@@ -9,6 +9,8 @@
  * provider settings page, but that link lives higher up in the UI.
  */
 
+import Link from 'next/link';
+
 import type { OutreachConfig } from '@/types/modules';
 
 import { FieldCard, Toggle } from './module-primitives';
@@ -85,6 +87,19 @@ export function ModuleOutreach({ value, onChange }: ModuleOutreachProps) {
           />
         </label>
       </FieldCard>
+
+      {/* Sprint 9: quick link to email template & cluster A/B management */}
+      <div className="rounded-xl border border-outline-variant/30 bg-surface-container-lowest p-3">
+        <p className="text-xs text-on-surface-variant">
+          Gestisci il template email e i test A/B per cluster →{' '}
+          <Link
+            href="/settings/email-template"
+            className="font-medium text-primary underline underline-offset-2 hover:text-primary/80"
+          >
+            Template & A/B test
+          </Link>
+        </p>
+      </div>
     </div>
   );
 }

@@ -46,9 +46,15 @@ from ..models.enums import LeadStatus, OutreachChannel
 from ..services.digest_service import send_daily_digests, send_weekly_digests
 from ..services.followup_service import (
     STEP_2_DELAY_DAYS,
+    STEP_4_DELAY_DAYS,
     build_candidate_from_rows,
     select_next_step,
 )
+from ..services.followup_scenario_service import (
+    FollowupSnapshot,
+    evaluate_followup_scenario,
+)
+from ..services.notifications_service import notify as _notify_inapp
 from ..services.deliverability_monitor_service import run_hourly_monitor
 from ..services.engagement_service import run_engagement_rollup
 from ..services.reputation_service import run_reputation_digest
@@ -536,6 +542,30 @@ async def smartlead_warmup_sync_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, "tenants": len(tenant_ids), "synced": total_synced, "failed": total_failed}
 
 
+async def cluster_ab_evaluation_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
+    """Daily evaluation of cluster A/B tests — auto-promote winners (Sprint 9 Fase B.5).
+
+    Runs at 03:30 UTC after the send_time and reputation rollups have
+    written fresh data but before the morning follow-up dispatch.
+
+    For every (tenant, cluster_signature) pair that has active A+B
+    variants the worker:
+      1. Aggregates sent/replied counts from outreach_sends over a 14-day
+         rolling window.
+      2. Updates the denormalised counters on cluster_copy_variants and
+         appends a daily snapshot to ab_test_metrics_daily.
+      3. Runs a chi-square 2×2 (Pearson + Yates, df=1) significance test:
+         - p < 0.05 AND min_sent >= 100  → promote winner, new round
+         - total_sent >= 1000 AND p >= 0.05 → no_difference, new round
+    """
+    sb = get_service_client()
+    from ..services.cluster_ab_evaluator_service import evaluate_cluster_ab_tests
+
+    result = await evaluate_cluster_ab_tests(sb)
+    log.info("cron.cluster_ab_evaluation.done", **result)
+    return {"ok": True, **result}
+
+
 async def deliverability_hourly_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
     """Task 15 — Hourly deliverability monitor.
 
@@ -576,3 +606,204 @@ async def deliverability_hourly_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
         "paused": result.domains_paused,
         "errors": result.errors,
     }
+
+
+# ---------------------------------------------------------------------------
+# Sprint 10 — Engagement-based follow-up scenarios
+# ---------------------------------------------------------------------------
+
+# Map scenario → synthetic sequence_step value used in outreach_sends.
+# Keeping these distinct from 1..4 means the existing per-step dedupe
+# does not collide with the engagement engine, and reporting can group
+# by step easily.
+_SCENARIO_TO_STEP: dict[str, int] = {
+    "cold": 5,
+    "lukewarm": 6,
+    "engaged": 7,
+    "interessato": 8,
+    "riattivazione": 9,
+}
+
+# Keep this aligned with FOLLOW_UP_BATCH_SIZE — we don't want one cron
+# tick to enqueue thousands of jobs in a single transaction.
+ENGAGEMENT_FOLLOWUP_BATCH = 500
+
+
+async def engagement_followup_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
+    """Daily engagement-based follow-up dispatcher (Sprint 10).
+
+    Runs at 08:15 UTC (after engagement_rollup at 04:00 has refreshed
+    ``leads.engagement_score`` and after follow_up_cron at 07:30 has
+    enqueued the cold-silence step 2/3/4 cadence).
+
+    Strategy:
+      1. Pull the working set: leads with at least one outreach send
+         (so there's a relationship to follow up on) excluding leads in
+         terminal pipeline states (won/lost/blacklisted).
+      2. For each, build a FollowupSnapshot from existing columns.
+      3. Decide a scenario via the pure ``evaluate_followup_scenario``.
+      4. ``hot`` scenario → in-app notification (and audit-stamp via
+         ``leads.hot_lead_alerted_at``). No email is sent.
+      5. Email scenarios → enqueue ``outreach_task`` with
+         ``engagement_scenario={scenario}`` and a synthetic
+         sequence_step (5-9). The OutreachAgent renders the matching
+         followup_{scenario}.j2 template and persists a row in
+         ``followup_emails_sent`` after the send succeeds.
+
+    Idempotent: per-scenario cooldowns are enforced by the pure
+    decision module against ``last_followup_sent_at``. Re-running the
+    cron the same day yields no duplicates.
+    """
+    sb = get_service_client()
+    now = datetime.now(timezone.utc)
+    cold_cutoff = (now - timedelta(days=STEP_4_DELAY_DAYS + 1)).isoformat()
+
+    # Pull leads worth evaluating: have an initial outreach, not in
+    # terminal states, and either currently engaged (score > 0) OR
+    # cold-but-aged-out (eligible for cold scenario).
+    terminal = [
+        LeadStatus.CLOSED_WON.value,
+        LeadStatus.CLOSED_LOST.value,
+        LeadStatus.BLACKLISTED.value,
+    ]
+    leads_res = (
+        sb.table("leads")
+        .select(
+            "id, tenant_id, pipeline_status, outreach_sent_at, "
+            "engagement_score, engagement_peak_score, "
+            "last_portal_event_at, last_followup_scenario, "
+            "last_followup_sent_at, hot_lead_alerted_at"
+        )
+        .not_.is_("outreach_sent_at", "null")
+        .not_.in_("pipeline_status", terminal)
+        .order("engagement_score", desc=True)
+        .limit(ENGAGEMENT_FOLLOWUP_BATCH)
+        .execute()
+    )
+    leads = leads_res.data or []
+    log.info("cron.engagement_followup.candidates", count=len(leads))
+
+    queued = 0
+    notified_hot = 0
+    skipped: dict[str, int] = {}
+
+    for lead in leads:
+        # Detect cold-cadence completion: step 4 sent, OR initial send
+        # is older than the breakup-day cutoff (sequence will never fire
+        # step 4 anyway because the lead is silent).
+        cold_complete = False
+        outreach_sent_at = _parse_ts(lead.get("outreach_sent_at"))
+        if outreach_sent_at is not None and outreach_sent_at.isoformat() <= cold_cutoff:
+            step4 = (
+                sb.table("outreach_sends")
+                .select("id")
+                .eq("lead_id", lead["id"])
+                .eq("sequence_step", 4)
+                .limit(1)
+                .execute()
+            )
+            cold_complete = bool(step4.data) or (
+                (now - outreach_sent_at).days >= STEP_4_DELAY_DAYS + 7
+            )
+
+        snap = FollowupSnapshot(
+            lead_id=str(lead["id"]),
+            tenant_id=str(lead["tenant_id"]),
+            pipeline_status=str(lead.get("pipeline_status") or ""),
+            engagement_score=int(lead.get("engagement_score") or 0),
+            engagement_peak_score=int(
+                lead.get("engagement_peak_score")
+                or lead.get("engagement_score")
+                or 0
+            ),
+            last_engagement_at=_parse_ts(lead.get("last_portal_event_at")),
+            initial_outreach_at=outreach_sent_at,
+            last_followup_scenario=lead.get("last_followup_scenario"),
+            last_followup_sent_at=_parse_ts(lead.get("last_followup_sent_at")),
+            hot_lead_alerted_at=_parse_ts(lead.get("hot_lead_alerted_at")),
+            cold_sequence_complete=cold_complete,
+        )
+
+        decision = evaluate_followup_scenario(snap, now=now)
+        if not decision.should_act:
+            reason = decision.reason or "no_action"
+            skipped[reason] = skipped.get(reason, 0) + 1
+            continue
+
+        if decision.notify_only:
+            # Hot lead → notify operator, do NOT send email.
+            await _notify_inapp(
+                tenant_id=snap.tenant_id,
+                title="Lead caldo: contatto manuale consigliato",
+                body=(
+                    f"Engagement score {snap.engagement_score}/100. "
+                    "Il sistema ha sospeso le email automatiche — "
+                    "prendi tu in mano il follow-up."
+                ),
+                severity="success",
+                href=f"/leads/{snap.lead_id}",
+                metadata={
+                    "lead_id": snap.lead_id,
+                    "engagement_score": snap.engagement_score,
+                    "scenario": "hot",
+                },
+            )
+            sb.table("leads").update(
+                {"hot_lead_alerted_at": now.isoformat()}
+            ).eq("id", snap.lead_id).execute()
+            notified_hot += 1
+            continue
+
+        # Email scenario — enqueue an outreach_task. The OutreachAgent
+        # branches on engagement_scenario and renders followup_{X}.j2.
+        scenario = decision.scenario or "cold"
+        step = _SCENARIO_TO_STEP.get(scenario, 5)
+        await enqueue(
+            "outreach_task",
+            {
+                "tenant_id": snap.tenant_id,
+                "lead_id": snap.lead_id,
+                "channel": OutreachChannel.EMAIL.value,
+                "sequence_step": step,
+                "engagement_scenario": scenario,
+                "force": False,
+            },
+            job_id=(
+                f"engagement_followup:{snap.tenant_id}:{snap.lead_id}:"
+                f"{scenario}:{now.strftime('%Y%m%d')}"
+            ),
+        )
+        queued += 1
+
+    log.info(
+        "cron.engagement_followup.done",
+        queued=queued,
+        notified_hot=notified_hot,
+        candidates=len(leads),
+        skipped=skipped,
+    )
+    return {
+        "ok": True,
+        "queued": queued,
+        "notified_hot": notified_hot,
+        "candidates": len(leads),
+        "skipped": skipped,
+    }
+
+
+def _parse_ts(raw: Any) -> datetime | None:
+    """Parse Supabase ISO timestamp strings defensively."""
+    if raw is None:
+        return None
+    if isinstance(raw, datetime):
+        return raw if raw.tzinfo else raw.replace(tzinfo=timezone.utc)
+    s = str(raw).strip()
+    if not s:
+        return None
+    if s.endswith("Z"):
+        s = s[:-1] + "+00:00"
+    try:
+        dt = datetime.fromisoformat(s)
+    except ValueError:
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)

@@ -64,6 +64,8 @@ dependencies = [
   # Email templating
   "jinja2>=3.1.4",
   "premailer>=3.10.0",
+  # HTML sanitization for custom tenant email templates (Sprint 9 Fase C)
+  "bleach>=6.1.0",
 
   # Image processing — solar panel overlay on GeoTIFF aerial imagery
   "Pillow>=11.0.0",

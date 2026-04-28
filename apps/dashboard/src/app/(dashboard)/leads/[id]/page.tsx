@@ -23,6 +23,7 @@ import { notFound, redirect } from 'next/navigation';
 import { FollowUpDrafter } from '@/components/follow-up-drafter';
 import { LeadConversationsCard } from '@/components/lead-conversations-card';
 import { LeadRepliesCard } from '@/components/lead-replies-card';
+import { LeadPortalTimeline } from '@/components/lead-portal-timeline';
 import { LeadTimelineLive } from '@/components/lead-timeline-live';
 import { LeadGdprActionsWrapper } from './LeadGdprActionsWrapper';
 import { BentoCard, BentoGrid } from '@/components/ui/bento-card';
@@ -32,6 +33,7 @@ import { EngagementScoreChip } from '@/components/ui/engagement-score-chip';
 import { StatusChip, TierChip } from '@/components/ui/status-chip';
 import { TierLock } from '@/components/ui/tier-lock';
 import { listCampaignsForLead, listEventsForLead } from '@/lib/data/campaigns';
+import { listPortalEventsForLead } from '@/lib/data/engagement';
 import { getLeadById } from '@/lib/data/leads';
 import { getConversationsForLead } from '@/lib/data/conversations';
 import { getLeadReplies } from '@/lib/data/replies';
@@ -56,13 +58,15 @@ export default async function LeadDetailPage({ params }: PageProps) {
   if (!ctx) redirect('/login');
 
   const { id } = await params;
-  const [lead, campaigns, events, replies, conversations] = await Promise.all([
-    getLeadById(id),
-    listCampaignsForLead(id),
-    listEventsForLead(id),
-    getLeadReplies(id),
-    getConversationsForLead(id),
-  ]);
+  const [lead, campaigns, events, replies, conversations, portalEvents] =
+    await Promise.all([
+      getLeadById(id),
+      listCampaignsForLead(id),
+      listEventsForLead(id),
+      getLeadReplies(id),
+      getConversationsForLead(id),
+      listPortalEventsForLead(id, 50),
+    ]);
   if (!lead) notFound();
 
   const name =
@@ -403,6 +407,30 @@ export default async function LeadDetailPage({ params }: PageProps) {
           </TierLock>
         </BentoCard>
       )}
+
+      {/* Portal activity timeline ------------------------------------ */}
+      <BentoCard span="full">
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
+              Comportamento sul portale
+            </p>
+            <h2 className="font-headline text-2xl font-bold tracking-tighter">
+              Attività portale
+            </h2>
+            <p className="mt-1 text-xs text-on-surface-variant">
+              Cosa ha fatto il destinatario una volta aperto il dossier:
+              scroll, video, CTA, bolletta caricata. Aggiornata in tempo reale.
+            </p>
+          </div>
+          {lead.last_portal_event_at && (
+            <span className="shrink-0 text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
+              Ultimo evento {relativeTime(lead.last_portal_event_at)}
+            </span>
+          )}
+        </div>
+        <LeadPortalTimeline events={portalEvents} />
+      </BentoCard>
 
       {/* Timeline ----------------------------------------------------- */}
       <BentoCard span="full">

@@ -121,6 +121,17 @@ class Settings(BaseSettings):
     resend_webhook_secret: str = ""
     resend_inbound_secret: str = ""  # shared secret appended as ?secret= on inbound webhook URL
 
+    # ---- CDN (Cloudflare R2 — Sprint 9: rendering GIF public delivery) ----
+    # Public base URL for the R2 bucket (no trailing slash).
+    # Example: https://cdn.solarld.app
+    cdn_base_url: str = ""
+    # Cloudflare R2 S3-compatible credentials. Endpoint must be the full URL:
+    # https://<account_id>.r2.cloudflarestorage.com
+    r2_endpoint: str = ""
+    r2_access_key: str = ""
+    r2_secret_key: str = ""
+    r2_bucket: str = "solarld-renderings"
+
     # ---- Smartlead.ai (Task 14 — warm-up management) ----
     # Obtain from https://app.smartlead.ai → Settings → API.
     # Required for: inbox warm-up enrollment, daily sync cron,

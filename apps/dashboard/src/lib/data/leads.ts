@@ -25,7 +25,7 @@ const LIST_COLUMNS = `
   id, public_slug, pipeline_status, score, score_tier,
   outreach_channel, outreach_sent_at, outreach_opened_at,
   dashboard_visited_at, created_at,
-  engagement_score, engagement_score_updated_at,
+  engagement_score, engagement_score_updated_at, last_portal_event_at,
   portal_sessions, portal_total_time_sec, deepest_scroll_pct,
   subjects:subjects(type, business_name, owner_first_name, owner_last_name,
                     decision_maker_email, decision_maker_email_verified),
@@ -48,7 +48,7 @@ const DETAIL_COLUMNS = `
   id, public_slug, pipeline_status, score, score_tier,
   outreach_channel, outreach_sent_at, outreach_opened_at,
   dashboard_visited_at, created_at,
-  engagement_score, engagement_score_updated_at,
+  engagement_score, engagement_score_updated_at, last_portal_event_at,
   portal_sessions, portal_total_time_sec, deepest_scroll_pct,
   subjects:subjects(type, business_name, owner_first_name, owner_last_name,
                     decision_maker_email, decision_maker_email_verified),
@@ -123,6 +123,54 @@ export async function listTopHotLeads(limit = 10): Promise<LeadListRow[]> {
     .order('score', { ascending: false })
     .limit(limit);
   if (error) throw new Error(`listTopHotLeads: ${error.message}`);
+  return (data ?? []) as unknown as LeadListRow[];
+}
+
+/**
+ * "Caldi adesso senza risposta" — leads who have engaged with the
+ * portal recently (real-time engagement_score bumped via the public
+ * track endpoint, see migration 0066) and have NOT yet replied or
+ * been moved into a closing pipeline stage.
+ *
+ * This is the operator's call-list: high engagement, recent activity,
+ * no contact yet. Used by both the /leads "Caldi adesso" filter and
+ * the overview hot-leads widget.
+ *
+ * Excludes pipeline_status IN (engaged, whatsapp, appointment,
+ * closed_won, closed_lost, blacklisted) so the operator only sees
+ * leads that haven't been "claimed" in any direction yet.
+ */
+const HOT_AWAITING_EXCLUDED: LeadStatus[] = [
+  'engaged',
+  'whatsapp',
+  'appointment',
+  'closed_won',
+  'closed_lost',
+  'blacklisted',
+];
+
+export async function listHotLeadsAwaitingResponse(opts: {
+  sinceHours?: number;
+  minScore?: number;
+  limit?: number;
+} = {}): Promise<LeadListRow[]> {
+  const sinceHours = opts.sinceHours ?? 72;
+  const minScore = opts.minScore ?? 60;
+  const limit = opts.limit ?? 25;
+  const supabase = await createSupabaseServerClient();
+  const cutoff = new Date(Date.now() - sinceHours * 60 * 60 * 1000).toISOString();
+
+  const { data, error } = await supabase
+    .from('leads')
+    .select(LIST_COLUMNS)
+    .gte('engagement_score', minScore)
+    .gte('last_portal_event_at', cutoff)
+    .not('pipeline_status', 'in', `(${HOT_AWAITING_EXCLUDED.join(',')})`)
+    .order('engagement_score', { ascending: false })
+    .order('last_portal_event_at', { ascending: false })
+    .limit(limit);
+
+  if (error) throw new Error(`listHotLeadsAwaitingResponse: ${error.message}`);
   return (data ?? []) as unknown as LeadListRow[];
 }
 

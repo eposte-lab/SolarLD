@@ -1,0 +1,14 @@
+Un caso concreto nel vostro settore — {{ tenant_name }}
+
+Per {{ greeting_name }},
+
+{{ copy_opening_line | default('Ho pensato di condividere un esempio concreto simile alla vostra realtà.', true) }}
+
+{{ copy_proposition_line | default('I dati della vostra analisi sono positivi. Se volete un confronto, sono disponibile.', true) }}
+
+Analisi completa: {{ lead_url }}
+
+---
+{{ sender_first_name | default(tenant_name, true) }} — {{ tenant_name }}
+
+Email B2B (art. 6.1.f GDPR). Annulla: {{ optout_url }}

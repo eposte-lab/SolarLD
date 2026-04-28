@@ -7,6 +7,52 @@
     -webkit-font-smoothing: antialiased;
   }
   body {
-    @apply bg-white text-slate-900;
+    @apply bg-surface text-on-surface font-body;
+  }
+}
+
+@layer components {
+  /*
+   * Bento card variants used across the editorial portal layout. Mirrors
+   * the dashboard `bento-card` component but kept inline-CSS here so we
+   * don't have to ship a separate component package across apps.
+   */
+  .bento {
+    @apply rounded-3xl bg-surface-container shadow-ambient-sm;
+  }
+
+  .bento-glass {
+    background: rgba(255, 255, 255, 0.62);
+    backdrop-filter: blur(24px) saturate(140%);
+    -webkit-backdrop-filter: blur(24px) saturate(140%);
+    border: 1px solid rgba(15, 26, 24, 0.06);
+    @apply rounded-3xl shadow-ambient-md;
+  }
+
+  .editorial-eyebrow {
+    @apply text-[11px] font-semibold uppercase tracking-[0.18em] text-on-surface-variant;
+  }
+}
+
+@layer utilities {
+  .gradient-mint {
+    background: linear-gradient(135deg, #1f8f76 0%, #14b8a6 100%);
+  }
+
+  /* Used by the brand band beneath the hero header. */
+  .brand-band {
+    background-image: linear-gradient(
+      90deg,
+      var(--brand-color, #1f8f76),
+      transparent 80%
+    );
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .bento-glass {
+    background: rgba(255, 255, 255, 0.96);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
   }
 }

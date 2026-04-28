@@ -144,6 +144,84 @@ async def list_leads(
     }
 
 
+@router.get("/hot")
+async def list_hot_leads(
+    ctx: CurrentUser,
+    since_hours: int = Query(default=72, ge=1, le=720),
+    min_score: int = Query(default=60, ge=0, le=100),
+    limit: int = Query(default=25, ge=1, le=100),
+) -> dict[str, object]:
+    """Real-time "Caldi adesso" — leads who showed engagement recently.
+
+    Sprint 8 Fase C.2.
+
+    Returns leads ordered by ``engagement_score DESC, last_portal_event_at
+    DESC`` filtered by:
+      * tenant_id (RLS via service client + explicit eq)
+      * ``engagement_score >= min_score``
+      * ``last_portal_event_at >= now() - since_hours``
+      * pipeline NOT IN closed/responded states (engaged, appointment,
+        whatsapp, closed_won, closed_lost, blacklisted) — the operator
+        wants the ones who are *interested but haven't replied*.
+
+    The dashboard "Caldi adesso" tab calls this on poll (no realtime
+    sub on this endpoint — the bump function on /portal/track gives a
+    sub-second feedback loop already; the operator just refreshes).
+    """
+    tenant_id = require_tenant(ctx)
+    sb = get_service_client()
+
+    # Cut-off: only consider leads who fired a portal event within
+    # the window. Without the cut-off, an old lead with score=80
+    # from a month ago would camp the top of the list forever.
+    from datetime import timedelta
+
+    cutoff = (
+        datetime.now(timezone.utc) - timedelta(hours=since_hours)
+    ).isoformat()
+
+    # Pipeline statuses that mean the lead has *already* moved past
+    # the "needs follow-up" point. We want the gap between
+    # high-engagement and not-yet-responded.
+    excluded_statuses = (
+        "engaged",
+        "whatsapp",
+        "appointment",
+        "closed_won",
+        "closed_lost",
+        "blacklisted",
+    )
+
+    query = (
+        sb.table("leads")
+        .select(
+            "id, public_slug, score, score_tier, engagement_score, "
+            "engagement_score_updated_at, last_portal_event_at, "
+            "pipeline_status, outreach_sent_at, "
+            "subjects(type, business_name, owner_first_name, "
+            "owner_last_name, decision_maker_email), "
+            "roofs(address, comune, provincia, estimated_kwp)"
+        )
+        .eq("tenant_id", tenant_id)
+        .gte("engagement_score", min_score)
+        .gte("last_portal_event_at", cutoff)
+        # ``not_.in_`` is the supabase-py shape for NOT IN.
+        .not_.in_("pipeline_status", list(excluded_statuses))
+        .order("engagement_score", desc=True)
+        .order("last_portal_event_at", desc=True)
+        .limit(limit)
+    )
+    res = query.execute()
+    return {
+        "data": res.data or [],
+        "filters": {
+            "since_hours": since_hours,
+            "min_score": min_score,
+            "limit": limit,
+        },
+    }
+
+
 @router.get("/export.csv")
 async def export_leads_csv(
     ctx: CurrentUser,

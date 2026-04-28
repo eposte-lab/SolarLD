@@ -47,9 +47,55 @@ export type PortalEventKind =
   | 'portal.video_play'
   | 'portal.video_complete'
   | 'portal.heartbeat'
-  | 'portal.leave';
+  | 'portal.leave'
+  // Sprint 8 high-intent events — bumped via Fase C.1 EVENT_DELTA.
+  | 'portal.audio_on'
+  | 'portal.video_fullscreen'
+  | 'portal.email_reply_click'
+  | 'portal.bolletta_uploaded';
 
 const SESSION_STORAGE_KEY = 'solarLead.portal.session_id';
+
+/**
+ * Fire a single portal event from outside the tracker (e.g. CTA click
+ * handlers in standalone components). Reuses the per-tab session id so
+ * the event groups correctly with the rest of the engagement stream.
+ *
+ * Use this for high-intent interactions that aren't captured by the
+ * automatic listeners in `startPortalTracker` — e.g. unmute, email
+ * reply CTA click, bolletta upload success.
+ */
+export function postPortalEvent(
+  slug: string,
+  kind: PortalEventKind,
+  metadata: Record<string, unknown> = {},
+): void {
+  if (typeof window === 'undefined') return;
+  const sessionId = getOrCreateSessionId();
+  if (!sessionId) return;
+  const body = JSON.stringify({
+    slug,
+    session_id: sessionId,
+    event_kind: kind,
+    metadata,
+    elapsed_ms: 0,
+  });
+  const url = `${API_URL}/v1/public/portal/track`;
+  try {
+    if (typeof navigator !== 'undefined' && navigator.sendBeacon) {
+      navigator.sendBeacon(url, new Blob([body], { type: 'application/json' }));
+      return;
+    }
+  } catch {
+    // fall through to fetch
+  }
+  void fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body,
+    keepalive: true,
+  }).catch(() => undefined);
+}
 
 /**
  * Per-tab session id. Read/initialised lazily — accessing

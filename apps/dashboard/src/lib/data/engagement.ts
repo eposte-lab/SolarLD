@@ -141,3 +141,38 @@ export function engagementTier(score: number): 'hot' | 'warm' | 'cold' {
   if (score >= 25) return 'warm';
   return 'cold';
 }
+
+// ---------------------------------------------------------------------
+// Portal events — full activity log for one lead, used by the lead
+// detail page "Attività portale" section. Distinct from the email
+// `events` table read by listEventsForLead.
+// ---------------------------------------------------------------------
+
+export interface PortalEventRow {
+  id: number;
+  event_kind: string;
+  metadata: Record<string, unknown> | null;
+  elapsed_ms: number | null;
+  occurred_at: string;
+  session_id: string;
+}
+
+/**
+ * Most-recent portal events for a single lead. Capped at ``limit`` rows
+ * to keep the timeline UI bounded — the operator wants the last
+ * heartbeat, not three months of history.
+ */
+export async function listPortalEventsForLead(
+  leadId: string,
+  limit = 50,
+): Promise<PortalEventRow[]> {
+  const sb = await createSupabaseServerClient();
+  const { data, error } = await sb
+    .from('portal_events')
+    .select('id, event_kind, metadata, elapsed_ms, occurred_at, session_id')
+    .eq('lead_id', leadId)
+    .order('occurred_at', { ascending: false })
+    .limit(limit);
+  if (error) throw new Error(`listPortalEventsForLead: ${error.message}`);
+  return (data ?? []) as PortalEventRow[];
+}

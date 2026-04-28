@@ -52,6 +52,17 @@ export type PublicLead = {
     brand_primary_color: string;
     whatsapp_number: string | null;
     contact_email: string | null;
+    /* GDPR footer fields (may be null for tenants pre-Sprint 6.5). */
+    legal_name: string | null;
+    vat_number: string | null;
+    legal_address: string | null;
+    /* Sprint 8 Fase A.2 — "Chi siamo" narrative. */
+    about_md: string | null;
+    about_year_founded: number | null;
+    about_team_size: string | null;
+    about_certifications: string[] | null;
+    about_hero_image_url: string | null;
+    about_tagline: string | null;
   } | null;
 };
 

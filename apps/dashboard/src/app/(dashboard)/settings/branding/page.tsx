@@ -6,7 +6,14 @@
  * The live preview iframe renders the actual Jinja2 template.
  */
 
-import { Image as ImageIcon, Mail, Palette, Sparkles } from 'lucide-react';
+import {
+  ArrowRight,
+  BookOpenText,
+  Image as ImageIcon,
+  Mail,
+  Palette,
+  Sparkles,
+} from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
@@ -38,6 +45,40 @@ export default async function BrandingPage() {
           in tempo reale. Nessuna modifica ai template è necessaria.
         </p>
       </header>
+
+      <Link
+        href="/settings/branding/about"
+        className="group block"
+      >
+        <BentoCard
+          variant="muted"
+          padding="default"
+          className="flex items-center justify-between gap-4 transition-colors hover:bg-surface-container"
+        >
+          <div className="flex items-start gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/15 text-primary">
+              <BookOpenText size={18} strokeWidth={1.75} aria-hidden />
+            </div>
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
+                Sezione &ldquo;Chi siamo&rdquo;
+              </p>
+              <p className="mt-0.5 font-semibold text-on-surface">
+                Modifica narrativa, certificazioni e tagline del portale lead
+              </p>
+              <p className="mt-1 text-xs text-on-surface-variant">
+                Il dossier che ogni cliente vede cliccando le email outreach.
+              </p>
+            </div>
+          </div>
+          <ArrowRight
+            size={16}
+            strokeWidth={2}
+            className="shrink-0 text-on-surface-variant transition-transform group-hover:translate-x-1 group-hover:text-on-surface"
+            aria-hidden
+          />
+        </BentoCard>
+      </Link>
 
       <BentoCard span="full">
         <p className="mb-6 text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
