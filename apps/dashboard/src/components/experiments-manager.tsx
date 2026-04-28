@@ -86,9 +86,13 @@ export function ExperimentsManager({ initialRows }: Props) {
       setShowCreate(false);
       router.refresh();
     } catch (err) {
-      setErrorMsg(
-        err instanceof ApiError ? err.message : 'Errore nella creazione',
-      );
+      if (err instanceof ApiError) {
+        setErrorMsg(err.message);
+      } else if (err instanceof Error) {
+        setErrorMsg(err.message);
+      } else {
+        setErrorMsg('Errore nella creazione');
+      }
     } finally {
       setPhase('idle');
     }

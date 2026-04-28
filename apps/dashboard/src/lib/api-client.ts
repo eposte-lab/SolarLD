@@ -45,7 +45,12 @@ export async function apiFetch<T = unknown>(
     } catch {
       body = await res.text();
     }
-    throw new ApiError(`API ${res.status}: ${res.statusText}`, res.status, body);
+    // Prefer the FastAPI `detail` field (string or array) over the raw status text.
+    const detail =
+      body != null && typeof body === 'object' && 'detail' in (body as object)
+        ? String((body as Record<string, unknown>).detail)
+        : null;
+    throw new ApiError(detail ?? `API ${res.status}: ${res.statusText}`, res.status, body);
   }
 
   if (res.status === 204) return null as T;
