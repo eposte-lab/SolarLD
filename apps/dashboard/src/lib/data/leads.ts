@@ -25,7 +25,7 @@ const LIST_COLUMNS = `
   id, public_slug, pipeline_status, score, score_tier,
   outreach_channel, outreach_sent_at, outreach_opened_at,
   dashboard_visited_at, created_at,
-  engagement_score, engagement_score_updated_at, last_portal_event_at,
+  engagement_score, engagement_score_updated_at,
   portal_sessions, portal_total_time_sec, deepest_scroll_pct,
   subjects:subjects(type, business_name, owner_first_name, owner_last_name,
                     decision_maker_email, decision_maker_email_verified),
@@ -48,7 +48,7 @@ const DETAIL_COLUMNS = `
   id, public_slug, pipeline_status, score, score_tier,
   outreach_channel, outreach_sent_at, outreach_opened_at,
   dashboard_visited_at, created_at,
-  engagement_score, engagement_score_updated_at, last_portal_event_at,
+  engagement_score, engagement_score_updated_at,
   portal_sessions, portal_total_time_sec, deepest_scroll_pct,
   subjects:subjects(type, business_name, owner_first_name, owner_last_name,
                     decision_maker_email, decision_maker_email_verified),
@@ -160,18 +160,29 @@ export async function listHotLeadsAwaitingResponse(opts: {
   const supabase = await createSupabaseServerClient();
   const cutoff = new Date(Date.now() - sinceHours * 60 * 60 * 1000).toISOString();
 
-  const { data, error } = await supabase
-    .from('leads')
-    .select(LIST_COLUMNS)
-    .gte('engagement_score', minScore)
-    .gte('last_portal_event_at', cutoff)
-    .not('pipeline_status', 'in', `(${HOT_AWAITING_EXCLUDED.join(',')})`)
-    .order('engagement_score', { ascending: false })
-    .order('last_portal_event_at', { ascending: false })
-    .limit(limit);
+  try {
+    const { data, error } = await supabase
+      .from('leads')
+      .select(LIST_COLUMNS)
+      .gte('engagement_score', minScore)
+      .gte('last_portal_event_at', cutoff)
+      .not('pipeline_status', 'in', `(${HOT_AWAITING_EXCLUDED.join(',')})`)
+      .order('engagement_score', { ascending: false })
+      .order('last_portal_event_at', { ascending: false })
+      .limit(limit);
 
-  if (error) throw new Error(`listHotLeadsAwaitingResponse: ${error.message}`);
-  return (data ?? []) as unknown as LeadListRow[];
+    // Graceful fallback if migration 0066 (last_portal_event_at column) has
+    // not yet been applied to the database — widget shows empty instead of
+    // crashing the dashboard home page.
+    if (error) {
+      console.warn('listHotLeadsAwaitingResponse skipped (DB migration pending):', error.message);
+      return [];
+    }
+    return (data ?? []) as unknown as LeadListRow[];
+  } catch (err) {
+    console.warn('listHotLeadsAwaitingResponse caught unexpected error:', err);
+    return [];
+  }
 }
 
 /**
