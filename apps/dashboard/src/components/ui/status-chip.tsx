@@ -82,16 +82,16 @@ const STATUS_STYLES: Record<LeadStatus, string> = {
 };
 
 const STATUS_LABEL: Record<LeadStatus, string> = {
-  new: 'Nuovo',
-  sent: 'Inviato',
-  delivered: 'Consegnato',
-  opened: 'Aperto',
-  clicked: 'Click',
-  engaged: 'Engaged',
-  whatsapp: 'WhatsApp',
-  appointment: 'Appuntamento',
-  closed_won: 'Chiuso (win)',
-  closed_lost: 'Chiuso (perso)',
+  new: 'Freddo',
+  sent: 'Email inviata',
+  delivered: 'Email consegnata',
+  opened: 'Email aperta',
+  clicked: 'Link cliccato',
+  engaged: 'Caldo',
+  whatsapp: 'WhatsApp attivo',
+  appointment: 'Appuntamento fissato',
+  closed_won: 'Contratto firmato',
+  closed_lost: 'Perso',
   blacklisted: 'Blacklist',
 };
 

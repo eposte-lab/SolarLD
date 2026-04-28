@@ -32,7 +32,30 @@ export default async function FollowupPage() {
   const supabase = await createSupabaseServerClient();
 
   // Fetch last 50 follow-up sends for this tenant
-  const { data: recentFollowups } = await supabase
+  type FollowupRow = {
+    id: string;
+    scenario: string | null;
+    score_at_send: number | null;
+    sent_at: string | null;
+    lead_id: string;
+    leads:
+      | {
+          subjects:
+            | {
+                business_name: string | null;
+                owner_first_name: string | null;
+                owner_last_name: string | null;
+              }
+            | Array<{
+                business_name: string | null;
+                owner_first_name: string | null;
+                owner_last_name: string | null;
+              }>
+            | null;
+        }
+      | null;
+  };
+  const recentFollowupsRaw = await supabase
     .from('followup_emails_sent')
     .select(
       'id, scenario, score_at_send, sent_at, lead_id, ' +
@@ -41,6 +64,7 @@ export default async function FollowupPage() {
     .eq('tenant_id', ctx.tenant.id)
     .order('sent_at', { ascending: false })
     .limit(50);
+  const recentFollowups = (recentFollowupsRaw.data as unknown as FollowupRow[] | null) ?? [];
 
   // Count eligible leads (have outreach, not terminal)
   const { count: eligibleCount } = await supabase
@@ -114,7 +138,7 @@ export default async function FollowupPage() {
           Ultimi follow-up inviati
         </h2>
 
-        {!recentFollowups || recentFollowups.length === 0 ? (
+        {recentFollowups.length === 0 ? (
           <p className="mt-4 text-sm text-on-surface-variant">
             Nessun follow-up automatico ancora inviato. Il sistema inizia dopo
             che il primo outreach viene spedito ai tuoi lead.

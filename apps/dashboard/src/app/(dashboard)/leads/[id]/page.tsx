@@ -1,13 +1,19 @@
 /**
- * Lead detail — Luminous Curator restyle (Fase B).
+ * Scheda lead — layout verticale con sezioni a tendina.
  *
- * Layout:
- *   Row 1 — Header (breadcrumb, name, chips) + sticky Send CTA
- *   Row 2 — Hero rendering (full-width bento, overlaid GlassPanel with name + address)
- *   Row 3 — ROI bento grid (4 KpiChipCards)
- *   Row 4 — Subject + Roof (2 bento cards, ghost-border data rows)
- *   Row 5 — Outreach sequence (bento)
- *   Row 6 — Timeline (bento)
+ * Struttura:
+ *   1. Header — nome, stato, score, azioni
+ *   2. Rendering impianto (sempre visibile se presente)
+ *   3. Dati preventivo (4 KPI)
+ *   4. Anagrafica + Tetto (griglia 2 col)
+ *   5. [Tendina] Comunicazioni inviate
+ *   6. [Tendina] Scrivi follow-up (AI)
+ *   7. [Tendina] Attività sul portale
+ *   8. [Tendina] Storico eventi
+ *   9. [Tendina] Risposte ricevute
+ *  10. [Tendina] Conversazione WhatsApp
+ *  11. [Tendina] Dati impianto (Solar API)
+ *  12. [Tendina] Privacy e GDPR
  */
 
 import {
@@ -27,6 +33,7 @@ import { LeadPortalTimeline } from '@/components/lead-portal-timeline';
 import { LeadTimelineLive } from '@/components/lead-timeline-live';
 import { LeadGdprActionsWrapper } from './LeadGdprActionsWrapper';
 import { BentoCard, BentoGrid } from '@/components/ui/bento-card';
+import { CollapsibleCard } from '@/components/ui/collapsible-card';
 import { GlassPanel } from '@/components/ui/glass-panel';
 import { KpiChipCard } from '@/components/ui/kpi-chip-card';
 import { EngagementScoreChip } from '@/components/ui/engagement-score-chip';
@@ -45,6 +52,7 @@ import {
   formatNumber,
   relativeTime,
 } from '@/lib/utils';
+import { cn } from '@/lib/utils';
 
 import { SendOutreachButton } from './SendOutreachButton';
 import { SolarApiInspector } from './SolarApiInspector';
@@ -52,6 +60,81 @@ import { SolarApiInspector } from './SolarApiInspector';
 export const dynamic = 'force-dynamic';
 
 type PageProps = { params: Promise<{ id: string }> };
+
+// ---------------------------------------------------------------------------
+// Etichette italiane per event_type tecnici
+// ---------------------------------------------------------------------------
+
+const EVENT_LABELS: Record<string, string> = {
+  'lead.created':               'Lead creato',
+  'lead.scored':                'Punteggio calcolato',
+  'lead.rendered':              'Rendering impianto generato',
+  'lead.render_skipped':        'Rendering saltato',
+  'lead.outreach_sent':         'Email outreach inviata',
+  'lead.outreach_skipped':      'Invio saltato',
+  'lead.outreach_skipped_tier': 'Invio bloccato (piano)',
+  'lead.outreach_ratelimited':  'Invio rinviato (limite giornaliero)',
+  'lead.followup_sent_step2':   'Follow-up giorno 4 inviato',
+  'lead.followup_sent_step3':   'Follow-up giorno 9 inviato',
+  'lead.followup_sent_step4':   'Follow-up finale inviato',
+  'lead.followup_sent_step5':   'Follow-up automatico inviato',
+  'lead.followup_sent_step6':   'Follow-up automatico inviato',
+  'lead.followup_sent_step7':   'Follow-up automatico inviato',
+  'lead.followup_sent_step8':   'Follow-up automatico inviato',
+  'lead.followup_sent_step9':   'Follow-up automatico inviato',
+  'lead.follow_up_sent':        'Follow-up manuale inviato',
+  'lead.email_delivered':       'Email consegnata',
+  'lead.email_opened':          'Email aperta',
+  'lead.email_clicked':         'Link cliccato',
+  'lead.email_bounced':         'Email respinta (bounce)',
+  'lead.email_complained':      'Segnalazione spam',
+  'lead.postal_sent':           'Lettera postale inviata',
+  'lead.postal_delivered':      'Lettera consegnata',
+  'lead.postal_unknown':        'Evento postale',
+  'lead.portal_visited':        'Pagina personale aperta',
+  'lead.whatsapp_click':        'WhatsApp cliccato',
+  'lead.appointment_requested': 'Appuntamento richiesto',
+  'lead.bolletta_uploaded':     'Bolletta caricata',
+  'lead.conversion_recorded':   'Contratto firmato',
+  'lead.optout_requested':      'Disiscrizione richiesta',
+  'lead.feedback_updated':      'Nota operatore aggiornata',
+  'lead.contacted':             'Contatto registrato',
+  'lead.deleted':               'Lead eliminato',
+  'lead.engaged':               'Lead engaged',
+  'lead.contract_signed':       'Contratto firmato',
+};
+
+function labelForEvent(type: string): string {
+  if (EVENT_LABELS[type]) return EVENT_LABELS[type];
+  // generic fallback: strip "lead." prefix, replace _ with spaces
+  return type.replace(/^lead\./, '').replace(/_/g, ' ');
+}
+
+// ---------------------------------------------------------------------------
+// Etichette canali e step
+// ---------------------------------------------------------------------------
+
+const CHANNEL_LABELS: Record<string, string> = {
+  email:    'Email',
+  postal:   'Lettera',
+  whatsapp: 'WhatsApp',
+};
+
+const STEP_LABELS: Record<number, string> = {
+  1: 'Primo contatto',
+  2: 'Promemoria (4gg)',
+  3: 'Approfondimento (9gg)',
+  4: 'Messaggio finale (14gg)',
+  5: 'Follow-up automatico',
+  6: 'Follow-up automatico',
+  7: 'Follow-up automatico',
+  8: 'Follow-up automatico',
+  9: 'Follow-up automatico',
+};
+
+// ---------------------------------------------------------------------------
+// Pagina
+// ---------------------------------------------------------------------------
 
 export default async function LeadDetailPage({ params }: PageProps) {
   const ctx = await getCurrentTenantContext();
@@ -84,9 +167,14 @@ export default async function LeadDetailPage({ params }: PageProps) {
   const publicLeadLink = `${portalUrl}/lead/${lead.public_slug}`;
   const alreadySent = lead.outreach_sent_at != null;
 
+  const sentCampaigns = campaigns.filter((c) => c.sent_at);
+  const hasPortalActivity = portalEvents.length > 0;
+  const hasReplies = replies.length > 0;
+  const hasConversations = conversations.length > 0;
+
   return (
-    <div className="space-y-8">
-      {/* Header -------------------------------------------------------- */}
+    <div className="space-y-4">
+      {/* ─── Header ───────────────────────────────────────────────────── */}
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div className="space-y-3">
           <Link
@@ -107,7 +195,7 @@ export default async function LeadDetailPage({ params }: PageProps) {
             />
             <StatusChip status={lead.pipeline_status} />
             <span className="text-xs text-on-surface-variant">
-              Score{' '}
+              Punteggio{' '}
               <span className="font-headline font-bold text-on-surface">
                 {lead.score}
               </span>
@@ -123,7 +211,7 @@ export default async function LeadDetailPage({ params }: PageProps) {
               rel="noreferrer"
               className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
             >
-              Pagina pubblica
+              Pagina personale
               <ExternalLink size={11} strokeWidth={2.25} aria-hidden />
             </a>
           </div>
@@ -134,7 +222,7 @@ export default async function LeadDetailPage({ params }: PageProps) {
         )}
       </header>
 
-      {/* Hero rendering ----------------------------------------------- */}
+      {/* ─── Rendering impianto ───────────────────────────────────────── */}
       {lead.rendering_image_url && (
         <div className="relative overflow-hidden rounded-xl shadow-ambient">
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -156,11 +244,10 @@ export default async function LeadDetailPage({ params }: PageProps) {
         </div>
       )}
 
-      {/* Video / GIF rendering ---------------------------------------- */}
+      {/* ─── Video / GIF ──────────────────────────────────────────────── */}
       {(lead.rendering_video_url || lead.rendering_gif_url) && (
-        <BentoCard title="Video rendering" padding="tight" span="full">
+        <BentoCard title="Anteprima video" padding="tight" span="full">
           <div className="flex flex-col gap-4 p-4 sm:flex-row sm:items-start">
-            {/* Video player — uses GIF as poster frame */}
             {lead.rendering_video_url ? (
               // eslint-disable-next-line jsx-a11y/media-has-caption
               <video
@@ -182,8 +269,8 @@ export default async function LeadDetailPage({ params }: PageProps) {
             ) : null}
             <div className="flex flex-col gap-3">
               <p className="text-sm text-on-surface-variant">
-                Rendering fotovoltaico generato per questo lead. Il video è
-                incluso nelle email inviate come hero cliccabile.
+                Simulazione impianto fotovoltaico generata per questo lead.
+                Il video viene incluso nell&apos;email come hero cliccabile.
               </p>
               {lead.portal_video_slug && (
                 <a
@@ -192,7 +279,7 @@ export default async function LeadDetailPage({ params }: PageProps) {
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-on-primary transition-opacity hover:opacity-90"
                 >
-                  ▶ Apri landing video
+                  Apri landing video
                 </a>
               )}
             </div>
@@ -200,10 +287,10 @@ export default async function LeadDetailPage({ params }: PageProps) {
         </BentoCard>
       )}
 
-      {/* ROI chips ----------------------------------------------------- */}
+      {/* ─── KPI preventivo ───────────────────────────────────────────── */}
       <BentoGrid cols={4}>
         <KpiChipCard
-          label="Potenza stimata"
+          label="Potenza impianto"
           value={
             lead.roi_data?.estimated_kwp != null
               ? `${formatNumber(lead.roi_data.estimated_kwp)} kWp`
@@ -236,19 +323,12 @@ export default async function LeadDetailPage({ params }: PageProps) {
         />
       </BentoGrid>
 
-      {/* Solar API inspector ----------------------------------------- */}
-      {/* Surfaces panel count, dominant azimuth, per-segment data and the
-          raw Solar API payload — operators sanity-check the quote here
-          before the email goes out. Includes the "Rigenera rendering"
-          control to re-run the AI paint pipeline if the data looks off. */}
-      <SolarApiInspector lead={lead} />
-
-      {/* Subject + Roof ----------------------------------------------- */}
+      {/* ─── Anagrafica + Tetto ───────────────────────────────────────── */}
       <BentoGrid cols={2}>
         <DataCard title="Anagrafica">
           <DataRow
-            label="Tipo"
-            value={lead.subjects?.type?.toUpperCase() ?? '—'}
+            label="Tipo cliente"
+            value={lead.subjects?.type === 'b2b' ? 'Azienda' : lead.subjects?.type === 'b2c' ? 'Privato' : (lead.subjects?.type?.toUpperCase() ?? '—')}
           />
           <DataRow
             label="Ragione sociale"
@@ -257,10 +337,7 @@ export default async function LeadDetailPage({ params }: PageProps) {
           <DataRow
             label="Referente"
             value={
-              [
-                lead.subjects?.owner_first_name,
-                lead.subjects?.owner_last_name,
-              ]
+              [lead.subjects?.owner_first_name, lead.subjects?.owner_last_name]
                 .filter(Boolean)
                 .join(' ') || '—'
             }
@@ -294,7 +371,7 @@ export default async function LeadDetailPage({ params }: PageProps) {
           />
         </DataCard>
 
-        <DataCard title="Tetto / Geo">
+        <DataCard title="Tetto e impianto">
           <DataRow label="Indirizzo" value={address || '—'} />
           <DataRow label="Provincia" value={lead.roofs?.provincia ?? '—'} />
           <DataRow
@@ -306,7 +383,7 @@ export default async function LeadDetailPage({ params }: PageProps) {
             }
           />
           <DataRow
-            label="Producibilità stimata"
+            label="Produzione stimata"
             value={
               lead.roofs?.estimated_yearly_kwh
                 ? `${formatNumber(lead.roofs.estimated_yearly_kwh)} kWh/anno`
@@ -316,26 +393,21 @@ export default async function LeadDetailPage({ params }: PageProps) {
         </DataCard>
       </BentoGrid>
 
-      {/* Outreach sequence -------------------------------------------- */}
-      <BentoCard span="full">
-        <div className="mb-4 flex items-center justify-between">
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
-              Outreach
-            </p>
-            <h2 className="font-headline text-2xl font-bold tracking-tighter">
-              Sequenza campagne
-            </h2>
-          </div>
-        </div>
+      {/* ─── Email e comunicazioni inviate ────────────────────────────── */}
+      <CollapsibleCard
+        label="Comunicazioni"
+        title="Email e messaggi inviati"
+        badge={sentCampaigns.length > 0 ? `${sentCampaigns.length} invii` : undefined}
+        defaultOpen={sentCampaigns.length > 0}
+      >
         {campaigns.length === 0 ? (
-          <div className="rounded-lg bg-surface-container-low p-6 text-sm text-on-surface-variant">
-            Nessuna campagna ancora. Premi{' '}
+          <div className="rounded-lg bg-surface-container-low p-5 text-sm text-on-surface-variant">
+            Nessuna comunicazione ancora. Premi{' '}
             <em className="font-semibold text-primary">Invia outreach</em> per
-            attivare il flow.
+            avviare il primo contatto.
           </div>
         ) : (
-          <ul className="space-y-2">
+          <ul className="space-y-2 pt-1">
             {campaigns.map((c) => (
               <li
                 key={c.id}
@@ -343,25 +415,20 @@ export default async function LeadDetailPage({ params }: PageProps) {
               >
                 <div className="space-y-0.5">
                   <p className="font-semibold">
-                    Step {c.sequence_step} ·{' '}
+                    {STEP_LABELS[c.sequence_step] ?? `Messaggio ${c.sequence_step}`}
+                    {' · '}
                     <span className="text-[10px] uppercase tracking-widest text-on-surface-variant">
-                      {c.channel}
+                      {CHANNEL_LABELS[c.channel] ?? c.channel}
                     </span>
                   </p>
-                  <p className="text-xs text-on-surface-variant">
-                    {c.email_subject ?? c.template_id ?? '—'}
-                  </p>
+                  {c.email_subject && (
+                    <p className="text-xs text-on-surface-variant">
+                      Oggetto: {c.email_subject}
+                    </p>
+                  )}
                 </div>
                 <div className="flex items-center gap-3 text-xs text-on-surface-variant">
-                  <span>Inviato {relativeTime(c.sent_at)}</span>
-                  {/*
-                    Engagement (open / click) is tracked at the LEAD
-                    level, not per campaign step — the Resend webhook
-                    updates `leads.outreach_*_at`. We surface the
-                    signal on the most recent sent step so the
-                    sequence UI stays informative without over-
-                    claiming which specific step was opened.
-                   */}
+                  {c.sent_at && <span>{relativeTime(c.sent_at)}</span>}
                   {isLatestSent(c, campaigns) && lead.outreach_opened_at && (
                     <span className="font-semibold text-primary">Aperto</span>
                   )}
@@ -369,8 +436,8 @@ export default async function LeadDetailPage({ params }: PageProps) {
                     <span className="font-semibold text-primary">Click</span>
                   )}
                   {c.status === 'failed' && (
-                    <span className="font-semibold text-secondary">
-                      Failed · {c.failure_reason ?? '?'}
+                    <span className="font-semibold text-error">
+                      Non consegnata{c.failure_reason ? ` · ${c.failure_reason}` : ''}
                     </span>
                   )}
                 </div>
@@ -378,109 +445,81 @@ export default async function LeadDetailPage({ params }: PageProps) {
             ))}
           </ul>
         )}
-      </BentoCard>
+      </CollapsibleCard>
 
-      {/* Follow-up drafter (Pro+) ------------------------------------- */}
+      {/* ─── Scrivi follow-up con AI ──────────────────────────────────── */}
       {!isBlacklisted && (
-        <BentoCard span="full">
-          <div className="mb-4 flex items-start justify-between gap-3">
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
-                Follow-up assistito
-              </p>
-              <h2 className="font-headline text-2xl font-bold tracking-tighter">
-                Scrivi con AI
-              </h2>
-              <p className="mt-1 max-w-xl text-sm text-on-surface-variant">
-                Claude analizza ROI, engagement e cronologia campagne di questo
-                lead e scrive una bozza personalizzata. Modifica e invia.
-              </p>
-            </div>
-          </div>
+        <CollapsibleCard
+          label="Follow-up assistito"
+          title="Scrivi con AI"
+          defaultOpen={false}
+        >
+          <p className="mb-4 text-sm text-on-surface-variant">
+            Claude analizza il preventivo, il comportamento sul portale e le
+            comunicazioni precedenti, e scrive una bozza su misura.
+            Puoi modificarla prima di inviarla.
+          </p>
           <TierLock
             feature="advanced_analytics"
             tenant={ctx.tenant}
-            featureLabel="Follow-up drafter AI"
+            featureLabel="Follow-up con AI"
             inline
           >
             <FollowUpDrafter leadId={lead.id} />
           </TierLock>
-        </BentoCard>
+        </CollapsibleCard>
       )}
 
-      {/* Portal activity timeline ------------------------------------ */}
-      <BentoCard span="full">
-        <div className="mb-4 flex items-start justify-between gap-3">
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
-              Comportamento sul portale
-            </p>
-            <h2 className="font-headline text-2xl font-bold tracking-tighter">
-              Attività portale
-            </h2>
-            <p className="mt-1 text-xs text-on-surface-variant">
-              Cosa ha fatto il destinatario una volta aperto il dossier:
-              scroll, video, CTA, bolletta caricata. Aggiornata in tempo reale.
-            </p>
-          </div>
-          {lead.last_portal_event_at && (
-            <span className="shrink-0 text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
-              Ultimo evento {relativeTime(lead.last_portal_event_at)}
-            </span>
-          )}
-        </div>
-        <LeadPortalTimeline events={portalEvents} />
-      </BentoCard>
-
-      {/* Timeline ----------------------------------------------------- */}
-      <BentoCard span="full">
-        <div className="mb-4 flex items-start justify-between gap-3">
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
-              Cronologia
-            </p>
-            <h2 className="font-headline text-2xl font-bold tracking-tighter">
-              Timeline eventi
-            </h2>
-          </div>
-          {canTenantUse(ctx.tenant, 'realtime_timeline') && (
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-primary-container px-2.5 py-1 text-[10px] font-semibold uppercase tracking-widest text-on-primary-container">
-              <span className="relative flex h-1.5 w-1.5">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75"></span>
-                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-primary"></span>
-              </span>
-              Live
-            </span>
-          )}
-        </div>
-        {canTenantUse(ctx.tenant, 'realtime_timeline') ? (
-          <LeadTimelineLive leadId={lead.id} initialEvents={events} />
+      {/* ─── Attività sul portale ─────────────────────────────────────── */}
+      <CollapsibleCard
+        label="Portale personale"
+        title="Cosa ha fatto sul portale"
+        badge={
+          hasPortalActivity
+            ? `${portalEvents.length} ${portalEvents.length === 1 ? 'azione' : 'azioni'}`
+            : undefined
+        }
+        defaultOpen={hasPortalActivity}
+      >
+        {!hasPortalActivity ? (
+          <p className="pt-1 text-sm text-on-surface-variant">
+            Il lead non ha ancora visitato la pagina personale.
+          </p>
         ) : (
           <>
-            {/* Static fallback: tier=founding still sees the timeline,
-                 just without realtime pushes — upgrade banner sits above. */}
-            <div className="mb-3 flex items-center justify-between rounded-lg border border-dashed border-outline-variant bg-surface-container-low px-4 py-2.5 text-xs text-on-surface-variant">
-              <span>
-                Aggiornamento manuale — la{' '}
-                <span className="font-semibold">timeline live</span> è
-                disponibile con Pro.
+            {lead.last_portal_event_at && (
+              <p className="mb-3 text-xs text-on-surface-variant">
+                Ultima attività {relativeTime(lead.last_portal_event_at)}
+              </p>
+            )}
+            <LeadPortalTimeline events={portalEvents} />
+          </>
+        )}
+      </CollapsibleCard>
+
+      {/* ─── Storico eventi ───────────────────────────────────────────── */}
+      <CollapsibleCard
+        label="Cronologia"
+        title="Storico eventi"
+        badge={events.length > 0 ? `${events.length} eventi` : undefined}
+        defaultOpen={false}
+      >
+        {canTenantUse(ctx.tenant, 'realtime_timeline') ? (
+          <div className="pt-1">
+            <div className="mb-3 inline-flex items-center gap-1.5 rounded-full bg-primary-container px-2.5 py-1 text-[10px] font-semibold uppercase tracking-widest text-on-primary-container">
+              <span className="relative flex h-1.5 w-1.5">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75" />
+                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-primary" />
               </span>
-              <Link
-                href="/settings#plan"
-                className="group/link inline-flex items-center gap-1 font-semibold text-primary hover:underline"
-              >
-                Scopri
-                <ArrowUpRight
-                  size={12}
-                  strokeWidth={2.5}
-                  className="transition-transform group-hover/link:translate-x-0.5 group-hover/link:-translate-y-0.5"
-                  aria-hidden
-                />
-              </Link>
+              Aggiornamento live
             </div>
+            <LeadTimelineLive leadId={lead.id} initialEvents={events} />
+          </div>
+        ) : (
+          <div className="pt-1">
             {events.length === 0 ? (
-              <p className="rounded-lg bg-surface-container-low p-6 text-sm text-on-surface-variant">
-                Nessun evento ancora registrato per questo lead.
+              <p className="text-sm text-on-surface-variant">
+                Nessun evento ancora registrato.
               </p>
             ) : (
               <ol className="space-y-1">
@@ -493,7 +532,9 @@ export default async function LeadDetailPage({ params }: PageProps) {
                       {relativeTime(e.occurred_at)}
                     </span>
                     <div className="flex-1">
-                      <p className="font-semibold">{e.event_type}</p>
+                      <p className="font-medium text-on-surface">
+                        {labelForEvent(e.event_type)}
+                      </p>
                       {e.event_source && (
                         <p className="text-xs text-on-surface-variant">
                           via {e.event_source}
@@ -504,77 +545,85 @@ export default async function LeadDetailPage({ params }: PageProps) {
                 ))}
               </ol>
             )}
-          </>
+          </div>
         )}
-      </BentoCard>
+      </CollapsibleCard>
 
-      {/* Risposte email (B.2) --------------------------------------------- */}
-      <BentoCard span="full">
-        <div className="mb-4">
-          <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
-            Risposte email
-          </p>
-          <h2 className="font-headline text-2xl font-bold tracking-tighter">
-            Messaggi ricevuti
-          </h2>
-          <p className="mt-1 text-sm text-on-surface-variant">
-            Risposte del lead alle email di outreach, analizzate da AI con
-            sentiment, intento e bozza di risposta.
-          </p>
+      {/* ─── Risposte email ricevute ───────────────────────────────────── */}
+      <CollapsibleCard
+        label="Risposte"
+        title="Messaggi ricevuti"
+        badge={hasReplies ? `${replies.length}` : undefined}
+        defaultOpen={hasReplies}
+      >
+        <div className="pt-1">
+          {!hasReplies ? (
+            <p className="text-sm text-on-surface-variant">
+              Nessuna risposta ricevuta ancora.
+            </p>
+          ) : (
+            <LeadRepliesCard replies={replies} />
+          )}
         </div>
-        <LeadRepliesCard replies={replies} />
-      </BentoCard>
+      </CollapsibleCard>
 
-      {/* WhatsApp conversations ------------------------------------------ */}
-      <BentoCard span="full">
-        <div className="mb-4">
-          <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
-            WhatsApp
-          </p>
-          <h2 className="font-headline text-2xl font-bold tracking-tighter">
-            Conversazioni
-          </h2>
-          <p className="mt-1 text-sm text-on-surface-variant">
-            Thread WhatsApp gestiti dall&apos;AI. Dopo {2} risposte automatiche
-            o su richiesta del lead, l&apos;operatore subentra manualmente.
-          </p>
+      {/* ─── WhatsApp ─────────────────────────────────────────────────── */}
+      <CollapsibleCard
+        label="WhatsApp"
+        title="Conversazione WhatsApp"
+        badge={hasConversations ? `${conversations.length}` : undefined}
+        defaultOpen={hasConversations}
+      >
+        <div className="pt-1">
+          {!hasConversations ? (
+            <p className="text-sm text-on-surface-variant">
+              Nessuna conversazione WhatsApp ancora.
+            </p>
+          ) : (
+            <LeadConversationsCard
+              leadId={lead.id}
+              initialConversations={conversations}
+            />
+          )}
         </div>
-        <LeadConversationsCard
-          leadId={lead.id}
-          initialConversations={conversations}
-        />
-      </BentoCard>
+      </CollapsibleCard>
 
-      {/* GDPR — zona dati personali ---------------------------------------- */}
-      <BentoCard span="full">
-        <div className="mb-4">
-          <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
-            Zona GDPR
-          </p>
-          <h2 className="font-headline text-2xl font-bold tracking-tighter">
-            Gestione dati personali
-          </h2>
-          <p className="mt-1 max-w-xl text-sm text-on-surface-variant">
-            Esporta tutti i dati personali di questo lead (Art. 15) oppure
-            eliminali definitivamente in risposta a un diritto all&apos;oblio
-            (Art. 17). Ogni operazione viene registrata nel{' '}
-            <Link
-              href="/settings/privacy"
-              className="font-semibold text-primary hover:underline"
-            >
-              log di audit
-            </Link>
-            .
-          </p>
+      {/* ─── Dati tecnici impianto (Solar API) ───────────────────────── */}
+      <CollapsibleCard
+        label="Dati tecnici"
+        title="Dettagli impianto Solar API"
+        defaultOpen={false}
+      >
+        <div className="pt-1">
+          <SolarApiInspector lead={lead} />
         </div>
+      </CollapsibleCard>
+
+      {/* ─── Privacy e GDPR ───────────────────────────────────────────── */}
+      <CollapsibleCard
+        label="Privacy"
+        title="Dati personali e GDPR"
+        defaultOpen={false}
+      >
+        <p className="mb-4 text-sm text-on-surface-variant">
+          Esporta tutti i dati personali (Art. 15) oppure eliminali su
+          richiesta del cliente (Art. 17). Ogni azione viene registrata nel{' '}
+          <Link
+            href="/settings/privacy"
+            className="font-semibold text-primary hover:underline"
+          >
+            log di audit
+          </Link>
+          .
+        </p>
         <LeadGdprActionsWrapper leadId={lead.id} leadName={name} />
-      </BentoCard>
+      </CollapsibleCard>
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Presentational atoms
+// Componenti presentazionali
 // ---------------------------------------------------------------------------
 
 function DataCard({
@@ -613,14 +662,9 @@ function DataRow({
 }
 
 // ---------------------------------------------------------------------------
-// Sequence helpers
+// Helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Engagement signals live on the lead, not the campaign — we attach
- * the open/click badge to the most recent *sent* step so the UI
- * doesn't falsely claim every step in the sequence was opened.
- */
 function isLatestSent(
   c: { id: string; sent_at: string | null; sequence_step: number },
   all: { id: string; sent_at: string | null; sequence_step: number }[],

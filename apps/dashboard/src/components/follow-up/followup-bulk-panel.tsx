@@ -90,7 +90,7 @@ export function FollowupBulkPanel({ tenantId: _tenantId }: Props) {
 
   async function sendDraft(idx: number) {
     const draft = drafts[idx];
-    if (!draft.ok || !draft.subject || !draft.body) return;
+    if (!draft || !draft.ok || !draft.subject || !draft.body) return;
     setDrafts((prev) =>
       prev.map((d, i) => (i === idx ? { ...d, sendStatus: 'sending' } : d)),
     );
