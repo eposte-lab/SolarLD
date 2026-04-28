@@ -79,7 +79,7 @@ export default async function FunnelPage() {
         <header className="mb-6 flex items-end justify-between">
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
-              Discovery · Funnel B2B Atoka
+              Discovery · Funnel B2B
             </p>
             <h2 className="font-headline text-2xl font-bold tracking-tighter">
               Top-of-funnel (scan)
@@ -96,28 +96,28 @@ export default async function FunnelPage() {
         <div className="space-y-3">
           {[
             {
-              label: 'L1 — Scoperte da Atoka',
+              label: 'L1 — Scoperte (database aziende)',
               value: d.l1,
               prev: null,
               href: '/contatti?stage=1',
               accent: 'neutral' as const,
             },
             {
-              label: 'L2 — Arricchite (Places / Visura)',
+              label: 'L2 — Dati arricchiti',
               value: d.l2,
               prev: d.l1,
               href: '/contatti?stage=2',
               accent: 'primary' as const,
             },
             {
-              label: 'L3 — Scored da Haiku',
+              label: 'L3 — Punteggio assegnato',
               value: d.l3,
               prev: d.l2,
               href: '/contatti?stage=3',
               accent: 'tertiary' as const,
             },
             {
-              label: 'L4 — Qualificate Solar (accepted)',
+              label: 'L4 — Tetto idoneo',
               value: d.l4_qualified,
               prev: d.l3,
               href: '/contatti?stage=4',

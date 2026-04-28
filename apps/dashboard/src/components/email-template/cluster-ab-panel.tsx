@@ -229,7 +229,7 @@ export function ClusterAbPanel({ initialClusters }: ClusterAbPanelProps) {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <p className="text-sm text-on-surface-variant">
-          {clusters.length} cluster attivi — la valutazione automatica gira ogni notte alle 03:30 UTC
+          {clusters.length} cluster attivi — il sistema valuta i risultati ogni notte
         </p>
         <button
           type="button"

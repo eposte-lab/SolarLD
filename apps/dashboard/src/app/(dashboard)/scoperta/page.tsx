@@ -160,7 +160,7 @@ export default function ScopertaPage() {
         count: res.count,
         estimated_cost_eur: res.estimated_cost_eur,
       });
-      if (res.error) setError(`Atoka: ${res.error}`);
+      if (res.error) setError(`Errore ricerca: ${res.error}`);
     } catch (err) {
       const msg =
         err instanceof ApiError
@@ -226,15 +226,15 @@ export default function ScopertaPage() {
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <SectionEyebrow tone="mint" icon={<Search size={11} strokeWidth={2.25} />}>
-            Discovery · Atoka direct
+            Discovery · Ricerca aziende
           </SectionEyebrow>
           <h1 className="mt-1.5 font-headline text-4xl font-bold tracking-tighter text-on-surface">
             Trova aziende
           </h1>
           <p className="mt-1 max-w-xl text-sm text-on-surface-variant">
-            Ricerca diretta su Atoka per codice ATECO, geografia, dipendenti e
-            fatturato. I risultati possono essere salvati come lista e
-            successivamente importati nel funnel o lanciati come campagna.
+            Ricerca per codice ATECO, geografia, dipendenti e fatturato.
+            I risultati possono essere salvati come lista e successivamente
+            importati nel funnel o lanciati come campagna.
           </p>
         </div>
         <Link
@@ -447,7 +447,7 @@ export default function ScopertaPage() {
               <SectionEyebrow tone="dim">Risultati</SectionEyebrow>
               <p className="mt-1 text-sm text-on-surface-variant">
                 {searchMeta
-                  ? `${formatNumber(searchMeta.count)} aziende · costo Atoka stimato €${searchMeta.estimated_cost_eur.toFixed(2)}`
+                  ? `${formatNumber(searchMeta.count)} aziende · costo stimato €${searchMeta.estimated_cost_eur.toFixed(2)}`
                   : 'Avvia una ricerca per popolare la tabella.'}
               </p>
             </div>
@@ -506,7 +506,7 @@ export default function ScopertaPage() {
                   <tr>
                     <td colSpan={5} className="px-2 py-10 text-center text-sm text-on-surface-variant">
                       <Loader2 size={20} className="mx-auto mb-2 animate-spin" />
-                      Interrogazione Atoka in corso…
+                      Ricerca aziende in corso…
                     </td>
                   </tr>
                 )}

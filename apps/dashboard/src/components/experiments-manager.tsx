@@ -161,7 +161,7 @@ export function ExperimentsManager({ initialRows }: Props) {
               Genera oggetti email con AI
             </p>
             <p className="mt-0.5 text-xs text-on-surface-variant">
-              Claude genera varianti ottimizzate — assegna le migliori a
+              L&apos;AI genera varianti ottimizzate — assegna le migliori a
               Variante&nbsp;A e B per testarle.
             </p>
           </div>
@@ -777,7 +777,7 @@ function StatsPanel({
 
       {!stats.min_sample_met && (
         <p className="text-xs text-on-surface-variant italic">
-          Servono almeno 20 invii per variante per il calcolo Bayesiano.
+          Servono almeno 20 invii per variante prima di poter dichiarare un vincitore.
           Attualmente: A={stats.a.sends}, B={stats.b.sends}.
         </p>
       )}

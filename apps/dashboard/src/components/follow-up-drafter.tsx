@@ -166,7 +166,7 @@ export function FollowUpDrafter({ leadId }: { leadId: string }) {
       {phase === 'drafting' && (
         <div className="flex items-center gap-3 rounded-lg bg-surface-container-low px-4 py-3 text-sm text-on-surface-variant">
           <SpinnerIcon />
-          Claude sta analizzando il contesto del lead e scrivendo la bozza…
+          Il sistema sta analizzando il contesto del lead e scrivendo la bozza…
         </div>
       )}
 
@@ -175,7 +175,7 @@ export function FollowUpDrafter({ leadId }: { leadId: string }) {
         <div className="space-y-3">
           {/* Context notice */}
           <p className="text-xs text-on-surface-variant">
-            Bozza generata da Claude sulla base di ROI, engagement e cronologia campagne.
+            Bozza generata automaticamente sulla base di ROI, engagement e cronologia delle email inviate.
             Modifica liberamente prima di inviare.
           </p>
 

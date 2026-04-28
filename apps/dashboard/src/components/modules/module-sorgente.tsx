@@ -49,7 +49,7 @@ export function ModuleSorgente({
     <div className="space-y-4">
       <FieldCard
         title="B2B — Anagrafica target"
-        hint="Criteri Atoka applicati al primo livello del funnel."
+        hint="Criteri di scoperta aziende applicati al primo livello del funnel."
       >
         <TagInput
           label="Codici ATECO"

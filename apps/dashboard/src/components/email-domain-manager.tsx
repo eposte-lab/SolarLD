@@ -163,7 +163,7 @@ export function EmailDomainManager({
   const handleDisconnect = useCallback(async () => {
     if (
       !confirm(
-        'Disconnettere il dominio? Verrà rimosso da Resend e i record DNS non saranno più attivi. Potrai riconfigurarlo in qualsiasi momento.',
+        'Disconnettere il dominio? Non sarà più usato per gli invii e i record DNS smetteranno di essere attivi. Potrai riconfigurarlo in qualsiasi momento.',
       )
     ) {
       return;
@@ -390,7 +390,7 @@ export function EmailDomainManager({
             <GuidanceCard
               label="SPF"
               color="text-primary"
-              text="Il record TXT SPF autorizza Resend a inviare per il tuo dominio. Obbligatorio."
+              text="Il record TXT SPF autorizza il servizio di invio email per il tuo dominio. Obbligatorio."
             />
             <GuidanceCard
               label="DKIM"

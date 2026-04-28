@@ -42,7 +42,7 @@ export function ModuleTecnico({ value, onChange }: ModuleTecnicoProps) {
     <div className="space-y-4">
       <FieldCard
         title="Soglie tetto"
-        hint="Applicate dopo lo scan Google Solar (L4)."
+        hint="Applicate dopo l'analisi satellitare del tetto (L4)."
       >
         <NumberField
           label="kW picco min"
@@ -86,11 +86,11 @@ export function ModuleTecnico({ value, onChange }: ModuleTecnicoProps) {
       </FieldCard>
 
       <FieldCard
-        title="Solar gate (L4)"
-        hint="Percentuale di candidati L3 che entrano in Google Solar. Più alto = più costo API."
+        title="Soglia analisi satellitare (L4)"
+        hint="Percentuale di candidati L3 che vengono analizzati via satellite. Più alto = più costo per scoperta."
       >
         <SliderField
-          label="Solar gate %"
+          label="Soglia analisi %"
           value={value.solar_gate_pct}
           onChange={(v) => set('solar_gate_pct', v)}
           min={0.05}

@@ -37,16 +37,16 @@ type Search = Promise<{
 const STAGE_LABELS: Record<number, string> = {
   1: 'Scoperto (L1)',
   2: 'Arricchito (L2)',
-  3: 'Scored (L3)',
-  4: 'Solar OK (L4)',
+  3: 'Punteggio assegnato (L3)',
+  4: 'Tetto idoneo (L4)',
 };
 
 const STAGE_FILTER_OPTIONS = [
   { value: '', label: 'Tutti' },
-  { value: '1', label: 'L1 — Atoka' },
-  { value: '2', label: 'L2 — Enriched' },
-  { value: '3', label: 'L3 — Scored' },
-  { value: '4', label: 'L4 — Solar' },
+  { value: '1', label: 'L1 — Scoperto' },
+  { value: '2', label: 'L2 — Arricchito' },
+  { value: '3', label: 'L3 — Punteggio' },
+  { value: '4', label: 'L4 — Tetto idoneo' },
 ];
 
 const VERDICT_STYLES: Record<string, string> = {
@@ -123,7 +123,7 @@ export default async function ContattiPage({
         <KpiChipCard
           label="Scoperte (L1)"
           value={formatNumber(summary.l1)}
-          hint="Atoka discovery"
+          hint="Aziende scoperte"
           accent="neutral"
         />
         <KpiChipCard

@@ -71,7 +71,7 @@ async function resolvebbox(
       'User-Agent': 'SolarLead/1.0 (support@solarlead.it)',
     },
   });
-  if (!res.ok) throw new Error(`Errore rete Nominatim: HTTP ${res.status}`);
+  if (!res.ok) throw new Error(`Errore di rete nel rilevamento coordinate: HTTP ${res.status}`);
 
   const data: Array<{
     boundingbox: [string, string, string, string];
@@ -164,7 +164,7 @@ export function TerritoryAddForm() {
         </p>
         <p className="mt-1 text-xs text-on-surface-variant">
           Inserisci tipo e codice — le coordinate vengono rilevate
-          automaticamente via OpenStreetMap.
+          automaticamente.
         </p>
       </div>
 

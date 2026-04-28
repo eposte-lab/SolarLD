@@ -42,9 +42,9 @@ export default async function ExperimentsPage() {
             Esperimenti email
           </h1>
           <p className="mt-2 max-w-2xl text-sm text-on-surface-variant">
-            Testa due oggetti email in parallelo. L&apos;OutreachAgent assegna
-            automaticamente ogni invio alla variante A o B; le statistiche
-            Bayesiane mostrano quale genera più aperture con confidenza ≥95%.
+            Testa due oggetti email in parallelo. Il sistema assegna
+            automaticamente ogni invio alla variante A o B e mostra quale
+            genera più aperture con confidenza ≥95%.
           </p>
         </div>
       </header>

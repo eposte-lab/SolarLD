@@ -226,7 +226,7 @@ export function EmailTemplatePageClient() {
               <div>
                 <h3 className="font-semibold text-base">HTML personalizzato</h3>
                 <p className="text-xs text-on-surface-variant mt-1">
-                  Carica il tuo template Jinja2. Deve includere le variabili GDPR obbligatorie.{' '}
+                  Carica il tuo template HTML. Deve includere le variabili GDPR obbligatorie.{' '}
                   {templateInfo?.active && (
                     <span className="text-primary font-medium">Attualmente attivo.</span>
                   )}
@@ -265,14 +265,14 @@ export function EmailTemplatePageClient() {
       {tab === 'ab' && (
         <div className="space-y-4">
           <div className="rounded-2xl border bg-surface-variant/20 p-4">
-            <h3 className="font-semibold text-sm mb-1">Come funziona il motore A/B per cluster</h3>
+            <h3 className="font-semibold text-sm mb-1">Come funziona l&apos;A/B test per cluster</h3>
             <p className="text-xs text-on-surface-variant">
-              Ogni cluster (es. <code className="font-mono">ateco41_m_ceo</code>) ha la propria
-              coppia di varianti A/B generata da Claude Haiku. L&apos;assegnazione è deterministica:{' '}
-              <code className="font-mono">hash(lead_id) % 2</code>. Ogni notte alle 03:30 UTC il
-              motore valuta i risultati con chi-square 2×2 (Yates, df=1). Quando{' '}
-              <em>p &lt; 0.05</em> e almeno 100 invii per variante, il vincitore viene promosso e
-              viene generato un nuovo round con il vincitore come baseline.
+              Ogni cluster di lead (per esempio costruzioni, taglia media, decisore CEO) ha
+              la sua coppia di varianti A/B generate dall&apos;AI. Ogni lead viene assegnato
+              sempre alla stessa variante in modo deterministico, così i confronti sono puliti.
+              Ogni notte il sistema valuta i risultati: quando una variante è statisticamente
+              migliore con almeno 100 invii a testa, viene promossa a vincitrice e parte un
+              nuovo round con una nuova sfidante.
             </p>
           </div>
 

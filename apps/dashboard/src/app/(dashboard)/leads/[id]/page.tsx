@@ -12,7 +12,7 @@
  *   8. [Tendina] Storico eventi
  *   9. [Tendina] Risposte ricevute
  *  10. [Tendina] Conversazione WhatsApp
- *  11. [Tendina] Dati impianto (Solar API)
+ *  11. [Tendina] Dati tecnici impianto (analisi satellitare)
  *  12. [Tendina] Privacy e GDPR
  */
 
@@ -455,7 +455,7 @@ export default async function LeadDetailPage({ params }: PageProps) {
           defaultOpen={false}
         >
           <p className="mb-4 text-sm text-on-surface-variant">
-            Claude analizza il preventivo, il comportamento sul portale e le
+            L&apos;AI analizza il preventivo, il comportamento sul portale e le
             comunicazioni precedenti, e scrive una bozza su misura.
             Puoi modificarla prima di inviarla.
           </p>
@@ -588,10 +588,10 @@ export default async function LeadDetailPage({ params }: PageProps) {
         </div>
       </CollapsibleCard>
 
-      {/* ─── Dati tecnici impianto (Solar API) ───────────────────────── */}
+      {/* ─── Dati tecnici impianto (analisi satellitare) ───────────────── */}
       <CollapsibleCard
         label="Dati tecnici"
-        title="Dettagli impianto Solar API"
+        title="Dettagli impianto"
         defaultOpen={false}
       >
         <div className="pt-1">

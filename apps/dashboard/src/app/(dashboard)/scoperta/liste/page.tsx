@@ -80,8 +80,8 @@ export default function ListeIndexPage() {
             Le mie liste
           </h1>
           <p className="mt-1 max-w-xl text-sm text-on-surface-variant">
-            Snapshot delle ricerche Atoka. Ogni lista mantiene il payload
-            originale per esportazione, riuso o promozione nel funnel.
+            Snapshot delle ricerche aziende. Ogni lista conserva i dati originali
+            per esportazione, riuso o promozione nel funnel.
           </p>
         </div>
         <GradientButton href="/scoperta" size="md">

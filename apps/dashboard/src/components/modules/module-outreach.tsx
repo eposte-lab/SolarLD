@@ -25,11 +25,11 @@ export function ModuleOutreach({ value, onChange }: ModuleOutreachProps) {
     <div className="space-y-4">
       <FieldCard
         title="Canali attivi"
-        hint="Ogni canale è indipendente. Postal e Meta richiedono setup provider."
+        hint="Ogni canale è indipendente. La lettera fisica e Meta richiedono una configurazione iniziale."
       >
         <Toggle
           label="Email"
-          hint="Nurture + reply agent (Resend)."
+          hint="Email automatiche di outreach e gestione risposte."
           value={value.channels.email}
           onChange={(v) =>
             onChange({ ...value, channels: { ...value.channels, email: v } })
@@ -37,7 +37,7 @@ export function ModuleOutreach({ value, onChange }: ModuleOutreachProps) {
         />
         <Toggle
           label="Lettera fisica"
-          hint="Pixart personalised letter (B2C residenziale)."
+          hint="Lettera cartacea personalizzata (B2C residenziale)."
           value={value.channels.postal}
           onChange={(v) =>
             onChange({ ...value, channels: { ...value.channels, postal: v } })
@@ -45,7 +45,7 @@ export function ModuleOutreach({ value, onChange }: ModuleOutreachProps) {
         />
         <Toggle
           label="WhatsApp"
-          hint="Dialog360 outbound (richiede account business)."
+          hint="Invio WhatsApp Business (richiede account business)."
           value={value.channels.whatsapp}
           onChange={(v) =>
             onChange({ ...value, channels: { ...value.channels, whatsapp: v } })

@@ -123,7 +123,7 @@ export function TemplateUploader({ templateInfo, onSaved }: TemplateUploaderProp
       <textarea
         value={html}
         onChange={(e) => setHtml(e.target.value)}
-        placeholder='Incolla qui il tuo HTML Jinja2, es. <html>…{{ unsubscribe_url }}…</html>'
+        placeholder='Incolla qui il tuo HTML, es. <html>…{{ unsubscribe_url }}…</html>'
         rows={10}
         className="w-full rounded-xl border bg-surface px-3 py-2 font-mono text-xs leading-relaxed
                    focus:outline-none focus:ring-2 focus:ring-primary/40 resize-y"

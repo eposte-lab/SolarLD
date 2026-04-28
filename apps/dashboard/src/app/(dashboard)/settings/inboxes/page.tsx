@@ -234,7 +234,7 @@ function InboxCard({
   }
 
   async function handleDisconnect() {
-    if (!confirm('Disconnettere Gmail da questa inbox? Tornerà a usare Resend.')) return;
+    if (!confirm('Disconnettere Gmail da questa inbox? Tornerà a usare il provider transazionale di default.')) return;
     setDisconnecting(true);
     try {
       await apiClient.post(`/v1/inboxes/${inbox.id}/oauth/disconnect`, {});

@@ -269,12 +269,12 @@ function IntegrationsCard({ tenant }: { tenant: TenantRow }) {
         <IntegrationLink
           href="/settings/inboxes"
           title="Inbox mittenti"
-          blurb="Più indirizzi sullo stesso dominio verificato. Round-robin automatico con cap giornaliero per inbox e pausa auto su errori Resend."
+          blurb="Più indirizzi sullo stesso dominio verificato. Rotazione automatica con limite giornaliero per inbox e pausa automatica in caso di errori di invio."
         />
         <IntegrationLink
           href="/settings/email-domains"
           title="Domini email"
-          blurb="Gestisci brand domain (Resend) e outreach domain (Gmail OAuth) con verifica DNS live SPF/DKIM/DMARC e tracking host per-dominio."
+          blurb="Gestisci dominio brand (per email transazionali) e dominio outreach (Gmail) con verifica DNS in tempo reale SPF/DKIM/DMARC e tracking per dominio."
         />
         <IntegrationLink
           href="/settings/branding"
@@ -284,7 +284,7 @@ function IntegrationsCard({ tenant }: { tenant: TenantRow }) {
         <IntegrationLink
           href="/settings/email-template"
           title="Template & A/B per cluster"
-          blurb="Scegli Premium SolarLead, legacy o carica un HTML personalizzato. A/B test per-cluster con copy generato da Claude e promozione automatica chi-square."
+          blurb="Scegli Premium SolarLead, legacy o carica un HTML personalizzato. A/B test per cluster di lead con copy generato dall&apos;AI e promozione automatica del vincitore."
         />
         <IntegrationLink
           href="/settings/sector-news"
@@ -305,7 +305,7 @@ function IntegrationsCard({ tenant }: { tenant: TenantRow }) {
         <IntegrationLink
           href="/experiments"
           title="A/B Testing email"
-          blurb="Testa due oggetti email in parallelo con analisi Bayesiana automatica. Dichiara il vincitore con ≥95% di confidenza."
+          blurb="Testa due oggetti email in parallelo. Il sistema dichiara automaticamente il vincitore quando ha sufficiente confidenza statistica."
           locked={!abAllowed}
         />
       </div>
@@ -423,7 +423,7 @@ function ReputationCard({
           </h2>
           <p className="mt-1 max-w-xl text-sm text-on-surface-variant">
             {activeDomain
-              ? 'Salute delle mail outreach nelle ultime 7 giornate. Aggiornato ogni notte alle 02:30 UTC.'
+              ? 'Salute delle email di outreach negli ultimi 7 giorni. Aggiornato ogni notte automaticamente.'
               : 'Configura il dominio mittente nelle impostazioni SMTP per sbloccare le metriche di reputazione.'}
           </p>
         </div>
@@ -601,7 +601,7 @@ const CAPABILITY_LABELS: Array<{ key: CapabilityKey; label: string; hint?: strin
   { key: 'crm_outbound_webhooks', label: 'Webhook CRM' },
   { key: 'custom_brand_domain', label: 'Dominio mittente personalizzato' },
   { key: 'bulk_export', label: 'Export massivo lead' },
-  { key: 'template_editor', label: 'Editor template', hint: 'Modifica l\u2019HTML/Jinja delle mail outreach' },
+  { key: 'template_editor', label: 'Editor template', hint: 'Modifica l\u2019HTML delle email di outreach' },
   { key: 'ab_testing_templates', label: 'A/B test template' },
   { key: 'api_access', label: 'API programmatica' },
 ];
@@ -714,8 +714,8 @@ function DevToolsCard() {
         Strumenti di test
       </h2>
       <p className="mt-1 max-w-xl text-sm text-on-surface-variant">
-        Inietta dati sintetici nel pipeline per verificare scoring → rendering → email
-        senza passare da Atoka o Google Solar.
+        Inietta dati sintetici nella pipeline per verificare scoring, rendering ed
+        email senza dipendere dalle integrazioni esterne.
       </p>
       <div className="mt-5">
         <Link

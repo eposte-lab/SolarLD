@@ -82,18 +82,17 @@ export function SolarApiInspector({ lead }: Props) {
       <BentoCard span="full">
         <div className="mb-3">
           <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
-            Solar API
+            Analisi tetto
           </p>
           <h2 className="font-headline text-2xl font-bold tracking-tighter">
-            Dati Solar API
+            Dati tecnici impianto
           </h2>
         </div>
         <div className="space-y-3 rounded-lg bg-surface-container-low p-4 text-sm text-on-surface-variant">
           <p>
-            Nessun dato Solar API caricato per questo tetto. Probabilmente la
-            pipeline è stata saltata (chiave API mancante, indirizzo non
-            geocodificato, oppure render legacy precedente all&apos;adozione
-            del flusso AI).
+            Nessuna analisi tecnica disponibile per questo tetto. Probabilmente
+            l&apos;indirizzo non è stato geolocalizzato oppure si tratta di un
+            render generato in precedenza, prima dell&apos;analisi satellitare.
           </p>
           <RegenerateRenderingButton leadId={lead.id} />
         </div>
@@ -119,16 +118,16 @@ export function SolarApiInspector({ lead }: Props) {
       <div className="mb-4 flex items-start justify-between gap-3">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
-            Solar API
+            Analisi tetto
           </p>
           <h2 className="font-headline text-2xl font-bold tracking-tighter">
-            Dati Solar API
+            Dati tecnici impianto
           </h2>
           <p className="mt-1 max-w-xl text-sm text-on-surface-variant">
-            Output di Google Solar API che ha guidato il preventivo e il
-            posizionamento dei pannelli nell&apos;immagine AI. Verifica qui
-            prima di inviare l&apos;outreach: se i numeri sono sballati, il
-            render è sballato.
+            Risultato dell&apos;analisi satellitare del tetto: superficie, numero
+            di pannelli, orientamento e potenza. Sono i numeri usati per il
+            preventivo e per il rendering. Controlla qui prima di inviare
+            l&apos;email — se sono sballati, lo è anche la proposta.
           </p>
         </div>
         <RegenerateRenderingButton leadId={lead.id} />
@@ -309,7 +308,7 @@ export function SolarApiInspector({ lead }: Props) {
         )}
         <details className="rounded-lg bg-surface-container-low px-4 py-3 text-xs">
           <summary className="cursor-pointer font-semibold uppercase tracking-widest text-on-surface-variant">
-            Payload Solar API grezzo
+            Dati grezzi (per debug)
           </summary>
           <pre className="mt-2 max-h-64 overflow-auto rounded bg-surface-container-lowest p-2 font-mono text-[10px] leading-relaxed text-on-surface">
             {JSON.stringify(raw, null, 2)}

@@ -367,8 +367,8 @@ export function BrandingEditor({ tenant }: BrandingEditorProps) {
                 Rigenera contenuto con AI
               </p>
               <p className="mt-0.5 text-xs text-on-surface-variant">
-                Claude scrive headline, testo e CTA basandosi sul tuo brand e
-                sceglie lo stile visivo più adatto al segmento.
+                Il sistema scrive headline, testo e CTA basandosi sul tuo brand
+                e sceglie lo stile visivo più adatto al segmento.
               </p>
             </div>
             <button

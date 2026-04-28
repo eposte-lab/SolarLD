@@ -48,7 +48,7 @@ export function RegenerateRenderingButton({ leadId }: Props) {
       setState({
         kind: 'success',
         message:
-          'Rigenerazione in coda. La pipeline ricalcola Solar API → AI paint → Kling. Aggiorna la pagina tra ~30 s.',
+          'Rigenerazione in coda. Il sistema rifà l\u2019analisi del tetto e il render. Aggiorna la pagina tra circa 30 secondi.',
       });
       // Soft-refresh after the typical happy-path duration so the new
       // rendering shows up without a manual reload.

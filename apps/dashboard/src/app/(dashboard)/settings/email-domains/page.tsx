@@ -135,8 +135,8 @@ export default function EmailDomainsPage() {
             Domini email
           </h1>
           <p className="mt-2 max-w-xl text-sm text-on-surface-variant">
-            Gestisci i domini per l&apos;outreach cold (Gmail OAuth) e per le
-            comunicazioni di brand (Resend). Ogni dominio ha la propria
+            Gestisci i domini per l&apos;outreach cold (Gmail) e per le
+            comunicazioni transazionali. Ogni dominio ha la propria
             reputazione, record DNS e tracking host.
           </p>
         </div>
@@ -428,7 +428,7 @@ function DomainCard({
           </p>
           <div className="space-y-2 text-xs">
             <DnsDetailRow label="SPF" rec={dnsResult.spf} />
-            <DnsDetailRow label="DKIM (Resend)" rec={dnsResult.dkim_resend} />
+            <DnsDetailRow label="DKIM (transazionale)" rec={dnsResult.dkim_resend} />
             <DnsDetailRow label="DKIM (Google)" rec={dnsResult.dkim_google} />
             <DnsDetailRow label="DMARC" rec={dnsResult.dmarc} />
             {dnsResult.tracking_cname.found !== false && (
@@ -459,7 +459,7 @@ function PurposeBadge({ purpose }: { purpose: 'brand' | 'outreach' }) {
 
 function ProviderBadge({ provider }: { provider: string }) {
   const labels: Record<string, string> = {
-    resend: 'Resend',
+    resend: 'Transazionale',
     gmail_oauth: 'Gmail',
     m365_oauth: 'M365',
     smtp: 'SMTP',
@@ -610,7 +610,7 @@ function AddDomainModal({
                 >
                   <p className="font-semibold capitalize">{p === 'outreach' ? 'Outreach cold' : 'Brand / transactional'}</p>
                   <p className="mt-0.5 text-[11px] text-on-surface-variant">
-                    {p === 'outreach' ? 'Gmail OAuth · cold B2B' : 'Resend · notifiche, login'}
+                    {p === 'outreach' ? 'Gmail · cold B2B' : 'Notifiche e login'}
                   </p>
                 </button>
               ))}

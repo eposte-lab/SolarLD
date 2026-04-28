@@ -28,8 +28,8 @@ export function LeadRepliesCard({ replies }: Props) {
           sentiment e intento.
         </p>
         <p className="mt-2 text-xs text-on-surface-variant/60">
-          Assicurati di configurare il webhook inbound Resend e di impostare
-          la variabile <code className="font-mono">RESEND_INBOUND_SECRET</code>.
+          Se non vedi mai risposte, contatta il supporto per verificare la
+          configurazione delle email in entrata.
         </p>
       </div>
     );

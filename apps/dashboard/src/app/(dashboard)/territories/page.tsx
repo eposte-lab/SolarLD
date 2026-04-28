@@ -304,9 +304,9 @@ function buildFlash(
       if (summary.atoka_empty) {
         return {
           tone: 'warn',
-          msg: `Scansione di "${name}" completata — 0 aziende trovate da Atoka. `
-            + `Causa più comune: ATOKA_API_KEY non configurata sul server API. `
-            + `Controlla le variabili d'ambiente su Railway.`,
+          msg: `Scansione di "${name}" completata — 0 aziende trovate. `
+            + `Possibile problema di configurazione del servizio di scoperta. `
+            + `Contatta il supporto se il problema persiste.`,
         };
       }
       if (summary.leads_qualified === 0) {
@@ -585,11 +585,11 @@ function LastScanBadge({ summary }: { summary?: ScanSummary }) {
     return (
       <span
         className="inline-flex flex-col gap-0.5"
-        title="Atoka non ha trovato aziende — verifica ATOKA_API_KEY su Railway"
+        title="Nessuna azienda trovata — possibile problema di configurazione del servizio di scoperta"
       >
         <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-error">
           <AlertTriangle size={10} strokeWidth={2.5} aria-hidden />
-          0 aziende (Atoka)
+          0 aziende trovate
         </span>
         <span className="text-[9px] text-on-surface-variant">{date}</span>
       </span>

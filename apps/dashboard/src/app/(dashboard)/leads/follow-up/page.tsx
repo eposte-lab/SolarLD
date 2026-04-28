@@ -99,12 +99,13 @@ export default async function FollowupPage() {
           Avvia subito
         </h2>
         <p className="mt-1 max-w-xl text-sm text-on-surface-variant">
-          Il sistema valuta ogni giorno alle 08:15 UTC quali lead meritano
-          un follow-up (cold, lukewarm, engaged, interessato, riattivazione)
-          e invia l&apos;email appropriata. Questo pulsante lancia la stessa
+          Ogni mattina il sistema valuta quali lead meritano un follow-up
+          (freddi, tiepidi, caldi, interessati, da riattivare) e invia
+          l&apos;email più adatta. Questo pulsante lancia la stessa
           valutazione immediatamente per i tuoi{' '}
           <strong>{(eligibleCount ?? 0).toLocaleString('it-IT')}</strong> lead
-          idonei — i cooldown per lead sono rispettati, non ci sono duplicati.
+          idonei — i tempi di attesa per lead vengono comunque rispettati,
+          niente duplicati.
         </p>
         <div className="mt-5">
           <FollowupTrigger eligibleCount={eligibleCount ?? 0} />
@@ -120,7 +121,7 @@ export default async function FollowupPage() {
           Genera e invia in blocco
         </h2>
         <p className="mt-1 max-w-xl text-sm text-on-surface-variant">
-          Claude genera una bozza personalizzata per ogni lead scelto
+          Il sistema genera una bozza personalizzata per ogni lead scelto
           (ROI, engagement, dati preventivo). Puoi rivedere le bozze prima
           di inviare oppure spedirle tutte in una volta.
         </p>
