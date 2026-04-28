@@ -780,7 +780,6 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
             subject_type=subject_type,
             roi=lead.get("roi_data") or None,
             hero_image_url=lead.get("rendering_image_url"),
-            hero_gif_url=lead.get("rendering_gif_url"),
             personalized_opener=personalized_opener,
             business_name=subject.get("business_name"),
             ateco_code=subject.get("ateco_code"),
