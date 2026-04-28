@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation';
 
 import { RealtimeToaster } from '@/components/realtime-toaster';
+import { BackButton } from '@/components/ui/back-button';
 import { NotificationsBell } from '@/components/ui/notifications-bell';
 import { SideNav, type NavSection } from '@/components/ui/side-nav';
 import {
@@ -112,7 +113,8 @@ export default async function DashboardLayout({
       />
       <main className="flex-1 px-6 py-8 md:px-10">
         <div className="mx-auto max-w-[1400px]">
-          <div className="mb-6 flex justify-end">
+          <div className="mb-6 flex items-center justify-between">
+            <BackButton />
             <NotificationsBell
               initialUnread={unread}
               initialItems={recent}
