@@ -106,10 +106,20 @@ export default async function DashboardLayout({
     redirect('/onboarding/territory-confirm');
   }
 
+  // Demo tenants don't see internal/admin surfaces. Right now we hide
+  // the entire Settings hub — once we ship a "customer-safe" settings
+  // page we'll switch this to a denylist of specific subpages.
+  const visibleSections = ctx.tenant.is_demo
+    ? NAV_SECTIONS.map((s) => ({
+        ...s,
+        items: s.items.filter((i) => i.href !== '/settings'),
+      })).filter((s) => s.items.length > 0)
+    : NAV_SECTIONS;
+
   return (
     <div className="flex min-h-screen bg-surface">
       <SideNav
-        sections={NAV_SECTIONS}
+        sections={visibleSections}
         tenant={{ business_name: ctx.tenant.business_name }}
         user_email={ctx.user_email}
       />

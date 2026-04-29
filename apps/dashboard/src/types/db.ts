@@ -100,6 +100,12 @@ export interface TenantRow {
   demo_device_limit_enabled?: boolean;
   demo_device_max_total?: number;
   demo_device_idle_timeout_minutes?: number;
+  /**
+   * When true, the dashboard hides the Settings hub and any other
+   * surfaces that should not be exposed to demo viewers. Set on
+   * showroom / sales-demo accounts only.
+   */
+  is_demo?: boolean;
 }
 
 /**
