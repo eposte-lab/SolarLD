@@ -22,6 +22,7 @@ import {
   ArrowUpRight,
   Check,
   ExternalLink,
+  Phone,
 } from 'lucide-react';
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
@@ -363,6 +364,50 @@ export default async function LeadDetailPage({ params }: PageProps) {
                       aria-label="Non verificata"
                     />
                   )}
+                </span>
+              ) : (
+                '—'
+              )
+            }
+          />
+          {/*
+            Telefono — populated by L2 enrichment from Atoka raw payload
+            (`raw.phones`/`raw.contacts`/`raw.base.phone`, free in the
+            includeContacts bundle), with website-scrape fallback when
+            Atoka has nothing. Source badge ("Atoka", "Sito web",
+            "Manuale") so ops can audit data quality at a glance.
+            Wrapped in a <a href="tel:"> for one-tap dial on mobile.
+          */}
+          <DataRow
+            label="Telefono"
+            value={
+              lead.subjects?.decision_maker_phone ? (
+                <span className="inline-flex items-center justify-end gap-1.5">
+                  <a
+                    href={`tel:${lead.subjects.decision_maker_phone}`}
+                    className="hover:underline focus:underline focus:outline-none"
+                  >
+                    {lead.subjects.decision_maker_phone}
+                  </a>
+                  <Phone
+                    size={12}
+                    strokeWidth={2.25}
+                    className="text-on-surface-variant"
+                    aria-hidden
+                  />
+                  {lead.subjects.decision_maker_phone_source ? (
+                    <span
+                      className="rounded-full bg-surface-container-low px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-on-surface-variant"
+                      title="Sorgente del numero di telefono"
+                    >
+                      {lead.subjects.decision_maker_phone_source === 'atoka'
+                        ? 'Atoka'
+                        : lead.subjects.decision_maker_phone_source ===
+                            'website_scrape'
+                          ? 'Sito web'
+                          : 'Manuale'}
+                    </span>
+                  ) : null}
                 </span>
               ) : (
                 '—'

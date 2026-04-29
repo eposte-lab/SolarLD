@@ -140,6 +140,12 @@ class AtokaProfile:
     decision_maker_name: str | None
     decision_maker_role: str | None
     linkedin_url: str | None
+    # Phone number is part of the `includeContacts:true` bundle we
+    # already pay for (€0.15/lookup). Atoka returns it under several
+    # possible keys (`raw.phones[]`, `raw.contacts[].value`,
+    # `raw.base.phone`); see `_extract_phone()` for the merge logic.
+    # NULL = Atoka had no phone for this VAT (≈30% of B2B records).
+    phone: str | None = None
     # HQ address — populated by discovery search, left empty by single-lookup
     # for backwards compat. HunterAgent's ATECO-precision pipeline relies on
     # these to forward-geocode → Solar.
@@ -363,6 +369,49 @@ async def atoka_search_by_criteria(
     return collected
 
 
+def _extract_phone(company: dict[str, Any]) -> str | None:
+    """Pull a phone number out of an Atoka company payload.
+
+    Atoka's response shape drifts between plan tiers and endpoints
+    (`/companies` vs `/search`), so we probe each known location and
+    return the first hit:
+
+      - ``company.phones`` → list of strings or ``{number, value}`` dicts
+      - ``company.contacts`` → list of ``{type:"phone", value:"..."}``
+      - ``company.base.phone`` → single string fallback
+
+    Returns ``None`` if no phone is present (Atoka has it for ~70% of
+    B2B records — partita IVA-only entities and very small SRL often
+    don't publish a number).
+    """
+    if not company:
+        return None
+
+    phones = company.get("phones")
+    if isinstance(phones, list) and phones:
+        first = phones[0]
+        if isinstance(first, str) and first.strip():
+            return first.strip()
+        if isinstance(first, dict):
+            v = first.get("number") or first.get("value")
+            if v:
+                return str(v).strip()
+
+    for c in company.get("contacts") or []:
+        if isinstance(c, dict) and c.get("type") == "phone":
+            v = c.get("value")
+            if v:
+                return str(v).strip()
+
+    base = company.get("base") or {}
+    if isinstance(base, dict):
+        v = base.get("phone")
+        if v:
+            return str(v).strip()
+
+    return None
+
+
 def _atoka_company_to_profile(
     company: dict[str, Any], *, fallback_vat: str
 ) -> AtokaProfile:
@@ -409,6 +458,7 @@ def _atoka_company_to_profile(
         decision_maker_name=primary_contact.get("name"),
         decision_maker_role=primary_contact.get("role"),
         linkedin_url=primary_contact.get("linkedin"),
+        phone=_extract_phone(company),
         hq_address=hq_addr,
         hq_cap=hq.get("zip") or hq.get("cap"),
         hq_city=hq.get("city") or hq.get("comune"),

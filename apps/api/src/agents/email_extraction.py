@@ -239,6 +239,16 @@ class EmailExtractionAgent(AgentBase[EmailExtractionInput, EmailExtractionOutput
                     notes=extraction.notes,
                 )
 
+        # ------------------------------------------------------------------
+        # Phone extraction — runs AFTER email so we can reuse the same
+        # contact pages (and most likely have a warm DNS / TCP cache).
+        # Atoka phone is already written to `subjects.decision_maker_phone`
+        # by L4 when Atoka returned one (`source='atoka'`); we only
+        # overwrite if the subject still has NULL — i.e. when L4 had
+        # nothing to put there. Atoka prevails over website scrape per plan.
+        # ------------------------------------------------------------------
+        await self._maybe_extract_and_write_phone(payload, sb)
+
         # Always enqueue scoring — even without email (OutreachAgent falls
         # back to postal channel or skips gracefully if no channel is viable).
         await self._enqueue_scoring(payload)
@@ -281,6 +291,96 @@ class EmailExtractionAgent(AgentBase[EmailExtractionInput, EmailExtractionOutput
             log.warning(
                 "email_extraction.scoring_enqueue_failed",
                 subject_id=payload.subject_id,
+                err=str(exc),
+            )
+
+    async def _maybe_extract_and_write_phone(
+        self, payload: EmailExtractionInput, sb: Any
+    ) -> None:
+        """Best-effort phone extraction — never raises.
+
+        Skips entirely when the subject already has `decision_maker_phone`
+        populated (L4 wrote it from Atoka). When the subject row has NULL,
+        runs the cascade: if Atoka has it after all (the candidate dict
+        carries it), we tag source='atoka'; otherwise fall back to website
+        scraping with source='website_scrape'.
+        """
+        from ..services.email_extractor import extract_phone
+
+        try:
+            existing = await asyncio.to_thread(
+                lambda: sb.table("subjects")
+                .select("decision_maker_phone")
+                .eq("id", payload.subject_id)
+                .limit(1)
+                .execute()
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.debug(
+                "email_extraction.phone_subject_read_failed",
+                subject_id=payload.subject_id,
+                err=str(exc),
+            )
+            return
+
+        existing_phone = (
+            (existing.data or [{}])[0].get("decision_maker_phone")
+            if existing.data
+            else None
+        )
+        if existing_phone:
+            return  # L4 already wrote a phone (Atoka). Don't overwrite.
+
+        try:
+            result = await extract_phone(payload.candidate)
+        except Exception as exc:  # noqa: BLE001
+            log.debug(
+                "email_extraction.phone_extract_failed",
+                subject_id=payload.subject_id,
+                err=str(exc),
+            )
+            return
+
+        if not result.phone or result.source == "failed":
+            return
+
+        await self._write_phone_to_subject(
+            payload.subject_id, result.phone, result.source, sb
+        )
+        log.info(
+            "email_extraction.phone_found",
+            tenant_id=payload.tenant_id,
+            subject_id=payload.subject_id,
+            source=result.source,
+            confidence=result.confidence,
+        )
+
+    async def _write_phone_to_subject(
+        self,
+        subject_id: str,
+        phone: str,
+        source: str,
+        sb: Any,
+    ) -> None:
+        """Persist phone + provenance. Source must satisfy migration 0076's
+        CHECK constraint: 'atoka' | 'website_scrape' | 'manual'.
+        """
+        try:
+            await asyncio.to_thread(
+                lambda: sb.table("subjects")
+                .update(
+                    {
+                        "decision_maker_phone": phone,
+                        "decision_maker_phone_source": source,
+                    }
+                )
+                .eq("id", subject_id)
+                .execute()
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.warning(
+                "email_extraction.subject_phone_write_failed",
+                subject_id=subject_id,
                 err=str(exc),
             )
 
@@ -359,6 +459,16 @@ def build_candidate_dict_from_profile(
         except (TypeError, ValueError):
             revenue_history = None
 
+    # Phone: prefer enrichment (already extracted by L2 from Atoka raw)
+    # over a re-extraction. Falls back to the typed AtokaProfile.phone
+    # field (populated by `_atoka_company_to_profile`) for the
+    # admin-seed path that bypasses L2.
+    candidate_phone: str | None = None
+    if enrichment and getattr(enrichment, "phone", None):
+        candidate_phone = enrichment.phone
+    elif getattr(profile, "phone", None):
+        candidate_phone = profile.phone
+
     return {
         # Core identity
         "legal_name": profile.legal_name,
@@ -368,6 +478,7 @@ def build_candidate_dict_from_profile(
         "yearly_revenue_cents": profile.yearly_revenue_cents,
         # Email extraction fields
         "email": dm_email,
+        "phone": candidate_phone,
         "website_domain": (
             (enrichment.website if enrichment and enrichment.website else None)
             or profile.website_domain

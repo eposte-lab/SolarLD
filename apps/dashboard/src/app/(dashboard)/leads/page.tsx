@@ -18,6 +18,7 @@ import { BentoCard } from '@/components/ui/bento-card';
 import { GradientButton } from '@/components/ui/gradient-button';
 import { HotLeadsNow } from '@/components/hot-leads-now';
 import { LeadsTable } from '@/components/leads/leads-table';
+import { TestPipelineBanner } from '@/components/demo/test-pipeline-banner';
 import {
   LEADS_PAGE_SIZE,
   listHotLeadsAwaitingResponse,
@@ -140,6 +141,21 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
           Aggiungi territorio
         </GradientButton>
       </header>
+
+      {/*
+        Demo "Avvia test pipeline" banner — only rendered for demo
+        tenants (`is_demo=true`). The counter (`demo_pipeline_test_remaining`)
+        is decremented atomically on every successful pipeline run by
+        the API endpoint `POST /v1/demo/test-pipeline`.
+
+        Production tenants never see this surface; the conditional
+        guard is the single source of truth for visibility.
+      */}
+      {ctx.tenant.is_demo && (
+        <TestPipelineBanner
+          attemptsRemaining={ctx.tenant.demo_pipeline_test_remaining ?? 0}
+        />
+      )}
 
       {/* Mode tabs ---------------------------------------------------- */}
       <div className="flex gap-2">

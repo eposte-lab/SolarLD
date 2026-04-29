@@ -378,6 +378,10 @@ class SeedTestCandidateRequest(BaseModel):
         default=None,
         description="Real inbox — this is the recipient of the test email",
     )
+    decision_maker_phone: str | None = Field(
+        default=None,
+        description="Optional phone number for the anagrafica panel (manual override).",
+    )
 
     # ── Test-control flags ────────────────────────────────────────────────
     solar_override: SolarOverride = Field(
@@ -494,6 +498,8 @@ async def seed_test_candidate(
         # Without this, _resolve_recipient() returns None and the outreach
         # agent skips with reason='no_verified_email'.
         "decision_maker_email_verified": bool(body.decision_maker_email),
+        "decision_maker_phone": body.decision_maker_phone,
+        "decision_maker_phone_source": "manual" if body.decision_maker_phone else None,
         "data_sources": ["seed_test"],
         "enrichment_cost_cents": 0,
         "enrichment_completed_at": now.isoformat(),

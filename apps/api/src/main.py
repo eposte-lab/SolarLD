@@ -31,6 +31,7 @@ from .routes import (
     cluster_ab,
     contatti,
     crm_webhooks,
+    demo,
     email_domains,
     events,
     experiments,
@@ -140,6 +141,10 @@ app.include_router(webhooks.router, prefix="/v1/webhooks", tags=["webhooks"])
 app.include_router(public.router, prefix="/v1/public", tags=["public"])
 app.include_router(analytics.router, prefix="/v1/analytics", tags=["analytics"])
 app.include_router(admin.router, prefix="/v1/admin", tags=["admin"])
+# Customer-facing "Avvia test pipeline" CTA on the demo tenant.
+# Auth is per-tenant (any role); the endpoint itself enforces the
+# `is_demo` flag and the per-tenant 3-attempt counter (migration 0077).
+app.include_router(demo.router, prefix="/v1/demo", tags=["demo"])
 app.include_router(
     crm_webhooks.router, prefix="/v1/crm-webhooks", tags=["crm-webhooks"]
 )

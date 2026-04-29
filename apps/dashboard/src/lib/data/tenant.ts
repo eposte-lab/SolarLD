@@ -43,7 +43,7 @@ export const getCurrentTenantContext = cache(async (): Promise<TenantContext | n
   // migration 0047 is applied (those columns didn't exist before it).
   const { data: member } = await supabase
     .from('tenant_members')
-    .select('tenant_id, role, tenants:tenants(id, business_name, brand_primary_color, brand_logo_url, contact_email, whatsapp_number, email_from_domain, email_from_name, email_from_domain_verified_at, tier, settings, demo_device_limit_enabled, demo_device_max_total, demo_device_idle_timeout_minutes, is_demo)')
+    .select('tenant_id, role, tenants:tenants(id, business_name, brand_primary_color, brand_logo_url, contact_email, whatsapp_number, email_from_domain, email_from_name, email_from_domain_verified_at, tier, settings, demo_device_limit_enabled, demo_device_max_total, demo_device_idle_timeout_minutes, is_demo, demo_pipeline_test_remaining)')
     .eq('user_id', user.id)
     .limit(1)
     .maybeSingle();

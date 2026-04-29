@@ -28,7 +28,8 @@ const LIST_COLUMNS = `
   engagement_score, engagement_score_updated_at,
   portal_sessions, portal_total_time_sec, deepest_scroll_pct,
   subjects:subjects(type, business_name, owner_first_name, owner_last_name,
-                    decision_maker_email, decision_maker_email_verified),
+                    decision_maker_email, decision_maker_email_verified,
+                    decision_maker_phone, decision_maker_phone_source),
   roofs:roofs(address, comune, provincia, cap,
               estimated_kwp, estimated_yearly_kwh, area_sqm)
 `.trim();
@@ -51,7 +52,8 @@ const DETAIL_COLUMNS = `
   engagement_score, engagement_score_updated_at,
   portal_sessions, portal_total_time_sec, deepest_scroll_pct,
   subjects:subjects(type, business_name, owner_first_name, owner_last_name,
-                    decision_maker_email, decision_maker_email_verified),
+                    decision_maker_email, decision_maker_email_verified,
+                    decision_maker_phone, decision_maker_phone_source),
   roofs:roofs(${DETAIL_ROOF_COLUMNS}),
   rendering_image_url, rendering_video_url, rendering_gif_url, portal_video_slug,
   roi_data, outreach_delivered_at, outreach_clicked_at,

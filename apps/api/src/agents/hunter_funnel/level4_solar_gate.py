@@ -395,7 +395,15 @@ def _upsert_roof_and_subject(
                             "type": "b2b",
                             "business_name": cand.profile.legal_name,
                             "business_website": cand.enrichment.website,
-                            "business_phone": cand.enrichment.phone,
+                            # Phone resolved upstream by L2: prefer Atoka's
+                            # raw bundle (free, ~70% coverage); fall back
+                            # to website scrape regex hit (free); else NULL.
+                            # The `*_source` column lets the UI badge the
+                            # provenance and ops audit data quality.
+                            "decision_maker_phone": cand.enrichment.phone,
+                            "decision_maker_phone_source": (
+                                "atoka" if cand.enrichment.phone else None
+                            ),
                             "vat_number": cand.profile.vat_number,
                             "ateco_code": cand.profile.ateco_code,
                             "employees": cand.profile.employees,

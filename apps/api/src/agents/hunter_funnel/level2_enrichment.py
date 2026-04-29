@@ -174,33 +174,15 @@ async def _scan_website(url: str, *, client: httpx.AsyncClient) -> list[str]:
 
 
 def _extract_phone_from_raw(raw: dict[str, Any]) -> str | None:
-    """Atoka's raw payload nests phones under several possible keys."""
-    if not raw:
-        return None
-    # Common shapes:
-    #   raw.phones: ["+39...", ...]
-    #   raw.contacts: [{"type": "phone", "value": "+39..."}]
-    #   raw.base.phone: "+39..."
-    phones = raw.get("phones")
-    if isinstance(phones, list) and phones:
-        first = phones[0]
-        if isinstance(first, str):
-            return first
-        if isinstance(first, dict):
-            return first.get("number") or first.get("value")
+    """Atoka's raw payload nests phones under several possible keys.
 
-    contacts = raw.get("contacts") or []
-    for c in contacts:
-        if isinstance(c, dict) and c.get("type") == "phone":
-            v = c.get("value")
-            if v:
-                return str(v)
-
-    base = raw.get("base") or {}
-    if isinstance(base, dict):
-        return base.get("phone")
-
-    return None
+    Thin wrapper kept for backwards compatibility — the canonical
+    implementation lives in `italian_business_service._extract_phone`
+    so the single-lookup path (admin seed) and the discovery funnel
+    share one code path.
+    """
+    from ...services.italian_business_service import _extract_phone  # local import to avoid cycle
+    return _extract_phone(raw)
 
 
 # ---------------------------------------------------------------------------

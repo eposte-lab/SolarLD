@@ -90,6 +90,20 @@ _PLAIN_EMAIL_RE = re.compile(
     r'\b([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})\b',
 )
 
+# Phone regex: `tel:` href links are the highest-confidence signal because
+# the site author marked them up explicitly for click-to-call. We also do
+# a plain-text pass with an Italian phone shape — fissi (0X plus 6–8 digits)
+# and mobili (3XX plus 6–7 digits), with optional +39 prefix and varied
+# separators. We deliberately keep this strict to avoid grabbing fiscal
+# codes, P.IVA fragments, or random number runs in marketing copy.
+_TEL_HREF_RE = re.compile(
+    r'href=["\']tel:([+\d][\d\s\-./()]{6,24}\d)["\']',
+    re.IGNORECASE,
+)
+_PLAIN_PHONE_RE = re.compile(
+    r"(?:\+39[\s\-./]?)?(?:0\d{1,3}|3\d{2})[\s\-./]?\d{3}[\s\-./]?\d{3,5}",
+)
+
 # Role accounts we never target — their inbox is typically a ticket queue,
 # not a person. Sending cold B2B to `info@` is noise and harms reputation.
 _ROLE_PREFIXES = frozenset({
@@ -411,6 +425,215 @@ def _score_email(email: str, company_domain: str, *, is_mailto: bool) -> float:
         score += 0.3
 
     return min(1.0, score)
+
+
+# ---------------------------------------------------------------------------
+# Phone extraction cascade
+# ---------------------------------------------------------------------------
+#
+# Mirror of the email cascade but cheaper — Atoka phone is already loaded in
+# memory by L2 enrichment, and the website scrape reuses the same HTTP fetches
+# we'd do for email anyway (same contact pages, same domain). Confidence is
+# only meaningful for the website source — Atoka phone is treated as 1.0.
+#
+# What we do NOT do:
+#   * Guess phone numbers from the area-code prefix and a Google search
+#     (no GDPR basis, no source provenance).
+#   * Pull arbitrary numbers from the page footer regardless of context
+#     — the regex above is strict to avoid sucking in P.IVA fragments
+#     and CAP codes that happen to be 5–7 digits.
+
+
+@dataclass
+class PhoneExtractionResult:
+    """Outcome of one phone extraction attempt.
+
+    Source values mirror `subjects.decision_maker_phone_source` CHECK
+    constraint (migration 0076): 'atoka', 'website_scrape', 'manual',
+    or `None` when nothing was found ('failed' here is the in-memory
+    sentinel — the caller writes NULL when source == 'failed').
+    """
+
+    phone: str | None
+    source: str               # 'atoka' | 'website_scrape' | 'failed'
+    confidence: float         # 0..1 — meaningful for website_scrape; 1.0 for Atoka
+    notes: str = ""
+
+
+async def extract_phone(
+    azienda: dict[str, Any],
+    *,
+    http_client: httpx.AsyncClient | None = None,
+) -> PhoneExtractionResult:
+    """Run the phone-extraction cascade for one company.
+
+    Order is the same as `extract_email`:
+      1. Atoka (already loaded in memory — `azienda.get("phone")`).
+      2. Website scraping (`tel:` href + plain Italian phone regex on
+         the contact / about / homepage URLs).
+
+    Returns a `PhoneExtractionResult` with `source='failed'` when nothing
+    was found. Never raises; HTTP errors are swallowed and treated as
+    "no phone here, try the next URL".
+    """
+
+    # 1. Atoka — populated upstream by `_extract_phone()` in
+    #    `italian_business_service.py` (the canonical helper) and copied
+    #    into the candidate dict by `build_candidate_dict_from_profile`.
+    atoka_phone = _normalise_phone((azienda.get("phone") or "").strip())
+    if atoka_phone:
+        return PhoneExtractionResult(
+            phone=atoka_phone,
+            source="atoka",
+            confidence=1.0,
+            notes="Phone from Atoka B2B database (raw.contacts / raw.phones).",
+        )
+
+    # 2. Website scraping
+    domain = _resolve_domain(azienda)
+    if not domain:
+        return PhoneExtractionResult(
+            phone=None,
+            source="failed",
+            confidence=0.0,
+            notes="No website domain to scrape for phone.",
+        )
+
+    base_url = _domain_to_base_url(domain)
+    if not base_url:
+        return PhoneExtractionResult(
+            phone=None,
+            source="failed",
+            confidence=0.0,
+            notes="Domain malformed, cannot build base URL.",
+        )
+
+    owns_client = http_client is None
+    if owns_client:
+        http_client = httpx.AsyncClient(
+            timeout=WEBSITE_FETCH_TIMEOUT_S,
+            max_redirects=WEBSITE_MAX_REDIRECTS,
+            headers={"User-Agent": "SolarLead/2.0 (business contact research)"},
+            follow_redirects=True,
+        )
+    try:
+        candidates: list[tuple[float, str, str]] = []  # (score, phone, page_url)
+        for path in _CONTACT_PATHS:
+            url = base_url.rstrip("/") + path
+            phones_on_page = await _fetch_phones_from_url(url, client=http_client)
+            for phone, score in phones_on_page:
+                candidates.append((score, phone, url))
+            if candidates:
+                # Don't keep scraping once we have at least one phone — the
+                # contact page comes first in `_CONTACT_PATHS` so this is
+                # almost always the best signal anyway.
+                break
+    finally:
+        if owns_client:
+            await http_client.aclose()
+
+    if not candidates:
+        return PhoneExtractionResult(
+            phone=None,
+            source="failed",
+            confidence=0.0,
+            notes="No phone found on contact / about / homepage.",
+        )
+
+    candidates.sort(key=lambda x: (-x[0], x[1]))
+    best_score, best_phone, best_url = candidates[0]
+    return PhoneExtractionResult(
+        phone=best_phone,
+        source="website_scrape",
+        confidence=round(best_score, 2),
+        notes=f"Phone scraped from {best_url} (confidence={best_score:.2f}).",
+    )
+
+
+async def _fetch_phones_from_url(
+    url: str,
+    *,
+    client: httpx.AsyncClient,
+) -> list[tuple[str, float]]:
+    """Fetch a URL and return `[(normalised_phone, score)]` of phones found.
+
+    Score:
+      * +0.6 if the phone was found inside a `tel:` href (high confidence,
+        explicitly marked up for click-to-call by the site author).
+      * +0.4 for plain-text matches on the page body.
+    Maximum score = 1.0 when the same phone shows up both in a `tel:` href
+    and as plain text (very common — the visible number is also the link).
+
+    Returns empty list on HTTP error, timeout, or no matches.
+    """
+
+    try:
+        resp = await client.get(url)
+    except (httpx.TimeoutException, httpx.RequestError) as exc:
+        log.debug("phone_extractor.fetch_failed", url=url, err=str(exc))
+        return []
+
+    if resp.status_code not in (200, 203):
+        return []
+
+    body = resp.text[:WEBSITE_MAX_RESPONSE_BYTES]
+
+    found: dict[str, float] = {}
+
+    # tel: href links (highest confidence).
+    for match in _TEL_HREF_RE.finditer(body):
+        normalised = _normalise_phone(match.group(1))
+        if not normalised:
+            continue
+        found[normalised] = max(found.get(normalised, 0.0), 0.6)
+
+    # Plain-text Italian phone shapes.
+    for match in _PLAIN_PHONE_RE.finditer(body):
+        normalised = _normalise_phone(match.group(0))
+        if not normalised:
+            continue
+        # Filter out things that are clearly not phones — fiscal codes are
+        # 16 chars with letters mixed in (won't match the regex), but P.IVA
+        # is 11 digits which COULD slip through if formatted weirdly.
+        # Length sanity: Italian phones are 9-11 digits after normalisation.
+        digits = re.sub(r"\D", "", normalised)
+        if len(digits) < 9 or len(digits) > 13:
+            continue
+        found[normalised] = max(found.get(normalised, 0.0), 0.4)
+
+    return [(p, s) for p, s in found.items() if s > 0.0]
+
+
+def _normalise_phone(raw: str) -> str | None:
+    """Normalise Italian phones to a canonical `+39 NNNNNNNNN` form.
+
+    Strips spaces, dashes, dots, slashes, parentheses. Keeps a leading `+`.
+    If the input has no country code, prepends `+39` (Italy).
+    Returns None when the result is too short to be a real number.
+    """
+    if not raw:
+        return None
+
+    cleaned = re.sub(r"[\s\-./()]+", "", raw.strip())
+    if not cleaned:
+        return None
+
+    # Drop a leading 00 (international dial prefix) in favour of +.
+    if cleaned.startswith("00"):
+        cleaned = "+" + cleaned[2:]
+
+    if cleaned.startswith("+"):
+        # Already E.164-ish — strip non-digits after the `+`.
+        digits = re.sub(r"\D", "", cleaned[1:])
+        if len(digits) < 9:
+            return None
+        return f"+{digits}"
+
+    # No country code — assume Italian.
+    digits = re.sub(r"\D", "", cleaned)
+    if len(digits) < 9:
+        return None
+    return f"+39{digits}"
 
 
 # ---------------------------------------------------------------------------

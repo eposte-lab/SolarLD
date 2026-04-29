@@ -106,6 +106,14 @@ export interface TenantRow {
    * showroom / sales-demo accounts only.
    */
   is_demo?: boolean;
+  /**
+   * Lifetime budget for the customer-facing "Avvia test pipeline"
+   * banner on `/leads`. Decremented atomically by
+   * `POST /v1/demo/test-pipeline` and never resets — the cap protects
+   * Solar/Mapbox/Atoka quotas during a sales call. Default 0
+   * (feature off) for non-demo tenants. See migration 0077.
+   */
+  demo_pipeline_test_remaining?: number;
 }
 
 /**
@@ -161,6 +169,26 @@ export interface SubjectSummary {
   owner_last_name: string | null;
   decision_maker_email: string | null;
   decision_maker_email_verified: boolean;
+  /**
+   * Decision-maker phone (E.164-ish "+39…" form). NULL when neither Atoka
+   * nor the website scraper could find one — the lead is still actionable
+   * via email; phone is a credibility nice-to-have for the anagrafica.
+   * Free to acquire (Atoka bundles it; scraper is regex over the contact
+   * page).
+   */
+  decision_maker_phone?: string | null;
+  /**
+   * Provenance for the badge in the anagrafica panel:
+   *   'atoka'          — high confidence, paid B2B registry bundle
+   *   'website_scrape' — extracted from the company's own contact page
+   *   'manual'         — typed in by an operator via the admin seed flow
+   * NULL when `decision_maker_phone` is also NULL.
+   */
+  decision_maker_phone_source?:
+    | "atoka"
+    | "website_scrape"
+    | "manual"
+    | null;
 }
 
 /** Lead row as displayed in the list view (joined with subject + roof summary). */
