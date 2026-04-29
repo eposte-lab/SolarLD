@@ -61,8 +61,8 @@ export default function LoginPage() {
         <div className="w-full max-w-sm">
           {/* Brand mark */}
           <div className="mb-8 flex flex-col items-center text-center">
-            <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-white shadow-ambient-sm ghost-border-strong">
-              <BrandLogo size={40} title="SolarLead" />
+            <div className="mb-3">
+              <BrandLogo size={56} title="SolarLead" className="rounded-full" />
             </div>
             <span className="font-headline text-4xl font-extrabold tracking-tighter text-primary">
               SolarLead

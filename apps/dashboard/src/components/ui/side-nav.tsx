@@ -165,10 +165,11 @@ export function SideNav({ items, sections, tenant, user_email }: SideNavProps) {
   return (
     <nav className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col bg-surface-container-lowest/80 backdrop-blur-glass-sm p-5 ghost-border md:flex">
       {/* Brand lockup */}
-      <div className="mb-7 flex items-center gap-3 px-1.5">
-        <div className="relative flex h-10 w-10 items-center justify-center rounded-2xl bg-white ghost-border-strong overflow-hidden">
-          <BrandLogo size={28} title="SolarLead" />
-        </div>
+      <div className="mb-7 flex items-center gap-2.5 px-1.5">
+        {/* Logo rendered directly — no coloured badge wrapper so the
+            circular mark with its own white/green/gold palette reads
+            cleanly on the dark sidebar without a "box-in-box" effect. */}
+        <BrandLogo size={40} title="SolarLead" className="rounded-full" />
         <div className="leading-tight">
           <h1 className="font-headline text-[17px] font-bold tracking-tightest text-on-surface">
             SolarLead
