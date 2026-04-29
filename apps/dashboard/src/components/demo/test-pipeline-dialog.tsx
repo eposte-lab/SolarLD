@@ -190,7 +190,7 @@ export function TestPipelineDialog({
 
       <dialog
         ref={ref}
-        className="m-auto w-full max-w-xl rounded-2xl bg-surface p-0 shadow-ambient-lg backdrop:bg-on-surface/50 backdrop:backdrop-blur-sm"
+        className="m-auto w-full max-w-xl overflow-hidden rounded-2xl bg-surface p-0 shadow-ambient-lg backdrop:bg-on-surface/50 backdrop:backdrop-blur-sm"
         onClose={() => {
           // Reset the success state when the user dismisses, so the
           // next open shows the form again rather than the success card.
@@ -198,6 +198,25 @@ export function TestPipelineDialog({
           setSubmitStep('idle');
         }}
       >
+        {/* Hero strip — aerial of an industrial warehouse rooftop covered
+            in PV at golden hour. Matches the MULTILOG profile (logistica
+            industriale) and primes the prospect emotionally for "questo
+            è il rendering che riceverai". Kept thin (h-32) so the form
+            stays the focal point — "intravede in maniera professionale". */}
+        <div
+          className="relative h-32 w-full bg-gradient-to-r from-primary/20 to-primary/5"
+          aria-hidden
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/demo/solar-warehouses.jpg"
+            alt=""
+            className="h-full w-full object-cover opacity-90"
+            loading="eager"
+          />
+          <div className="absolute inset-0 bg-gradient-to-t from-surface via-surface/40 to-transparent" />
+        </div>
+
         <div className="space-y-4 p-6">
           <header className="flex items-start justify-between">
             <div>
