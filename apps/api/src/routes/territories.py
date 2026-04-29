@@ -117,9 +117,10 @@ async def trigger_scan(
     tenant_id = require_tenant(ctx)
 
     if scan_mode_override is not None and scan_mode_override not in _VALID_SCAN_MODES:
+        valid = ", ".join(sorted(_VALID_SCAN_MODES))
         raise HTTPException(
             status_code=422,
-            detail=f"scan_mode_override must be one of {sorted(_VALID_SCAN_MODES)}",
+            detail=f"Modalità di scansione non valida. Valori ammessi: {valid}.",
         )
 
     # Quick sanity check the territory exists and belongs to the tenant

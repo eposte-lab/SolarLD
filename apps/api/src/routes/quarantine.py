@@ -97,9 +97,13 @@ async def list_quarantine(
 
     if review_status and review_status != "all":
         if review_status not in _VALID_STATUSES:
+            valid = ", ".join(sorted(_VALID_STATUSES))
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"review_status must be one of {sorted(_VALID_STATUSES)} or 'all'",
+                detail=(
+                    f"Stato revisione non valido. Valori ammessi: {valid} "
+                    "oppure 'all'."
+                ),
             )
         q = q.eq("review_status", review_status)
 
@@ -107,7 +111,10 @@ async def list_quarantine(
         res = q.execute()
     except Exception as exc:  # noqa: BLE001
         log.warning("quarantine.list_failed", tenant_id=tenant_id, err=str(exc))
-        raise HTTPException(status_code=500, detail="DB error")
+        raise HTTPException(
+            status_code=500,
+            detail="Lista quarantena non disponibile in questo momento. Riprova tra qualche minuto.",
+        )
 
     return {
         "items": res.data or [],

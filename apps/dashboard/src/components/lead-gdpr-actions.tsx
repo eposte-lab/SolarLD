@@ -58,10 +58,11 @@ export function LeadGdprActions({ leadId, leadName, onDeleted }: Props) {
       URL.revokeObjectURL(url);
       setPhase('idle');
     } catch (err) {
+      // ApiError.message is already sanitized Italian copy.
       setErrorMsg(
         err instanceof ApiError
-          ? `Export fallito (${err.status}): ${err.message}`
-          : 'Errore inatteso durante l\u2019export.',
+          ? `Export fallito: ${err.message}`
+          : 'Errore inatteso durante l\u2019export. Riprova tra qualche minuto.',
       );
       setPhase('error');
     }
@@ -89,10 +90,11 @@ export function LeadGdprActions({ leadId, leadName, onDeleted }: Props) {
       setPhase('deleted');
       onDeleted();
     } catch (err) {
+      // ApiError.message is already sanitized Italian copy.
       setErrorMsg(
         err instanceof ApiError
-          ? `Eliminazione fallita (${err.status}): ${err.message}`
-          : 'Errore inatteso durante l\u2019eliminazione.',
+          ? `Eliminazione fallita: ${err.message}`
+          : 'Errore inatteso durante l\u2019eliminazione. Riprova tra qualche minuto.',
       );
       setPhase('error');
     }

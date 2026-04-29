@@ -276,7 +276,10 @@ def _check_subject(subject: str, violations: list[ValidationViolation]) -> None:
             ValidationViolation(
                 rule="subject_too_long",
                 field="subject",
-                detail=f"Subject is {len(subject)} chars (max {MAX_SUBJECT_LENGTH})",
+                detail=(
+                    f"Oggetto di {len(subject)} caratteri (massimo "
+                    f"{MAX_SUBJECT_LENGTH})."
+                ),
                 severity="warn",
             )
         )
@@ -288,7 +291,10 @@ def _check_subject(subject: str, violations: list[ValidationViolation]) -> None:
             ValidationViolation(
                 rule="subject_all_caps",
                 field="subject",
-                detail=f"ALL-CAPS word(s) in subject: {', '.join(caps_words)}",
+                detail=(
+                    "Parole in MAIUSCOLO nell'oggetto: "
+                    f"{', '.join(caps_words)}."
+                ),
                 severity="warn",
             )
         )
@@ -299,7 +305,7 @@ def _check_subject(subject: str, violations: list[ValidationViolation]) -> None:
             ValidationViolation(
                 rule="subject_excessive_punctuation",
                 field="subject",
-                detail="3+ repeated punctuation characters in subject",
+                detail="Punteggiatura ripetuta nell'oggetto (3 o più caratteri uguali).",
                 severity="warn",
             )
         )
@@ -311,7 +317,7 @@ def _check_subject(subject: str, violations: list[ValidationViolation]) -> None:
                 ValidationViolation(
                     rule="spam_trigger_subject",
                     field="subject",
-                    detail=f"Spam trigger phrase in subject: '{phrase}'",
+                    detail=f"Frase a rischio spam nell'oggetto: '{phrase}'.",
                     severity=severity,
                 )
             )
@@ -332,7 +338,7 @@ def _check_body(plain_text: str, violations: list[ValidationViolation]) -> None:
                 ValidationViolation(
                     rule="spam_trigger_body",
                     field="body",
-                    detail=f"Spam trigger phrase in body: '{phrase}'",
+                    detail=f"Frase a rischio spam nel corpo dell'email: '{phrase}'.",
                     severity=severity,
                 )
             )
@@ -362,8 +368,8 @@ def _check_structure(
                 rule="too_many_links",
                 field="structure",
                 detail=(
-                    f"{live_links} links (excl. optout) exceeds max {max_links} "
-                    f"for style '{email_style}'"
+                    f"{live_links} link nell'email (escluso opt-out): "
+                    f"il limite per lo stile '{email_style}' è {max_links}."
                 ),
                 severity="warn",
             )
@@ -377,8 +383,8 @@ def _check_structure(
                 rule="too_many_images",
                 field="structure",
                 detail=(
-                    f"{image_count} <img> tags exceeds max {max_images} "
-                    f"for style '{email_style}'"
+                    f"{image_count} immagini nell'email: il limite per "
+                    f"lo stile '{email_style}' è {max_images}."
                 ),
                 severity="warn",
             )

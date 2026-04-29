@@ -153,12 +153,15 @@ async def create_email_domain(body: DomainCreate, ctx: CurrentUser) -> dict[str,
         if "unique" in err_str.lower() or "duplicate" in err_str.lower():
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail=f"Domain {body.domain!r} already exists for this tenant",
+                detail=(
+                    f"Il dominio {body.domain} è già configurato per questo "
+                    "account."
+                ),
             ) from exc
         log.warning("email_domains.create_failed", tenant_id=tenant_id, err=err_str)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to create domain",
+            detail="Creazione del dominio non riuscita. Riprova tra qualche minuto.",
         ) from exc
 
     if not res.data:

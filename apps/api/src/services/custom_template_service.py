@@ -147,9 +147,13 @@ def validate_custom_html(html: str) -> ValidationResult:
     try:
         ast = env.parse(html)
     except TemplateSyntaxError as exc:
+        # Surface the line number + Jinja2's own message — the tenant
+        # is editing template syntax, so the framework's pointer at the
+        # bad token is what they need. Drop the framework name
+        # ("Jinja2") from the user-facing copy; ops know it from logs.
         return ValidationResult(
             valid=False,
-            syntax_error=f"Errore di sintassi Jinja2 alla riga {exc.lineno}: {exc.message}",
+            syntax_error=f"Errore di sintassi del template alla riga {exc.lineno}: {exc.message}",
         )
 
     # Step 2 — extract referenced variables.

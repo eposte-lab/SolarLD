@@ -27,7 +27,7 @@ from pydantic import BaseModel, Field
 from ..core.logging import get_logger
 from ..core.security import CurrentUser, require_tenant
 from ..core.supabase_client import get_service_client
-from ..core.tier import Capability, TierGateError, require_capability
+from ..core.tier import Capability, require_capability
 from ..services.audit_service import log_action as audit_log
 
 log = get_logger(__name__)
@@ -120,13 +120,11 @@ async def create_experiment(
         .execute()
     )
     tenant_row = tenant_res.data or {}
-    try:
-        require_capability(tenant_row, Capability.AB_TESTING_TEMPLATES)
-    except TierGateError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Piano insufficiente: {exc}",
-        ) from exc
+    # Let the global tier_gate_handler in main.py turn TierGateError
+    # into a sanitized 403 with structured error code — re-raising
+    # locally with `Piano insufficiente: {exc}` would echo the English
+    # internal __str__ to the user.
+    require_capability(tenant_row, Capability.AB_TESTING_TEMPLATES)
 
     # One active at a time
     running = (

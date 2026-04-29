@@ -127,8 +127,10 @@ async def list_tenants(ctx: CurrentUser) -> list[dict[str, Any]]:
     try:
         res = sb.rpc("admin_tenant_overview", {}).execute()
     except Exception as exc:  # noqa: BLE001
+        log.warning("admin.tenant_overview_failed", err=str(exc))
         raise HTTPException(
-            status_code=502, detail=f"admin_tenant_overview rpc failed: {exc}"
+            status_code=502,
+            detail="Dati tenant temporaneamente non disponibili. Riprova tra qualche minuto.",
         ) from exc
     return res.data or []
 
@@ -313,8 +315,10 @@ async def cost_report(
     try:
         res = sb.rpc("admin_platform_cost", {"p_days": days}).execute()
     except Exception as exc:  # noqa: BLE001
+        log.warning("admin.platform_cost_failed", err=str(exc))
         raise HTTPException(
-            status_code=502, detail=f"admin_platform_cost rpc failed: {exc}"
+            status_code=502,
+            detail="Dati di costo piattaforma temporaneamente non disponibili. Riprova tra qualche minuto.",
         ) from exc
     return res.data or {
         "window_days": days,

@@ -214,18 +214,21 @@ async def create_inbox(body: InboxCreate, ctx: CurrentUser) -> dict[str, Any]:
         if "unique" in err_str.lower() or "duplicate" in err_str.lower():
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail=f"Inbox with email {body.email} already exists for this tenant",
+                detail=(
+                    f"L'inbox {body.email} è già configurata per questo "
+                    "account."
+                ),
             ) from exc
         log.warning("inboxes.create_failed", tenant_id=tenant_id, err=err_str)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to create inbox",
+            detail="Creazione inbox non riuscita. Riprova tra qualche minuto.",
         ) from exc
 
     if not res.data:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Insert returned no data",
+            detail="Creazione inbox non riuscita. Riprova tra qualche minuto.",
         )
 
     log.info("inboxes.created", tenant_id=tenant_id, inbox_id=res.data[0]["id"])
@@ -397,14 +400,24 @@ def _verify_oauth_state(token: str) -> dict[str, Any]:
             options={"require": ["exp", "iat"]},
         )
     except jwt.PyJWTError as exc:
+        # The PyJWT error message ("Signature has expired", "Invalid
+        # crypto padding", …) is internal noise. Log it; surface a
+        # generic Italian message to the user.
+        log.warning("inboxes.oauth_state_invalid", err=str(exc))
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid OAuth state: {exc}",
+            detail=(
+                "Sessione OAuth scaduta o non valida. Torna alla pagina "
+                "Inbox e riprova a collegare l'account."
+            ),
         ) from exc
     if payload.get("purpose") != "gmail_oauth_connect":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="OAuth state has wrong purpose",
+            detail=(
+                "Sessione OAuth non valida. Torna alla pagina Inbox e "
+                "riprova a collegare l'account."
+            ),
         )
     return payload
 

@@ -38,7 +38,7 @@ def _rpc(name: str, params: dict[str, Any]) -> Any:
         log.warning("analytics.rpc_failed", fn=name, err=str(exc))
         raise HTTPException(
             status_code=502,
-            detail=f"analytics rpc {name} failed",
+            detail="Dati analytics temporaneamente non disponibili. Riprova tra qualche minuto.",
         ) from exc
     return res.data
 

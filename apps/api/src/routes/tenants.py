@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, status
 
+from ..core.logging import get_logger
 from ..core.security import CurrentUser, require_tenant
 from ..core.supabase_client import get_service_client
 
+log = get_logger(__name__)
 router = APIRouter()
 
 
@@ -17,7 +19,10 @@ async def get_my_tenant(ctx: CurrentUser) -> dict[str, object]:
     sb = get_service_client()
     res = sb.table("tenants").select("*").eq("id", tenant_id).limit(1).execute()
     if not res.data:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Account non trovato.",
+        )
     return res.data[0]
 
 
@@ -62,8 +67,10 @@ async def get_usage(ctx: CurrentUser) -> dict[str, object]:
     try:
         res = sb.rpc("analytics_usage_mtd", {"p_tenant_id": tenant_id}).execute()
     except Exception as exc:
+        log.warning("tenants.usage_mtd_failed", tenant_id=tenant_id, err=str(exc))
         raise HTTPException(
-            status_code=502, detail=f"usage rpc failed: {exc}"
+            status_code=502,
+            detail="Statistiche di utilizzo temporaneamente non disponibili. Riprova tra qualche minuto.",
         ) from exc
     return res.data or {
         "roofs_scanned_mtd": 0,

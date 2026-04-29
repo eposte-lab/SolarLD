@@ -79,10 +79,11 @@ export function FollowupBulkPanel({ tenantId: _tenantId }: Props) {
       setDrafts(results.map((r) => ({ ...r, sendStatus: sendImmediately && r.ok ? 'sent' : 'idle' })));
       setGeneratingStatus('done');
     } catch (err) {
+      // ApiError.message is already sanitized Italian copy.
       setGlobalError(
         err instanceof ApiError
-          ? `Errore (${err.status}): ${err.message}`
-          : 'Errore inatteso durante la generazione.',
+          ? err.message
+          : 'Errore inatteso durante la generazione. Riprova tra qualche minuto.',
       );
       setGeneratingStatus('error');
     }

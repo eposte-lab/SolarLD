@@ -235,7 +235,14 @@ async def setup_domain(
             existing_id = None
 
     if not settings.resend_api_key:
-        raise HTTPException(status_code=503, detail="Resend API key not configured")
+        log.error("branding.resend_api_key_missing")
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Servizio email non configurato. Contatta il supporto per "
+                "completare la configurazione."
+            ),
+        )
 
     # Pre-flight: look up the domain in our Resend account first. This is
     # both cheaper (no needless POST) and handles the "orphan from a
@@ -301,9 +308,21 @@ async def setup_domain(
             domain_id = str(retry["id"])
             log.info("branding.domain_recovered_race", domain=domain, domain_id=domain_id)
         elif resp.status_code not in (200, 201):
+            # Vendor (Resend) status + body fragments are diagnostic
+            # noise — log them, surface a generic Italian message.
+            log.warning(
+                "branding.domain_create_failed",
+                domain=domain,
+                upstream_status=resp.status_code,
+                upstream_body=resp.text[:500],
+            )
             raise HTTPException(
                 status_code=502,
-                detail=f"Resend domain creation failed: {resp.status_code} — {resp.text[:200]}",
+                detail=(
+                    "Impossibile creare il dominio email in questo momento. "
+                    "Riprova tra qualche minuto; se il problema persiste, "
+                    "contatta il supporto."
+                ),
             )
         else:
             created = resp.json() or {}
@@ -1068,7 +1087,14 @@ async def get_email_template_info(ctx: CurrentUser) -> CustomTemplateInfo:
 
 def _resend_headers() -> dict[str, str]:
     if not settings.resend_api_key:
-        raise HTTPException(status_code=503, detail="Resend API key not configured")
+        log.error("branding.resend_api_key_missing")
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Servizio email non configurato. Contatta il supporto per "
+                "completare la configurazione."
+            ),
+        )
     return {
         "Authorization": f"Bearer {settings.resend_api_key}",
         "Content-Type": "application/json",
@@ -1086,7 +1112,14 @@ async def _fetch_domain_status(
     best-effort: we log failures but never let them block the status read.
     """
     if not settings.resend_api_key:
-        raise HTTPException(status_code=503, detail="Resend API key not configured")
+        log.error("branding.resend_api_key_missing")
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Servizio email non configurato. Contatta il supporto per "
+                "completare la configurazione."
+            ),
+        )
 
     async with httpx.AsyncClient(timeout=15.0) as client:
         if trigger_verify:
@@ -1114,12 +1147,24 @@ async def _fetch_domain_status(
 
     if resp.status_code == 404:
         raise HTTPException(
-            status_code=404, detail="Domain not found on Resend — it may have been deleted"
+            status_code=404,
+            detail=(
+                "Dominio email non più registrato. Disconnettilo e "
+                "configuralo nuovamente per continuare."
+            ),
         )
     if resp.status_code >= 400:
+        log.warning(
+            "branding.domain_status_failed",
+            domain_id=domain_id,
+            upstream_status=resp.status_code,
+        )
         raise HTTPException(
             status_code=502,
-            detail=f"Resend domain status error: {resp.status_code}",
+            detail=(
+                "Stato del dominio email non disponibile in questo "
+                "momento. Riprova tra qualche minuto."
+            ),
         )
 
     data = resp.json()

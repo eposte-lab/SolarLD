@@ -39,10 +39,13 @@ export function FollowupTrigger({ eligibleCount }: Props) {
       setResult(res);
       setStatus('done');
     } catch (err) {
+      // ApiError.message is already sanitized Italian copy from
+      // api-client.ts — don't prefix with the HTTP code (the user
+      // can't act on it).
       setErrorMsg(
         err instanceof ApiError
-          ? `Errore (${err.status}): ${err.message}`
-          : 'Errore inatteso durante il trigger.',
+          ? err.message
+          : 'Errore inatteso durante il trigger. Riprova tra qualche minuto.',
       );
       setStatus('error');
     }

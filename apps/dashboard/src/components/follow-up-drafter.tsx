@@ -72,10 +72,11 @@ export function FollowUpDrafter({ leadId }: { leadId: string }) {
       setBody(draft.body);
       setPhase('drafted');
     } catch (err) {
+      // ApiError.message is already sanitized Italian copy.
       setErrorMsg(
         err instanceof ApiError
-          ? `Generazione fallita (${err.status}): ${err.message}`
-          : 'Errore inatteso durante la generazione.',
+          ? `Generazione fallita: ${err.message}`
+          : 'Errore inatteso durante la generazione. Riprova tra qualche minuto.',
       );
       setPhase('error');
     }
@@ -94,10 +95,11 @@ export function FollowUpDrafter({ leadId }: { leadId: string }) {
       // Refresh server data so the campaign sequence updates
       router.refresh();
     } catch (err) {
+      // ApiError.message is already sanitized Italian copy.
       setErrorMsg(
         err instanceof ApiError
-          ? `Invio fallito (${err.status}): ${err.message}`
-          : "Errore inatteso durante l\u2019invio.",
+          ? `Invio fallito: ${err.message}`
+          : "Errore inatteso durante l\u2019invio. Riprova tra qualche minuto.",
       );
       setPhase('drafted'); // go back to editable state, not to idle
     }
