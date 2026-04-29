@@ -11,12 +11,14 @@
 
 import { redirect } from 'next/navigation';
 
+import { DomainHealthTable } from '@/components/deliverability/domain-health-table';
+import { InboxFleetTable } from '@/components/deliverability/inbox-fleet-table';
 import { QuarantineActions } from '@/components/deliverability/quarantine-actions';
 import { BadgeStatus } from '@/components/ui/badge-status';
 import { BentoCard, BentoGrid } from '@/components/ui/bento-card';
 import { KpiChipCard } from '@/components/ui/kpi-chip-card';
 import { SectionEyebrow } from '@/components/ui/section-eyebrow';
-import { getDeliverabilityData, type WarmupPhase } from '@/lib/data/deliverability';
+import { getDeliverabilityData } from '@/lib/data/deliverability';
 import { getCurrentTenantContext } from '@/lib/data/tenant';
 import { cn, relativeTime } from '@/lib/utils';
 
@@ -25,49 +27,6 @@ export const dynamic = 'force-dynamic';
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-const WARMUP_LABEL: Record<WarmupPhase, string> = {
-  not_started: 'Non avviato',
-  week_1: 'Ramp-up sett. 1',
-  week_2: 'Ramp-up sett. 2',
-  week_3: 'Ramp-up sett. 3',
-  steady: 'Regime',
-};
-
-// Editorial Glass — single-accent: tutto warmup vira amber, "steady" success.
-const WARMUP_COLOR: Record<WarmupPhase, string> = {
-  not_started: 'bg-white/8 text-on-surface-variant',
-  week_1: 'bg-primary/10 text-primary',
-  week_2: 'bg-primary/15 text-primary',
-  week_3: 'bg-primary/20 text-primary',
-  steady: 'bg-success/15 text-success',
-};
-
-function DnsCheck({ ok }: { ok: boolean }) {
-  return ok ? (
-    <span className="inline-block h-2 w-2 rounded-full bg-success" title="Verificato" />
-  ) : (
-    <span className="inline-block h-2 w-2 rounded-full bg-error" title="Non verificato" />
-  );
-}
-
-function SmartleadScore({ score }: { score: number | null }) {
-  if (score === null)
-    return <span className="text-on-surface-variant text-xs">—</span>;
-  const color =
-    score >= 70
-      ? 'text-success'
-      : score >= 40
-        ? 'text-primary'
-        : 'text-error';
-  return <span className={cn('font-semibold tabular-nums text-sm', color)}>{score.toFixed(0)}</span>;
-}
-
-function StatusChip({ status }: { status: 'active' | 'paused' | 'inactive' }) {
-  if (status === 'active') return <BadgeStatus tone="success" label="Attivo" />;
-  if (status === 'paused') return <BadgeStatus tone="warning" label="Sospeso" />;
-  return <BadgeStatus tone="neutral" label="Inattivo" dotless />;
-}
 
 function ViolationBadge({ severity }: { severity: string }) {
   return (
@@ -176,64 +135,7 @@ export default async function DeliverabilityPage() {
             </a>
           </p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-surface-container-high text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
-                  <th className="pb-3 text-left">Dominio</th>
-                  <th className="pb-3 text-left">Scopo</th>
-                  <th className="pb-3 text-center">SPF</th>
-                  <th className="pb-3 text-center">DKIM</th>
-                  <th className="pb-3 text-center">DMARC</th>
-                  <th className="pb-3 text-center">Tracking</th>
-                  <th className="pb-3 text-right">Cap/day</th>
-                  <th className="pb-3 text-right">Stato</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.domains.map((d) => (
-                  <tr
-                    key={d.id}
-                    className="border-b border-surface-container-low last:border-0"
-                  >
-                    <td className="py-3">
-                      <span className="font-mono text-xs font-semibold text-on-surface">
-                        {d.domain}
-                      </span>
-                      {d.pause_reason && d.status === 'paused' && (
-                        <p className="mt-0.5 text-[10px] text-on-surface-variant">
-                          {d.pause_reason.replace(/_/g, ' ')}
-                        </p>
-                      )}
-                    </td>
-                    <td className="py-3">
-                      <span className="text-xs text-on-surface-variant">
-                        {d.purpose === 'brand' ? 'Brand' : 'Outreach'}
-                      </span>
-                    </td>
-                    <td className="py-3 text-center">
-                      <DnsCheck ok={!!d.spf_verified_at} />
-                    </td>
-                    <td className="py-3 text-center">
-                      <DnsCheck ok={!!d.dkim_verified_at} />
-                    </td>
-                    <td className="py-3 text-center">
-                      <DnsCheck ok={!!d.dmarc_verified_at} />
-                    </td>
-                    <td className="py-3 text-center">
-                      <DnsCheck ok={!!d.tracking_cname_verified_at} />
-                    </td>
-                    <td className="py-3 text-right tabular-nums text-on-surface-variant">
-                      {d.daily_soft_cap.toLocaleString('it-IT')}
-                    </td>
-                    <td className="py-3 text-right">
-                      <StatusChip status={d.status} />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <DomainHealthTable rows={data.domains} />
         )}
       </BentoCard>
 
@@ -251,97 +153,7 @@ export default async function DeliverabilityPage() {
             </a>
           </p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-surface-container-high text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
-                  <th className="pb-3 text-left">Inbox</th>
-                  <th className="pb-3 text-left">Dominio</th>
-                  <th className="pb-3 text-left">Fase</th>
-                  <th className="pb-3 text-right">Inviati / Cap</th>
-                  <th className="pb-3 text-right">Smartlead</th>
-                  <th className="pb-3 text-right">Ultimo invio</th>
-                  <th className="pb-3 text-right">Stato</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.inboxes.map((inbox) => {
-                  const today = new Date().toISOString().slice(0, 10);
-                  const sentToday =
-                    inbox.sent_date === today ? inbox.total_sent_today : 0;
-                  const cap = inbox.effective_cap;
-                  const pct = cap > 0 ? (sentToday / cap) * 100 : 0;
-
-                  const inboxStatus = !inbox.active
-                    ? 'inactive'
-                    : inbox.paused_until &&
-                        inbox.paused_until > new Date().toISOString()
-                      ? 'paused'
-                      : 'active';
-
-                  return (
-                    <tr
-                      key={inbox.id}
-                      className="border-b border-surface-container-low last:border-0"
-                    >
-                      <td className="py-3">
-                        <p className="text-xs font-semibold text-on-surface">
-                          {inbox.display_name || inbox.email.split('@')[0]}
-                        </p>
-                        <p className="text-[10px] text-on-surface-variant">
-                          {inbox.email}
-                        </p>
-                      </td>
-                      <td className="py-3 text-xs text-on-surface-variant">
-                        {inbox.domain_name ?? '—'}
-                      </td>
-                      <td className="py-3">
-                        <span
-                          className={cn(
-                            'rounded-full px-2 py-0.5 text-[10px] font-semibold',
-                            WARMUP_COLOR[inbox.warmup_phase],
-                          )}
-                        >
-                          {WARMUP_LABEL[inbox.warmup_phase]}
-                        </span>
-                      </td>
-                      <td className="py-3 text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          <div className="h-1.5 w-20 overflow-hidden rounded-full bg-white/8">
-                            <div
-                              className={cn(
-                                'h-full rounded-full transition-all',
-                                pct >= 95
-                                  ? 'bg-error'
-                                  : pct >= 70
-                                    ? 'bg-primary'
-                                    : 'bg-success',
-                              )}
-                              style={{ width: `${Math.min(100, pct).toFixed(0)}%` }}
-                            />
-                          </div>
-                          <span className="min-w-[60px] text-right tabular-nums text-xs text-on-surface-variant">
-                            {sentToday} / {cap}
-                          </span>
-                        </div>
-                      </td>
-                      <td className="py-3 text-right">
-                        <SmartleadScore score={inbox.smartlead_health_score} />
-                      </td>
-                      <td className="py-3 text-right text-xs text-on-surface-variant">
-                        {inbox.last_sent_at
-                          ? relativeTime(inbox.last_sent_at)
-                          : '—'}
-                      </td>
-                      <td className="py-3 text-right">
-                        <StatusChip status={inboxStatus} />
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          <InboxFleetTable rows={data.inboxes} />
         )}
       </BentoCard>
 

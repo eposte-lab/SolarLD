@@ -14,6 +14,8 @@
 
 import { redirect } from 'next/navigation';
 
+import { ProviderSpendTable } from '@/components/analytics/provider-spend-table';
+import { TerritoryRoiTable } from '@/components/analytics/territory-roi-table';
 import { BentoCard, BentoGrid } from '@/components/ui/bento-card';
 import { KpiChipCard } from '@/components/ui/kpi-chip-card';
 import { Sparkline } from '@/components/ui/sparkline';
@@ -241,49 +243,7 @@ export default async function AnalyticsPage() {
               Nessuna chiamata API questo mese.
             </div>
           ) : (
-            <div className="overflow-hidden rounded-lg bg-surface-container-low">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">
-                    <th className="px-4 py-3">Provider</th>
-                    <th className="px-4 py-3 text-right">Chiamate</th>
-                    <th className="px-4 py-3 text-right">Errori</th>
-                    <th className="px-4 py-3 text-right">Costo</th>
-                  </tr>
-                </thead>
-                <tbody className="bg-surface-container-lowest">
-                  {providerSpend.map((row, idx) => (
-                    <tr
-                      key={row.provider}
-                      style={
-                        idx !== 0
-                          ? { boxShadow: 'inset 0 1px 0 rgba(170,174,173,0.15)' }
-                          : undefined
-                      }
-                    >
-                      <td className="px-4 py-3 font-mono text-xs text-on-surface">
-                        {row.provider}
-                      </td>
-                      <td className="px-4 py-3 text-right tabular-nums">
-                        {formatNumber(row.calls)}
-                      </td>
-                      <td className="px-4 py-3 text-right tabular-nums">
-                        {row.errors > 0 ? (
-                          <span className="text-secondary">
-                            {formatNumber(row.errors)}
-                          </span>
-                        ) : (
-                          <span className="text-on-surface-variant">—</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-right font-semibold tabular-nums">
-                        {formatEurPlain(row.cost_cents / 100)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <ProviderSpendTable rows={providerSpend} />
           )}
         </BentoCard>
 
@@ -343,57 +303,7 @@ export default async function AnalyticsPage() {
             Territories per iniziare.
           </div>
         ) : (
-          <div className="overflow-hidden rounded-lg bg-surface-container-low">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">
-                  <th className="px-5 py-3">Territorio</th>
-                  <th className="px-5 py-3 text-right">Lead totali</th>
-                  <th className="px-5 py-3 text-right">Hot</th>
-                  <th className="px-5 py-3 text-right">Score medio</th>
-                  <th className="px-5 py-3 text-right">Firmati</th>
-                  <th className="px-5 py-3 text-right">Valore contratti</th>
-                </tr>
-              </thead>
-              <tbody className="bg-surface-container-lowest">
-                {territories.map((row, idx) => (
-                  <tr
-                    key={row.territory_id}
-                    style={
-                      idx !== 0
-                        ? { boxShadow: 'inset 0 1px 0 rgba(170,174,173,0.15)' }
-                        : undefined
-                    }
-                  >
-                    <td className="px-5 py-4 font-semibold text-on-surface">
-                      {row.territory_name}
-                    </td>
-                    <td className="px-5 py-4 text-right tabular-nums">
-                      {formatNumber(row.leads_total)}
-                    </td>
-                    <td className="px-5 py-4 text-right tabular-nums">
-                      {row.leads_hot > 0 ? (
-                        <span className="font-semibold text-secondary">
-                          {formatNumber(row.leads_hot)}
-                        </span>
-                      ) : (
-                        <span className="text-on-surface-variant">0</span>
-                      )}
-                    </td>
-                    <td className="px-5 py-4 text-right font-headline font-bold tabular-nums">
-                      {row.leads_total > 0 ? row.avg_score.toFixed(1) : '—'}
-                    </td>
-                    <td className="px-5 py-4 text-right tabular-nums">
-                      {formatNumber(row.signed)}
-                    </td>
-                    <td className="px-5 py-4 text-right font-semibold tabular-nums text-primary">
-                      {formatEurPlain(row.contract_value_eur)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <TerritoryRoiTable rows={territories} />
         )}
       </BentoCard>
     </div>

@@ -17,6 +17,7 @@ const ACQ_COLUMNS = `
   id, tenant_id, name, description, is_default, status,
   sorgente_config, tecnico_config, economico_config, outreach_config, crm_config,
   inbox_ids, schedule_cron, budget_cap_cents,
+  custom_copy_override,
   created_at, updated_at
 `.trim();
 

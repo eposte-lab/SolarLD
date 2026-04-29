@@ -16,9 +16,8 @@ import { redirect } from 'next/navigation';
 
 import { BentoCard } from '@/components/ui/bento-card';
 import { GradientButton } from '@/components/ui/gradient-button';
-import { EngagementScoreChip } from '@/components/ui/engagement-score-chip';
 import { HotLeadsNow } from '@/components/hot-leads-now';
-import { StatusChip, TierChip } from '@/components/ui/status-chip';
+import { LeadsTable } from '@/components/leads/leads-table';
 import {
   LEADS_PAGE_SIZE,
   listHotLeadsAwaitingResponse,
@@ -29,7 +28,7 @@ import { getContattiSummary } from '@/lib/data/contatti';
 import { getModuleForTenant } from '@/lib/data/modules.server';
 import { getCurrentTenantContext } from '@/lib/data/tenant';
 import type { CRMConfig } from '@/types/modules';
-import { cn, daysSince, formatNumber, relativeTime } from '@/lib/utils';
+import { cn, formatNumber } from '@/lib/utils';
 import type { LeadScoreTier, LeadStatus } from '@/types/db';
 
 export const dynamic = 'force-dynamic';
@@ -250,99 +249,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
             </p>
           </div>
         ) : (
-          <div className="overflow-hidden rounded-lg bg-surface-container-low">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">
-                  <th className="px-5 py-3">Lead</th>
-                  <th className="px-5 py-3">Tipo</th>
-                  <th className="px-5 py-3">Comune</th>
-                  <th className="px-5 py-3 text-right">kWp</th>
-                  <th className="px-5 py-3 text-right">Score</th>
-                  <th className="px-5 py-3">Tier</th>
-                  <th className="px-5 py-3">Engagement</th>
-                  <th className="px-5 py-3">Stato</th>
-                  <th className="px-5 py-3">Ultimo tocco</th>
-                  <th className="px-5 py-3" />
-                </tr>
-              </thead>
-              <tbody className="bg-surface-container-lowest">
-                {rows.map((lead, idx) => {
-                  const name =
-                    lead.subjects?.business_name ||
-                    [
-                      lead.subjects?.owner_first_name,
-                      lead.subjects?.owner_last_name,
-                    ]
-                      .filter(Boolean)
-                      .join(' ') ||
-                    '—';
-                  const lastTouch =
-                    lead.dashboard_visited_at ||
-                    lead.outreach_opened_at ||
-                    lead.outreach_sent_at ||
-                    lead.created_at;
-                  const age = daysSince(lead.outreach_sent_at);
-                  return (
-                    <tr
-                      key={lead.id}
-                      className="transition-colors hover:bg-surface-container-low"
-                      style={
-                        idx !== 0
-                          ? { boxShadow: 'inset 0 1px 0 rgba(170,174,173,0.15)' }
-                          : undefined
-                      }
-                    >
-                      <td className="px-5 py-4 font-semibold text-on-surface">
-                        {name}
-                      </td>
-                      <td className="px-5 py-4 text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">
-                        {lead.subjects?.type ?? '—'}
-                      </td>
-                      <td className="px-5 py-4 text-on-surface-variant">
-                        {lead.roofs?.comune ?? '—'}
-                      </td>
-                      <td className="px-5 py-4 text-right tabular-nums">
-                        {lead.roofs?.estimated_kwp ?? '—'}
-                      </td>
-                      <td className="px-5 py-4 text-right font-headline font-bold tabular-nums">
-                        {lead.score}
-                      </td>
-                      <td className="px-5 py-4">
-                        <TierChip tier={lead.score_tier} />
-                      </td>
-                      <td className="px-5 py-4">
-                        <EngagementScoreChip
-                          score={lead.engagement_score}
-                          updatedAt={lead.engagement_score_updated_at}
-                        />
-                      </td>
-                      <td className="px-5 py-4">
-                        <StatusChip
-                          status={lead.pipeline_status}
-                          pipelineLabels={pipelineLabels}
-                        />
-                      </td>
-                      <td className="px-5 py-4 text-xs text-on-surface-variant">
-                        {relativeTime(lastTouch)}
-                        {age !== null && lead.outreach_sent_at && (
-                          <span className="ml-1 opacity-60">({age}gg)</span>
-                        )}
-                      </td>
-                      <td className="px-5 py-4 text-right">
-                        <Link
-                          href={`/leads/${lead.id}`}
-                          className="text-xs font-semibold text-primary hover:underline"
-                        >
-                          apri →
-                        </Link>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          <LeadsTable rows={rows} pipelineLabels={pipelineLabels} />
         )}
 
         {/* Pagination --------------------------------------------- */}

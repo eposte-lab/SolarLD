@@ -35,8 +35,41 @@ _SELECT_FIELDS = (
     "id, tenant_id, name, description, is_default, status, "
     "sorgente_config, tecnico_config, economico_config, outreach_config, crm_config, "
     "inbox_ids, schedule_cron, budget_cap_cents, "
+    "custom_copy_override, "
     "created_at, updated_at"
 )
+
+# Allowed keys inside custom_copy_override JSON (migration 0073).
+# Anything else is silently dropped at write-time to avoid storing garbage.
+_CUSTOM_COPY_KEYS = {
+    "enabled",
+    "copy_subject",
+    "copy_opening_line",
+    "copy_proposition_line",
+    "cta_primary_label",
+}
+
+
+def _sanitise_custom_copy(value: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Strip unknown keys + cast types. Returns None for empty/invalid input."""
+    if value is None:
+        return None
+    cleaned: dict[str, Any] = {}
+    for k in _CUSTOM_COPY_KEYS:
+        if k not in value:
+            continue
+        v = value[k]
+        if k == "enabled":
+            cleaned[k] = bool(v)
+        elif isinstance(v, str):
+            stripped = v.strip()
+            if stripped:
+                cleaned[k] = stripped[:2000]  # safety cap
+    # An override with no fields at all → store NULL instead.
+    has_payload = any(k in cleaned for k in _CUSTOM_COPY_KEYS - {"enabled"})
+    if not has_payload and not cleaned.get("enabled"):
+        return None
+    return cleaned
 
 
 # ---------------------------------------------------------------------------
@@ -68,6 +101,13 @@ class AcquisitionCampaignUpdate(BaseModel):
     inbox_ids: list[str] | None = None
     schedule_cron: str | None = None
     budget_cap_cents: int | None = Field(default=None, ge=1)
+    # Manual copy override per campaign (migration 0073).
+    # Pass `null` (None) to clear the override; pass a dict to set/replace.
+    # Distinguish "field absent" from "field=null" via a sentinel.
+    custom_copy_override: dict[str, Any] | None = Field(default=None)
+    # We need to know if the client *explicitly* sent custom_copy_override=null
+    # to clear it (vs. omitted entirely to leave it unchanged). Pydantic v2:
+    # use model_fields_set which is populated automatically.
 
 
 # ---------------------------------------------------------------------------
@@ -214,6 +254,12 @@ async def update_acquisition_campaign(
         update_data["schedule_cron"] = body.schedule_cron
     if body.budget_cap_cents is not None:
         update_data["budget_cap_cents"] = body.budget_cap_cents
+    # custom_copy_override: support clearing (null) vs setting (dict).
+    # We honour the field only if the client *explicitly* included it.
+    if "custom_copy_override" in body.model_fields_set:
+        update_data["custom_copy_override"] = _sanitise_custom_copy(
+            body.custom_copy_override
+        )
 
     if len(update_data) == 1:
         raise HTTPException(

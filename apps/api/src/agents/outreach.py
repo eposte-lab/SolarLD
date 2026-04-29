@@ -644,6 +644,58 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
                     )
 
         # ------------------------------------------------------------------
+        # 8a-bis) Campaign-level custom copy override — migration 0073.
+        #
+        # If the lead belongs to an acquisition_campaign that has a manual
+        # custom_copy_override with enabled=true, we use those 4 fields
+        # directly and *bypass* the cluster A/B engine entirely. This is
+        # the "campagna straordinaria" path: an operator who hand-writes
+        # copy for a targeted prospect list (e.g. amministratori di
+        # condominio with a tecnico-impattante angle) gets exactly that
+        # copy, no Haiku auto-generation in the way.
+        #
+        # If override is absent/disabled → fall through to cluster A/B.
+        # ------------------------------------------------------------------
+        cluster_variant_id: str | None = None
+        copy_overrides: dict[str, str] | None = None
+        campaign_copy_used = False
+
+        try:
+            campaign_id = lead.get("acquisition_campaign_id")
+            if campaign_id:
+                cc_res = (
+                    sb.table("acquisition_campaigns")
+                    .select("custom_copy_override")
+                    .eq("id", campaign_id)
+                    .eq("tenant_id", payload.tenant_id)
+                    .limit(1)
+                    .execute()
+                )
+                cc_row = (cc_res.data or [None])[0]
+                cc = (cc_row or {}).get("custom_copy_override") or {}
+                if isinstance(cc, dict) and cc.get("enabled"):
+                    copy_overrides = {
+                        "copy_subject": (cc.get("copy_subject") or "").strip(),
+                        "copy_opening_line": (cc.get("copy_opening_line") or "").strip(),
+                        "copy_proposition_line": (cc.get("copy_proposition_line") or "").strip(),
+                        "cta_primary_label": (cc.get("cta_primary_label") or "").strip(),
+                    }
+                    if copy_overrides.get("copy_subject"):
+                        final_subject = copy_overrides["copy_subject"]
+                    campaign_copy_used = True
+                    log.info(
+                        "outreach.campaign_copy_override_used",
+                        lead_id=payload.lead_id,
+                        campaign_id=campaign_id,
+                    )
+        except Exception as _cco_exc:  # noqa: BLE001
+            log.warning(
+                "outreach.campaign_copy_override_lookup_failed",
+                lead_id=payload.lead_id,
+                error=str(_cco_exc),
+            )
+
+        # ------------------------------------------------------------------
         # 8b) Cluster A/B copy variant — Sprint 9 Fase B.4
         #
         # For every tenant that uses the premium template (or plain
@@ -656,11 +708,25 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
         # asynchronously (fire-and-forget for step 1; wait for step>1 since
         # the lead should already be assigned).  On any error we fall back
         # gracefully — the send uses default Jinja copy.
+        #
+        # SKIP this entire block if the campaign override above already
+        # populated copy_overrides — the operator's hand-written copy
+        # wins.
         # ------------------------------------------------------------------
-        cluster_variant_id: str | None = None
-        copy_overrides: dict[str, str] | None = None
+
+        # Local sentinel: a campaign-level manual copy override (set
+        # above as `campaign_copy_used = True`) short-circuits this
+        # entire cluster A/B block via this exception. Defined inline
+        # so it cannot be confused with any other exception class.
+        class _SkipClusterAB(BaseException):
+            pass
 
         try:
+            # Skip cluster A/B entirely if a campaign-level manual copy
+            # override has already populated copy_overrides above.
+            if campaign_copy_used:
+                raise _SkipClusterAB()
+
             # Resolve or compute the cluster_signature for this lead.
             cluster_sig = lead.get("cluster_signature")
             if not cluster_sig:
@@ -753,6 +819,9 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
                     variant_id=cluster_variant_id,
                 )
 
+        except _SkipClusterAB:
+            # Silently skipped — campaign override populated copy_overrides.
+            pass
         except Exception as _cv_exc:  # noqa: BLE001
             log.warning(
                 "outreach.cluster_variant_lookup_failed",

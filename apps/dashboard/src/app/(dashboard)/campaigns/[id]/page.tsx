@@ -15,7 +15,9 @@ import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 
 import { CampaignConfigEditor } from '@/components/campaigns/CampaignConfigEditor';
+import { CampaignCopyEditor } from '@/components/campaigns/CampaignCopyEditor';
 import { CampaignOverrideList } from '@/components/campaigns/CampaignOverrideList';
+import { CampaignResultsTable } from '@/components/campaigns/CampaignResultsTable';
 import { DailyCapWidget } from '@/components/dashboard/daily-cap-widget';
 import { BadgeStatus } from '@/components/ui/badge-status';
 import { BentoCard } from '@/components/ui/bento-card';
@@ -31,11 +33,12 @@ import { updateCampaignStatus } from '../_actions';
 
 export const dynamic = 'force-dynamic';
 
-const TABS = ['config', 'override', 'risultati'] as const;
+const TABS = ['config', 'copy', 'override', 'risultati'] as const;
 type Tab = (typeof TABS)[number];
 
 const TAB_LABELS: Record<Tab, string> = {
   config: 'Configurazione',
+  copy: 'Copy',
   override: 'Override',
   risultati: 'Risultati',
 };
@@ -115,6 +118,14 @@ export default async function CampaignDetailPage({
                 <BadgeStatus tone="neutral" label="Default" dotless />
               )}
               <BadgeStatus tone={statusBadge.tone} label={statusBadge.label} />
+              {campaign.custom_copy_override?.enabled && (
+                <Link
+                  href={`/campaigns/${campaign.id}?tab=copy`}
+                  title="Questa campagna usa un copy personalizzato che bypassa l'A/B automatico"
+                >
+                  <BadgeStatus tone="success" label="Copy custom attivo" />
+                </Link>
+              )}
             </div>
             {campaign.description && (
               <p className="max-w-xl text-sm text-on-surface-variant">
@@ -230,6 +241,25 @@ export default async function CampaignDetailPage({
         </BentoCard>
       )}
 
+      {tab === 'copy' && (
+        <BentoCard span="full">
+          <div className="space-y-4 p-1">
+            <div className="space-y-1">
+              <SectionEyebrow>Copy personalizzato</SectionEyebrow>
+              <h2 className="font-headline text-2xl font-bold tracking-tighter text-on-surface">
+                Override copy per campagna
+              </h2>
+              <p className="text-xs text-on-surface-variant">
+                Per campagne straordinarie su segmenti specifici
+                (es. amministratori condominio, capannoni logistici).
+                Sovrascrive l&apos;A/B automatico per cluster.
+              </p>
+            </div>
+            <CampaignCopyEditor campaign={campaign} />
+          </div>
+        </BentoCard>
+      )}
+
       {tab === 'override' && (
         <BentoCard span="full">
           <div className="space-y-2 p-1">
@@ -269,7 +299,7 @@ export default async function CampaignDetailPage({
                   campagna inizia a inviare.
                 </p>
               ) : (
-                <ResultsTable rows={results} />
+                <CampaignResultsTable rows={results} />
               )}
             </div>
           </BentoCard>
@@ -344,75 +374,3 @@ function ResultsChart({ rows }: { rows: CampaignResultRow[] }) {
   );
 }
 
-function ResultsTable({ rows }: { rows: CampaignResultRow[] }) {
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-white/8 text-left">
-            {[
-              'Variante',
-              'Provincia',
-              'Tier',
-              'Inviati',
-              'Consegnati',
-              'Aperti',
-              'Cliccati',
-              'Risposte',
-              'Open%',
-            ].map((h) => (
-              <th
-                key={h}
-                className="pb-2 pr-4 text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant"
-              >
-                {h}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-white/5">
-          {rows.map((row, i) => {
-            const openRate = row.sent > 0 ? ((row.opened / row.sent) * 100).toFixed(1) : '—';
-            return (
-              <tr key={i} className="hover:bg-white/3">
-                <td className="py-2 pr-4 font-medium text-on-surface">
-                  {row.variant ?? 'Controllo'}
-                </td>
-                <td className="py-2 pr-4 text-on-surface-variant">
-                  {row.province ?? '—'}
-                </td>
-                <td className="py-2 pr-4 text-on-surface-variant">
-                  {row.score_tier ?? '—'}
-                </td>
-                <td className="py-2 pr-4 tabular-nums">{row.sent}</td>
-                <td className="py-2 pr-4 tabular-nums text-on-surface-variant">
-                  {row.delivered}
-                </td>
-                <td className="py-2 pr-4 tabular-nums text-on-surface-variant">
-                  {row.opened}
-                </td>
-                <td className="py-2 pr-4 tabular-nums text-on-surface-variant">
-                  {row.clicked}
-                </td>
-                <td className="py-2 pr-4 tabular-nums text-on-surface-variant">
-                  {row.replied}
-                </td>
-                <td
-                  className={cn(
-                    'py-2 pr-4 tabular-nums font-semibold',
-                    row.opened / row.sent > 0.15
-                      ? 'text-primary'
-                      : 'text-on-surface-variant',
-                  )}
-                >
-                  {openRate}
-                  {openRate !== '—' ? '%' : ''}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
-  );
-}

@@ -91,6 +91,15 @@ export interface TenantRow {
    */
   territory_locked_at?: string | null;
   territory_locked_by?: string | null;
+  /**
+   * Device-authorization gate (migration 0074). When enabled, only
+   * fingerprints listed in `tenant_authorized_devices` (up to
+   * `demo_device_max_total`) can sign in; the rest are routed to
+   * /access-denied. Used to cap concurrent demo accounts.
+   */
+  demo_device_limit_enabled?: boolean;
+  demo_device_max_total?: number;
+  demo_device_idle_timeout_minutes?: number;
 }
 
 /**
@@ -267,8 +276,23 @@ export interface AcquisitionCampaignRow {
   inbox_ids: string[] | null;
   schedule_cron: string | null;
   budget_cap_cents: number | null;
+  /**
+   * Optional manual copy override (migration 0073). When `enabled=true`
+   * the OutreachAgent uses these 4 fields and bypasses the cluster A/B
+   * engine. NULL = use cluster A/B (default behaviour).
+   */
+  custom_copy_override: CampaignCustomCopyOverride | null;
   created_at: string;
   updated_at: string;
+}
+
+/** Shape of `acquisition_campaigns.custom_copy_override` JSONB. */
+export interface CampaignCustomCopyOverride {
+  enabled: boolean;
+  copy_subject?: string;
+  copy_opening_line?: string;
+  copy_proposition_line?: string;
+  cta_primary_label?: string;
 }
 
 export interface EventRow {

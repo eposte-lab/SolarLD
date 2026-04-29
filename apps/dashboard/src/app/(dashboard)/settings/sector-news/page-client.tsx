@@ -18,6 +18,8 @@ import { ArrowUpRight, Lock, Pencil, Plus, Trash2 } from 'lucide-react';
 
 import { BentoCard } from '@/components/ui/bento-card';
 import { GradientButton } from '@/components/ui/gradient-button';
+import { SortableTh } from '@/components/ui/sortable-th';
+import { useSortableData } from '@/hooks/use-sortable-data';
 import {
   archiveSectorNews,
   createSectorNews,
@@ -201,6 +203,8 @@ export function SectorNewsPageClient({ tenantId }: { tenantId: string }) {
 // Table
 // ---------------------------------------------------------------------------
 
+type NewsSortKey = 'ateco' | 'headline' | 'status';
+
 function NewsTable({
   rows,
   onEdit,
@@ -212,19 +216,35 @@ function NewsTable({
   onArchive: (row: SectorNews) => void;
   showActions: boolean;
 }) {
+  const { sorted, sortKey, sortDir, requestSort } = useSortableData<SectorNews, NewsSortKey>(
+    rows,
+    (row, key) => {
+      switch (key) {
+        case 'ateco':
+          return row.ateco_2digit;
+        case 'headline':
+          return row.headline;
+        case 'status':
+          // Global rows always grouped together; otherwise by status
+          return row.tenant_id === null ? 'global' : row.status;
+      }
+    },
+    { initialKey: 'ateco', initialDir: 'asc' },
+  );
+
   return (
     <div className="overflow-hidden rounded-lg bg-surface-container-lowest">
       <table className="w-full text-sm">
         <thead>
-          <tr className="text-left text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">
-            <th className="px-4 py-3 w-16">ATECO</th>
-            <th className="px-4 py-3">Titolo</th>
-            <th className="px-4 py-3">Stato</th>
-            {showActions && <th className="px-4 py-3 w-28 text-right">Azioni</th>}
+          <tr>
+            <SortableTh sortKey="ateco" active={sortKey} dir={sortDir} onSort={requestSort} className="w-16">ATECO</SortableTh>
+            <SortableTh sortKey="headline" active={sortKey} dir={sortDir} onSort={requestSort}>Titolo</SortableTh>
+            <SortableTh sortKey="status" active={sortKey} dir={sortDir} onSort={requestSort}>Stato</SortableTh>
+            {showActions && <th className="px-4 py-3 w-28 text-right text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">Azioni</th>}
           </tr>
         </thead>
         <tbody>
-          {rows.map((row, idx) => (
+          {sorted.map((row, idx) => (
             <tr
               key={row.id}
               style={

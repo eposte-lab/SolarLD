@@ -24,6 +24,7 @@ import { redirect } from 'next/navigation';
 import { BentoCard, BentoGrid } from '@/components/ui/bento-card';
 import { GradientButton } from '@/components/ui/gradient-button';
 import { KpiChipCard } from '@/components/ui/kpi-chip-card';
+import { InviiTable } from '@/components/invii/invii-table';
 import {
   getCampaignDeliveryStats,
   listCampaigns,
@@ -330,112 +331,8 @@ export default async function InviiPage({
             </p>
           </div>
         ) : (
-          <div className="overflow-hidden rounded-lg bg-surface-container-low">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">
-                  <th className="px-5 py-3">Data invio</th>
-                  <th className="px-5 py-3">Step</th>
-                  <th className="px-5 py-3">Canale</th>
-                  <th className="px-5 py-3 max-w-xs">Subject / Template</th>
-                  <th className="px-5 py-3">Stato invio</th>
-                  <th className="px-5 py-3">Consegnato</th>
-                  <th className="px-5 py-3">Aperto</th>
-                  <th className="px-5 py-3">Click</th>
-                  <th className="px-5 py-3 text-right">Costo</th>
-                  <th className="px-5 py-3" />
-                </tr>
-              </thead>
-              <tbody className="bg-surface-container-lowest">
-                {paginated.map((c, idx) => (
-                  <tr
-                    key={c.id}
-                    className="transition-colors hover:bg-surface-container-low"
-                    style={
-                      idx !== 0
-                        ? { boxShadow: 'inset 0 1px 0 rgba(170,174,173,0.15)' }
-                        : undefined
-                    }
-                  >
-                    <td className="px-5 py-3 text-xs text-on-surface-variant">
-                      {relativeTime(c.sent_at)}
-                    </td>
-                    <td className="px-5 py-3 text-center font-headline font-bold tabular-nums">
-                      #{c.sequence_step}
-                    </td>
-                    <td className="px-5 py-3">
-                      <ChannelChip channel={c.channel} />
-                    </td>
-                    <td className="max-w-xs truncate px-5 py-3 text-xs font-medium text-on-surface">
-                      {c.email_subject ?? c.template_id ?? (
-                        <span className="text-on-surface-variant">—</span>
-                      )}
-                    </td>
-                    <td className="px-5 py-3">
-                      <CampaignStatusChip status={c.status} />
-                    </td>
-                    {/* Engagement — read from lead */}
-                    <td className="px-5 py-3 text-xs">
-                      {c.leads?.outreach_delivered_at || c.status === 'delivered' ? (
-                        <Check size={14} strokeWidth={2.5} className="text-primary" aria-label="Consegnato" />
-                      ) : (
-                        <span className="text-on-surface-variant">—</span>
-                      )}
-                    </td>
-                    <td className="px-5 py-3 text-xs">
-                      {c.leads?.outreach_opened_at ? (
-                        <Check size={14} strokeWidth={2.5} className="text-primary" aria-label="Aperto" />
-                      ) : (
-                        <span className="text-on-surface-variant">—</span>
-                      )}
-                    </td>
-                    <td className="px-5 py-3 text-xs">
-                      {c.leads?.outreach_clicked_at ? (
-                        <Check size={14} strokeWidth={2.5} className="text-primary" aria-label="Cliccato" />
-                      ) : (
-                        <span className="text-on-surface-variant">—</span>
-                      )}
-                    </td>
-                    <td className="px-5 py-3 text-right tabular-nums text-xs text-on-surface-variant">
-                      {c.cost_cents > 0
-                        ? `€ ${(c.cost_cents / 100).toFixed(2)}`
-                        : '—'}
-                    </td>
-                    <td className="px-5 py-3 text-right">
-                      <div className="flex items-center justify-end gap-3">
-                        <Link
-                          href={`/invii/${c.id}`}
-                          className="group/link inline-flex items-center gap-1 text-xs font-semibold text-on-surface-variant hover:text-primary hover:underline"
-                        >
-                          dettaglio
-                          <ArrowUpRight
-                            size={11}
-                            strokeWidth={2.5}
-                            className="transition-transform group-hover/link:translate-x-0.5 group-hover/link:-translate-y-0.5"
-                            aria-hidden
-                          />
-                        </Link>
-                        <Link
-                          href={`/leads/${c.lead_id}`}
-                          className="group/link inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
-                        >
-                          lead
-                          <ArrowUpRight
-                            size={11}
-                            strokeWidth={2.5}
-                            className="transition-transform group-hover/link:translate-x-0.5 group-hover/link:-translate-y-0.5"
-                            aria-hidden
-                          />
-                        </Link>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <InviiTable rows={paginated} />
         )}
-
         {/* Pagination */}
         {totalPages > 1 && (
           <div className="mt-4 flex items-center justify-between px-2">

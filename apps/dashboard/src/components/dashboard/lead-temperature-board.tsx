@@ -15,17 +15,17 @@
  * Data is passed as a prop from the server page component.
  */
 
-import { ArrowDown, ArrowUp, ArrowUpRight, ArrowUpDown } from 'lucide-react';
+import { ArrowUpRight } from 'lucide-react';
 import Link from 'next/link';
-import { useState, useMemo, useCallback } from 'react';
 
 import type { LeadListRow } from '@/types/db';
+import { useSortableData } from '@/hooks/use-sortable-data';
+import { SortableTh } from '@/components/ui/sortable-th';
 import { cn, relativeTime } from '@/lib/utils';
 
 // ── types ─────────────────────────────────────────────────────────────────────
 
 type SortKey = 'score' | 'tier' | 'name' | 'zone' | 'last_event' | 'p_conv' | 'value_eur';
-type SortDir = 'asc' | 'desc';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -122,30 +122,6 @@ function TemperatureChip({ tier }: { tier: string }) {
   );
 }
 
-// ── Sort indicator ────────────────────────────────────────────────────────────
-
-function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
-  if (!active) {
-    return (
-      <ArrowUpDown
-        size={11}
-        strokeWidth={2}
-        className="ml-1 inline text-on-surface-variant/40"
-        aria-hidden
-      />
-    );
-  }
-  const Icon = dir === 'asc' ? ArrowUp : ArrowDown;
-  return (
-    <Icon
-      size={11}
-      strokeWidth={2.5}
-      className="ml-1 inline text-primary"
-      aria-hidden
-    />
-  );
-}
-
 // ── Main component ────────────────────────────────────────────────────────────
 
 interface LeadTemperatureBoardProps {
@@ -154,73 +130,28 @@ interface LeadTemperatureBoardProps {
 }
 
 export function LeadTemperatureBoard({ leads, className }: LeadTemperatureBoardProps) {
-  const [sortKey, setSortKey] = useState<SortKey>('score');
-  const [sortDir, setSortDir] = useState<SortDir>('desc');
-
-  const handleSort = useCallback(
-    (key: SortKey) => {
-      if (key === sortKey) {
-        setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
-      } else {
-        setSortKey(key);
-        setSortDir('desc');
+  const { sorted, sortKey, sortDir, requestSort } = useSortableData<LeadListRow, SortKey>(
+    leads,
+    (lead, key) => {
+      switch (key) {
+        case 'score':
+          return lead.score;
+        case 'tier':
+          return TIER_ORDER[lead.score_tier] ?? 0;
+        case 'name':
+          return displayName(lead);
+        case 'zone':
+          return lead.roofs?.comune ?? '';
+        case 'last_event':
+          return lastEvent(lead);
+        case 'p_conv':
+          return conversionProb(lead.pipeline_status);
+        case 'value_eur':
+          return estimatedEur(lead);
       }
     },
-    [sortKey],
+    { initialKey: 'score', initialDir: 'desc' },
   );
-
-  const sorted = useMemo(() => {
-    return [...leads].sort((a, b) => {
-      let aVal: number | string = 0;
-      let bVal: number | string = 0;
-
-      switch (sortKey) {
-        case 'score':
-          aVal = a.score;
-          bVal = b.score;
-          break;
-        case 'tier':
-          aVal = TIER_ORDER[a.score_tier] ?? 0;
-          bVal = TIER_ORDER[b.score_tier] ?? 0;
-          break;
-        case 'name':
-          aVal = displayName(a).toLowerCase();
-          bVal = displayName(b).toLowerCase();
-          break;
-        case 'zone':
-          aVal = (a.roofs?.comune ?? '').toLowerCase();
-          bVal = (b.roofs?.comune ?? '').toLowerCase();
-          break;
-        case 'last_event':
-          aVal = lastEvent(a) ?? '';
-          bVal = lastEvent(b) ?? '';
-          break;
-        case 'p_conv':
-          aVal = conversionProb(a.pipeline_status);
-          bVal = conversionProb(b.pipeline_status);
-          break;
-        case 'value_eur':
-          aVal = estimatedEur(a);
-          bVal = estimatedEur(b);
-          break;
-      }
-
-      if (typeof aVal === 'string') {
-        const cmp = aVal.localeCompare(bVal as string, 'it');
-        return sortDir === 'asc' ? cmp : -cmp;
-      }
-      return sortDir === 'asc'
-        ? (aVal as number) - (bVal as number)
-        : (bVal as number) - (aVal as number);
-    });
-  }, [leads, sortKey, sortDir]);
-
-  const thCls = (key: SortKey) =>
-    cn(
-      'cursor-pointer select-none whitespace-nowrap px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant',
-      'hover:text-on-surface transition-colors',
-      sortKey === key && 'text-on-surface',
-    );
 
   if (leads.length === 0) {
     return (
@@ -242,27 +173,13 @@ export function LeadTemperatureBoard({ leads, className }: LeadTemperatureBoardP
         <table className="w-full text-sm relative">
           <thead>
             <tr>
-              <th className={thCls('tier')} onClick={() => handleSort('tier')}>
-                Temp. <SortIcon active={sortKey === 'tier'} dir={sortDir} />
-              </th>
-              <th className={thCls('name')} onClick={() => handleSort('name')}>
-                Azienda / Contatto <SortIcon active={sortKey === 'name'} dir={sortDir} />
-              </th>
-              <th className={thCls('zone')} onClick={() => handleSort('zone')}>
-                Comune <SortIcon active={sortKey === 'zone'} dir={sortDir} />
-              </th>
-              <th className={thCls('score')} onClick={() => handleSort('score')}>
-                Score <SortIcon active={sortKey === 'score'} dir={sortDir} />
-              </th>
-              <th className={thCls('last_event')} onClick={() => handleSort('last_event')}>
-                Ultimo evento <SortIcon active={sortKey === 'last_event'} dir={sortDir} />
-              </th>
-              <th className={thCls('p_conv')} onClick={() => handleSort('p_conv')}>
-                P.Conv. <SortIcon active={sortKey === 'p_conv'} dir={sortDir} />
-              </th>
-              <th className={thCls('value_eur')} onClick={() => handleSort('value_eur')}>
-                Valore est. <SortIcon active={sortKey === 'value_eur'} dir={sortDir} />
-              </th>
+              <SortableTh sortKey="tier" active={sortKey} dir={sortDir} onSort={requestSort}>Temp.</SortableTh>
+              <SortableTh sortKey="name" active={sortKey} dir={sortDir} onSort={requestSort}>Azienda / Contatto</SortableTh>
+              <SortableTh sortKey="zone" active={sortKey} dir={sortDir} onSort={requestSort}>Comune</SortableTh>
+              <SortableTh sortKey="score" active={sortKey} dir={sortDir} onSort={requestSort}>Score</SortableTh>
+              <SortableTh sortKey="last_event" active={sortKey} dir={sortDir} onSort={requestSort}>Ultimo evento</SortableTh>
+              <SortableTh sortKey="p_conv" active={sortKey} dir={sortDir} onSort={requestSort}>P.Conv.</SortableTh>
+              <SortableTh sortKey="value_eur" active={sortKey} dir={sortDir} onSort={requestSort}>Valore est.</SortableTh>
               <th className="px-4 py-3" />
             </tr>
           </thead>

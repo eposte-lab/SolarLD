@@ -35,6 +35,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { BentoCard, BentoGrid } from '@/components/ui/bento-card';
 import { GradientButton } from '@/components/ui/gradient-button';
 import { SectionEyebrow } from '@/components/ui/section-eyebrow';
+import { SortableTh } from '@/components/ui/sortable-th';
+import { useSortableData } from '@/hooks/use-sortable-data';
 import { ApiError } from '@/lib/api-client';
 import {
   type AtecoPreset,
@@ -98,6 +100,24 @@ export default function ScopertaPage() {
 
   const [saving, setSaving] = useState(false);
   const [savedListId, setSavedListId] = useState<string | null>(null);
+
+  const { sorted: sortedItems, sortKey, sortDir, requestSort } = useSortableData<
+    ProspectorItem,
+    'name' | 'ateco' | 'sede' | 'employees' | 'revenue'
+  >(items, (it, key) => {
+    switch (key) {
+      case 'name':
+        return it.legal_name ?? '';
+      case 'ateco':
+        return it.ateco_code ?? '';
+      case 'sede':
+        return it.hq_city ?? '';
+      case 'employees':
+        return it.employees ?? null;
+      case 'revenue':
+        return it.revenue_eur ?? null;
+    }
+  });
 
   useEffect(() => {
     fetchPresets()
@@ -485,12 +505,12 @@ export default function ScopertaPage() {
           <div className="mt-5 -mx-2 overflow-x-auto">
             <table className="w-full min-w-[820px] border-separate border-spacing-y-1 text-sm">
               <thead>
-                <tr className="text-left text-[11px] uppercase tracking-widest text-on-surface-muted">
-                  <th className="px-2 py-2 font-semibold">Azienda</th>
-                  <th className="px-2 py-2 font-semibold">ATECO</th>
-                  <th className="px-2 py-2 font-semibold">Sede</th>
-                  <th className="px-2 py-2 font-semibold text-right">Dipendenti</th>
-                  <th className="px-2 py-2 font-semibold text-right">Fatturato (€)</th>
+                <tr>
+                  <SortableTh sortKey="name" active={sortKey} dir={sortDir} onSort={requestSort} className="px-2 py-2">Azienda</SortableTh>
+                  <SortableTh sortKey="ateco" active={sortKey} dir={sortDir} onSort={requestSort} className="px-2 py-2">ATECO</SortableTh>
+                  <SortableTh sortKey="sede" active={sortKey} dir={sortDir} onSort={requestSort} className="px-2 py-2">Sede</SortableTh>
+                  <SortableTh sortKey="employees" active={sortKey} dir={sortDir} onSort={requestSort} className="px-2 py-2" align="right">Dipendenti</SortableTh>
+                  <SortableTh sortKey="revenue" active={sortKey} dir={sortDir} onSort={requestSort} className="px-2 py-2" align="right">Fatturato (€)</SortableTh>
                 </tr>
               </thead>
               <tbody>
@@ -510,7 +530,7 @@ export default function ScopertaPage() {
                     </td>
                   </tr>
                 )}
-                {items.map((it) => (
+                {sortedItems.map((it) => (
                   <tr
                     key={it.vat_number ?? it.legal_name ?? Math.random()}
                     className="bg-surface-container-low/60 transition-colors hover:bg-surface-container"

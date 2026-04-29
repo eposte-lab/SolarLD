@@ -67,6 +67,8 @@ htmlcov/
 # Supabase
 supabase/.branches/
 supabase/.temp/
+packages/db/supabase/.branches/
+packages/db/supabase/.temp/
 
 # Python build
 *.so

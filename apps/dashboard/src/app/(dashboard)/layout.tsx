@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation';
 
+import { IdleLogout } from '@/components/auth/idle-logout';
 import { RealtimeToaster } from '@/components/realtime-toaster';
 import { BackButton } from '@/components/ui/back-button';
 import { NotificationsBell } from '@/components/ui/notifications-bell';
@@ -128,6 +129,11 @@ export default async function DashboardLayout({
         </div>
       </main>
       <RealtimeToaster tenantId={ctx.tenant.id} />
+      {ctx.tenant.demo_device_limit_enabled ? (
+        <IdleLogout
+          idleMinutes={ctx.tenant.demo_device_idle_timeout_minutes ?? 30}
+        />
+      ) : null}
     </div>
   );
 }

@@ -16,6 +16,7 @@ import { redirect } from 'next/navigation';
 import { BentoCard, BentoGrid } from '@/components/ui/bento-card';
 import { GradientButton } from '@/components/ui/gradient-button';
 import { KpiChipCard } from '@/components/ui/kpi-chip-card';
+import { ContattiTable } from '@/components/contatti/contatti-table';
 import {
   CONTATTI_PAGE_SIZE,
   getContattiSummary,
@@ -24,7 +25,7 @@ import {
   type SolarVerdict,
 } from '@/lib/data/contatti';
 import { getCurrentTenantContext } from '@/lib/data/tenant';
-import { cn, formatNumber, relativeTime } from '@/lib/utils';
+import { cn, formatNumber } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
 
@@ -48,22 +49,6 @@ const STAGE_FILTER_OPTIONS = [
   { value: '3', label: 'L3 — Punteggio' },
   { value: '4', label: 'L4 — Tetto idoneo' },
 ];
-
-const VERDICT_STYLES: Record<string, string> = {
-  accepted: 'bg-primary-container text-on-primary-container',
-  rejected_tech: 'bg-secondary-container text-on-secondary-container',
-  no_building: 'bg-surface-container-highest text-on-surface-variant',
-  api_error: 'bg-surface-container-highest text-on-surface-variant',
-  skipped_below_gate: 'bg-surface-container text-on-surface-variant opacity-70',
-};
-
-const VERDICT_LABELS: Record<string, string> = {
-  accepted: 'Qualificato',
-  rejected_tech: 'Rifiutato (tecnico)',
-  no_building: 'Nessun edificio',
-  api_error: 'Errore API',
-  skipped_below_gate: 'Skip (gate)',
-};
 
 export default async function ContattiPage({
   searchParams,
@@ -217,101 +202,7 @@ export default async function ContattiPage({
             </p>
           </div>
         ) : (
-          <div className="overflow-hidden rounded-lg bg-surface-container-low">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">
-                  <th className="px-5 py-3">Azienda</th>
-                  <th className="px-5 py-3">ATECO</th>
-                  <th className="px-5 py-3 text-right">Dipendenti</th>
-                  <th className="px-5 py-3">Comune</th>
-                  <th className="px-5 py-3">Territorio</th>
-                  <th className="px-5 py-3 text-center">Stadio</th>
-                  <th className="px-5 py-3 text-right">Score L3</th>
-                  <th className="px-5 py-3">Verdetto Solar</th>
-                  <th className="px-5 py-3 text-xs text-on-surface-variant">
-                    Scan
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-surface-container-lowest">
-                {rows.map((c, idx) => (
-                  <tr
-                    key={c.id}
-                    className="transition-colors hover:bg-surface-container-low"
-                    style={
-                      idx !== 0
-                        ? { boxShadow: 'inset 0 1px 0 rgba(170,174,173,0.15)' }
-                        : undefined
-                    }
-                  >
-                    <td className="px-5 py-4 font-semibold text-on-surface">
-                      {c.business_name ?? (
-                        <span className="font-mono text-xs text-on-surface-variant">
-                          {c.vat_number ?? '—'}
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-5 py-4 font-mono text-xs text-on-surface-variant">
-                      {c.ateco_code ?? '—'}
-                    </td>
-                    <td className="px-5 py-4 text-right tabular-nums text-on-surface-variant">
-                      {c.employees ?? '—'}
-                    </td>
-                    <td className="px-5 py-4 text-on-surface-variant">
-                      {c.hq_city ?? '—'}{' '}
-                      {c.hq_province ? (
-                        <span className="text-[10px] font-semibold uppercase opacity-60">
-                          ({c.hq_province})
-                        </span>
-                      ) : null}
-                    </td>
-                    <td className="px-5 py-4 text-xs text-on-surface-variant">
-                      {c.territories?.name ?? '—'}
-                    </td>
-                    <td className="px-5 py-4 text-center">
-                      <StageChip stage={c.stage} />
-                    </td>
-                    <td className="px-5 py-4 text-right font-headline font-bold tabular-nums">
-                      {c.score != null ? (
-                        <span
-                          className={cn(
-                            c.score >= 70
-                              ? 'text-primary'
-                              : c.score >= 40
-                                ? 'text-on-surface'
-                                : 'text-on-surface-variant',
-                          )}
-                        >
-                          {c.score}
-                        </span>
-                      ) : (
-                        <span className="text-on-surface-variant">—</span>
-                      )}
-                    </td>
-                    <td className="px-5 py-4">
-                      {c.solar_verdict ? (
-                        <span
-                          className={cn(
-                            'inline-flex rounded-md px-2 py-0.5 text-xs font-medium',
-                            VERDICT_STYLES[c.solar_verdict] ??
-                              'bg-surface-container text-on-surface-variant',
-                          )}
-                        >
-                          {VERDICT_LABELS[c.solar_verdict] ?? c.solar_verdict}
-                        </span>
-                      ) : (
-                        <span className="text-xs text-on-surface-variant">—</span>
-                      )}
-                    </td>
-                    <td className="px-5 py-4 text-xs text-on-surface-variant">
-                      {relativeTime(c.created_at)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <ContattiTable rows={rows} />
         )}
 
         {/* Pagination */}
@@ -350,25 +241,6 @@ export default async function ContattiPage({
 // ---------------------------------------------------------------------------
 // Local helpers
 // ---------------------------------------------------------------------------
-
-function StageChip({ stage }: { stage: number }) {
-  const styles: Record<number, string> = {
-    1: 'bg-surface-container-high text-on-surface-variant',
-    2: 'bg-tertiary-container/60 text-on-tertiary-container',
-    3: 'bg-tertiary-container text-on-tertiary-container',
-    4: 'bg-primary-container text-on-primary-container',
-  };
-  return (
-    <span
-      className={cn(
-        'inline-flex rounded-md px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest',
-        styles[stage] ?? 'bg-surface-container text-on-surface-variant',
-      )}
-    >
-      L{stage}
-    </span>
-  );
-}
 
 function FilterChip({
   active,
