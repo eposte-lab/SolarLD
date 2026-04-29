@@ -166,12 +166,8 @@ export function SideNav({ items, sections, tenant, user_email }: SideNavProps) {
     <nav className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col bg-surface-container-lowest/80 backdrop-blur-glass-sm p-5 ghost-border md:flex">
       {/* Brand lockup */}
       <div className="mb-7 flex items-center gap-3 px-1.5">
-        <div className="relative flex h-10 w-10 items-center justify-center rounded-2xl bg-primary/15 ghost-border-strong text-primary overflow-hidden">
-          <BrandLogo size={22} title="SolarLead" />
-          <span
-            className="pointer-events-none absolute inset-0 bg-glass-specular opacity-70"
-            aria-hidden
-          />
+        <div className="relative flex h-10 w-10 items-center justify-center rounded-2xl bg-white ghost-border-strong overflow-hidden">
+          <BrandLogo size={28} title="SolarLead" />
         </div>
         <div className="leading-tight">
           <h1 className="font-headline text-[17px] font-bold tracking-tightest text-on-surface">
