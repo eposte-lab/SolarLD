@@ -894,14 +894,28 @@ async def _run_creative_and_outreach_background(
         )
         rows = lead_row.data or []
         if rows and not rows[0].get("rendering_gif_url"):
-            await asyncio.to_thread(
-                _update_run,
-                run_id,
-                notes=(
-                    "Email inviata con immagine statica: GIF animata non "
-                    "generata (Remotion sidecar non disponibile o panel-paint AI fallita)."
-                ),
-            )
+            # Distinguish the two failure modes by which artefact made it
+            # through. If the after-image is present, panel-paint AI
+            # worked → the GIF skip is on the Remotion sidecar (most
+            # likely VIDEO_RENDERER_URL not pointed at a deployed
+            # service). If the after-image is also missing, the AI step
+            # itself never produced a frame — usually means
+            # REPLICATE_API_TOKEN or the panel-paint model is unhappy.
+            after_present = bool(rows[0].get("rendering_image_url"))
+            if after_present:
+                note = (
+                    "Email inviata con immagine statica. La pittura AI del "
+                    "tetto è riuscita ma il sidecar GIF non ha risposto "
+                    "(verifica VIDEO_RENDERER_URL e che il servizio "
+                    "video-renderer sia online su Railway)."
+                )
+            else:
+                note = (
+                    "Email inviata con immagine statica: la pittura AI del "
+                    "tetto non ha prodotto un frame (panel-paint AI fallita: "
+                    "verifica REPLICATE_API_TOKEN e i log creative.gif_fallback)."
+                )
+            await asyncio.to_thread(_update_run, run_id, notes=note)
     except Exception as exc:  # noqa: BLE001
         log.warning("demo.gif_check_failed", lead_id=lead_id, err=str(exc))
 
