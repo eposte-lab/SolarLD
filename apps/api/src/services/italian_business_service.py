@@ -155,6 +155,20 @@ class AtokaProfile:
     hq_province: str | None = None
     hq_lat: float | None = None
     hq_lng: float | None = None
+    # Sede operativa (operating site) — distinct from the legal HQ when
+    # the business runs out of a warehouse, factory or branch that's not
+    # the registered office. Critical for the rooftop render: legal HQs
+    # are often a notary's address or a centroid of an industrial zone,
+    # while the operating site is the actual building we want to paint
+    # solar panels onto. Populated from `locations[]` entries whose
+    # `type` is one of {operating, secondary, production, branch} —
+    # parser falls back to None when only the registered HQ exists.
+    sede_operativa_address: str | None = None
+    sede_operativa_cap: str | None = None
+    sede_operativa_city: str | None = None
+    sede_operativa_province: str | None = None
+    sede_operativa_lat: float | None = None
+    sede_operativa_lng: float | None = None
     raw: dict[str, Any] = field(default_factory=dict)
 
 
@@ -435,14 +449,44 @@ def _atoka_company_to_profile(
     web = (company.get("web") or [{}])[0] if company.get("web") else {}
 
     # HQ address can be in a few shapes depending on Atoka plan tier.
-    hq = (
-        company.get("locations", [{}])[0]
-        if company.get("locations")
-        else (company.get("base") or {})
-    )
+    locations = company.get("locations") or []
+    hq = locations[0] if locations else (company.get("base") or {})
     hq_addr = hq.get("address") or hq.get("street")
     hq_lat = hq.get("lat") or (hq.get("coords") or {}).get("lat")
     hq_lng = hq.get("lng") or (hq.get("coords") or {}).get("lng")
+
+    # Sede operativa: scan `locations[]` for an entry that explicitly
+    # describes an operating site. Atoka uses `type` strings like
+    # "operating", "secondary", "production", "branch" — we accept any
+    # of these and prefer the first match (Atoka orders them by
+    # significance). When none of the locations are tagged we leave
+    # the sede_operativa_* fields null and let the resolver fall
+    # through to website-scrape / Google Places.
+    OPERATING_TYPES = {
+        "operating",
+        "secondary",
+        "production",
+        "branch",
+        "operativa",
+        "secondaria",
+    }
+    op_loc: dict[str, Any] | None = None
+    for loc in locations:
+        if not isinstance(loc, dict):
+            continue
+        loc_type = (loc.get("type") or loc.get("kind") or "").lower()
+        if loc_type in OPERATING_TYPES:
+            op_loc = loc
+            break
+    op_addr = op_lat = op_lng = None
+    op_cap = op_city = op_prov = None
+    if op_loc:
+        op_addr = op_loc.get("address") or op_loc.get("street")
+        op_cap = op_loc.get("zip") or op_loc.get("cap")
+        op_city = op_loc.get("city") or op_loc.get("comune")
+        op_prov = op_loc.get("province") or op_loc.get("provincia")
+        op_lat = op_loc.get("lat") or (op_loc.get("coords") or {}).get("lat")
+        op_lng = op_loc.get("lng") or (op_loc.get("coords") or {}).get("lng")
 
     return AtokaProfile(
         vat_number=company.get("vat") or company.get("vatNumber") or fallback_vat,
@@ -465,5 +509,11 @@ def _atoka_company_to_profile(
         hq_province=hq.get("province") or hq.get("provincia"),
         hq_lat=float(hq_lat) if hq_lat is not None else None,
         hq_lng=float(hq_lng) if hq_lng is not None else None,
+        sede_operativa_address=op_addr,
+        sede_operativa_cap=op_cap,
+        sede_operativa_city=op_city,
+        sede_operativa_province=op_prov,
+        sede_operativa_lat=float(op_lat) if op_lat is not None else None,
+        sede_operativa_lng=float(op_lng) if op_lng is not None else None,
         raw=company,
     )

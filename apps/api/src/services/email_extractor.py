@@ -59,6 +59,7 @@ global state.
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 import unicodedata
 from dataclasses import dataclass, field
@@ -634,6 +635,297 @@ def _normalise_phone(raw: str) -> str | None:
     if len(digits) < 9:
         return None
     return f"+39{digits}"
+
+
+# ---------------------------------------------------------------------------
+# Address extraction (Sprint Demo Polish — Phase B.2)
+# ---------------------------------------------------------------------------
+#
+# Operating-site address scraping. Used by `operating_site_resolver` as
+# the second tier of the cascade (Atoka → website → Google Places →
+# Mapbox HQ). We reuse the same `_CONTACT_PATHS` and HTTP client as
+# email/phone scraping so a single fetch can yield all three signals
+# when the caller batches them — but the public `scan_website_for_address`
+# entry point also works standalone.
+#
+# Three extraction strategies, run in order of confidence:
+#   1. JSON-LD ``schema.org/Organization`` block — when the site
+#      includes structured data we get a clean (street, postalCode,
+#      addressLocality, addressRegion) tuple. Highest confidence
+#      because it's machine-curated by the site author.
+#   2. ``<address>`` HTML element — semantic markup, common on
+#      Italian SME contact pages. Confidence: medium.
+#   3. Inline Italian-street regex — last resort. Matches "Via X, NN,
+#      CAP Comune (PR)" patterns that appear in footers and contact
+#      copy. Confidence: low — easy to false-match on shipping copy
+#      or testimonial blocks.
+#
+# All three return a normalized `ScrapedAddress` dataclass; the
+# resolver decides whether to forward-geocode the result via Mapbox.
+
+# Italian street prefix tokens. Kept conservative — broader prefixes
+# (Strada Provinciale, Localita) hit too many shipping-copy false
+# positives. The regex requires a full Italian postcode (5 digits) on
+# the same match so footer addresses survive but random "Via X" name
+# drops do not.
+_ITALIAN_STREET_RE = re.compile(
+    r"(?P<street>(?:Via|V\.le|Viale|Piazza|P\.zza|Corso|C\.so|Largo|Vicolo|"
+    r"Strada)\s+[\w\.\'\sÀ-ÿ]+?,?\s*\d{1,4}(?:[/\-\s][A-Za-z0-9]+)?)\s*"
+    r"[,\-]?\s*(?P<cap>\d{5})\s+"
+    # City: one or more word-tokens. Greedy by design so "Milano" wins
+    # over "M" — otherwise the optional province group below silently
+    # eats the city's tail letters. Word tokens accept Italian
+    # diacritics and the common apostrophe in toponyms ("Sant'Agata").
+    r"(?P<city>[A-Za-zÀ-ÿ\']+(?:\s+[A-Za-zÀ-ÿ\']+)*)"
+    r"(?:\s*\((?P<province>[A-Z]{2})\))?",
+    re.IGNORECASE,
+)
+
+# JSON-LD blocks live in <script type="application/ld+json">. We pull
+# the inner JSON text and parse it leniently — many CMSes emit invalid
+# JSON (single quotes, trailing commas), so we wrap the load in try/
+# except and just skip the block on failure rather than crashing.
+_LD_JSON_RE = re.compile(
+    r'<script[^>]+type=["\']application/ld\+json["\'][^>]*>(.*?)</script>',
+    re.IGNORECASE | re.DOTALL,
+)
+
+# HTML <address> blocks — strip tags afterwards, run the inline regex.
+_ADDRESS_BLOCK_RE = re.compile(
+    r"<address[^>]*>(.*?)</address>", re.IGNORECASE | re.DOTALL
+)
+_HTML_TAG_RE = re.compile(r"<[^>]+>")
+
+
+@dataclass
+class ScrapedAddress:
+    """Address extracted from a company website.
+
+    Confidence reflects the extraction strategy, not the geocoding
+    outcome — the resolver will downgrade it after a low-relevance
+    forward_geocode call.
+    """
+
+    address: str
+    cap: str | None = None
+    city: str | None = None
+    province: str | None = None
+    confidence: float = 0.0          # 0..1
+    source_strategy: str = "regex"   # 'json_ld' | 'address_tag' | 'regex'
+    page_url: str | None = None
+
+    def as_geocode_query(self) -> str:
+        """Build a single-line query suitable for Mapbox forward_geocode."""
+        parts = [self.address]
+        if self.cap:
+            parts.append(self.cap)
+        if self.city:
+            parts.append(self.city)
+        if self.province:
+            parts.append(f"({self.province})")
+        return " ".join(p for p in parts if p)
+
+
+async def scan_website_for_address(
+    domain: str,
+    *,
+    http_client: httpx.AsyncClient | None = None,
+) -> ScrapedAddress | None:
+    """Crawl a small set of contact pages for an Italian business address.
+
+    Returns the highest-confidence candidate found, or ``None`` when no
+    plausible address shows up on any of the tried pages. Never raises;
+    HTTP / parse errors are swallowed.
+    """
+
+    base_url = _domain_to_base_url(domain)
+    if not base_url:
+        return None
+
+    owns_client = http_client is None
+    if owns_client:
+        http_client = httpx.AsyncClient(
+            timeout=WEBSITE_FETCH_TIMEOUT_S,
+            max_redirects=WEBSITE_MAX_REDIRECTS,
+            headers={"User-Agent": "SolarLead/2.0 (business contact research)"},
+            follow_redirects=True,
+        )
+
+    best: ScrapedAddress | None = None
+    try:
+        for path in _CONTACT_PATHS:
+            url = base_url.rstrip("/") + path
+            candidate = await _fetch_address_from_url(url, client=http_client)
+            if candidate is None:
+                continue
+            candidate.page_url = url
+            if best is None or candidate.confidence > best.confidence:
+                best = candidate
+            # JSON-LD is high-confidence — short-circuit once we have one.
+            if best.source_strategy == "json_ld":
+                break
+    finally:
+        if owns_client:
+            await http_client.aclose()
+
+    if best is None:
+        log.debug("address_extractor.no_address", domain=domain)
+    else:
+        log.info(
+            "address_extractor.hit",
+            domain=domain,
+            strategy=best.source_strategy,
+            confidence=best.confidence,
+            page=best.page_url,
+        )
+    return best
+
+
+async def _fetch_address_from_url(
+    url: str,
+    *,
+    client: httpx.AsyncClient,
+) -> ScrapedAddress | None:
+    """Fetch one URL and run all three extraction strategies on the body."""
+
+    try:
+        resp = await client.get(url)
+    except (httpx.TimeoutException, httpx.RequestError) as exc:
+        log.debug("address_extractor.fetch_failed", url=url, err=str(exc))
+        return None
+
+    if resp.status_code not in (200, 203):
+        return None
+
+    body = resp.text[:WEBSITE_MAX_RESPONSE_BYTES]
+
+    # 1. schema.org/Organization JSON-LD (highest confidence).
+    addr = _extract_address_from_json_ld(body)
+    if addr is not None:
+        return addr
+
+    # 2. <address> HTML element.
+    addr = _extract_address_from_address_tag(body)
+    if addr is not None:
+        return addr
+
+    # 3. Inline Italian-street regex (last resort).
+    return _extract_address_from_regex(body)
+
+
+def _extract_address_from_json_ld(body: str) -> ScrapedAddress | None:
+    """Pull a PostalAddress out of a schema.org/Organization JSON-LD block.
+
+    Tolerates blocks that wrap the Organization in @graph arrays and
+    sites that emit minor JSON syntax issues — failures bubble out as
+    None so the caller falls through to the next strategy.
+    """
+
+    for match in _LD_JSON_RE.finditer(body):
+        raw = match.group(1).strip()
+        if not raw:
+            continue
+        try:
+            data = json.loads(raw)
+        except (ValueError, TypeError):
+            continue
+
+        for node in _walk_json_ld(data):
+            address_node = node.get("address") if isinstance(node, dict) else None
+            if not isinstance(address_node, dict):
+                continue
+            street = (address_node.get("streetAddress") or "").strip()
+            if not street:
+                continue
+            return ScrapedAddress(
+                address=street,
+                cap=(address_node.get("postalCode") or "").strip() or None,
+                city=(address_node.get("addressLocality") or "").strip() or None,
+                province=_extract_province(address_node.get("addressRegion")),
+                confidence=0.9,
+                source_strategy="json_ld",
+            )
+    return None
+
+
+def _walk_json_ld(node: Any):
+    """Yield every dict node in a (possibly nested) JSON-LD payload."""
+    if isinstance(node, dict):
+        yield node
+        for v in node.values():
+            yield from _walk_json_ld(v)
+    elif isinstance(node, list):
+        for item in node:
+            yield from _walk_json_ld(item)
+
+
+def _extract_address_from_address_tag(body: str) -> ScrapedAddress | None:
+    """Look inside an HTML ``<address>`` block and run the inline regex."""
+
+    for match in _ADDRESS_BLOCK_RE.finditer(body):
+        inner = _HTML_TAG_RE.sub(" ", match.group(1))
+        inner = re.sub(r"\s+", " ", inner).strip()
+        if not inner:
+            continue
+        regex_match = _ITALIAN_STREET_RE.search(inner)
+        if regex_match is None:
+            # No Italian-street shape but the tag is semantic — keep
+            # the raw text at low confidence so the resolver can
+            # geocode it as a free-text query.
+            return ScrapedAddress(
+                address=inner[:200],
+                confidence=0.5,
+                source_strategy="address_tag",
+            )
+        return ScrapedAddress(
+            address=regex_match.group("street").strip(),
+            cap=regex_match.group("cap"),
+            city=(regex_match.group("city") or "").strip() or None,
+            province=regex_match.group("province"),
+            confidence=0.75,
+            source_strategy="address_tag",
+        )
+    return None
+
+
+def _extract_address_from_regex(body: str) -> ScrapedAddress | None:
+    """Last-resort inline regex over the page body."""
+
+    # Strip HTML tags so anchored tags like <br> don't break the
+    # multi-token regex. Keep it cheap — this body is already capped
+    # at WEBSITE_MAX_RESPONSE_BYTES.
+    text = _HTML_TAG_RE.sub(" ", body)
+    text = re.sub(r"\s+", " ", text)
+
+    match = _ITALIAN_STREET_RE.search(text)
+    if match is None:
+        return None
+    return ScrapedAddress(
+        address=match.group("street").strip(),
+        cap=match.group("cap"),
+        city=(match.group("city") or "").strip() or None,
+        province=match.group("province"),
+        confidence=0.55,
+        source_strategy="regex",
+    )
+
+
+def _extract_province(region: Any) -> str | None:
+    """Coerce ``addressRegion`` to a 2-letter province code when possible.
+
+    Atoka and Italian sites are inconsistent: some emit "NA",
+    "Napoli", "Campania", "IT-NA" — we keep only the 2-letter shape
+    because that's what the rest of the pipeline expects.
+    """
+    if not region:
+        return None
+    raw = str(region).strip().upper()
+    # IT-NA → NA
+    if raw.startswith("IT-") and len(raw) == 5:
+        return raw[3:]
+    if len(raw) == 2 and raw.isalpha():
+        return raw
+    return None
 
 
 # ---------------------------------------------------------------------------

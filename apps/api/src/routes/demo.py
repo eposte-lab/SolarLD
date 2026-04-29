@@ -56,7 +56,12 @@ from ..core.logging import get_logger
 from ..core.security import CurrentUser, require_tenant
 from ..core.supabase_client import get_service_client
 from ..models.enums import OutreachChannel, RoofDataSource, RoofStatus, SubjectType
+from ..services.italian_business_service import AtokaProfile
 from ..services.mapbox_service import MapboxError, forward_geocode
+from ..services.operating_site_resolver import (
+    OperatingSite,
+    resolve_operating_site,
+)
 
 log = get_logger(__name__)
 router = APIRouter()
@@ -123,14 +128,137 @@ class DemoTestPipelineRequest(BaseModel):
 
 class DemoTestPipelineResponse(BaseModel):
     lead_id: str
+    # Tracker for the async creative+outreach tail. The dashboard polls
+    # GET /v1/demo/pipeline-runs/{run_id} on this id to surface progress
+    # and — crucially — failures that happen after we 202.
+    run_id: str
     public_slug: str | None = None
     eta_seconds: int = 90
     attempts_remaining: int
 
 
+class DemoPipelineRunResponse(BaseModel):
+    """Polled by the dialog to surface the async pipeline state.
+
+    `status` advances ``scoring → creative → outreach → done`` on the
+    happy path, or jumps to ``failed`` with ``failed_step`` set. The
+    dialog only flips to a success toast on ``done``; on ``failed`` it
+    shows ``error_message`` and the user has already been refunded.
+    """
+
+    id: str
+    lead_id: str | None
+    status: str
+    failed_step: str | None
+    error_message: str | None
+    notes: str | None
+    updated_at: str
+
+
 # ---------------------------------------------------------------------------
 # Internals
 # ---------------------------------------------------------------------------
+
+
+def _lookup_mock_enrichment(vat_number: str) -> dict[str, Any] | None:
+    """Pull pre-computed enrichment for a known demo VAT number.
+
+    The demo path skips Atoka (cost + latency) but we still want the
+    resulting lead row to look as fully-fleshed as a real production
+    lead — phone with source, ATECO description, revenue, employees,
+    LinkedIn, sede operativa coords. The `demo_mock_enrichment` table
+    holds these for the small set of VAT numbers we expect customers
+    to type during a sales call (the MULTILOG default + a few seeds).
+
+    Returns None when the VAT isn't seeded; the caller falls through
+    to the "leave nulls" behaviour. Best-effort: a lookup failure
+    must not bubble up because then a stray DB blip would burn the
+    user's attempt.
+    """
+    if not vat_number:
+        return None
+    try:
+        sb = get_service_client()
+        res = (
+            sb.table("demo_mock_enrichment")
+            .select(
+                "vat_number, decision_maker_phone, decision_maker_phone_source, "
+                "ateco_description, yearly_revenue_cents, employees, "
+                "linkedin_url, sede_operativa_address, sede_operativa_lat, "
+                "sede_operativa_lng"
+            )
+            .eq("vat_number", vat_number.strip())
+            .limit(1)
+            .execute()
+        )
+        rows = res.data or []
+        return rows[0] if rows else None
+    except Exception as exc:  # noqa: BLE001
+        log.warning(
+            "demo.mock_enrichment_lookup_failed",
+            vat_number=vat_number,
+            err=str(exc),
+        )
+        return None
+
+
+def _create_run(tenant_id: str) -> str:
+    """Insert a fresh demo_pipeline_runs row in 'scoring' state.
+
+    Called at the very top of the request so we have a tracker even if
+    scoring itself blows up. Returns the new run id so we can plumb it
+    through to the response and the background task.
+    """
+    sb = get_service_client()
+    res = (
+        sb.table("demo_pipeline_runs")
+        .insert({"tenant_id": tenant_id, "status": "scoring"})
+        .execute()
+    )
+    rows = res.data or []
+    if not rows:
+        # Best-effort: the insert should never fail under normal load.
+        # Return a deterministic stub so the route can still return 202.
+        # The dashboard polling will get a 404 and surface a generic
+        # "stato non disponibile" — preferable to crashing the request.
+        return ""
+    return rows[0]["id"]
+
+
+def _update_run(
+    run_id: str,
+    *,
+    status: str | None = None,
+    lead_id: str | None = None,
+    failed_step: str | None = None,
+    error_message: str | None = None,
+    notes: str | None = None,
+) -> None:
+    """Patch a demo_pipeline_runs row. Best-effort: a failed update
+    should never compound the user's primary failure, so we swallow
+    exceptions after logging."""
+    if not run_id:
+        return
+    payload: dict[str, Any] = {}
+    if status is not None:
+        payload["status"] = status
+    if lead_id is not None:
+        payload["lead_id"] = lead_id
+    if failed_step is not None:
+        payload["failed_step"] = failed_step
+    if error_message is not None:
+        # Truncate so a stack trace doesn't bloat the row beyond what
+        # the dialog can sensibly render.
+        payload["error_message"] = error_message[:500]
+    if notes is not None:
+        payload["notes"] = notes[:500]
+    if not payload:
+        return
+    sb = get_service_client()
+    try:
+        sb.table("demo_pipeline_runs").update(payload).eq("id", run_id).execute()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("demo.run_update_failed", run_id=run_id, err=str(exc))
 
 
 async def _require_demo_tenant(tenant_id: str) -> dict[str, Any]:
@@ -317,6 +445,12 @@ async def demo_test_pipeline(
             detail="Hai esaurito i 3 tentativi disponibili per il test pipeline.",
         )
 
+    # Run tracker — created right after the counter decrement so even a
+    # failure in geocoding/roof/subject upsert leaves a row the user can
+    # poll. The tracker carries the run forward into the async tail
+    # (creative + outreach), which is otherwise invisible to the dialog.
+    run_id: str = await asyncio.to_thread(_create_run, tenant_id)
+
     # 2. Geocode the address. Refund the attempt if the address is bad.
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -327,6 +461,13 @@ async def demo_test_pipeline(
             )
     except MapboxError as exc:
         await asyncio.to_thread(_refund_attempt, tenant_id)
+        await asyncio.to_thread(
+            _update_run,
+            run_id,
+            status="failed",
+            failed_step="scoring",
+            error_message=f"Mapbox geocoding failed: {exc}",
+        )
         log.warning("demo.test_pipeline_geocode_error", err=str(exc))
         raise HTTPException(
             status_code=502,
@@ -335,6 +476,13 @@ async def demo_test_pipeline(
 
     if geo is None:
         await asyncio.to_thread(_refund_attempt, tenant_id)
+        await asyncio.to_thread(
+            _update_run,
+            run_id,
+            status="failed",
+            failed_step="scoring",
+            error_message="Indirizzo non riconosciuto da Mapbox.",
+        )
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=(
@@ -349,13 +497,80 @@ async def demo_test_pipeline(
     sb = get_service_client()
     now = datetime.now(timezone.utc)
 
-    gh = geohash.encode(geo.lat, geo.lng, precision=9)
+    # Resolve the operating site (sede operativa) — Sprint Demo Polish
+    # Phase B. The cascade is identical to the production one in
+    # ``level4_solar_gate``: Atoka → website scrape → Google Places →
+    # Mapbox HQ centroid. For demo runs the "Atoka tier" is fed by
+    # ``demo_mock_enrichment`` so the seeded MULTILOG VAT lands on a
+    # hand-curated rooftop, while un-seeded VATs fall through to the
+    # real cascade against the company website / Google Places.
+    early_mock = _lookup_mock_enrichment(body.vat_number) or {}
+    demo_profile = AtokaProfile(
+        vat_number=body.vat_number,
+        legal_name=body.legal_name,
+        ateco_code=body.ateco_code,
+        ateco_description=early_mock.get("ateco_description"),
+        yearly_revenue_cents=early_mock.get("yearly_revenue_cents"),
+        employees=early_mock.get("employees"),
+        website_domain=None,  # demo form doesn't ask for the website
+        decision_maker_name=body.decision_maker_name,
+        decision_maker_role=body.decision_maker_role,
+        linkedin_url=early_mock.get("linkedin_url"),
+        phone=early_mock.get("decision_maker_phone"),
+        hq_address=geo.address or body.hq_address,
+        hq_cap=geo.cap,
+        hq_city=geo.comune,
+        hq_province=geo.provincia,
+        hq_lat=geo.lat,
+        hq_lng=geo.lng,
+        sede_operativa_address=early_mock.get("sede_operativa_address"),
+        sede_operativa_lat=(
+            float(early_mock["sede_operativa_lat"])
+            if early_mock.get("sede_operativa_lat") is not None
+            else None
+        ),
+        sede_operativa_lng=(
+            float(early_mock["sede_operativa_lng"])
+            if early_mock.get("sede_operativa_lng") is not None
+            else None
+        ),
+    )
+    async with httpx.AsyncClient(timeout=10.0) as resolver_client:
+        resolved_site: OperatingSite = await resolve_operating_site(
+            profile=demo_profile,
+            legal_name=body.legal_name,
+            website_domain=None,
+            hq_address=geo.address or body.hq_address,
+            hq_city=geo.comune,
+            hq_province=geo.provincia,
+            http_client=resolver_client,
+        )
+
+    if resolved_site.has_coords:
+        roof_lat = resolved_site.lat
+        roof_lng = resolved_site.lng
+        roof_address = (
+            resolved_site.address or geo.address or body.hq_address
+        )
+        log.info(
+            "demo.operating_site_resolved",
+            vat_number=body.vat_number,
+            source=resolved_site.source,
+            lat=roof_lat,
+            lng=roof_lng,
+        )
+    else:
+        roof_lat = geo.lat
+        roof_lng = geo.lng
+        roof_address = geo.address or body.hq_address
+
+    gh = geohash.encode(roof_lat, roof_lng, precision=9)
     roof_payload: dict[str, Any] = {
         "tenant_id": tenant_id,
-        "lat": geo.lat,
-        "lng": geo.lng,
+        "lat": roof_lat,
+        "lng": roof_lng,
         "geohash": gh,
-        "address": geo.address or body.hq_address,
+        "address": roof_address,
         "cap": geo.cap,
         "comune": geo.comune,
         "provincia": geo.provincia,
@@ -388,6 +603,13 @@ async def demo_test_pipeline(
         )
     except Exception as exc:  # noqa: BLE001
         await asyncio.to_thread(_refund_attempt, tenant_id)
+        await asyncio.to_thread(
+            _update_run,
+            run_id,
+            status="failed",
+            failed_step="scoring",
+            error_message=f"roof upsert failed: {exc}",
+        )
         log.error("demo.roof_upsert_failed", tenant_id=tenant_id, err=str(exc))
         raise HTTPException(
             status_code=502,
@@ -395,11 +617,41 @@ async def demo_test_pipeline(
         ) from exc
     if not roof_res.data:
         await asyncio.to_thread(_refund_attempt, tenant_id)
+        await asyncio.to_thread(
+            _update_run,
+            run_id,
+            status="failed",
+            failed_step="scoring",
+            error_message="roof upsert returned no rows",
+        )
         raise HTTPException(status_code=502, detail="Failed to upsert roof row.")
     roof_id: str = roof_res.data[0]["id"]
 
     pii_raw = f"{body.legal_name.lower().strip()}|{body.vat_number.lower().strip()}"
     pii_hash = hashlib.sha256(pii_raw.encode()).hexdigest()
+
+    # Pull pre-computed enrichment (phone, ATECO description, revenue,
+    # employees, LinkedIn) for this VAT number — see
+    # _lookup_mock_enrichment docstring. Empty when the user typed an
+    # un-seeded VAT; we still write a usable subject row, just without
+    # the enriched fields.
+    mock = _lookup_mock_enrichment(body.vat_number) or {}
+    if mock:
+        log.info(
+            "demo.mock_enrichment_applied",
+            vat_number=body.vat_number,
+            fields=sorted(k for k, v in mock.items() if v is not None),
+        )
+    else:
+        log.info(
+            "demo.mock_enrichment_missing",
+            vat_number=body.vat_number,
+            note=(
+                "no row in demo_mock_enrichment for this VAT — "
+                "subject will be written without enriched fields"
+            ),
+        )
+
     # NOTE: `subjects` has no `raw_data` jsonb column (unlike `roofs`).
     # We deliberately keep this payload aligned with the table schema —
     # adding stray columns trips PostgREST with a 400 that the supabase
@@ -414,18 +666,47 @@ async def demo_test_pipeline(
         "business_name": body.legal_name,
         "vat_number": body.vat_number,
         "ateco_code": body.ateco_code,
+        # Mock-sourced enrichment overlay — null-safe; the .get() defaults
+        # to None when the VAT isn't in `demo_mock_enrichment`.
+        "ateco_description": mock.get("ateco_description"),
+        "yearly_revenue_cents": mock.get("yearly_revenue_cents"),
+        "employees": mock.get("employees"),
+        "linkedin_url": mock.get("linkedin_url"),
         "decision_maker_name": body.decision_maker_name,
         "decision_maker_role": body.decision_maker_role,
+        "decision_maker_phone": mock.get("decision_maker_phone"),
+        "decision_maker_phone_source": mock.get("decision_maker_phone_source"),
         # Recipient — what OutreachAgent will email. We mark it
         # verified so NeverBounce gating doesn't skip the send (the
         # prospect typed it themselves; trust > probabilistic check).
         "decision_maker_email": body.recipient_email,
         "decision_maker_email_verified": True,
-        "data_sources": ["demo_test_pipeline"],
+        # Tag the data_sources array so ops can filter "leads from
+        # demo with mock enrichment vs without" without a join.
+        "data_sources": (
+            ["demo_test_pipeline", "demo_mock_enrichment"]
+            if mock
+            else ["demo_test_pipeline"]
+        ),
         "enrichment_cost_cents": 0,
         "enrichment_completed_at": now.isoformat(),
         "pii_hash": pii_hash,
     }
+    # Stamp the cascade outcome onto the subject row so the dashboard
+    # can show a "Sede operativa: Atoka / Sito web / Google Places /
+    # Centroide HQ" badge identical to a production lead.
+    if resolved_site.source != "unresolved":
+        subject_payload.update(
+            {
+                "sede_operativa_address": resolved_site.address,
+                "sede_operativa_cap": resolved_site.cap,
+                "sede_operativa_city": resolved_site.city,
+                "sede_operativa_province": resolved_site.province,
+                "sede_operativa_lat": resolved_site.lat,
+                "sede_operativa_lng": resolved_site.lng,
+                "sede_operativa_source": resolved_site.source,
+            }
+        )
     try:
         subject_res = await asyncio.to_thread(
             lambda: sb.table("subjects")
@@ -438,6 +719,13 @@ async def demo_test_pipeline(
         # we can fix the payload — silent retries make this class of bug
         # very expensive to debug.
         await asyncio.to_thread(_refund_attempt, tenant_id)
+        await asyncio.to_thread(
+            _update_run,
+            run_id,
+            status="failed",
+            failed_step="scoring",
+            error_message=f"subject upsert failed: {exc}",
+        )
         log.error(
             "demo.subject_upsert_failed",
             tenant_id=tenant_id,
@@ -450,6 +738,13 @@ async def demo_test_pipeline(
         ) from exc
     if not subject_res.data:
         await asyncio.to_thread(_refund_attempt, tenant_id)
+        await asyncio.to_thread(
+            _update_run,
+            run_id,
+            status="failed",
+            failed_step="scoring",
+            error_message="subject upsert returned no rows",
+        )
         raise HTTPException(status_code=502, detail="Failed to upsert subject row.")
     subject_id: str = subject_res.data[0]["id"]
 
@@ -469,6 +764,13 @@ async def demo_test_pipeline(
         )
     except Exception as exc:  # noqa: BLE001
         await asyncio.to_thread(_refund_attempt, tenant_id)
+        await asyncio.to_thread(
+            _update_run,
+            run_id,
+            status="failed",
+            failed_step="scoring",
+            error_message=f"scoring agent failed: {exc}",
+        )
         log.error(
             "demo.scoring_failed",
             tenant_id=tenant_id,
@@ -482,10 +784,23 @@ async def demo_test_pipeline(
     lead_id: str | None = scoring_out.lead_id
     if not lead_id:
         await asyncio.to_thread(_refund_attempt, tenant_id)
+        await asyncio.to_thread(
+            _update_run,
+            run_id,
+            status="failed",
+            failed_step="scoring",
+            error_message="scoring agent did not produce a lead row",
+        )
         raise HTTPException(
             status_code=502,
             detail="Scoring did not produce a lead row.",
         )
+
+    # Scoring done — flip the tracker to 'creative' and attach the lead
+    # id so the dashboard toast can deep-link straight to /leads/{id}.
+    await asyncio.to_thread(
+        _update_run, run_id, status="creative", lead_id=lead_id
+    )
 
     # ── Creative + Outreach (background — rendering ~60s, send ~5s) ─
     # We deliberately do NOT await this. The endpoint returns 202 with
@@ -494,7 +809,9 @@ async def demo_test_pipeline(
     # streams real-time events as creative/outreach progress (rendering
     # done → email queued → email sent → recipient opens, etc).
     asyncio.create_task(
-        _run_creative_and_outreach_background(tenant_id=tenant_id, lead_id=lead_id)
+        _run_creative_and_outreach_background(
+            tenant_id=tenant_id, lead_id=lead_id, run_id=run_id
+        )
     )
 
     # 4. Look up the public_slug so the dashboard toast can deep-link
@@ -518,22 +835,25 @@ async def demo_test_pipeline(
 
     return DemoTestPipelineResponse(
         lead_id=lead_id,
+        run_id=run_id,
         public_slug=public_slug,
         attempts_remaining=remaining,
     )
 
 
 async def _run_creative_and_outreach_background(
-    *, tenant_id: str, lead_id: str
+    *, tenant_id: str, lead_id: str, run_id: str
 ) -> None:
     """Fire-and-forget runner for the slow tail of the demo pipeline.
 
     Spawned via `asyncio.create_task` so the HTTP response returns to
-    the browser as soon as scoring completes. Errors are swallowed
-    after logging — there is no caller to raise to. The dashboard
-    surfaces failures via the live timeline / lead status, not via
-    the original POST response.
+    the browser as soon as scoring completes. Errors are written to
+    `demo_pipeline_runs.error_message` so the dashboard polling
+    surfaces them — silent failures here mean the user sees a "Lead
+    creato!" success while the email never went out.
     """
+    # ── Creative ────────────────────────────────────────────────────
+    creative_failed = False
     try:
         await CreativeAgent().run(
             CreativeInput(
@@ -543,8 +863,53 @@ async def _run_creative_and_outreach_background(
             )
         )
     except Exception as exc:  # noqa: BLE001
+        creative_failed = True
         log.warning("demo.creative_error", lead_id=lead_id, err=str(exc))
+        await asyncio.to_thread(
+            _update_run,
+            run_id,
+            status="failed",
+            failed_step="creative",
+            error_message=f"Creative agent failed: {exc}",
+        )
 
+    # If creative blew up there's no point trying outreach — we'd send
+    # an email with a broken/missing rendering. Stop here.
+    if creative_failed:
+        log.info("demo.test_pipeline_background_aborted", lead_id=lead_id)
+        return
+
+    # Annotate whether the GIF was actually produced. The Creative
+    # agent silently falls back to the static "before" image when
+    # Remotion is unreachable or the AI panel-paint failed; surface
+    # that to the dialog so the user knows what they're getting.
+    sb = get_service_client()
+    try:
+        lead_row = (
+            sb.table("leads")
+            .select("rendering_gif_url, rendering_image_url")
+            .eq("id", lead_id)
+            .limit(1)
+            .execute()
+        )
+        rows = lead_row.data or []
+        if rows and not rows[0].get("rendering_gif_url"):
+            await asyncio.to_thread(
+                _update_run,
+                run_id,
+                notes=(
+                    "Email inviata con immagine statica: GIF animata non "
+                    "generata (Remotion sidecar non disponibile o panel-paint AI fallita)."
+                ),
+            )
+    except Exception as exc:  # noqa: BLE001
+        log.warning("demo.gif_check_failed", lead_id=lead_id, err=str(exc))
+
+    # Flip to 'outreach' so the dialog can show "Invio email…" while
+    # the send is in flight.
+    await asyncio.to_thread(_update_run, run_id, status="outreach")
+
+    # ── Outreach ────────────────────────────────────────────────────
     try:
         await OutreachAgent().run(
             OutreachInput(
@@ -557,8 +922,58 @@ async def _run_creative_and_outreach_background(
         )
     except Exception as exc:  # noqa: BLE001
         log.warning("demo.outreach_error", lead_id=lead_id, err=str(exc))
+        await asyncio.to_thread(
+            _update_run,
+            run_id,
+            status="failed",
+            failed_step="outreach",
+            error_message=f"Outreach agent failed: {exc}",
+        )
+        return
 
+    # Happy path — everything done. The dialog now shows a success
+    # toast with a deep link to the lead.
+    await asyncio.to_thread(_update_run, run_id, status="done")
     log.info("demo.test_pipeline_background_completed", lead_id=lead_id)
+
+
+@router.get(
+    "/pipeline-runs/{run_id}",
+    response_model=DemoPipelineRunResponse,
+)
+async def demo_pipeline_run_status(
+    ctx: CurrentUser, run_id: str
+) -> DemoPipelineRunResponse:
+    """Polled by the dialog to surface async pipeline state.
+
+    Tenant-scoped: a tenant can only read its own runs. The dialog
+    polls every 2s for ~2 minutes; we expect ``done`` or ``failed``
+    well within that window.
+    """
+    tenant_id = require_tenant(ctx)
+    sb = get_service_client()
+
+    res = await asyncio.to_thread(
+        lambda: sb.table("demo_pipeline_runs")
+        .select("id, lead_id, status, failed_step, error_message, notes, updated_at")
+        .eq("id", run_id)
+        .eq("tenant_id", tenant_id)
+        .limit(1)
+        .execute()
+    )
+    rows = res.data or []
+    if not rows:
+        raise HTTPException(status_code=404, detail="Run not found")
+    row = rows[0]
+    return DemoPipelineRunResponse(
+        id=row["id"],
+        lead_id=row.get("lead_id"),
+        status=row["status"],
+        failed_step=row.get("failed_step"),
+        error_message=row.get("error_message"),
+        notes=row.get("notes"),
+        updated_at=row["updated_at"],
+    )
 
 
 def _refund_attempt(tenant_id: str) -> None:

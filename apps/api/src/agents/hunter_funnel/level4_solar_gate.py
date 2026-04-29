@@ -41,6 +41,10 @@ from ...services.mapbox_service import (
     MapboxError,
     forward_geocode,
 )
+from ...services.operating_site_resolver import (
+    OperatingSite,
+    resolve_operating_site,
+)
 from ...services.tenant_config_service import TechnicalFilters
 from .types import FunnelContext, ScoredCandidate
 
@@ -144,12 +148,13 @@ async def _gate_one(
     """Process one candidate through Solar. Returns one of:
        'qualified' | 'rejected_tech' | 'no_building' | 'api_error' | 'skipped_no_coords'
     """
-    lat, lng = await _resolve_coords(
+    site = await _resolve_coords(
         cand,
         ctx=ctx,
         http_client=http_client,
         geo_sem=geo_sem,
     )
+    lat, lng = site.lat, site.lng
     if lat is None or lng is None:
         _mark_verdict(cand.candidate_id, "api_error", roof_id=None)
         return "skipped_no_coords"
@@ -191,6 +196,7 @@ async def _gate_one(
         accepted=verdict_accepted,
         reason=reason,
         classification=classification.value,
+        site=site,
     )
 
     verdict = "accepted" if verdict_accepted else "rejected_tech"
@@ -251,34 +257,67 @@ async def _resolve_coords(
     ctx: FunnelContext,
     http_client: httpx.AsyncClient,
     geo_sem: asyncio.Semaphore,
-) -> tuple[float | None, float | None]:
-    """Prefer Atoka-supplied coords, else forward-geocode the HQ address."""
+) -> OperatingSite:
+    """Run the 4-tier operating-site cascade.
+
+    Priority is: Atoka sede_operativa → website scrape → Google Places →
+    Mapbox HQ centroid. The legacy "Atoka HQ coords" early-return is
+    preserved when the profile has *only* HQ coords (no operating-site
+    record): we wrap them in an ``OperatingSite`` with ``source='atoka'``
+    so the downstream subject row records the provenance honestly.
+
+    Returning a single object (instead of a bare tuple) lets the caller
+    persist sede_operativa_* fields and surface a "Sede operativa: X"
+    badge on the dashboard without re-resolving.
+    """
     p = cand.profile
-    if p.hq_lat is not None and p.hq_lng is not None:
-        return p.hq_lat, p.hq_lng
 
-    if not p.hq_address:
-        return None, None
-
-    try:
-        async with geo_sem:
-            result: ForwardGeocodeResult | None = await forward_geocode(
-                p.hq_address,
-                proximity=None,
-                client=http_client,
-            )
-    except MapboxError as exc:
-        log.debug(
-            "l4_geocode_failed",
-            extra={"vat": p.vat_number, "err": str(exc)},
+    # If Atoka *only* gave us HQ coords (no operating-site flag), keep the
+    # legacy fast-path: skip the cascade and skip extra HTTP work. We tag
+    # the source as ``mapbox_hq`` because that's the centroid behaviour
+    # the dashboard badge will reflect.
+    if (
+        p.sede_operativa_lat is None
+        and p.sede_operativa_lng is None
+        and p.hq_lat is not None
+        and p.hq_lng is not None
+    ):
+        return OperatingSite(
+            lat=p.hq_lat,
+            lng=p.hq_lng,
+            address=p.hq_address,
+            cap=p.hq_cap,
+            city=p.hq_city,
+            province=p.hq_province,
+            source="mapbox_hq",
+            confidence="low",
         )
-        return None, None
 
-    ctx.costs.add_mapbox(cost_cents=_MAPBOX_GEOCODE_COST_CENTS)
+    # Geo concurrency cap — the cascade may issue several HTTP calls
+    # (website fetch + forward_geocode + Places). Hold the semaphore for
+    # the whole resolver so we never exceed our Mapbox/Places quotas.
+    cost_meter: dict[str, int] = {}
+    async with geo_sem:
+        site = await resolve_operating_site(
+            profile=p,
+            legal_name=p.legal_name or "",
+            website_domain=p.website_domain,
+            hq_address=p.hq_address,
+            hq_city=p.hq_city,
+            hq_province=p.hq_province,
+            http_client=http_client,
+            cost_meter=cost_meter,
+        )
 
-    if result is None:
-        return None, None
-    return result.lat, result.lng
+    if cost_meter.get("google_places"):
+        # The cost-tracker on FunnelContext.costs only knows about Mapbox
+        # / Solar; record Places spend on the raw costs dict so the
+        # nightly rollup picks it up.
+        ctx.costs.add_mapbox(cost_cents=cost_meter["google_places"])
+    # Tier 4 (mapbox_hq) implies one geocode call.
+    if site.source in {"mapbox_hq", "website_scrape"}:
+        ctx.costs.add_mapbox(cost_cents=_MAPBOX_GEOCODE_COST_CENTS)
+    return site
 
 
 def _apply_filters(
@@ -315,6 +354,7 @@ def _upsert_roof_and_subject(
     accepted: bool,
     reason: str | None,
     classification: str,
+    site: OperatingSite | None = None,
 ) -> tuple[UUID | None, UUID | None]:
     """Upsert `roofs` (keyed on tenant_id + geohash) and `subjects`
     (one per roof). Returns (roof_id, subject_id). subject_id is None
@@ -387,37 +427,49 @@ def _upsert_roof_and_subject(
             if existing.data:
                 subject_id = existing.data[0]["id"]
             else:
-                ins = (
-                    sb.table("subjects").insert(
+                subject_payload: dict[str, Any] = {
+                    "tenant_id": ctx.tenant_id,
+                    "roof_id": roof_id,
+                    "type": "b2b",
+                    "business_name": cand.profile.legal_name,
+                    "business_website": cand.enrichment.website,
+                    # Phone resolved upstream by L2: prefer Atoka's
+                    # raw bundle (free, ~70% coverage); fall back
+                    # to website scrape regex hit (free); else NULL.
+                    # The `*_source` column lets the UI badge the
+                    # provenance and ops audit data quality.
+                    "decision_maker_phone": cand.enrichment.phone,
+                    "decision_maker_phone_source": (
+                        "atoka" if cand.enrichment.phone else None
+                    ),
+                    "vat_number": cand.profile.vat_number,
+                    "ateco_code": cand.profile.ateco_code,
+                    "employees": cand.profile.employees,
+                    "yearly_revenue_cents": cand.profile.yearly_revenue_cents,
+                    "raw_data": {
+                        "source": "funnel_v2",
+                        "decision_maker_name": cand.profile.decision_maker_name,
+                        "decision_maker_role": cand.profile.decision_maker_role,
+                        "linkedin_url": cand.profile.linkedin_url,
+                        "proxy_score": cand.score,
+                    },
+                }
+                # Stamp the operating-site cascade outcome onto the
+                # subject row so the dashboard can show provenance and
+                # the next pipeline run can short-circuit re-resolution.
+                if site is not None and site.source != "unresolved":
+                    subject_payload.update(
                         {
-                            "tenant_id": ctx.tenant_id,
-                            "roof_id": roof_id,
-                            "type": "b2b",
-                            "business_name": cand.profile.legal_name,
-                            "business_website": cand.enrichment.website,
-                            # Phone resolved upstream by L2: prefer Atoka's
-                            # raw bundle (free, ~70% coverage); fall back
-                            # to website scrape regex hit (free); else NULL.
-                            # The `*_source` column lets the UI badge the
-                            # provenance and ops audit data quality.
-                            "decision_maker_phone": cand.enrichment.phone,
-                            "decision_maker_phone_source": (
-                                "atoka" if cand.enrichment.phone else None
-                            ),
-                            "vat_number": cand.profile.vat_number,
-                            "ateco_code": cand.profile.ateco_code,
-                            "employees": cand.profile.employees,
-                            "yearly_revenue_cents": cand.profile.yearly_revenue_cents,
-                            "raw_data": {
-                                "source": "funnel_v2",
-                                "decision_maker_name": cand.profile.decision_maker_name,
-                                "decision_maker_role": cand.profile.decision_maker_role,
-                                "linkedin_url": cand.profile.linkedin_url,
-                                "proxy_score": cand.score,
-                            },
+                            "sede_operativa_address": site.address,
+                            "sede_operativa_cap": site.cap,
+                            "sede_operativa_city": site.city,
+                            "sede_operativa_province": site.province,
+                            "sede_operativa_lat": site.lat,
+                            "sede_operativa_lng": site.lng,
+                            "sede_operativa_source": site.source,
                         }
-                    ).execute()
-                )
+                    )
+                ins = sb.table("subjects").insert(subject_payload).execute()
                 if ins.data:
                     subject_id = ins.data[0]["id"]
         except Exception as exc:  # noqa: BLE001

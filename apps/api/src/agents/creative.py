@@ -302,8 +302,18 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
         # the sidecar side, but we prefer to pass them when available
         # so the outro panel has real numbers. Failures here are
         # non-fatal — we still commit the image + ROI.
+        #
+        # Fail-loud: when we cannot produce a GIF we log
+        # `creative.gif_fallback` with a structured `reason` so the
+        # demo dashboard (and ops) can tell at a glance why an outreach
+        # email went out as a static image. The reasons are:
+        #   - `before_url_missing`  — Solar API skipped, no satellite tile
+        #   - `after_url_missing`   — AI panel-paint failed
+        #   - `roi_missing`         — quote engine produced no numbers
+        #   - `remotion_failed`     — sidecar HTTP/render error
         video_url: str | None = None
         gif_url: str | None = None
+        gif_fallback_reason: str | None = None
         if (
             before_url is not None
             and after_url is not None
@@ -335,13 +345,39 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
                     gif=gif_url,
                 )
             except (RemotionError, httpx.HTTPError) as exc:
+                gif_fallback_reason = "remotion_failed"
                 log.warning(
                     "creative.remotion_failed",
                     lead_id=payload.lead_id,
                     err=str(exc),
                 )
+                log.warning(
+                    "creative.gif_fallback",
+                    lead_id=payload.lead_id,
+                    reason=gif_fallback_reason,
+                    err=str(exc)[:160],
+                )
                 if skipped_reason is None:
                     skipped_reason = "remotion_error"
+        else:
+            # Pre-conditions for the Remotion render were not satisfied.
+            # Surface exactly which input was missing so the operator
+            # (and the demo `demo_pipeline_runs.notes` column) can
+            # explain why the outreach went out as a still image.
+            if before_url is None:
+                gif_fallback_reason = "before_url_missing"
+            elif after_url is None:
+                gif_fallback_reason = "after_url_missing"
+            else:
+                gif_fallback_reason = "roi_missing"
+            log.warning(
+                "creative.gif_fallback",
+                lead_id=payload.lead_id,
+                reason=gif_fallback_reason,
+                before_url_present=before_url is not None,
+                after_url_present=after_url is not None,
+                roi_present=roi is not None,
+            )
 
         # 7) Persist whatever we produced back onto the lead row. We
         # always update roi_data; we only overwrite rendering_*_url when

@@ -163,9 +163,17 @@ export default async function LeadDetailPage({ params }: PageProps) {
     .filter(Boolean)
     .join(', ');
   const isBlacklisted = lead.pipeline_status === 'blacklisted';
-  const portalUrl =
-    process.env.NEXT_PUBLIC_LEAD_PORTAL_URL || 'http://localhost:3001';
-  const publicLeadLink = `${portalUrl}/lead/${lead.public_slug}`;
+  // NEXT_PUBLIC_LEAD_PORTAL_URL must point at the SEPARATE lead-portal
+  // Vercel project, not the dashboard. Any trailing slash is normalised
+  // here so a sloppy env value still produces a valid URL. We also bail
+  // to '#' when the lead row has no slug yet, instead of building
+  // `/lead/null` which 404s on the portal.
+  const portalUrl = (
+    process.env.NEXT_PUBLIC_LEAD_PORTAL_URL || 'http://localhost:3001'
+  ).replace(/\/+$/, '');
+  const publicLeadLink = lead.public_slug
+    ? `${portalUrl}/lead/${lead.public_slug}`
+    : '#';
   const alreadySent = lead.outreach_sent_at != null;
 
   const sentCampaigns = campaigns.filter((c) => c.sent_at);
@@ -242,6 +250,30 @@ export default async function LeadDetailPage({ params }: PageProps) {
               </p>
             </GlassPanel>
           )}
+          {/*
+            Sede operativa provenance badge — surfaces which tier of
+            the cascade produced the rooftop coords. "Centroide HQ"
+            (mapbox_hq) signals to ops that the render likely sits on
+            an industrial-cluster centroid rather than the actual
+            building, and the lead deserves a manual address upgrade
+            before sending.
+          */}
+          {lead.subjects?.sede_operativa_source && (
+            <GlassPanel className="absolute right-5 top-5 px-3 py-1.5">
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">
+                Sede operativa
+              </p>
+              <p className="text-xs font-bold text-on-surface">
+                {{
+                  atoka: 'Atoka',
+                  website_scrape: 'Sito web',
+                  google_places: 'Google Places',
+                  mapbox_hq: 'Centroide HQ',
+                  manual: 'Manuale',
+                }[lead.subjects.sede_operativa_source] ?? '—'}
+              </p>
+            </GlassPanel>
+          )}
         </div>
       )}
 
@@ -275,7 +307,7 @@ export default async function LeadDetailPage({ params }: PageProps) {
               </p>
               {lead.portal_video_slug && (
                 <a
-                  href={`${process.env.NEXT_PUBLIC_LEAD_PORTAL_URL ?? ''}/lead/${lead.portal_video_slug}/video`}
+                  href={`${portalUrl}/lead/${lead.portal_video_slug}/video`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-on-primary transition-opacity hover:opacity-90"
@@ -409,6 +441,71 @@ export default async function LeadDetailPage({ params }: PageProps) {
                     </span>
                   ) : null}
                 </span>
+              ) : (
+                '—'
+              )
+            }
+          />
+          {/*
+            Enrichment fields — populated by Atoka in production and by
+            `demo_mock_enrichment` for the demo "Avvia test pipeline".
+            Each row gracefully renders "—" when the underlying value
+            is null, so a sparsely-enriched lead doesn't break layout.
+          */}
+          <DataRow
+            label="Ruolo"
+            value={lead.subjects?.decision_maker_role ?? '—'}
+          />
+          <DataRow
+            label="ATECO"
+            value={
+              lead.subjects?.ateco_code || lead.subjects?.ateco_description ? (
+                <span className="inline-flex flex-wrap items-center justify-end gap-1.5">
+                  {lead.subjects?.ateco_code && (
+                    <span className="rounded bg-surface-container-low px-1.5 py-0.5 font-mono text-[11px]">
+                      {lead.subjects.ateco_code}
+                    </span>
+                  )}
+                  {lead.subjects?.ateco_description && (
+                    <span className="text-on-surface">
+                      {lead.subjects.ateco_description}
+                    </span>
+                  )}
+                </span>
+              ) : (
+                '—'
+              )
+            }
+          />
+          <DataRow
+            label="Fatturato annuo"
+            value={
+              lead.subjects?.yearly_revenue_cents != null
+                ? formatEurPlain(lead.subjects.yearly_revenue_cents / 100)
+                : '—'
+            }
+          />
+          <DataRow
+            label="Dipendenti"
+            value={
+              lead.subjects?.employees != null
+                ? formatNumber(lead.subjects.employees)
+                : '—'
+            }
+          />
+          <DataRow
+            label="LinkedIn"
+            value={
+              lead.subjects?.linkedin_url ? (
+                <a
+                  href={lead.subjects.linkedin_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 text-primary hover:underline"
+                >
+                  Profilo aziendale
+                  <ExternalLink size={11} strokeWidth={2.25} aria-hidden />
+                </a>
               ) : (
                 '—'
               )

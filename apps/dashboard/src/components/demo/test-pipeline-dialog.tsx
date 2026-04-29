@@ -27,7 +27,13 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { Loader2, MapPin, Rocket, ArrowRight } from 'lucide-react';
+import {
+  AlertTriangle,
+  ArrowRight,
+  Loader2,
+  MapPin,
+  Rocket,
+} from 'lucide-react';
 
 import { GradientButton } from '@/components/ui/gradient-button';
 import { createBrowserClient } from '@/lib/supabase/client';
@@ -64,6 +70,29 @@ interface GeocodePreview {
   notes?: string | null;
 }
 
+// Server-side state machine, mirrored from `demo_pipeline_runs.status`.
+// The dialog polls GET /v1/demo/pipeline-runs/{run_id} until it sees
+// `done` (success toast) or `failed` (error panel + refund). Anything
+// in between is rendered as a step indicator so the user knows the
+// pipeline is still progressing — no more "Lead creato!" toast for an
+// email that never went out.
+type RunStatus =
+  | 'scoring'
+  | 'creative'
+  | 'outreach'
+  | 'done'
+  | 'failed';
+
+interface RunSnapshot {
+  id: string;
+  lead_id: string | null;
+  status: RunStatus;
+  failed_step: string | null;
+  error_message: string | null;
+  notes: string | null;
+  updated_at: string;
+}
+
 async function authHeader(): Promise<Record<string, string>> {
   if (typeof window === 'undefined') return {};
   const sb = createBrowserClient();
@@ -85,18 +114,13 @@ export function TestPipelineDialog({
   const [geocoding, setGeocoding] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [submitStep, setSubmitStep] = useState<
-    'idle' | 'scoring' | 'rendering' | 'sending' | 'done'
-  >('idle');
-  const [success, setSuccess] = useState<{
-    lead_id: string;
-    attempts_remaining: number;
-  } | null>(null);
+  const [run, setRun] = useState<RunSnapshot | null>(null);
+  const [attemptsAfterRun, setAttemptsAfterRun] = useState<number | null>(null);
 
   function open() {
     setError(null);
-    setSuccess(null);
-    setSubmitStep('idle');
+    setRun(null);
+    setAttemptsAfterRun(null);
     ref.current?.showModal();
   }
 
@@ -104,15 +128,41 @@ export function TestPipelineDialog({
     ref.current?.close();
   }
 
-  // Show a single "Scoring…" label while the request is in flight.
-  // The endpoint now returns 202 after scoring (~5s) and runs creative
-  // + outreach in the background — we don't need to fake a multi-step
-  // progress UI here, the lead detail timeline picks up the rendering
-  // and send events live.
+  // Poll the demo_pipeline_runs row for ~2 minutes after submit. We
+  // stop polling on `done` (show success) or `failed` (show error +
+  // user has already been refunded server-side). Cleanup on unmount
+  // or when the run resolves keeps us from leaking timers.
   useEffect(() => {
-    if (!submitting) return;
-    setSubmitStep('scoring');
-  }, [submitting]);
+    if (!run || run.status === 'done' || run.status === 'failed') return;
+    const runId = run.id;
+    let cancelled = false;
+    const start = Date.now();
+    const tick = async () => {
+      if (cancelled) return;
+      try {
+        const auth = await authHeader();
+        const res = await fetch(
+          `${API_URL}/v1/demo/pipeline-runs/${runId}`,
+          { headers: { ...auth } },
+        );
+        if (res.ok) {
+          const next = (await res.json()) as RunSnapshot;
+          if (!cancelled) setRun(next);
+          if (next.status === 'done' || next.status === 'failed') return;
+        }
+      } catch {
+        // Swallow transient errors — we'll retry on the next tick.
+      }
+      // Bail after 3 minutes so we don't poll forever on a stuck job.
+      if (Date.now() - start > 180_000) return;
+      if (!cancelled) setTimeout(tick, 2_000);
+    };
+    const t = setTimeout(tick, 2_000);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [run]);
 
   async function handleGeocodeBlur() {
     if (!form.hq_address || form.hq_address.trim().length < 6) {
@@ -139,6 +189,7 @@ export function TestPipelineDialog({
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    setRun(null);
     setSubmitting(true);
     try {
       const auth = await authHeader();
@@ -150,6 +201,7 @@ export function TestPipelineDialog({
       const data = (await res.json().catch(() => null)) as
         | {
             lead_id?: string;
+            run_id?: string;
             attempts_remaining?: number;
             detail?: string;
           }
@@ -162,11 +214,19 @@ export function TestPipelineDialog({
         setSubmitting(false);
         return;
       }
-      setSuccess({
+      setAttemptsAfterRun(data.attempts_remaining ?? 0);
+      // Seed the polling cycle. The endpoint already flipped status to
+      // 'creative' after scoring; the polling effect picks it up and
+      // refreshes every 2s until done/failed.
+      setRun({
+        id: data.run_id ?? '',
         lead_id: data.lead_id,
-        attempts_remaining: data.attempts_remaining ?? 0,
+        status: 'creative',
+        failed_step: null,
+        error_message: null,
+        notes: null,
+        updated_at: new Date().toISOString(),
       });
-      setSubmitStep('done');
     } catch (err) {
       setError(
         err instanceof Error ? err.message : 'Errore imprevisto. Riprova.',
@@ -192,10 +252,9 @@ export function TestPipelineDialog({
         ref={ref}
         className="m-auto w-full max-w-xl rounded-2xl bg-surface p-0 shadow-ambient-lg backdrop:bg-on-surface/50 backdrop:backdrop-blur-sm"
         onClose={() => {
-          // Reset the success state when the user dismisses, so the
-          // next open shows the form again rather than the success card.
-          setSuccess(null);
-          setSubmitStep('idle');
+          // Reset state on dismiss so the next open starts on the form.
+          setRun(null);
+          setAttemptsAfterRun(null);
         }}
       >
         <div className="space-y-4 p-6">
@@ -222,12 +281,25 @@ export function TestPipelineDialog({
             </button>
           </header>
 
-          {success ? (
-            <SuccessPanel
-              leadId={success.lead_id}
-              attemptsRemaining={success.attempts_remaining}
+          {run && run.status === 'failed' ? (
+            <FailurePanel
+              run={run}
+              attemptsRemaining={attemptsAfterRun ?? attemptsRemaining}
+              onRetry={() => {
+                setRun(null);
+                setAttemptsAfterRun(null);
+              }}
               onClose={close}
             />
+          ) : run && run.status === 'done' ? (
+            <SuccessPanel
+              leadId={run.lead_id ?? ''}
+              attemptsRemaining={attemptsAfterRun ?? 0}
+              notes={run.notes}
+              onClose={close}
+            />
+          ) : run ? (
+            <ProgressPanel run={run} />
           ) : (
             <form className="space-y-4" onSubmit={handleSubmit}>
               <div className="grid grid-cols-2 gap-3">
@@ -380,13 +452,7 @@ export function TestPipelineDialog({
                         strokeWidth={2.5}
                         className="animate-spin"
                       />
-                      {submitStep === 'scoring'
-                        ? 'Scoring…'
-                        : submitStep === 'rendering'
-                          ? 'Rendering tetto…'
-                          : submitStep === 'sending'
-                            ? 'Invio email…'
-                            : 'Avvio…'}
+                      Scoring…
                     </span>
                   ) : (
                     <span className="inline-flex items-center gap-1.5">
@@ -411,23 +477,30 @@ export function TestPipelineDialog({
 function SuccessPanel({
   leadId,
   attemptsRemaining,
+  notes,
   onClose,
 }: {
   leadId: string;
   attemptsRemaining: number;
+  notes?: string | null;
   onClose: () => void;
 }) {
   return (
     <div className="space-y-3 rounded-xl bg-primary/5 p-4 ring-1 ring-primary/15">
       <p className="font-headline text-lg font-bold text-primary">
-        Lead generato 🎉
+        Email inviata 🎉
       </p>
       <p className="text-sm text-on-surface">
-        Il rendering del tetto e l&apos;invio dell&apos;email sono partiti in
-        background (~90s). Apri la scheda del lead per vedere
-        l&apos;anagrafica completa e — appena pronti — il rendering, lo stato
-        di invio e gli eventi di tracking in tempo reale.
+        Il lead è stato creato, il tetto renderizzato e l&apos;email
+        inviata al destinatario. Apri la scheda del lead per vedere
+        l&apos;anagrafica completa e gli eventi di tracking in tempo reale
+        (apertura, click, visita pagina personale).
       </p>
+      {notes && (
+        <p className="rounded-lg bg-warning-container/50 px-3 py-2 text-xs text-on-warning-container">
+          {notes}
+        </p>
+      )}
       <p className="text-xs text-on-surface-variant">
         Tentativi rimanenti: <strong>{attemptsRemaining}/3</strong>.
       </p>
@@ -446,6 +519,140 @@ function SuccessPanel({
           Vai al lead
           <ArrowRight size={14} strokeWidth={2.5} />
         </a>
+      </div>
+    </div>
+  );
+}
+
+// Live "scoring → creative → outreach → done" indicator that mirrors
+// the server-side state machine. We render every step with a check /
+// spinner / dot so the user can see exactly where the pipeline is.
+function ProgressPanel({ run }: { run: RunSnapshot }) {
+  const steps: Array<{ key: RunStatus; label: string }> = [
+    { key: 'scoring', label: 'Scoring lead' },
+    { key: 'creative', label: 'Rendering tetto' },
+    { key: 'outreach', label: 'Invio email' },
+  ];
+  const currentIdx = steps.findIndex((s) => s.key === run.status);
+  return (
+    <div className="space-y-3 rounded-xl bg-surface-container-low p-4">
+      <p className="font-headline text-lg font-bold text-on-surface">
+        Pipeline in corso…
+      </p>
+      <p className="text-xs text-on-surface-variant">
+        Lead creato. Rendering ~60s · invio ~5s. Resta su questa schermata,
+        non chiudere finché non vedi la conferma.
+      </p>
+      <ul className="space-y-2">
+        {steps.map((step, idx) => {
+          const done = currentIdx > idx || run.status === 'done';
+          const active = currentIdx === idx && run.status !== 'done';
+          return (
+            <li
+              key={step.key}
+              className="flex items-center gap-3 text-sm"
+            >
+              <span
+                className={
+                  done
+                    ? 'flex h-6 w-6 items-center justify-center rounded-full bg-primary text-on-primary'
+                    : active
+                      ? 'flex h-6 w-6 items-center justify-center rounded-full bg-primary/15 text-primary'
+                      : 'flex h-6 w-6 items-center justify-center rounded-full bg-surface-container-high text-on-surface-variant'
+                }
+              >
+                {done ? (
+                  '✓'
+                ) : active ? (
+                  <Loader2
+                    size={12}
+                    strokeWidth={2.75}
+                    className="animate-spin"
+                  />
+                ) : (
+                  <span className="text-[10px]">{idx + 1}</span>
+                )}
+              </span>
+              <span
+                className={
+                  done || active
+                    ? 'text-on-surface'
+                    : 'text-on-surface-variant'
+                }
+              >
+                {step.label}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+// Hard-fail panel — the run terminated in 'failed' state. Server has
+// already refunded the attempt counter, so the user can immediately
+// retry from a fresh form. We surface the actual error_message so we
+// don't have to ship a debugger every time something breaks.
+function FailurePanel({
+  run,
+  attemptsRemaining,
+  onRetry,
+  onClose,
+}: {
+  run: RunSnapshot;
+  attemptsRemaining: number;
+  onRetry: () => void;
+  onClose: () => void;
+}) {
+  const stepLabel =
+    run.failed_step === 'scoring'
+      ? 'durante lo scoring'
+      : run.failed_step === 'creative'
+        ? 'durante il rendering del tetto'
+        : run.failed_step === 'outreach'
+          ? "durante l'invio dell'email"
+          : '';
+  return (
+    <div className="space-y-3 rounded-xl bg-error-container/30 p-4 ring-1 ring-error/30">
+      <div className="flex items-start gap-2">
+        <AlertTriangle
+          size={20}
+          strokeWidth={2.25}
+          className="mt-0.5 text-error"
+          aria-hidden
+        />
+        <div>
+          <p className="font-headline text-base font-bold text-error">
+            Pipeline interrotta {stepLabel}
+          </p>
+          {run.error_message && (
+            <p className="mt-1 break-words text-xs text-on-error-container">
+              {run.error_message}
+            </p>
+          )}
+        </div>
+      </div>
+      <p className="text-xs text-on-surface-variant">
+        Il tentativo è stato rimborsato. Tentativi rimanenti:{' '}
+        <strong>{attemptsRemaining}/3</strong>.
+      </p>
+      <div className="flex items-center justify-end gap-2 pt-1">
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-full px-3 py-1.5 text-xs font-semibold text-on-surface-variant hover:bg-surface-container-high"
+        >
+          Chiudi
+        </button>
+        <button
+          type="button"
+          onClick={onRetry}
+          className="inline-flex items-center gap-1.5 rounded-full bg-primary px-4 py-2 text-xs font-semibold text-on-primary shadow-ambient-sm hover:shadow-ambient-md"
+        >
+          Riprova
+          <ArrowRight size={14} strokeWidth={2.5} />
+        </button>
       </div>
     </div>
   );

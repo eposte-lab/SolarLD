@@ -189,6 +189,61 @@ export interface SubjectSummary {
     | "website_scrape"
     | "manual"
     | null;
+  /**
+   * Decision-maker role (CEO / Direttore / Sales Manager / …). Free
+   * text from Atoka or operator input. Used in the anagrafica panel
+   * directly under the name and as a personalisation token in the
+   * outreach copy.
+   */
+  decision_maker_role?: string | null;
+  /**
+   * ATECO classification fields. `ateco_code` is the dotted code
+   * ("49.41"); `ateco_description` is the human-readable italian
+   * gloss ("Trasporto di merci su strada"). The dashboard displays
+   * the description right next to the code so the operator doesn't
+   * have to look up what 49.41 means.
+   */
+  ateco_code?: string | null;
+  ateco_description?: string | null;
+  /**
+   * Yearly revenue in eurocents (B2B only — populated from Atoka's
+   * revenue band). Stored as cents to keep currency math integer-clean.
+   * NULL for B2C subjects and for B2B without a published bilancio.
+   */
+  yearly_revenue_cents?: number | null;
+  /** Headcount band, B2B only. NULL when unknown. */
+  employees?: number | null;
+  /** Company LinkedIn URL — surfaced as a clickable chip. */
+  linkedin_url?: string | null;
+  /**
+   * Operating-site (sede operativa) coordinates. Distinct from the
+   * legal HQ on `roofs` because the chamber-of-commerce filing often
+   * points to a notary's address, not the actual building. Populated
+   * by the cascade in `operating_site_resolver` (Atoka locations[]
+   * → website scrape → Google Places → Mapbox HQ centroid).
+   */
+  sede_operativa_address?: string | null;
+  sede_operativa_cap?: string | null;
+  sede_operativa_city?: string | null;
+  sede_operativa_province?: string | null;
+  sede_operativa_lat?: number | null;
+  sede_operativa_lng?: number | null;
+  /**
+   * Provenance badge for the rendering panel:
+   *   'atoka'          — Atoka locations[] entry (highest confidence)
+   *   'website_scrape' — schema.org/<address>/regex on the website
+   *   'google_places'  — Google Places API text search
+   *   'mapbox_hq'      — fallback: forward-geocoded HQ (low confidence)
+   *   'manual'         — operator override
+   * NULL when the cascade has not yet been run for this subject.
+   */
+  sede_operativa_source?:
+    | "atoka"
+    | "website_scrape"
+    | "google_places"
+    | "mapbox_hq"
+    | "manual"
+    | null;
 }
 
 /** Lead row as displayed in the list view (joined with subject + roof summary). */
