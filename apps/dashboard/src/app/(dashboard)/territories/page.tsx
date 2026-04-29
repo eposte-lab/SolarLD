@@ -93,10 +93,15 @@ export default async function TerritoriesPage({
 
   return (
     <div className="space-y-6">
-      <Header tenantName={ctx.tenant.business_name} summary={summary} />
+      <Header
+        tenantName={ctx.tenant.business_name}
+        summary={summary}
+        isDemo={Boolean(ctx.tenant.is_demo)}
+      />
 
-      {/* Pipeline explainer — always visible, compact */}
-      <PipelineBanner />
+      {/* Pipeline explainer — internal jargon hidden for demo tenants;
+          customers see a customer-friendly summary instead. */}
+      {ctx.tenant.is_demo ? <PipelineBannerCustomer /> : <PipelineBanner />}
 
       {isLocked && <LockBanner lockedAt={ctx.tenant.territory_locked_at!} />}
       {flash && <FlashBanner flash={flash} />}
@@ -213,6 +218,31 @@ function PipelineBanner() {
   );
 }
 
+/**
+ * Customer-facing variant of `PipelineBanner` — same height + visual
+ * weight, but strips the 6 internal stage names (Hunter, Scoring,
+ * Creative…) and the architectural jargon ("auto-coordinate", "roofs
+ * table"). Customers see the *promise* of the pipeline, not its plumbing.
+ */
+function PipelineBannerCustomer() {
+  return (
+    <div className="flex flex-wrap items-center gap-3 rounded-xl bg-surface-container-lowest px-5 py-3 shadow-ambient-sm">
+      <p className="text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">
+        Pipeline
+      </p>
+      <p className="text-xs text-on-surface">
+        <strong className="font-semibold text-primary">7 step automatici</strong>{' '}
+        di profilazione — dal territorio all&apos;email personalizzata —
+        garantiscono qualità eccellente su ogni lead.
+      </p>
+      <p className="ml-auto text-[11px] text-on-surface-variant">
+        Aggiungi un territorio → clicca{' '}
+        <strong className="font-semibold">Scansiona</strong> per partire.
+      </p>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Header
 // ---------------------------------------------------------------------------
@@ -220,9 +250,11 @@ function PipelineBanner() {
 function Header({
   tenantName,
   summary,
+  isDemo,
 }: {
   tenantName: string;
   summary: { total: number; priority: number; excluded: number };
+  isDemo: boolean;
 }) {
   return (
     <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
@@ -234,9 +266,20 @@ function Header({
           Territori
         </h1>
         <p className="mt-2 max-w-lg text-sm text-on-surface-variant">
-          Aggiungi un territorio — le coordinate vengono rilevate
-          automaticamente. Poi avvia la scansione: Hunter popola la
-          tabella dei tetti, Scoring crea i lead.
+          {isDemo ? (
+            <>
+              Aggiungi un territorio — le coordinate vengono rilevate
+              automaticamente. Poi avvia la scansione: il sistema
+              individua le aziende con tetto idoneo e prepara
+              l&apos;email personalizzata.
+            </>
+          ) : (
+            <>
+              Aggiungi un territorio — le coordinate vengono rilevate
+              automaticamente. Poi avvia la scansione: Hunter popola la
+              tabella dei tetti, Scoring crea i lead.
+            </>
+          )}
         </p>
       </div>
 
