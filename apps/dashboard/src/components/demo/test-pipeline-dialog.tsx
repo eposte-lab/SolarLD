@@ -34,14 +34,18 @@ import { createBrowserClient } from '@/lib/supabase/client';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
-// Plausible default — a real-looking B2B from Lombardia. The prospect
-// can blow it away with their own input but starting from "" is a
-// worse onboarding moment, especially during a sales call.
+// Plausible default — MULTILOG S.P.A. (Agglomerato ASI Pascarola, NA),
+// trasporto merci su strada (ATECO 49.41), €37.5M fatturato, 48
+// dipendenti. Real azienda the prospect can recognise during a sales
+// call, with enough surface area (capannoni industriali) to make the
+// rooftop rendering look impressive. Decision-maker / recipient email
+// stay blank — the prospect must type a real inbox they own to see
+// the test email actually land.
 const DEFAULT_FORM = {
-  vat_number: '',
-  legal_name: '',
-  ateco_code: '',
-  hq_address: '',
+  vat_number: '09881610019',
+  legal_name: 'MULTILOG S.P.A.',
+  ateco_code: '49.41',
+  hq_address: 'Zona Industriale ASI, 80023 Agglomerato Asi Pascarola NA',
   decision_maker_name: '',
   decision_maker_role: '',
   decision_maker_email: '',
