@@ -380,17 +380,33 @@ async def demo_test_pipeline(
         },
     }
 
-    roof_res = await asyncio.to_thread(
-        lambda: sb.table("roofs")
-        .upsert(roof_payload, on_conflict="tenant_id,geohash")
-        .execute()
-    )
+    try:
+        roof_res = await asyncio.to_thread(
+            lambda: sb.table("roofs")
+            .upsert(roof_payload, on_conflict="tenant_id,geohash")
+            .execute()
+        )
+    except Exception as exc:  # noqa: BLE001
+        await asyncio.to_thread(_refund_attempt, tenant_id)
+        log.error("demo.roof_upsert_failed", tenant_id=tenant_id, err=str(exc))
+        raise HTTPException(
+            status_code=502,
+            detail="Errore nel salvataggio del tetto. Riprova fra qualche secondo.",
+        ) from exc
     if not roof_res.data:
+        await asyncio.to_thread(_refund_attempt, tenant_id)
         raise HTTPException(status_code=502, detail="Failed to upsert roof row.")
     roof_id: str = roof_res.data[0]["id"]
 
     pii_raw = f"{body.legal_name.lower().strip()}|{body.vat_number.lower().strip()}"
     pii_hash = hashlib.sha256(pii_raw.encode()).hexdigest()
+    # NOTE: `subjects` has no `raw_data` jsonb column (unlike `roofs`).
+    # We deliberately keep this payload aligned with the table schema —
+    # adding stray columns trips PostgREST with a 400 that the supabase
+    # client raises as APIError, which used to bubble up to the browser
+    # as a generic "Failed to fetch" because the request was already
+    # streaming. Anything we'd want to preserve about the supplied
+    # emails is already in the API logs ("demo.test_pipeline_started").
     subject_payload: dict[str, Any] = {
         "tenant_id": tenant_id,
         "roof_id": roof_id,
@@ -409,17 +425,31 @@ async def demo_test_pipeline(
         "enrichment_cost_cents": 0,
         "enrichment_completed_at": now.isoformat(),
         "pii_hash": pii_hash,
-        "raw_data": {
-            "supplied_decision_maker_email": body.decision_maker_email,
-            "supplied_recipient_email": body.recipient_email,
-        },
     }
-    subject_res = await asyncio.to_thread(
-        lambda: sb.table("subjects")
-        .upsert(subject_payload, on_conflict="tenant_id,roof_id")
-        .execute()
-    )
+    try:
+        subject_res = await asyncio.to_thread(
+            lambda: sb.table("subjects")
+            .upsert(subject_payload, on_conflict="tenant_id,roof_id")
+            .execute()
+        )
+    except Exception as exc:  # noqa: BLE001
+        # Refund the attempt so a schema/validation bug doesn't burn the
+        # prospect's 3 lifetime tries. We always log the actual cause so
+        # we can fix the payload — silent retries make this class of bug
+        # very expensive to debug.
+        await asyncio.to_thread(_refund_attempt, tenant_id)
+        log.error(
+            "demo.subject_upsert_failed",
+            tenant_id=tenant_id,
+            err=str(exc),
+            payload_keys=list(subject_payload.keys()),
+        )
+        raise HTTPException(
+            status_code=502,
+            detail="Errore nel salvataggio dell'anagrafica. Riprova fra qualche secondo.",
+        ) from exc
     if not subject_res.data:
+        await asyncio.to_thread(_refund_attempt, tenant_id)
         raise HTTPException(status_code=502, detail="Failed to upsert subject row.")
     subject_id: str = subject_res.data[0]["id"]
 
@@ -429,15 +459,29 @@ async def demo_test_pipeline(
     # Creative + Outreach (the slow ~85s pair) run async in the
     # background so the browser fetch doesn't time out behind Railway's
     # HTTP proxy (~100s) or any CDN in front of the API.
-    scoring_out = await ScoringAgent().run(
-        ScoringInput(
-            tenant_id=tenant_id,
-            roof_id=roof_id,
-            subject_id=subject_id,
+    try:
+        scoring_out = await ScoringAgent().run(
+            ScoringInput(
+                tenant_id=tenant_id,
+                roof_id=roof_id,
+                subject_id=subject_id,
+            )
         )
-    )
+    except Exception as exc:  # noqa: BLE001
+        await asyncio.to_thread(_refund_attempt, tenant_id)
+        log.error(
+            "demo.scoring_failed",
+            tenant_id=tenant_id,
+            subject_id=subject_id,
+            err=str(exc),
+        )
+        raise HTTPException(
+            status_code=502,
+            detail="Errore durante lo scoring del lead. Riprova fra qualche secondo.",
+        ) from exc
     lead_id: str | None = scoring_out.lead_id
     if not lead_id:
+        await asyncio.to_thread(_refund_attempt, tenant_id)
         raise HTTPException(
             status_code=502,
             detail="Scoring did not produce a lead row.",
