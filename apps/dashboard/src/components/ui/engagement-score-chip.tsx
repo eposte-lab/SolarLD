@@ -15,7 +15,7 @@
  */
 
 import { cn } from '@/lib/utils';
-import { engagementTier } from '@/lib/data/engagement';
+import { engagementTier } from '@/lib/data/engagement-shared';
 
 const TIER_STYLES = {
   hot: 'bg-secondary-container text-on-secondary-container',

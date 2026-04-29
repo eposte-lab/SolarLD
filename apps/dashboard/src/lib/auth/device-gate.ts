@@ -28,9 +28,18 @@
  * /settings/devices admin page.
  */
 
-import { createHash, randomBytes } from 'node:crypto';
-
+// NOTE: this module runs inside the Next.js middleware (Edge runtime),
+// which does NOT expose `node:crypto`. We use the global Web Crypto
+// API instead — available in both Edge and Node runtimes.
 import { createClient } from '@supabase/supabase-js';
+
+function bytesToHex(bytes: Uint8Array): string {
+  let out = '';
+  for (let i = 0; i < bytes.length; i++) {
+    out += bytes[i]!.toString(16).padStart(2, '0');
+  }
+  return out;
+}
 
 const COOKIE_NAME = 'sld-dev';
 const COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 365; // 1 year
@@ -91,9 +100,14 @@ function getServiceClient() {
 // Fingerprint helpers
 // ---------------------------------------------------------------------------
 
-/** SHA256(ua || '|' || ip_subnet) → hex. */
-export function softFingerprint(userAgent: string, ipSubnet: string): string {
-  return createHash('sha256').update(`${userAgent}|${ipSubnet}`).digest('hex');
+/** SHA256(ua || '|' || ip_subnet) → hex. Async — Web Crypto digest is async. */
+export async function softFingerprint(
+  userAgent: string,
+  ipSubnet: string,
+): Promise<string> {
+  const data = new TextEncoder().encode(`${userAgent}|${ipSubnet}`);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  return bytesToHex(new Uint8Array(hashBuffer));
 }
 
 /** Stable /24 bucket for IPv4 ("203.0.113.45" → "203.0.113.0/24"). IPv6
@@ -147,7 +161,9 @@ export function friendlyDeviceName(ua: string): string {
 }
 
 function newCookieToken(): string {
-  return randomBytes(32).toString('hex');
+  const arr = new Uint8Array(32);
+  crypto.getRandomValues(arr);
+  return bytesToHex(arr);
 }
 
 function defaultCookieOptions(): CookieOptionsLite {
@@ -232,7 +248,7 @@ export async function evaluateDeviceGate(args: {
 
   const sb = getServiceClient();
   const subnet = ipSubnet(args.ip);
-  const fingerprint = softFingerprint(args.userAgent, subnet);
+  const fingerprint = await softFingerprint(args.userAgent, subnet);
 
   // ── 1. Cookie match ──────────────────────────────────────────────────
   if (args.cookieToken) {

@@ -130,17 +130,12 @@ export async function getHotLeadsNow(
   });
 }
 
-/**
- * Human-readable tier for an engagement score. Keep the thresholds in
- * sync with ``compute_score`` in ``engagement_service.py`` — cold
- * covers the silent majority, warm is "showing interest", hot is
- * "call today".
- */
-export function engagementTier(score: number): 'hot' | 'warm' | 'cold' {
-  if (score >= 60) return 'hot';
-  if (score >= 25) return 'warm';
-  return 'cold';
-}
+// Re-export the pure tier helper from the shared (client-safe) module so
+// existing server-side callers (`import { engagementTier } from '@/lib/data/engagement'`)
+// keep working unchanged. Client components must import from
+// `@/lib/data/engagement-shared` directly to avoid pulling in this
+// `server-only` boundary.
+export { engagementTier, type EngagementTier } from './engagement-shared';
 
 // ---------------------------------------------------------------------
 // Portal events — full activity log for one lead, used by the lead
