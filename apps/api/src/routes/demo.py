@@ -854,8 +854,9 @@ async def _run_creative_and_outreach_background(
     """
     # ── Creative ────────────────────────────────────────────────────
     creative_failed = False
+    creative_out = None
     try:
-        await CreativeAgent().run(
+        creative_out = await CreativeAgent().run(
             CreativeInput(
                 tenant_id=tenant_id,
                 lead_id=lead_id,
@@ -899,9 +900,16 @@ async def _run_creative_and_outreach_background(
             # worked → the GIF skip is on the Remotion sidecar (most
             # likely VIDEO_RENDERER_URL not pointed at a deployed
             # service). If the after-image is also missing, the AI step
-            # itself never produced a frame — usually means
-            # REPLICATE_API_TOKEN or the panel-paint model is unhappy.
+            # itself never produced a frame — surface CreativeAgent's
+            # exact `reason` (e.g. ``ai_paint_error:create status=401 …``)
+            # so the operator sees the precise cause in the dialog
+            # instead of just "Replicate failed somehow".
             after_present = bool(rows[0].get("rendering_image_url"))
+            agent_reason = (
+                creative_out.reason
+                if creative_out is not None and creative_out.reason
+                else None
+            )
             if after_present:
                 note = (
                     "Email inviata con immagine statica. La pittura AI del "
@@ -909,12 +917,22 @@ async def _run_creative_and_outreach_background(
                     "(verifica VIDEO_RENDERER_URL e che il servizio "
                     "video-renderer sia online su Railway)."
                 )
+                if agent_reason:
+                    note += f" — Dettaglio agente: {agent_reason}"
             else:
-                note = (
-                    "Email inviata con immagine statica: la pittura AI del "
-                    "tetto non ha prodotto un frame (panel-paint AI fallita: "
-                    "verifica REPLICATE_API_TOKEN e i log creative.gif_fallback)."
-                )
+                if agent_reason:
+                    note = (
+                        "Email inviata con immagine statica: la pittura AI "
+                        f"del tetto non ha prodotto un frame. Causa esatta: "
+                        f"{agent_reason}"
+                    )
+                else:
+                    note = (
+                        "Email inviata con immagine statica: la pittura AI "
+                        "del tetto non ha prodotto un frame (panel-paint AI "
+                        "fallita: verifica REPLICATE_API_TOKEN e i log "
+                        "creative.gif_fallback)."
+                    )
             await asyncio.to_thread(_update_run, run_id, notes=note)
     except Exception as exc:  # noqa: BLE001
         log.warning("demo.gif_check_failed", lead_id=lead_id, err=str(exc))
