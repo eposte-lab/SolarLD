@@ -104,7 +104,11 @@ class ScoringAgent(AgentBase[ScoringInput, ScoringOutput]):
 
         tenant = (
             sb.table("tenants")
-            .select("id, settings")
+            .select(
+                "id, settings, daily_target_send_cap, daily_send_cap_min, "
+                "daily_send_cap_max, warehouse_buffer_days, lead_expiration_days, "
+                "atoka_survival_target"
+            )
             .eq("id", payload.tenant_id)
             .single()
             .execute()
@@ -173,9 +177,28 @@ class ScoringAgent(AgentBase[ScoringInput, ScoringOutput]):
         final_tier = tier_for(final_score, tenant_config.scoring_threshold)
 
         # 6) Upsert lead row
+        # Sprint 11 — qualified leads enter the warehouse (`ready_to_send`)
+        # rather than going straight to rendering. The daily orchestrator
+        # picks them in FIFO order and only then triggers Solar+Kling.
+        # Rejected-tier leads are inserted in their pre-existing `new`
+        # state so the dashboard can still surface them; OutreachAgent
+        # skips them on tier.
+        from datetime import datetime, timedelta, timezone as _tz
+        from ..services.warehouse_policy import policy_for as _policy_for
+
+        is_qualified = final_tier != LeadScoreTier.REJECTED
+        warehouse_now = datetime.now(_tz.utc)
+        warehouse_policy = _policy_for(tenant_row)
+        warehouse_expires = (
+            warehouse_now + timedelta(days=warehouse_policy.lead_expiration_days)
+            if is_qualified
+            else None
+        )
+        warehouse_status = "ready_to_send" if is_qualified else "new"
+
         existing_lead = (
             sb.table("leads")
-            .select("id, public_slug")
+            .select("id, public_slug, pipeline_status")
             .eq("tenant_id", payload.tenant_id)
             .eq("roof_id", payload.roof_id)
             .eq("subject_id", payload.subject_id)
@@ -184,30 +207,44 @@ class ScoringAgent(AgentBase[ScoringInput, ScoringOutput]):
         )
         if existing_lead.data:
             lead_id = existing_lead.data[0]["id"]
-            sb.table("leads").update(
-                {
-                    "score": final_score,
-                    "score_breakdown": breakdown.to_dict(),
-                    "score_tier": final_tier.value,
-                }
-            ).eq("id", lead_id).execute()
+            existing_status = existing_lead.data[0].get("pipeline_status")
+            update_payload: dict[str, Any] = {
+                "score": final_score,
+                "score_breakdown": breakdown.to_dict(),
+                "score_tier": final_tier.value,
+                "last_status_transition_at": warehouse_now.isoformat(),
+            }
+            # Only push back into the warehouse if the lead hasn't already
+            # progressed past it. A lead that's `picked` / `rendering` /
+            # `sent` should keep its forward state — we just refreshed
+            # the score for analytics, not to re-stage the same email.
+            if (
+                is_qualified
+                and existing_status in {None, "new", "discovered", "enriched", "scored", "qualified", "expired"}
+            ):
+                update_payload["pipeline_status"] = "ready_to_send"
+                update_payload["enqueued_to_warehouse_at"] = warehouse_now.isoformat()
+                if warehouse_expires is not None:
+                    update_payload["expires_at"] = warehouse_expires.isoformat()
+            sb.table("leads").update(update_payload).eq("id", lead_id).execute()
         else:
             public_slug = secrets.token_urlsafe(16)
-            insert_res = (
-                sb.table("leads")
-                .insert(
-                    {
-                        "tenant_id": payload.tenant_id,
-                        "roof_id": payload.roof_id,
-                        "subject_id": payload.subject_id,
-                        "public_slug": public_slug,
-                        "score": final_score,
-                        "score_breakdown": breakdown.to_dict(),
-                        "score_tier": final_tier.value,
-                    }
-                )
-                .execute()
-            )
+            insert_payload: dict[str, Any] = {
+                "tenant_id": payload.tenant_id,
+                "roof_id": payload.roof_id,
+                "subject_id": payload.subject_id,
+                "public_slug": public_slug,
+                "score": final_score,
+                "score_breakdown": breakdown.to_dict(),
+                "score_tier": final_tier.value,
+                "pipeline_status": warehouse_status,
+                "last_status_transition_at": warehouse_now.isoformat(),
+            }
+            if is_qualified:
+                insert_payload["enqueued_to_warehouse_at"] = warehouse_now.isoformat()
+                if warehouse_expires is not None:
+                    insert_payload["expires_at"] = warehouse_expires.isoformat()
+            insert_res = sb.table("leads").insert(insert_payload).execute()
             lead_id = (insert_res.data or [{}])[0].get("id")
 
         # 7) Transition roof.status → scored (unless already downstream)

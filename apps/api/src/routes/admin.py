@@ -174,6 +174,16 @@ class TenantAdminUpdate(BaseModel):
     contract_end_date: str | None = None
     business_name: str | None = None
 
+    # Sprint 11 — warehouse pipeline knobs. Validated by the DB CHECK
+    # constraints in migration 0072 (send_cap bounds + warehouse window
+    # sanity), so we only do shallow type-level validation here.
+    daily_target_send_cap: int | None = Field(default=None, ge=1, le=5000)
+    daily_send_cap_min: int | None = Field(default=None, ge=1, le=5000)
+    daily_send_cap_max: int | None = Field(default=None, ge=1, le=5000)
+    warehouse_buffer_days: int | None = Field(default=None, ge=1, le=30)
+    lead_expiration_days: int | None = Field(default=None, ge=1, le=90)
+    atoka_survival_target: float | None = Field(default=None, ge=0.10, le=1.00)
+
 
 @router.patch("/tenants/{tenant_id}")
 async def update_tenant(

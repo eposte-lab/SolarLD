@@ -50,6 +50,7 @@ from .routes import (
     territories,
     unsubscribe,
     usage,
+    warehouse,
     webhooks,
 )
 
@@ -160,6 +161,7 @@ app.include_router(b2c_exports.router, prefix="/v1/b2c", tags=["b2c-exports"])
 # No prefix — the routes are already /v1/unsubscribe (GET + POST).
 app.include_router(unsubscribe.router)
 app.include_router(usage.router, prefix="/v1/usage", tags=["usage"])
+app.include_router(warehouse.router, prefix="/v1/warehouse", tags=["warehouse"])
 app.include_router(quarantine.router, prefix="/v1/quarantine", tags=["quarantine"])
 app.include_router(followup.router, prefix="/v1/followup", tags=["followup"])
 

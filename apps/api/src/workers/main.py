@@ -29,6 +29,7 @@ from ..services.crm_webhook_service import dispatch_event as crm_dispatch
 from .cron import (
     cluster_ab_evaluation_cron,
     daily_digest_cron,
+    daily_pipeline_cron,
     deliverability_hourly_cron,
     engagement_followup_cron,
     engagement_rollup_cron,
@@ -38,6 +39,7 @@ from .cron import (
     send_time_rollup_cron,
     sla_first_touch_cron,
     smartlead_warmup_sync_cron,
+    warehouse_cleanup_cron,
     weekly_digest_cron,
 )
 
@@ -195,9 +197,19 @@ class WorkerSettings:
         # Task 15: hourly deliverability guard — catch domain spikes fast.
         cron(deliverability_hourly_cron, minute=0, run_at_startup=False),
         cron(reputation_digest_cron, hour=2, minute=30, run_at_startup=False),
+        # Sprint 11: warehouse expiry sweep BEFORE the daily pipeline,
+        # so today's pick doesn't see leads that should have been
+        # expired (which would otherwise still satisfy the
+        # `expires_at > now()` guard inside warehouse_pick by a few
+        # minutes around midnight).
+        cron(warehouse_cleanup_cron, hour=3, minute=0, run_at_startup=False),
         cron(retention_cron, hour=3, minute=15, run_at_startup=False),
         # Sprint 9 B.5: cluster A/B chi-square evaluation + auto-promotion.
         cron(cluster_ab_evaluation_cron, hour=3, minute=30, run_at_startup=False),
+        # Sprint 11: per-tenant warehouse refill + FIFO pick of today's
+        # send batch. Runs after the cleanup sweep + A/B evaluation so
+        # each tenant's daily quota is dispatched against fresh assignments.
+        cron(daily_pipeline_cron, hour=5, minute=30, run_at_startup=False),
         cron(send_time_rollup_cron, hour=3, minute=45, run_at_startup=False),
         cron(engagement_rollup_cron, hour=4, minute=0, run_at_startup=False),
         # Task 14: sync Smartlead warm-up health scores before the morning

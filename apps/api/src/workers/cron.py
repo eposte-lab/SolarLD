@@ -542,6 +542,42 @@ async def smartlead_warmup_sync_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, "tenants": len(tenant_ids), "synced": total_synced, "failed": total_failed}
 
 
+async def warehouse_cleanup_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
+    """Sprint 11 — daily expiry sweep of the lead warehouse.
+
+    Transitions every lead in ``ready_to_send`` past its ``expires_at``
+    to ``expired`` and pushes it onto ``reverification_queue`` for an
+    eventual fresh data pull. Bounded per tick (1000 rows) so a large
+    backlog doesn't lock the table for minutes; the next tick mops up.
+    """
+    from ..services.warehouse_cleanup_service import expire_stale_warehouse_leads
+
+    result = await expire_stale_warehouse_leads()
+    log.info("cron.warehouse_cleanup.done", **result)
+    return {"ok": True, **result}
+
+
+async def daily_pipeline_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
+    """Sprint 11 — the per-tenant daily warehouse-pick orchestrator.
+
+    Runs once per day for every active tenant: refills the warehouse
+    if it dropped under ``warehouse_buffer_days`` of runway, then
+    picks up to ``daily_target_send_cap`` leads in FIFO order via
+    the atomic ``warehouse_pick`` RPC and enqueues a creative_task
+    per picked lead (pick-time rendering — Solar+Kling don't fire
+    until we've decided to send).
+    """
+    from ..services.daily_pipeline_orchestrator import run_daily_orchestrator
+
+    result = await run_daily_orchestrator()
+    log.info(
+        "cron.daily_pipeline.done",
+        tenants_processed=result.get("tenants_processed"),
+        tenants_failed=result.get("tenants_failed"),
+    )
+    return {"ok": True, **{k: v for k, v in result.items() if k != "details"}}
+
+
 async def cluster_ab_evaluation_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
     """Daily evaluation of cluster A/B tests — auto-promote winners (Sprint 9 Fase B.5).
 
