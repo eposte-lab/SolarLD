@@ -46,9 +46,9 @@ const DEFAULT_FORM = {
   legal_name: 'MULTILOG S.P.A.',
   ateco_code: '49.41',
   hq_address: 'Zona Industriale ASI, 80023 Agglomerato Asi Pascarola NA',
-  decision_maker_name: '',
-  decision_maker_role: '',
-  decision_maker_email: '',
+  decision_maker_name: 'Antonio De Luca',
+  decision_maker_role: 'Amministratore Delegato',
+  decision_maker_email: 'multilogspa@pec.it',
   recipient_email: '',
 };
 
