@@ -54,12 +54,14 @@ export function RegenerateRenderingButton({ leadId }: Props) {
       // rendering shows up without a manual reload.
       setTimeout(() => router.refresh(), 30000);
     } catch (err) {
+      // ApiError.message is already a sanitized Italian string from
+      // api-client.ts — never JSON.stringify the body into the toast.
       const msg =
         err instanceof ApiError
-          ? `API ${err.status}: ${typeof err.body === 'string' ? err.body : JSON.stringify(err.body)}`
+          ? err.message
           : err instanceof Error
-            ? err.message
-            : 'Errore sconosciuto';
+            ? "Errore di rete. Verifica la connessione e riprova."
+            : "Errore sconosciuto. Riprova tra qualche minuto.";
       setState({ kind: 'error', message: msg });
     }
   }

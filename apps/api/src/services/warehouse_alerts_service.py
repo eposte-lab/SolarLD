@@ -201,12 +201,23 @@ async def emit_atoka_failure_alert(
     err: str,
     territory_id: str | None = None,
 ) -> None:
+    """Surface an Atoka discovery failure to the tenant.
+
+    The raw `err` string is whatever ``str(exc)`` produced upstream —
+    typically an HTTP 5xx body, a connection error, a JSON parse
+    failure. That's diagnostic noise the operator can't act on, and
+    it often contains URLs / keys / stack fragments. We keep it in
+    structured metadata for ops + Sentry, but the in-app body is a
+    plain Italian sentence.
+    """
     await maybe_alert(
         tenant_id=tenant_id,
         code="atoka_failed",
         body=(
-            "Il ciclo di scoperta aziende non si è completato: "
-            f"{err}. Controlla la configurazione del territorio."
+            "Il ciclo di scoperta aziende non si è completato. "
+            "Stiamo investigando — riproveremo automaticamente al "
+            "prossimo ciclo. Se il problema persiste, controlla la "
+            "configurazione del territorio."
         ),
         metadata={"err": err, "territory_id": territory_id},
         href="/territories",

@@ -1009,10 +1009,22 @@ async def preview_custom_email_template(ctx: CurrentUser) -> HTMLResponse:
     try:
         html = await get_preview_html(sb, tenant_id, path)
     except Exception as exc:
-        log.warning("branding.custom_template_preview_failed", tenant_id=tenant_id, err=str(exc))
+        # The Jinja2 / premailer error message can include line numbers,
+        # undefined variable names, traceback fragments — those go into
+        # logs only. The user sees a generic Italian message; if they
+        # need the real reason, the validation endpoint surfaces it
+        # under a structured `errors` field.
+        log.warning(
+            "branding.custom_template_preview_failed",
+            tenant_id=tenant_id,
+            err=str(exc),
+        )
         raise HTTPException(
             status_code=500,
-            detail=f"Rendering del template fallito: {exc}",
+            detail=(
+                "Anteprima non disponibile: il template caricato contiene "
+                "un errore. Apri la sezione Validazione per i dettagli."
+            ),
         ) from exc
 
     return HTMLResponse(content=html, status_code=200)

@@ -61,18 +61,50 @@ async def trigger_followup_now(ctx: CurrentUser) -> dict[str, Any]:
 
     try:
         result = await engagement_followup_for_tenant(tenant_id)
+        queued = int(result.get("queued") or 0)
+        # `skipped` from the worker is a dict[str, int] grouped by reason
+        # code (e.g. "cold_sequence_in_progress"). Reason codes are
+        # internal — the user-facing message must show only a count and
+        # plain Italian copy. The breakdown is kept in the structured
+        # response so the dashboard can render it as a tooltip if/when
+        # we expose that detail.
+        skipped_raw = result.get("skipped") or 0
+        if isinstance(skipped_raw, dict):
+            skipped_count = sum(int(v) for v in skipped_raw.values())
+            skipped_breakdown: dict[str, int] = {
+                str(k): int(v) for k, v in skipped_raw.items()
+            }
+        else:
+            skipped_count = int(skipped_raw)
+            skipped_breakdown = {}
+
+        if queued == 0 and skipped_count == 0:
+            message = "Nessun lead idoneo al follow-up in questo momento."
+        elif queued == 0:
+            message = (
+                f"Nessun follow-up inviato: {skipped_count} lead non sono "
+                "ancora idonei (alcuni sono in cooldown, altri non hanno "
+                "ancora completato la sequenza iniziale)."
+            )
+        else:
+            message = (
+                f"{queued} follow-up messi in coda. "
+                f"{skipped_count} lead non idonei in questo momento."
+            )
+
         return {
             "ok": True,
-            "queued": result.get("queued", 0),
-            "skipped": result.get("skipped", 0),
-            "message": (
-                f"{result.get('queued', 0)} follow-up in coda, "
-                f"{result.get('skipped', 0)} saltati (cooldown attivo o non idonei)."
-            ),
+            "queued": queued,
+            "skipped": skipped_count,
+            "skipped_breakdown": skipped_breakdown,
+            "message": message,
         }
     except Exception as exc:
         log.warning("followup_trigger_failed", tenant_id=tenant_id, err=str(exc))
-        raise HTTPException(status_code=500, detail=f"Errore durante il trigger: {exc}") from exc
+        raise HTTPException(
+            status_code=500,
+            detail="Errore interno durante l'avvio del follow-up. Riprova tra qualche minuto.",
+        ) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -250,10 +282,19 @@ Installer: {tenant.get("business_name", "SolarLead")}
                     sb=sb,
                 )
             except Exception as exc:
+                # Don't echo the raw exception to the operator — log the
+                # technical detail server-side and surface a generic
+                # Italian message in the bulk grid.
+                log.warning(
+                    "followup_bulk_send_failed",
+                    tenant_id=tenant_id,
+                    lead_id=lead_id,
+                    err=str(exc),
+                )
                 return BulkDraftResult(
                     lead_id=lead_id, ok=False,
                     subject=subject_line, body=body_text,
-                    error=f"Invio fallito: {exc}",
+                    error="Invio fallito. La bozza è stata salvata, riprova manualmente.",
                 )
 
         return BulkDraftResult(

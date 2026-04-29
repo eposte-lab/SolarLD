@@ -45,12 +45,35 @@ export async function apiFetch<T = unknown>(
     } catch {
       body = await res.text();
     }
-    // Prefer the FastAPI `detail` field (string or array) over the raw status text.
-    const detail =
-      body != null && typeof body === 'object' && 'detail' in (body as object)
-        ? String((body as Record<string, unknown>).detail)
-        : null;
-    throw new ApiError(detail ?? `API ${res.status}: ${res.statusText}`, res.status, body);
+    // Extract the FastAPI `detail` for the user-visible message.
+    //
+    // FastAPI returns three shapes for `detail`:
+    //   1. plain string (HTTPException(detail="..."))         → use as-is
+    //   2. structured dict ({"code": "...", "params": {...}}) → not a user
+    //      string; render a generic message and keep the body for the caller
+    //   3. validation array ([{"loc":[...],"msg":"...",...}]) → same — never
+    //      render `[object Object]` or raw JSON to the user
+    //
+    // Anything that isn't plainly a string falls back to a generic Italian
+    // message; the structured body is still attached to ApiError for callers
+    // that want to inspect codes (tier gate, budget exceeded, etc.).
+    let detail: string | null = null;
+    if (body != null && typeof body === 'object' && 'detail' in (body as object)) {
+      const raw = (body as Record<string, unknown>).detail;
+      if (typeof raw === 'string' && raw.trim()) {
+        detail = raw;
+      } else if (Array.isArray(raw)) {
+        detail = 'Richiesta non valida. Controlla i campi del modulo e riprova.';
+      } else if (raw && typeof raw === 'object') {
+        // structured error object — caller can read it via .body
+        detail = 'Operazione non riuscita. Riprova tra qualche minuto.';
+      }
+    }
+    const fallback =
+      res.status >= 500
+        ? 'Errore del servizio. Riprova tra qualche minuto.'
+        : `Operazione non riuscita (codice ${res.status}).`;
+    throw new ApiError(detail ?? fallback, res.status, body);
   }
 
   if (res.status === 204) return null as T;

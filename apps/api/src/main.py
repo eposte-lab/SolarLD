@@ -168,17 +168,67 @@ app.include_router(followup.router, prefix="/v1/followup", tags=["followup"])
 
 @app.exception_handler(TierGateError)
 async def tier_gate_handler(_req: Request, exc: TierGateError) -> JSONResponse:
+    """Convert tier-gate exceptions to a sanitized 403.
+
+    The exception's ``__str__`` is English internal copy ("Capability
+    'foo' requires tier 'pro'…") — useful for logs and ops, useless to
+    a tenant. We expose a generic Italian ``detail`` for the toast and
+    a structured ``error`` payload (code + parameters) so the dashboard
+    can render a tier-specific upgrade nudge without parsing free-form
+    strings.
+    """
+    log.info(
+        "tier_gate_blocked",
+        capability=exc.capability.value,
+        current_tier=exc.current_tier,
+        required_tier=exc.required_tier,
+    )
     return JSONResponse(
         status_code=403,
-        content={"detail": str(exc)},
+        content={
+            "detail": (
+                "Funzionalità non disponibile sul tuo piano. "
+                "Aggiorna il piano per sbloccarla."
+            ),
+            "error": {
+                "code": "tier_gate",
+                "capability": exc.capability.value,
+                "current_tier": exc.current_tier,
+                "required_tier": exc.required_tier,
+            },
+        },
     )
 
 
 @app.exception_handler(BudgetExceededError)
 async def budget_exceeded_handler(_req: Request, exc: BudgetExceededError) -> JSONResponse:
+    """Convert budget-exhaustion exceptions to a sanitized 402.
+
+    Same logic as the tier handler: the technical breakdown
+    (used_cents / limit_cents / budget enum value) is internal — we log
+    it, but the user sees a plain Italian message and the structured
+    payload powers any in-app upgrade card.
+    """
+    log.info(
+        "budget_exceeded",
+        budget=exc.budget.value,
+        current_tier=exc.current_tier,
+        used_cents=exc.used_cents,
+        limit_cents=exc.limit_cents,
+    )
     return JSONResponse(
         status_code=402,
-        content={"detail": str(exc)},
+        content={
+            "detail": (
+                "Budget mensile esaurito per questa funzionalità. "
+                "Aggiorna il piano o attendi il prossimo ciclo."
+            ),
+            "error": {
+                "code": "budget_exceeded",
+                "budget": exc.budget.value,
+                "current_tier": exc.current_tier,
+            },
+        },
     )
 
 

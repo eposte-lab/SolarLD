@@ -44,12 +44,14 @@ export function SendOutreachButton({ leadId, alreadySent }: Props) {
       // Nudge the server components to re-render with the new state.
       setTimeout(() => router.refresh(), 2000);
     } catch (err) {
+      // ApiError.message is already a sanitized Italian string from
+      // api-client.ts — never JSON.stringify the body into the toast.
       const msg =
         err instanceof ApiError
-          ? `Errore API (${err.status}): ${typeof err.body === 'string' ? err.body : JSON.stringify(err.body)}`
-          : err instanceof Error
           ? err.message
-          : 'Errore sconosciuto';
+          : err instanceof Error
+          ? "Errore di rete. Verifica la connessione e riprova."
+          : "Errore sconosciuto. Riprova tra qualche minuto.";
       setState({ kind: 'error', message: msg });
     }
   }
