@@ -104,21 +104,14 @@ export function TestPipelineDialog({
     ref.current?.close();
   }
 
-  // Fade through the synthetic step labels while the request blocks
-  // server-side. The actual stages run sequentially in the API but
-  // we don't get progress events — this is purely a UX comfort
-  // signal to make ~90s feel guided rather than frozen.
+  // Show a single "Scoring…" label while the request is in flight.
+  // The endpoint now returns 202 after scoring (~5s) and runs creative
+  // + outreach in the background — we don't need to fake a multi-step
+  // progress UI here, the lead detail timeline picks up the rendering
+  // and send events live.
   useEffect(() => {
     if (!submitting) return;
-    const labels = ['scoring', 'rendering', 'sending'] as const;
-    let i = 0;
-    setSubmitStep(labels[0]);
-    const t = setInterval(() => {
-      i += 1;
-      const next = labels[i];
-      if (next) setSubmitStep(next);
-    }, 25_000); // ~scoring 5s, rendering ~60s, sending ~5s
-    return () => clearInterval(t);
+    setSubmitStep('scoring');
   }, [submitting]);
 
   async function handleGeocodeBlur() {
@@ -215,7 +208,8 @@ export function TestPipelineDialog({
                 Avvia un test reale
               </h2>
               <p className="mt-1 text-xs text-on-surface-variant">
-                Tempo stimato ~90 secondi (scoring 1s · rendering 60s · invio 2s).
+                Lead pronto in ~5 secondi · rendering tetto + invio email
+                continuano in background (visibili live nella scheda del lead).
               </p>
             </div>
             <button
@@ -429,9 +423,10 @@ function SuccessPanel({
         Lead generato 🎉
       </p>
       <p className="text-sm text-on-surface">
-        L&apos;email è in arrivo al destinatario indicato. Apri la scheda del
-        lead per vedere il rendering del tetto, l&apos;anagrafica e — quando
-        il destinatario interagirà — gli eventi di tracking in tempo reale.
+        Il rendering del tetto e l&apos;invio dell&apos;email sono partiti in
+        background (~90s). Apri la scheda del lead per vedere
+        l&apos;anagrafica completa e — appena pronti — il rendering, lo stato
+        di invio e gli eventi di tracking in tempo reale.
       </p>
       <p className="text-xs text-on-surface-variant">
         Tentativi rimanenti: <strong>{attemptsRemaining}/3</strong>.

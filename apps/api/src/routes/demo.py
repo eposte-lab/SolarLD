@@ -423,7 +423,12 @@ async def demo_test_pipeline(
         raise HTTPException(status_code=502, detail="Failed to upsert subject row.")
     subject_id: str = subject_res.data[0]["id"]
 
-    # ── Scoring ──────────────────────────────────────────────────────
+    # ── Scoring (sync — produces lead_id we need to return) ─────────
+    # Scoring is fast (<5s) for a fresh subject with no enrichment to
+    # backfill: it computes ICP fit + size band + writes a lead row.
+    # Creative + Outreach (the slow ~85s pair) run async in the
+    # background so the browser fetch doesn't time out behind Railway's
+    # HTTP proxy (~100s) or any CDN in front of the API.
     scoring_out = await ScoringAgent().run(
         ScoringInput(
             tenant_id=tenant_id,
@@ -438,31 +443,15 @@ async def demo_test_pipeline(
             detail="Scoring did not produce a lead row.",
         )
 
-    # ── Creative (sync — outreach needs the rendered hero) ───────────
-    try:
-        await CreativeAgent().run(
-            CreativeInput(
-                tenant_id=tenant_id,
-                lead_id=lead_id,
-                force=True,
-            )
-        )
-    except Exception as exc:  # noqa: BLE001
-        log.warning("demo.creative_error", lead_id=lead_id, err=str(exc))
-
-    # ── Outreach ─────────────────────────────────────────────────────
-    try:
-        await OutreachAgent().run(
-            OutreachInput(
-                tenant_id=tenant_id,
-                lead_id=lead_id,
-                channel=OutreachChannel.EMAIL,
-                sequence_step=1,
-                force=True,
-            )
-        )
-    except Exception as exc:  # noqa: BLE001
-        log.warning("demo.outreach_error", lead_id=lead_id, err=str(exc))
+    # ── Creative + Outreach (background — rendering ~60s, send ~5s) ─
+    # We deliberately do NOT await this. The endpoint returns 202 with
+    # the lead_id so the dashboard toast can deep-link immediately;
+    # the user lands on /leads/{id} where `lead-timeline-live.tsx`
+    # streams real-time events as creative/outreach progress (rendering
+    # done → email queued → email sent → recipient opens, etc).
+    asyncio.create_task(
+        _run_creative_and_outreach_background(tenant_id=tenant_id, lead_id=lead_id)
+    )
 
     # 4. Look up the public_slug so the dashboard toast can deep-link
     #    straight into the lead detail page.
@@ -476,7 +465,7 @@ async def demo_test_pipeline(
     public_slug = (lead_row.data or [{}])[0].get("public_slug") if lead_row.data else None
 
     log.info(
-        "demo.test_pipeline_completed",
+        "demo.test_pipeline_started",
         tenant_id=tenant_id,
         lead_id=lead_id,
         attempts_remaining=remaining,
@@ -488,6 +477,44 @@ async def demo_test_pipeline(
         public_slug=public_slug,
         attempts_remaining=remaining,
     )
+
+
+async def _run_creative_and_outreach_background(
+    *, tenant_id: str, lead_id: str
+) -> None:
+    """Fire-and-forget runner for the slow tail of the demo pipeline.
+
+    Spawned via `asyncio.create_task` so the HTTP response returns to
+    the browser as soon as scoring completes. Errors are swallowed
+    after logging — there is no caller to raise to. The dashboard
+    surfaces failures via the live timeline / lead status, not via
+    the original POST response.
+    """
+    try:
+        await CreativeAgent().run(
+            CreativeInput(
+                tenant_id=tenant_id,
+                lead_id=lead_id,
+                force=True,
+            )
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning("demo.creative_error", lead_id=lead_id, err=str(exc))
+
+    try:
+        await OutreachAgent().run(
+            OutreachInput(
+                tenant_id=tenant_id,
+                lead_id=lead_id,
+                channel=OutreachChannel.EMAIL,
+                sequence_step=1,
+                force=True,
+            )
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning("demo.outreach_error", lead_id=lead_id, err=str(exc))
+
+    log.info("demo.test_pipeline_background_completed", lead_id=lead_id)
 
 
 def _refund_attempt(tenant_id: str) -> None:
