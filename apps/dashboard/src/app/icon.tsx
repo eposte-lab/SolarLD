@@ -1,11 +1,19 @@
 /**
- * Next.js dynamic favicon — renders the real SolarLead logo PNG.
+ * Next.js dynamic favicon — serves the real SolarLead logo PNG.
  *
- * The static asset at /logo.png is fetched and returned as-is.
- * If the asset is missing during build (e.g. CI before the file is
- * committed), we fall back to a minimal SVG glyph so the build
- * doesn't fail.
+ * The previous implementation did an HTTP fetch of `/logo.png` from
+ * `NEXT_PUBLIC_VERCEL_URL` at build time, which 404s during the very
+ * deployment that's producing the favicon (the URL isn't live yet)
+ * and silently falls back to the OLD SVG glyph — that's why users
+ * keep seeing the legacy mark in the browser tab.
+ *
+ * Switch to a filesystem read at request time. Next.js inlines this
+ * route as a dynamic asset, so each request streams the bytes from
+ * `public/logo.png` directly. No env vars, no chicken-and-egg fetch.
  */
+
+import { promises as fs } from 'node:fs';
+import path from 'node:path';
 
 import { ImageResponse } from 'next/og';
 
@@ -13,18 +21,11 @@ export const size = { width: 32, height: 32 };
 export const contentType = 'image/png';
 
 export default async function Icon() {
-  const base =
-    process.env.NEXT_PUBLIC_VERCEL_URL
-      ? `https://${process.env.NEXT_PUBLIC_VERCEL_URL}`
-      : process.env.NEXT_PUBLIC_DASHBOARD_URL ?? 'http://localhost:3000';
-
   let logoData: string | null = null;
   try {
-    const res = await fetch(`${base}/logo.png`);
-    if (res.ok) {
-      const buf = await res.arrayBuffer();
-      logoData = `data:image/png;base64,${Buffer.from(buf).toString('base64')}`;
-    }
+    const logoPath = path.join(process.cwd(), 'public', 'logo.png');
+    const buf = await fs.readFile(logoPath);
+    logoData = `data:image/png;base64,${buf.toString('base64')}`;
   } catch {
     // fall through to SVG fallback
   }
@@ -51,7 +52,9 @@ export default async function Icon() {
     );
   }
 
-  // Fallback glyph — identical to the old SVG mark so CI doesn't break
+  // Fallback glyph — kept only as a last-resort so a missing PNG
+  // never breaks the build. In practice the fs.readFile above always
+  // succeeds because `public/logo.png` is committed.
   const MINT = '#6FCF97';
   const SURFACE = '#0A0B0C';
   return new ImageResponse(

@@ -329,6 +329,37 @@ async def paint_panels_on_aerial(
                 }
             },
         )
+        # 429 = rate-limit. Replicate's `Retry-After` header tells us how
+        # many seconds to back off; if absent we fall back to 30 s. Sleep
+        # in-process and retry once instead of failing the whole render —
+        # tenacity's exponential backoff caps at 10 s which is too short
+        # when the per-account rate limit has been reduced (typically the
+        # 6/min burst-1 throttle for accounts without payment method).
+        if resp.status_code == 429:
+            retry_after_s = 30.0
+            ra_header = resp.headers.get("Retry-After")
+            if ra_header:
+                try:
+                    retry_after_s = float(ra_header)
+                except ValueError:
+                    pass
+            log.warning(
+                "ai_paint.rate_limited",
+                retry_after_s=retry_after_s,
+                body_peek=resp.text[:200],
+            )
+            await asyncio.sleep(min(retry_after_s, 60.0))
+            resp = await client.post(
+                create_url,
+                headers={**_auth_headers(), "Prefer": "wait=10"},
+                json={
+                    "input": {
+                        "prompt": prompt,
+                        "image_input": [before_image_url],
+                        "output_format": "png",
+                    }
+                },
+            )
         if resp.status_code >= 400:
             raise AiPaintError(
                 f"create status={resp.status_code} body={resp.text[:300]}"
