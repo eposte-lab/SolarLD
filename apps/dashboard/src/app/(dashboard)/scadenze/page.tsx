@@ -20,7 +20,9 @@ import {
   RefreshCw,
 } from 'lucide-react';
 
+import { BentoCard } from '@/components/ui/bento-card';
 import { api, ApiError } from '@/lib/api-client';
+import { cn } from '@/lib/utils';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -184,18 +186,21 @@ export default function ScadenzePage() {
       {/* Header */}
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-on-surface">
-            Scadenze regolatorie
+          <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
+            Scadenze regolatorie · {visible.length.toLocaleString('it-IT')}
+          </p>
+          <h1 className="font-headline text-4xl font-bold tracking-tighter text-on-surface">
+            Scadenze
           </h1>
-          <p className="mt-1 text-sm text-on-surface-variant">
-            Monitoraggio SLA normativi per le pratiche GSE
+          <p className="mt-1 max-w-2xl text-sm text-on-surface-variant">
+            Monitoraggio SLA normativi per le pratiche GSE.
           </p>
         </div>
         <div className="flex items-center gap-2">
           {satisfiedCount > 0 && (
             <button
               onClick={() => setShowSatisfied((v) => !v)}
-              className="rounded-lg border border-on-surface/10 bg-white px-3 py-2 text-xs font-medium text-on-surface-variant hover:bg-surface-container-low"
+              className="rounded-full bg-surface-container-high px-3.5 py-1.5 text-xs font-semibold text-on-surface-variant transition-colors hover:bg-surface-container-highest hover:text-on-surface"
             >
               {showSatisfied ? 'Nascondi risolte' : `Mostra risolte (${satisfiedCount})`}
             </button>
@@ -203,9 +208,9 @@ export default function ScadenzePage() {
           <button
             onClick={() => void load()}
             disabled={loading}
-            className="flex items-center gap-1.5 rounded-lg border border-on-surface/10 bg-white px-3 py-2 text-xs font-medium text-on-surface-variant hover:bg-surface-container-low disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded-full bg-surface-container-high px-3.5 py-1.5 text-xs font-semibold text-on-surface-variant transition-colors hover:bg-surface-container-highest hover:text-on-surface disabled:opacity-50"
           >
-            <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />
+            <RefreshCw className={cn('h-3.5 w-3.5', loading && 'animate-spin')} />
             Aggiorna
           </button>
         </div>
@@ -215,19 +220,19 @@ export default function ScadenzePage() {
       {!loading && rows.length > 0 && (
         <div className="flex flex-wrap gap-2">
           {overdueCount > 0 && (
-            <div className="inline-flex items-center gap-1.5 rounded-full bg-rose-50 px-3 py-1.5 text-sm font-semibold text-rose-700">
+            <div className="inline-flex items-center gap-1.5 rounded-full bg-rose-500/15 px-3 py-1.5 text-sm font-semibold text-rose-300">
               <AlertTriangle className="h-4 w-4" />
               {overdueCount} scadut{overdueCount === 1 ? 'a' : 'e'}
             </div>
           )}
           {openCount > 0 && (
-            <div className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-700">
+            <div className="inline-flex items-center gap-1.5 rounded-full bg-blue-500/15 px-3 py-1.5 text-sm font-medium text-blue-300">
               <Clock className="h-4 w-4" />
               {openCount} in attesa
             </div>
           )}
           {overdueCount === 0 && openCount === 0 && (
-            <div className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-700">
+            <div className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-3 py-1.5 text-sm font-medium text-emerald-300">
               <CheckCircle2 className="h-4 w-4" />
               Nessuna scadenza aperta
             </div>
@@ -244,23 +249,25 @@ export default function ScadenzePage() {
 
       {/* Error */}
       {error && !loading && (
-        <div className="rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700">
+        <div className="rounded-xl bg-rose-500/10 px-4 py-3 text-sm text-rose-300">
           {error}
         </div>
       )}
 
       {/* Empty state */}
       {!loading && !error && rows.length === 0 && (
-        <div className="rounded-xl bg-surface-container-lowest/60 py-16 text-center text-sm text-on-surface-variant">
-          <CheckCircle2 className="mx-auto mb-3 h-10 w-10 text-emerald-400" />
-          Nessuna scadenza registrata. Le scadenze appaiono quando invii
-          i documenti alle autorità competenti.
-        </div>
+        <BentoCard padding="loose" span="full">
+          <div className="py-12 text-center text-sm text-on-surface-variant">
+            <CheckCircle2 className="mx-auto mb-3 h-10 w-10 text-emerald-400" />
+            Nessuna scadenza registrata. Le scadenze appaiono quando invii
+            i documenti alle autorità competenti.
+          </div>
+        </BentoCard>
       )}
 
       {/* Table */}
       {!loading && visible.length > 0 && (
-        <div className="overflow-hidden rounded-xl border border-on-surface/8 bg-white">
+        <BentoCard padding="tight" span="full" className="overflow-hidden">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-on-surface/8 bg-surface-container-lowest/50">
@@ -294,9 +301,10 @@ export default function ScadenzePage() {
                 return (
                   <tr
                     key={row.id}
-                    className={`transition-colors hover:bg-surface-container-lowest/40 ${
-                      row.status === 'overdue' ? 'bg-rose-50/40' : ''
-                    }`}
+                    className={cn(
+                      'transition-colors hover:bg-surface-container-low',
+                      row.status === 'overdue' && 'bg-rose-500/5',
+                    )}
                   >
                     {/* Deadline info */}
                     <td className="px-4 py-4">
@@ -350,7 +358,7 @@ export default function ScadenzePage() {
               })}
             </tbody>
           </table>
-        </div>
+        </BentoCard>
       )}
     </div>
   );
