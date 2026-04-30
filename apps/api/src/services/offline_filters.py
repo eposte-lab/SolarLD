@@ -144,10 +144,40 @@ _OWNERSHIP_REJECT_VALUES = {
 def filter_proprieta(azienda: dict[str, Any]) -> FilterResult | None:
     """Reject when the building is explicitly flagged as not owned.
 
-    Permissive default: when the field is absent we PASS — most Atoka
-    rows don't carry ownership data and we'd wipe the funnel.
+    Permissive default: when the field is absent we PASS — older Atoka
+    rows often don't carry ownership data and rejecting on absence
+    would wipe the funnel.
+
+    Three input shapes are accepted (post-Atoka tutto-in-uno per
+    ADR-002):
+      • ``building_ownership`` / ``proprieta_immobile`` strings
+        — historical free-form labels ("affittato", "leased", …).
+      • ``proprieta_immobile_sede`` boolean — the native flag
+        delivered by the Atoka all-in-one endpoint. ``False`` is an
+        explicit "rents the office" signal and is rejected; ``True``
+        passes.
+
+    Order: boolean check first (cheapest, most authoritative) so the
+    string fallback only runs for legacy rows.
     """
 
+    # 1. Native Atoka boolean — strict reject when explicitly False.
+    boolean_flag = azienda.get("proprieta_immobile_sede")
+    if isinstance(boolean_flag, bool):
+        if not boolean_flag:
+            return FilterResult(
+                rule="building_not_owned",
+                reason=(
+                    "Atoka flagged property as not owned — install "
+                    "decision sits with landlord."
+                ),
+                rule_threshold={"required": "proprieta_immobile_sede=true"},
+                candidate_value={"proprieta_immobile_sede": False},
+            )
+        # True → no further checks needed.
+        return None
+
+    # 2. Legacy string fields — keep the reject-set semantics.
     raw = azienda.get("building_ownership") or azienda.get("proprieta_immobile")
     if raw is None:
         return None
