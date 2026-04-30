@@ -23,7 +23,7 @@ from ..agents.replies import RepliesAgent, RepliesInput
 from ..agents.scoring import ScoringAgent, ScoringInput
 from ..agents.tracking import TrackingAgent, TrackingInput
 from ..core.config import settings
-from ..core.logging import configure_logging
+from ..core.logging import configure_logging, get_logger
 from ..services.b2c_qualify_service import qualify_b2c_lead
 from ..services.crm_webhook_service import dispatch_event as crm_dispatch
 from .cron import (
@@ -34,6 +34,7 @@ from .cron import (
     engagement_followup_cron,
     engagement_rollup_cron,
     follow_up_cron,
+    practice_deadlines_cron,
     reputation_digest_cron,
     retention_cron,
     send_time_rollup_cron,
@@ -44,6 +45,7 @@ from .cron import (
 )
 
 configure_logging()
+log = get_logger(__name__)
 
 
 async def hunter_task(_ctx: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
@@ -143,6 +145,215 @@ async def meta_lead_enrich_task(
     return {"status": "pending_graph_call", "leadgen_id": leadgen_id}
 
 
+async def practice_generation_task(
+    _ctx: dict[str, Any], payload: dict[str, Any]
+) -> dict[str, Any]:
+    """Fan out per-template render tasks for a freshly-created practice.
+
+    Payload:
+        {
+          "practice_id": "...",
+          "tenant_id": "...",
+          "template_codes": ["dm_37_08", "comunicazione_comune"]
+        }
+
+    Why a separate parent task instead of enqueueing N renders directly
+    from the route: the route handler is async and would have to await
+    N enqueues sequentially before responding. Pushing fan-out into the
+    worker keeps the API's POST response under the 100 ms p95 the
+    dashboard expects.
+    """
+    from ..core.queue import enqueue
+
+    practice_id = payload["practice_id"]
+    tenant_id = payload["tenant_id"]
+    template_codes = payload.get("template_codes") or []
+    enqueued: list[str] = []
+    for code in template_codes:
+        # Stable job_id makes re-runs idempotent — a second click on
+        # "Rigenera all" within the queue window collapses to one job.
+        await enqueue(
+            "practice_render_document_task",
+            {
+                "practice_id": practice_id,
+                "tenant_id": tenant_id,
+                "template_code": code,
+            },
+            job_id=f"practice-render:{practice_id}:{code}",
+        )
+        enqueued.append(code)
+    return {"practice_id": practice_id, "enqueued": enqueued}
+
+
+async def practice_render_document_task(
+    _ctx: dict[str, Any], payload: dict[str, Any]
+) -> dict[str, Any]:
+    """Render one practice document (one template_code) and persist it.
+
+    WeasyPrint is sync + CPU-heavy. We run the actual render via
+    ``asyncio.to_thread`` so the worker can keep its async event loop
+    free (pool size = 10, so blocking the loop would starve other jobs).
+
+    On failure we record the error on the document row so the dashboard
+    can surface "Rigenera" — and we DON'T re-raise: arq would mark the
+    job failed and put it on a dead-letter, but the user-visible state
+    is already on the document row.
+    """
+    import asyncio as _asyncio
+
+    from ..services.practice_service import (
+        record_generation_failure,
+        render_practice_document,
+    )
+
+    practice_id = payload["practice_id"]
+    tenant_id = payload["tenant_id"]
+    template_code = payload["template_code"]
+    try:
+        doc = await _asyncio.to_thread(
+            render_practice_document,
+            practice_id=practice_id,
+            template_code=template_code,
+            tenant_id=tenant_id,
+        )
+        return {
+            "practice_id": practice_id,
+            "template_code": template_code,
+            "pdf_url": doc.pdf_url,
+            "status": doc.status,
+            "generation_error": doc.generation_error,
+        }
+    except Exception as exc:  # noqa: BLE001 — top-level worker boundary
+        record_generation_failure(
+            practice_id=practice_id,
+            tenant_id=tenant_id,
+            template_code=template_code,
+            error=f"{type(exc).__name__}: {exc}",
+        )
+        return {
+            "practice_id": practice_id,
+            "template_code": template_code,
+            "status": "draft",
+            "generation_error": str(exc),
+        }
+
+
+async def extract_practice_upload_task(
+    _ctx: dict[str, Any], payload: dict[str, Any]
+) -> dict[str, Any]:
+    """Run Claude Vision OCR over a practice_uploads row.
+
+    Payload:
+        { "upload_id": "...", "tenant_id": "..." }
+
+    Behaviour:
+        1. Load the practice_uploads row + storage bytes via service-role
+           client (the row was inserted before the job was queued, so it
+           always exists barring a manual race).
+        2. Call extract_for_kind() — never raises on parse failure.
+        3. UPDATE the row with extraction_status / extracted_data /
+           confidence / extraction_error / extracted_at.
+
+    Errors here are logged but never re-raised: the row's
+    extraction_status='failed' surfaces the issue in the dashboard, and
+    re-raising would pile retries on a determinism-bound failure
+    (a corrupt PDF retried 3× still fails).
+    """
+    from ..core.supabase_client import get_service_client
+    from ..services.practice_extraction_service import extract_for_kind
+
+    upload_id = payload["upload_id"]
+    sb = get_service_client()
+
+    row_res = (
+        sb.table("practice_uploads").select("*").eq("id", upload_id).execute()
+    )
+    rows = row_res.data or []
+    if not rows:
+        log.warning(
+            "practice.upload.extract.row_missing", upload_id=upload_id
+        )
+        return {"upload_id": upload_id, "ok": False, "error": "row_missing"}
+
+    row = rows[0]
+    storage_path = row["storage_path"]
+    upload_kind = row["upload_kind"]
+    mime_type = row["mime_type"]
+
+    # Download the file bytes from the private bucket via service role.
+    try:
+        file_bytes = sb.storage.from_("practice-uploads").download(
+            storage_path
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.exception(
+            "practice.upload.extract.download_failed",
+            upload_id=upload_id,
+            path=storage_path,
+        )
+        sb.table("practice_uploads").update(
+            {
+                "extraction_status": "failed",
+                "extraction_error": f"download_failed:{type(exc).__name__}",
+                "extracted_at": "now()",
+            }
+        ).eq("id", upload_id).execute()
+        return {"upload_id": upload_id, "ok": False, "error": "download_failed"}
+
+    # Run the OCR.
+    try:
+        result = await extract_for_kind(
+            file_bytes, mime_type, upload_kind
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.exception(
+            "practice.upload.extract.api_failed", upload_id=upload_id
+        )
+        sb.table("practice_uploads").update(
+            {
+                "extraction_status": "failed",
+                "extraction_error": f"api_failed:{type(exc).__name__}",
+                "extracted_at": "now()",
+            }
+        ).eq("id", upload_id).execute()
+        return {"upload_id": upload_id, "ok": False, "error": "api_failed"}
+
+    # Persist outcome.
+    if not result.success:
+        update = {
+            "extraction_status": "failed",
+            "extraction_error": result.error,
+            "raw_response": result.raw_response,
+            "extracted_at": "now()",
+        }
+    else:
+        update = {
+            "extraction_status": (
+                "manual_required" if result.manual_required else "success"
+            ),
+            "extracted_data": result.fields,
+            "confidence": result.confidence,
+            "raw_response": result.raw_response,
+            "extracted_at": "now()",
+            "extraction_error": None,
+        }
+
+    sb.table("practice_uploads").update(update).eq("id", upload_id).execute()
+    log.info(
+        "practice.upload.extract.complete",
+        upload_id=upload_id,
+        kind=upload_kind,
+        success=result.success,
+        confidence=result.confidence,
+    )
+    return {
+        "upload_id": upload_id,
+        "ok": result.success,
+        "confidence": result.confidence,
+        "manual_required": result.manual_required,
+    }
+
+
 async def crm_webhook_task(
     _ctx: dict[str, Any], payload: dict[str, Any]
 ) -> dict[str, Any]:
@@ -180,6 +391,9 @@ class WorkerSettings:
         crm_webhook_task,
         b2c_post_engagement_qualify_task,
         meta_lead_enrich_task,
+        practice_generation_task,
+        practice_render_document_task,
+        extract_practice_upload_task,
     ]
     # Scheduled jobs (UTC):
     #   :00 every hour   → deliverability_hourly_cron   (bounce/complaint spike check)
@@ -227,6 +441,11 @@ class WorkerSettings:
         # Sprint 10: engagement-based follow-up scenarios.
         cron(engagement_followup_cron, hour=8, minute=15, run_at_startup=False),
         cron(sla_first_touch_cron, hour=8, minute=30, run_at_startup=False),
+        # Livello 2 Sprint 1: scan practice_deadlines for newly-overdue
+        # rows once a day.  Runs after the morning outreach burst so
+        # the bell isn't competing with delivery noise; UTC 09:00 ≈
+        # 10/11 Italian local — practical for the installer to action.
+        cron(practice_deadlines_cron, hour=9, minute=0, run_at_startup=False),
     ]
     redis_settings = RedisSettings.from_dsn(settings.redis_url)
     max_jobs = 10

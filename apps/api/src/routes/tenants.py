@@ -43,6 +43,19 @@ async def update_my_tenant(ctx: CurrentUser, payload: dict[str, object]) -> dict
         "email_from_name",
         "followup_from_email",
         "settings",
+        # Legal fields (0052 + 0082) — required by GDPR footer (legal_*)
+        # and GSE practices (codice_fiscale, numero_cciaa, responsabile
+        # tecnico). Settings dashboard's "Dati legali" page hits this.
+        "legal_name",
+        "legal_address",
+        "vat_number",
+        "codice_fiscale",
+        "numero_cciaa",
+        "responsabile_tecnico_nome",
+        "responsabile_tecnico_cognome",
+        "responsabile_tecnico_codice_fiscale",
+        "responsabile_tecnico_qualifica",
+        "responsabile_tecnico_iscrizione_albo",
     }
     update = {k: v for k, v in payload.items() if k in allowed}
     if not update:

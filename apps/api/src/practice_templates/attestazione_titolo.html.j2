@@ -1,0 +1,164 @@
+{# Modulo ATR — Attestazione del Titolo Richiedente la connessione
+
+Allegato obbligatorio al Modello Unico per impianti realizzati su
+edifici / aree non di proprietà del richiedente. Per IRETI / Unareti
+in particolare il modulo è imposto col branding "Modulo ATR".
+
+Layout (1-2 pagine A4):
+  1. Identificazione richiedente + immobile
+  2. Dichiarazione del titolo (proprietario / usufruttuario / locatario / …)
+  3. Firma + allegati
+#}
+{% extends "_base.html.j2" %}
+
+{% block document_title %}Modulo ATR — Attestazione titolo richiedente{% endblock %}
+
+{% block document_body %}
+
+<h1 class="doc-title">Modulo ATR</h1>
+<p class="doc-subtitle">
+  Attestazione del titolo a richiedere la connessione alla rete
+  elettrica — allegato al Modello Unico
+</p>
+
+<p class="small muted">
+  Pratica n. <strong>{{ pratica.numero }}</strong>
+  {% if pratica.data_documento %}— Data: {{ pratica.data_documento | date_it }}{% endif %}
+  — Distributore: <strong>{{ impianto.distributore_label or impianto.distributore or '—' }}</strong>
+</p>
+
+<h2>1 · Soggetto richiedente</h2>
+<table class="kv">
+  <tr>
+    <td class="label">{% if cliente.tipo == 'b2c' %}Nome e cognome{% else %}Ragione sociale{% endif %}</td>
+    <td class="value">{{ cliente.ragione_sociale or '—' }}</td>
+  </tr>
+  {% if cliente.codice_fiscale %}
+  <tr>
+    <td class="label">Codice fiscale</td>
+    <td class="value">{{ cliente.codice_fiscale }}</td>
+  </tr>
+  {% endif %}
+  {% if cliente.piva and cliente.piva != cliente.codice_fiscale %}
+  <tr>
+    <td class="label">Partita IVA</td>
+    <td class="value">{{ cliente.piva }}</td>
+  </tr>
+  {% endif %}
+  <tr>
+    <td class="label">Residenza / Sede legale</td>
+    <td class="value">{{ cliente.sede_operativa or cliente.indirizzo_postale or '—' }}</td>
+  </tr>
+  {% if decisore.nome_completo %}
+  <tr>
+    <td class="label">Legale rappresentante</td>
+    <td class="value">
+      {{ decisore.nome_completo }}
+      {%- if decisore.codice_fiscale %} · CF {{ decisore.codice_fiscale }}{% endif -%}
+      {%- if decisore.ruolo %} · {{ decisore.ruolo }}{% endif -%}
+    </td>
+  </tr>
+  {% endif %}
+</table>
+
+<h2>2 · Immobile oggetto della connessione</h2>
+<table class="kv">
+  <tr>
+    <td class="label">Indirizzo</td>
+    <td class="value">{{ ubicazione.indirizzo or '—' }}</td>
+  </tr>
+  <tr>
+    <td class="label">CAP / Comune</td>
+    <td class="value">
+      {{ ubicazione.cap or '—' }} {{ ubicazione.comune or '' }}
+      {%- if ubicazione.provincia %} ({{ ubicazione.provincia }}){% endif -%}
+    </td>
+  </tr>
+  {% if ubicazione.catastale_foglio or ubicazione.catastale_particella %}
+  <tr>
+    <td class="label">Riferimenti catastali</td>
+    <td class="value">
+      {%- if ubicazione.catastale_foglio %}Foglio {{ ubicazione.catastale_foglio }}{% endif -%}
+      {%- if ubicazione.catastale_particella %} · Particella {{ ubicazione.catastale_particella }}{% endif -%}
+      {%- if ubicazione.catastale_subalterno %} · Sub. {{ ubicazione.catastale_subalterno }}{% endif -%}
+    </td>
+  </tr>
+  {% endif %}
+  <tr>
+    <td class="label">POD</td>
+    <td class="value">{{ impianto.pod or '—' }}</td>
+  </tr>
+</table>
+
+<h2>3 · Attestazione</h2>
+<p>
+  Il sottoscritto
+  <strong>{{ decisore.nome_completo or cliente.ragione_sociale or '—' }}</strong>,
+  ai sensi degli artt. 46 e 47 del DPR 28/12/2000 n. 445,
+  consapevole delle sanzioni penali previste dall'art. 76 del medesimo
+  DPR per le ipotesi di falsità in atti e dichiarazioni mendaci,
+</p>
+
+<div class="callout"><strong>ATTESTA</strong></div>
+
+<p>
+  di possedere, in relazione all'immobile sopra individuato, il seguente
+  titolo che lo legittima a richiedere la connessione di un impianto
+  fotovoltaico alla rete elettrica:
+</p>
+
+<table class="kv" style="margin-top: 8px;">
+  <tr>
+    <td class="label">Qualità del richiedente</td>
+    <td class="value">
+      <strong>{{ extras.qualita_richiedente_label or extras.qualita_richiedente or '—' }}</strong>
+    </td>
+  </tr>
+  {% if extras.titolo_estremi %}
+  <tr>
+    <td class="label">Estremi del titolo</td>
+    <td class="value">{{ extras.titolo_estremi }}</td>
+  </tr>
+  {% endif %}
+</table>
+
+<p class="small em">
+  In particolare, il sottoscritto dichiara di disporre di tutti i poteri
+  necessari per richiedere e ottenere la connessione, di avere il
+  consenso degli eventuali aventi diritto sull'immobile, e di sollevare
+  il distributore di rete da qualsiasi responsabilità derivante da
+  contestazioni di terzi.
+</p>
+
+<h2>4 · Allegati</h2>
+<ul class="norme">
+  <li>Copia documento d'identità in corso di validità del sottoscrittore</li>
+  {% if cliente.tipo != 'b2c' %}<li>Visura camerale aggiornata della società</li>{% endif %}
+  {% if extras.qualita_richiedente in ('amministratore_condominio', 'amministratore') %}
+    <li>Copia della delibera assembleare che autorizza l'installazione</li>
+  {% endif %}
+  {% if extras.qualita_richiedente == 'locatario' %}
+    <li>Copia del contratto di locazione registrato + assenso del proprietario</li>
+  {% endif %}
+</ul>
+
+<div class="sign-block">
+  <p class="small">
+    Luogo e data:
+    {%- if ubicazione.comune %}{{ ubicazione.comune }}{% endif -%}
+    {%- if pratica.data_documento %}, {{ pratica.data_documento | date_it }}{% endif -%}
+  </p>
+
+  <div class="sign-row">
+    <div class="sign-cell" style="margin: 0 auto;">
+      Il dichiarante<br>
+      <span class="role">{{ decisore.nome_completo or cliente.ragione_sociale or '—' }}</span>
+    </div>
+  </div>
+
+  <p class="small muted center" style="margin-top: 22px;">
+    Documento generato automaticamente da SolarLED — pratica {{ pratica.numero }}.
+  </p>
+</div>
+
+{% endblock %}

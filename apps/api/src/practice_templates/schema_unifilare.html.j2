@@ -1,0 +1,228 @@
+{# Schema elettrico unifilare — CEI 0-21
+
+Allegato obbligatorio al Modello Unico e alla TICA per impianti FV
+≤200 kW connessi in BT (CEI 0-21). Mostra in modo schematico la catena:
+
+  Stringa moduli FV  ─→  Inverter  ─→  Quadro DC/AC  ─→
+    Sistema di Protezione di Interfaccia (SPI)  ─→
+    Quadro consegna / contatore bidirezionale  ─→  Rete pubblica
+
+Quando è presente accumulo, si aggiunge un ramo accumulo con MPPT/BMS
+collegato al lato DC dell'inverter ibrido.
+
+Tutti i blocchi sono SVG inline — WeasyPrint li converte in PDF
+nativamente, mantenendo la qualità in stampa.
+#}
+{% extends "_base.html.j2" %}
+
+{% block document_title %}Schema elettrico unifilare{% endblock %}
+
+{% block document_body %}
+
+<h1 class="doc-title">Schema elettrico unifilare</h1>
+<p class="doc-subtitle">
+  Conforme alla CEI 0-21 — Allegato al Modello Unico / TICA
+</p>
+
+<p class="small muted">
+  Pratica n. <strong>{{ pratica.numero }}</strong>
+  {% if pratica.data_documento %}— Data: {{ pratica.data_documento | date_it }}{% endif %}
+  — Potenza nominale: <strong>{{ impianto.potenza_kw | decimal_it(2) }} kW</strong>
+</p>
+
+<h2>1 · Dati di sintesi</h2>
+<table class="kv">
+  <tr>
+    <td class="label">Cliente</td>
+    <td class="value">{{ cliente.ragione_sociale or '—' }}</td>
+  </tr>
+  <tr>
+    <td class="label">Ubicazione</td>
+    <td class="value">
+      {{ ubicazione.indirizzo or '—' }} —
+      {{ ubicazione.cap or '' }} {{ ubicazione.comune or '' }}
+      {%- if ubicazione.provincia %} ({{ ubicazione.provincia }}){% endif -%}
+    </td>
+  </tr>
+  <tr>
+    <td class="label">POD</td>
+    <td class="value">{{ impianto.pod or '—' }}</td>
+  </tr>
+  <tr>
+    <td class="label">Distributore</td>
+    <td class="value">{{ impianto.distributore_label or impianto.distributore or '—' }}</td>
+  </tr>
+  <tr>
+    <td class="label">Numero moduli</td>
+    <td class="value">{{ impianto.pannelli_count or '—' }}</td>
+  </tr>
+  <tr>
+    <td class="label">Inverter</td>
+    <td class="value">
+      {{ componenti.inverter.marca or '—' }}
+      {%- if componenti.inverter.modello %} — {{ componenti.inverter.modello }}{% endif -%}
+      {%- if componenti.inverter.potenza_kw %} — {{ componenti.inverter.potenza_kw | decimal_it(2) }} kW{% endif -%}
+    </td>
+  </tr>
+  {% if componenti.accumulo.presente %}
+  <tr>
+    <td class="label">Accumulo</td>
+    <td class="value">
+      {{ componenti.accumulo.marca or '—' }}
+      {%- if componenti.accumulo.modello %} — {{ componenti.accumulo.modello }}{% endif -%}
+      {%- if componenti.accumulo.capacita_kwh %} — {{ componenti.accumulo.capacita_kwh | decimal_it(1) }} kWh{% endif -%}
+    </td>
+  </tr>
+  {% endif %}
+</table>
+
+<h2>2 · Schema unifilare</h2>
+
+<div style="text-align: center; margin: 18px 0;">
+{# Geometry: 540 px wide x 420 px tall on A4 portrait with 18 mm side
+   margins → fits comfortably. Coords are mathematical (origin top-left),
+   keep blocks aligned to a 60-px grid for readability. #}
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 540 480"
+     style="width: 100%; max-width: 540px; height: auto; border: 1px solid #ddd;">
+  <defs>
+    <style>
+      .blk { fill: #fff; stroke: #1a1a1a; stroke-width: 1.4; }
+      .blk-hl { fill: #fef9e7; stroke: #1a1a1a; stroke-width: 1.4; }
+      .lbl { font-family: 'DejaVu Sans', Arial, sans-serif; font-size: 9px; fill: #1a1a1a; text-anchor: middle; }
+      .lbl-sm { font-family: 'DejaVu Sans', Arial, sans-serif; font-size: 7.5px; fill: #555; text-anchor: middle; }
+      .ln { stroke: #1a1a1a; stroke-width: 1.6; fill: none; }
+    </style>
+  </defs>
+
+  {# 1. PV string block (top) #}
+  <rect class="blk" x="200" y="20" width="140" height="48" rx="3" />
+  <text class="lbl" x="270" y="40">Stringa fotovoltaica</text>
+  <text class="lbl-sm" x="270" y="54">
+    {{ impianto.pannelli_count or '—' }} moduli
+    {%- if componenti.pannelli.potenza_w %} × {{ componenti.pannelli.potenza_w }} W{% endif -%}
+  </text>
+  <text class="lbl-sm" x="270" y="64">
+    Tot.: {{ impianto.potenza_kw | decimal_it(2) }} kWp
+  </text>
+
+  {# DC line down to inverter #}
+  <path class="ln" d="M 270 68 L 270 110" />
+  <text class="lbl-sm" x="290" y="92">DC</text>
+
+  {% if componenti.accumulo.presente %}
+  {# Battery branch — left side #}
+  <rect class="blk-hl" x="40" y="86" width="120" height="48" rx="3" />
+  <text class="lbl" x="100" y="106">Sistema di accumulo</text>
+  <text class="lbl-sm" x="100" y="120">
+    {%- if componenti.accumulo.capacita_kwh -%}
+      {{ componenti.accumulo.capacita_kwh | decimal_it(1) }} kWh
+    {%- else %}batteria al litio{% endif -%}
+  </text>
+  <text class="lbl-sm" x="100" y="130">{{ extras.configurazione_accumulo_label or extras.configurazione_accumulo or 'lato DC' }}</text>
+  <path class="ln" d="M 160 110 L 200 110" />
+  <text class="lbl-sm" x="180" y="104">DC</text>
+  {% endif %}
+
+  {# 2. Inverter block #}
+  <rect class="blk" x="200" y="110" width="140" height="48" rx="3" />
+  <text class="lbl" x="270" y="130">
+    Inverter {% if componenti.accumulo.presente %}ibrido{% endif %}
+  </text>
+  <text class="lbl-sm" x="270" y="144">
+    {{ componenti.inverter.marca or '—' }}
+    {%- if componenti.inverter.modello %} {{ componenti.inverter.modello }}{% endif -%}
+  </text>
+  <text class="lbl-sm" x="270" y="154">
+    {%- if componenti.inverter.potenza_kw -%}
+      {{ componenti.inverter.potenza_kw | decimal_it(2) }} kW
+    {%- endif -%}
+  </text>
+
+  {# AC line down to SPI #}
+  <path class="ln" d="M 270 158 L 270 200" />
+  <text class="lbl-sm" x="290" y="182">AC</text>
+
+  {# 3. Quadro AC con SPG / SPI #}
+  <rect class="blk" x="180" y="200" width="180" height="56" rx="3" />
+  <text class="lbl" x="270" y="220">Quadro di parallelo + SPI</text>
+  <text class="lbl-sm" x="270" y="234">Sistema di Protezione di Interfaccia</text>
+  <text class="lbl-sm" x="270" y="246">conforme CEI 0-21 — DDI inclusi</text>
+
+  {# AC line down to point of supply #}
+  <path class="ln" d="M 270 256 L 270 296" />
+  <text class="lbl-sm" x="290" y="278">AC</text>
+
+  {# 4. Contatori bidirezionali #}
+  <rect class="blk" x="180" y="296" width="180" height="48" rx="3" />
+  <text class="lbl" x="270" y="316">Quadro di consegna</text>
+  <text class="lbl-sm" x="270" y="330">M1 produzione · M2 scambio (bidir.)</text>
+
+  {# Line to grid #}
+  <path class="ln" d="M 270 344 L 270 386" />
+
+  {# 5. Grid block #}
+  <rect class="blk-hl" x="200" y="386" width="140" height="48" rx="3" />
+  <text class="lbl" x="270" y="406">Rete pubblica BT</text>
+  <text class="lbl-sm" x="270" y="420">
+    POD {{ impianto.pod or '—' }}
+  </text>
+  <text class="lbl-sm" x="270" y="430">
+    {{ impianto.distributore_label or impianto.distributore or '—' }}
+  </text>
+
+  {# Earth symbol on quadro AC — left side #}
+  <path class="ln" d="M 180 228 L 150 228 L 150 244" />
+  <path class="ln" d="M 140 244 L 160 244" />
+  <path class="ln" d="M 144 248 L 156 248" />
+  <path class="ln" d="M 148 252 L 152 252" />
+  <text class="lbl-sm" x="150" y="266">PE</text>
+
+  {# Loads tap (utenze) — right side #}
+  <path class="ln" d="M 360 320 L 410 320" />
+  <rect class="blk" x="410" y="296" width="100" height="48" rx="3" />
+  <text class="lbl" x="460" y="316">Utenze</text>
+  <text class="lbl-sm" x="460" y="330">circuiti edificio</text>
+</svg>
+</div>
+
+<p class="small muted center">
+  Schema indicativo conforme alla CEI 0-21. Il dettaglio costruttivo
+  (sezioni cavi, calibro protezioni, lunghezze) è riportato nello
+  schema esecutivo allegato al progetto.
+</p>
+
+<h2>3 · Dispositivi di protezione</h2>
+<ul class="norme">
+  <li>Sezionatore DC con marcatura conforme CEI EN 60947-3, Idc ≥ 1,25·Isc(STC).</li>
+  <li>Scaricatori di sovratensione (SPD) di tipo II in lato DC e in lato AC.</li>
+  <li>Interruttore magnetotermico differenziale, In coordinato con la
+    potenza di immissione e Idn ≤ 30 mA per i circuiti utilizzatori.</li>
+  <li>Sistema di Protezione di Interfaccia (SPI) conforme alla CEI 0-21,
+    inclusa Protezione Generale (PG) e Protezione di Interfaccia (PdI).</li>
+  <li>Dispositivo Di Generatore (DDG) e Dispositivo Di Interfaccia (DDI)
+    integrati nell'inverter o esterni.</li>
+</ul>
+
+<div class="sign-block">
+  <p class="small">
+    Redatto a {{ ubicazione.comune or '—' }}{% if pratica.data_documento %},
+    {{ pratica.data_documento | date_it }}{% endif %}.
+  </p>
+  <div class="sign-row">
+    <div class="sign-cell">
+      Tecnico responsabile<br>
+      <span class="role">
+        {{ installatore.responsabile_tecnico.nome_completo or '—' }}
+        {%- if installatore.responsabile_tecnico.iscrizione_albo %}<br>
+          {{ installatore.responsabile_tecnico.iscrizione_albo }}
+        {%- endif -%}
+      </span>
+    </div>
+    <div class="sign-cell">
+      L'impresa installatrice<br>
+      <span class="role">{{ installatore.ragione_sociale }}</span>
+    </div>
+  </div>
+</div>
+
+{% endblock %}

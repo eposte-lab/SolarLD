@@ -26,6 +26,7 @@ import { GeoRadarMap } from '@/components/dashboard/geo-radar-map';
 import { HotLeadsWidget } from '@/components/dashboard/hot-leads-widget';
 import { LeadTemperatureBoard } from '@/components/dashboard/lead-temperature-board';
 import { PipelineRevenuePanel } from '@/components/dashboard/pipeline-revenue-panel';
+import { ScadenzeUrgentiWidget } from '@/components/dashboard/scadenze-urgenti-widget';
 import { SmartTimeHeatmap } from '@/components/dashboard/smart-time-heatmap';
 
 import {
@@ -37,6 +38,7 @@ import { getConversionStats } from '@/lib/data/conversions';
 import { getOverviewKpis, listLeads } from '@/lib/data/leads';
 import { getContattiSummary, getScanFunnel } from '@/lib/data/contatti';
 import { getCurrentTenantContext } from '@/lib/data/tenant';
+import { countOpenDeadlines, listUrgentDeadlines } from '@/lib/data/practices';
 import { getDailyCapStats } from '@/lib/data/usage';
 import { cn, formatEurPlain, formatNumber, relativeTime } from '@/lib/utils';
 import type { ConversionStats } from '@/types/db';
@@ -58,6 +60,8 @@ export default async function DashboardOverview() {
     heatmapCells,
     aiInsights,
     dailyCap,
+    urgentDeadlines,
+    deadlineCounts,
   ] = await Promise.all([
     getOverviewKpis(),
     listLeads({ page: 1, pageSize: 25, filter: { tier: 'hot' } }).then((r) =>
@@ -70,6 +74,8 @@ export default async function DashboardOverview() {
     getSendTimeHeatmap(90),
     getAiInsights(),
     getDailyCapStats(),
+    listUrgentDeadlines(5),
+    countOpenDeadlines(),
   ]);
 
   const hour = new Date().toLocaleString('it-IT', {
@@ -159,9 +165,22 @@ export default async function DashboardOverview() {
         </div>
       </div>
 
-      {/* ── Row 5: Hot leads call list + Conversion Funnel (1/2 | 1/2) ──── */}
+      {/* ── Row 4b: Hot leads + Scadenze GSE (2/3 | 1/3) ───────────────── */}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        <div className="lg:col-span-2">
+          <HotLeadsWidget />
+        </div>
+        <div>
+          <ScadenzeUrgentiWidget
+            deadlines={urgentDeadlines}
+            overdueCount={deadlineCounts.overdue}
+            openCount={deadlineCounts.open}
+          />
+        </div>
+      </div>
+
+      {/* ── Row 5: Conversion Funnel (full width) ────────────────────────── */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <HotLeadsWidget />
         <BentoCard span="full">
           <ConversionFunnelCard stats={conversions} />
         </BentoCard>

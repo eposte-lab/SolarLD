@@ -303,6 +303,11 @@ function IntegrationsCard({ tenant }: { tenant: TenantRow }) {
           blurb="Log di audit immutabile, esporta/elimina dati lead per le richieste dei soggetti interessati (Art. 15 / 17)."
         />
         <IntegrationLink
+          href="/settings/legal"
+          title="Dati legali (pratiche GSE)"
+          blurb="Anagrafica impresa, codice fiscale, CCIAA e responsabile tecnico. Richiesti dal DM 37/08 e dalle pratiche GSE."
+        />
+        <IntegrationLink
           href="/experiments"
           title="A/B Testing email"
           blurb="Testa due oggetti email in parallelo. Il sistema dichiara automaticamente il vincitore quando ha sufficiente confidenza statistica."

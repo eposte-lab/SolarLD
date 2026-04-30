@@ -18,7 +18,9 @@
 import {
   ActivitySquare,
   BarChart3,
+  CalendarClock,
   Filter,
+  FolderOpen,
   Globe2,
   Home,
   Inbox,
@@ -54,7 +56,9 @@ export type NavIconKey =
   | 'settings'
   | 'audiences'
   | 'experiments'
-  | 'scoperta';
+  | 'scoperta'
+  | 'pratiche'
+  | 'scadenze';
 
 const ICON_MAP: Record<NavIconKey, LucideIcon> = {
   dashboard: Home,
@@ -70,6 +74,11 @@ const ICON_MAP: Record<NavIconKey, LucideIcon> = {
   audiences: Mail,
   experiments: ActivitySquare,
   scoperta: Search,
+  // GSE Practices module — folder icon evokes burocrazia/document
+  // archive better than a generic doc icon.
+  pratiche: FolderOpen,
+  // Scadenze GSE — calendar-clock evokes regulatory SLA deadlines.
+  scadenze: CalendarClock,
 };
 
 export interface NavItem {

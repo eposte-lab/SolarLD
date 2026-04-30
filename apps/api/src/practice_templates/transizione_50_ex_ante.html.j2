@@ -1,0 +1,328 @@
+{# Allegato VIII al DM Transizione 5.0 — Certificazione ex-ante
+
+Riferimento: D.L. 19/2024 (Decreto PNRR-bis), art. 38 e DM MIMIT/MEF
+attuativo. Il credito d'imposta T.5.0 si concede a fronte di un
+PROGETTO DI INNOVAZIONE che combina:
+
+  - investimenti in beni 4.0/5.0 strumentali nuovi
+  - in misura tale da generare una RIDUZIONE DEI CONSUMI ENERGETICI
+    della struttura produttiva (≥3%) o del processo (≥5%)
+
+L'allegato VIII è la certificazione "ex-ante" rilasciata da un
+valutatore indipendente PRIMA dell'avvio del progetto. Attesta:
+  - lo stato di fatto energetico baseline
+  - la configurazione progettuale prevista
+  - il risparmio energetico stimato (in tep)
+  - la percentuale di riduzione e quindi la fascia agevolativa
+
+Layout (3-4 pagine A4):
+  1. Anagrafica beneficiario + impresa di valutazione
+  2. Caratteristiche progetto + investimenti previsti
+  3. Risparmi energetici stimati + percentuale di riduzione
+  4. Dichiarazioni del certificatore + firma
+#}
+{% extends "_base.html.j2" %}
+
+{% block document_title %}Transizione 5.0 — Certificazione ex-ante{% endblock %}
+
+{% block document_body %}
+
+<h1 class="doc-title">Certificazione ex-ante</h1>
+<p class="doc-subtitle">
+  Allegato VIII al DM attuativo della Transizione 5.0
+  (D.L. 19/2024, art. 38)
+</p>
+
+<p class="small muted">
+  Pratica n. <strong>{{ pratica.numero }}</strong>
+  {% if pratica.data_documento %}— Data: {{ pratica.data_documento | date_it }}{% endif %}
+</p>
+
+<h2>1 · Soggetto beneficiario</h2>
+<table class="kv">
+  <tr>
+    <td class="label">Ragione sociale</td>
+    <td class="value">{{ cliente.ragione_sociale or '—' }}</td>
+  </tr>
+  {% if cliente.codice_fiscale %}
+  <tr><td class="label">Codice fiscale</td><td class="value">{{ cliente.codice_fiscale }}</td></tr>
+  {% endif %}
+  {% if cliente.piva and cliente.piva != cliente.codice_fiscale %}
+  <tr><td class="label">Partita IVA</td><td class="value">{{ cliente.piva }}</td></tr>
+  {% endif %}
+  <tr>
+    <td class="label">Sede legale</td>
+    <td class="value">{{ cliente.sede_operativa or cliente.indirizzo_postale or '—' }}</td>
+  </tr>
+  <tr>
+    <td class="label">Sede operativa interessata</td>
+    <td class="value">
+      {{ ubicazione.indirizzo or '—' }} —
+      {{ ubicazione.cap or '' }} {{ ubicazione.comune or '' }}
+      {%- if ubicazione.provincia %} ({{ ubicazione.provincia }}){% endif -%}
+    </td>
+  </tr>
+  <tr>
+    <td class="label">Codice ATECO attività</td>
+    <td class="value">{{ cliente.ateco_code or extras.transizione50.ateco or '—' }}</td>
+  </tr>
+  {% if extras.transizione50.dimensione_impresa %}
+  <tr>
+    <td class="label">Dimensione impresa</td>
+    <td class="value">{{ extras.transizione50.dimensione_impresa_label or extras.transizione50.dimensione_impresa }}</td>
+  </tr>
+  {% endif %}
+</table>
+
+<h2>2 · Soggetto certificatore</h2>
+<p class="small">
+  Il valutatore indipendente di seguito identificato — iscritto all'albo
+  EGE (UNI CEI 11339) o all'albo ESCo (UNI CEI 11352) o equivalente —
+  ha elaborato la presente certificazione sulla base della documentazione
+  tecnica raccolta presso il beneficiario.
+</p>
+<table class="kv">
+  <tr>
+    <td class="label">Nominativo / Ragione sociale</td>
+    <td class="value">{{ extras.transizione50.certificatore_nome or installatore.responsabile_tecnico.nome_completo or '—' }}</td>
+  </tr>
+  <tr>
+    <td class="label">Qualifica</td>
+    <td class="value">{{ extras.transizione50.certificatore_qualifica or installatore.responsabile_tecnico.qualifica or '—' }}</td>
+  </tr>
+  <tr>
+    <td class="label">Iscrizione albo / registro</td>
+    <td class="value">{{ extras.transizione50.certificatore_albo or installatore.responsabile_tecnico.iscrizione_albo or '—' }}</td>
+  </tr>
+  {% if extras.transizione50.certificatore_cf %}
+  <tr><td class="label">Codice fiscale / P.IVA</td><td class="value">{{ extras.transizione50.certificatore_cf }}</td></tr>
+  {% endif %}
+</table>
+
+<h2>3 · Caratteristiche del progetto di innovazione</h2>
+<table class="kv">
+  <tr>
+    <td class="label">Denominazione progetto</td>
+    <td class="value">{{ extras.transizione50.progetto_denominazione or extras.denominazione_impianto or 'Impianto fotovoltaico per autoconsumo' }}</td>
+  </tr>
+  <tr>
+    <td class="label">Ambito d'intervento</td>
+    <td class="value">
+      {{ extras.transizione50.ambito_label or extras.transizione50.ambito or 'Struttura produttiva' }}
+    </td>
+  </tr>
+  <tr>
+    <td class="label">Periodo di realizzazione</td>
+    <td class="value">
+      {{ impianto.data_inizio_lavori | date_it if impianto.data_inizio_lavori else '—' }}
+      →
+      {{ impianto.data_fine_lavori | date_it if impianto.data_fine_lavori else '—' }}
+    </td>
+  </tr>
+  <tr>
+    <td class="label">Investimento totale agevolabile</td>
+    <td class="value">
+      {%- if extras.transizione50.investimento_totale_eur -%}
+        € {{ extras.transizione50.investimento_totale_eur | money }}
+      {%- else %}—{% endif -%}
+    </td>
+  </tr>
+  <tr>
+    <td class="label">Componente FER autoconsumo</td>
+    <td class="value">
+      Impianto fotovoltaico {{ impianto.potenza_kw | decimal_it(2) }} kWp
+      {%- if componenti.accumulo.presente and componenti.accumulo.capacita_kwh %}
+         + accumulo {{ componenti.accumulo.capacita_kwh | decimal_it(1) }} kWh
+      {%- endif -%}
+    </td>
+  </tr>
+</table>
+
+<div class="page-break"></div>
+
+<h2>4 · Stato di fatto energetico (baseline)</h2>
+<table class="kv">
+  <tr>
+    <td class="label">Consumo elettrico annuo (baseline)</td>
+    <td class="value">
+      {%- if extras.transizione50.consumo_baseline_kwh_anno -%}
+        {{ extras.transizione50.consumo_baseline_kwh_anno | int_it }} kWh/anno
+      {%- else %}—{% endif -%}
+    </td>
+  </tr>
+  <tr>
+    <td class="label">Consumo termico annuo (baseline)</td>
+    <td class="value">
+      {%- if extras.transizione50.consumo_termico_baseline_kwh_anno -%}
+        {{ extras.transizione50.consumo_termico_baseline_kwh_anno | int_it }} kWh/anno
+      {%- else %}n/a{% endif -%}
+    </td>
+  </tr>
+  <tr>
+    <td class="label">Tep equivalenti baseline</td>
+    <td class="value">
+      {%- if extras.transizione50.tep_baseline -%}
+        {{ extras.transizione50.tep_baseline | decimal_it(3) }} tep/anno
+      {%- else %}—{% endif -%}
+    </td>
+  </tr>
+  {% if extras.transizione50.metodologia_misura %}
+  <tr>
+    <td class="label">Metodologia di misura/calcolo</td>
+    <td class="value">{{ extras.transizione50.metodologia_misura }}</td>
+  </tr>
+  {% endif %}
+</table>
+
+<h2>5 · Configurazione di progetto e risparmio energetico stimato</h2>
+<table class="kv">
+  <tr>
+    <td class="label">Energia elettrica autoprodotta attesa</td>
+    <td class="value">
+      {%- if energetico.kwh_anno -%}
+        {{ energetico.kwh_anno | int_it }} kWh/anno
+      {%- else %}—{% endif -%}
+    </td>
+  </tr>
+  <tr>
+    <td class="label">Energia autoconsumata attesa</td>
+    <td class="value">
+      {%- if extras.transizione50.kwh_autoconsumo_anno -%}
+        {{ extras.transizione50.kwh_autoconsumo_anno | int_it }} kWh/anno
+      {%- else %}—{% endif -%}
+    </td>
+  </tr>
+  <tr>
+    <td class="label">Risparmio energetico (tep)</td>
+    <td class="value">
+      <strong>
+        {%- if extras.transizione50.tep_anno -%}
+          {{ extras.transizione50.tep_anno | decimal_it(3) }} tep/anno
+        {%- else %}—{% endif -%}
+      </strong>
+    </td>
+  </tr>
+  <tr>
+    <td class="label">Riduzione consumi energetici</td>
+    <td class="value">
+      <strong>
+        {%- if extras.transizione50.percentuale_riduzione -%}
+          {{ extras.transizione50.percentuale_riduzione | decimal_it(2) }} %
+        {%- else %}—{% endif -%}
+      </strong>
+      &nbsp;
+      <span class="muted small">
+        (riferito a {{ extras.transizione50.scopo_riduzione_label or extras.transizione50.scopo_riduzione or 'struttura produttiva' }})
+      </span>
+    </td>
+  </tr>
+  <tr>
+    <td class="label">Fascia agevolativa applicabile</td>
+    <td class="value">
+      <strong>{{ extras.transizione50.fascia_agevolativa or '—' }}</strong>
+    </td>
+  </tr>
+</table>
+
+<div class="callout">
+  Soglie di accesso (D.L. 19/2024 art. 38):<br>
+  · ≥ 3% riduzione <em>struttura produttiva</em> &nbsp;oppure&nbsp; ≥ 5% <em>processo</em> → fascia 1<br>
+  · ≥ 6% / 10% → fascia 2 (aliquota maggiorata)<br>
+  · ≥ 10% / 15% → fascia 3 (aliquota massima)
+</div>
+
+<h2>6 · Investimenti agevolabili</h2>
+<table class="components">
+  <tr>
+    <th>Voce</th><th>Descrizione</th><th>Importo (€)</th>
+  </tr>
+  <tr>
+    <td>Moduli fotovoltaici</td>
+    <td>{{ componenti.pannelli.marca or '—' }} {{ componenti.pannelli.modello or '' }}</td>
+    <td>{{ extras.transizione50.investimento_moduli_eur | money if extras.transizione50.investimento_moduli_eur else '—' }}</td>
+  </tr>
+  <tr>
+    <td>Inverter / quadristica</td>
+    <td>{{ componenti.inverter.marca or '—' }} {{ componenti.inverter.modello or '' }}</td>
+    <td>{{ extras.transizione50.investimento_inverter_eur | money if extras.transizione50.investimento_inverter_eur else '—' }}</td>
+  </tr>
+  {% if componenti.accumulo.presente %}
+  <tr>
+    <td>Sistema di accumulo</td>
+    <td>{{ componenti.accumulo.marca or '—' }} {{ componenti.accumulo.modello or '' }}</td>
+    <td>{{ extras.transizione50.investimento_accumulo_eur | money if extras.transizione50.investimento_accumulo_eur else '—' }}</td>
+  </tr>
+  {% endif %}
+  {% if extras.transizione50.investimento_software_eur %}
+  <tr>
+    <td>Software / monitoraggio</td>
+    <td>Sistemi di monitoraggio e ottimizzazione consumi</td>
+    <td>{{ extras.transizione50.investimento_software_eur | money }}</td>
+  </tr>
+  {% endif %}
+  <tr>
+    <td colspan="2"><strong>Totale agevolabile</strong></td>
+    <td>
+      <strong>
+        {%- if extras.transizione50.investimento_totale_eur -%}
+          {{ extras.transizione50.investimento_totale_eur | money }}
+        {%- else %}—{% endif -%}
+      </strong>
+    </td>
+  </tr>
+</table>
+
+<div class="page-break"></div>
+
+<h2>7 · Dichiarazioni del certificatore</h2>
+<p>
+  Il sottoscritto certificatore, ai sensi e per gli effetti dell'art. 38
+  del D.L. 19/2024 e dell'allegato VIII al DM attuativo,
+</p>
+<div class="callout"><strong>CERTIFICA</strong></div>
+<ul>
+  <li>che il progetto di innovazione sopra descritto è conforme ai
+    requisiti previsti per accedere al credito d'imposta Transizione 5.0;</li>
+  <li>che il risparmio energetico stimato è stato calcolato secondo
+    metodologie tecniche ed energeticamente significative, sulla base
+    dei dati di consumo storico e delle simulazioni di producibilità
+    dell'impianto fotovoltaico previsto;</li>
+  <li>che la percentuale di riduzione dei consumi energetici raggiunge
+    la soglia di accesso alla fascia agevolativa indicata al punto 5;</li>
+  <li>di non trovarsi in conflitto d'interesse con il beneficiario,
+    di essere indipendente dal fornitore dei beni agevolabili e di
+    aver effettuato la valutazione con la diligenza richiesta dalla
+    propria qualifica professionale;</li>
+  <li>che la presente certificazione potrà essere oggetto di verifica
+    da parte del GSE / MIMIT / Agenzia delle Entrate.</li>
+</ul>
+
+<div class="sign-block">
+  <p class="small">
+    Luogo e data:
+    {%- if ubicazione.comune %}{{ ubicazione.comune }}{% endif -%}
+    {%- if pratica.data_documento %}, {{ pratica.data_documento | date_it }}{% endif -%}
+  </p>
+
+  <div class="sign-row">
+    <div class="sign-cell">
+      Il certificatore<br>
+      <span class="role">
+        {{ extras.transizione50.certificatore_nome or installatore.responsabile_tecnico.nome_completo or '—' }}<br>
+        {{ extras.transizione50.certificatore_albo or installatore.responsabile_tecnico.iscrizione_albo or '' }}
+      </span>
+    </div>
+    <div class="sign-cell">
+      Il legale rappresentante beneficiario<br>
+      <span class="role">{{ decisore.nome_completo or cliente.ragione_sociale or '—' }}</span>
+    </div>
+  </div>
+
+  <p class="small muted center" style="margin-top: 22px;">
+    Documento generato automaticamente da SolarLED — pratica {{ pratica.numero }}.
+    La certificazione è valida solo se sottoscritta digitalmente o
+    autografamente dal certificatore.
+  </p>
+</div>
+
+{% endblock %}

@@ -26,6 +26,8 @@ from typing import Any
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
+from src.services.jinja_filters import register_italian_filters
+
 # Templates live next to the code, not in /tmp or a config-driven path —
 # keeps the renderer self-contained and easy to test.
 _TEMPLATES_DIR = Path(__file__).resolve().parents[1] / "quote_templates"
@@ -37,41 +39,9 @@ _env = Environment(
     lstrip_blocks=True,
 )
 
-# Format helpers exposed as Jinja filters so the template doesn't have
-# to import Python — they keep the .j2 file readable.
-
-def _format_money(value: object) -> str:
-    """Render an EUR amount with thousand separators and no decimals.
-
-    7531 → "7.531"; 1234567 → "1.234.567". Caller prepends "€".
-    """
-    try:
-        n = float(value)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
-        return "0"
-    return f"{int(round(n)):,}".replace(",", ".")
-
-
-def _format_decimal(value: object, ndigits: int = 1) -> str:
-    """Italian decimal: comma separator, configurable precision."""
-    try:
-        n = float(value)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
-        return "0"
-    s = f"{n:.{ndigits}f}"
-    return s.replace(".", ",")
-
-
-def _format_int(value: object) -> str:
-    try:
-        return f"{int(round(float(value))):,}".replace(",", ".")  # type: ignore[arg-type]
-    except (TypeError, ValueError):
-        return "0"
-
-
-_env.filters["money"] = _format_money
-_env.filters["decimal_it"] = _format_decimal
-_env.filters["int_it"] = _format_int
+# Italian-locale filters (money/decimal_it/int_it/date_it) shared with
+# the practice_pdf_renderer — see services/jinja_filters.py.
+register_italian_filters(_env)
 
 
 def render_quote_pdf(context: dict[str, Any]) -> bytes:

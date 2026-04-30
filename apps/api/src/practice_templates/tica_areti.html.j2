@@ -1,0 +1,288 @@
+{# Allegato 1 — Delibera ARERA 109/2021/R/eel — Areti S.p.A. (Roma)
+
+TICA = Testo Integrato Connessioni Attive. Modulo "istanza di accesso"
+per impianti FV con potenza > 200 kW oppure quando il richiedente non
+si avvale del Modello Unico semplificato.
+
+Layout (3 pagine A4):
+  1. Identificazione richiedente + utente del dispacciamento
+  2. Punto di connessione + dati impianto
+  3. Documenti allegati + dichiarazioni + firma
+
+Default branding: Areti (Roma). Gli altri distributori (Unareti, IRETI,
+e-distribuzione) usano moduli equivalenti — questo template parametrizza
+il distributore via `impianto.distributore_label` ma è ottimizzato per Areti.
+#}
+{% extends "_base.html.j2" %}
+
+{% block document_title %}Istanza di accesso TICA{% endblock %}
+
+{% block document_body %}
+
+<h1 class="doc-title">Istanza di accesso TICA</h1>
+<p class="doc-subtitle">
+  Allegato 1 — Delibera ARERA 109/2021/R/eel
+  · Distributore: <strong>{{ impianto.distributore_label or 'Areti S.p.A.' }}</strong>
+</p>
+
+<p class="small muted">
+  Pratica n. <strong>{{ pratica.numero }}</strong>
+  {% if pratica.data_documento %}— Data: {{ pratica.data_documento | date_it }}{% endif %}
+</p>
+
+<h2>1 · Soggetto richiedente la connessione</h2>
+<table class="kv">
+  <tr>
+    <td class="label">{% if cliente.tipo == 'b2c' %}Nome e cognome{% else %}Ragione sociale{% endif %}</td>
+    <td class="value">{{ cliente.ragione_sociale or '—' }}</td>
+  </tr>
+  {% if cliente.codice_fiscale %}
+  <tr>
+    <td class="label">Codice fiscale</td>
+    <td class="value">{{ cliente.codice_fiscale }}</td>
+  </tr>
+  {% endif %}
+  {% if cliente.piva and cliente.piva != cliente.codice_fiscale %}
+  <tr>
+    <td class="label">Partita IVA</td>
+    <td class="value">{{ cliente.piva }}</td>
+  </tr>
+  {% endif %}
+  <tr>
+    <td class="label">Sede legale / domicilio</td>
+    <td class="value">{{ cliente.sede_operativa or cliente.indirizzo_postale or '—' }}</td>
+  </tr>
+  {% if decisore.nome_completo %}
+  <tr>
+    <td class="label">Legale rappresentante</td>
+    <td class="value">
+      {{ decisore.nome_completo }}
+      {%- if decisore.codice_fiscale %} · CF {{ decisore.codice_fiscale }}{% endif -%}
+      {%- if decisore.ruolo %} · {{ decisore.ruolo }}{% endif -%}
+    </td>
+  </tr>
+  {% endif %}
+  <tr>
+    <td class="label">Recapiti</td>
+    <td class="value">
+      {%- if cliente.telefono %}Tel. {{ cliente.telefono }}{% endif -%}
+      {%- if cliente.email %} · {{ cliente.email }}{% endif -%}
+      {%- if cliente.pec %} · PEC {{ cliente.pec }}{% endif -%}
+    </td>
+  </tr>
+  <tr>
+    <td class="label">Qualità del richiedente</td>
+    <td class="value">{{ extras.qualita_richiedente_label or extras.qualita_richiedente or '—' }}</td>
+  </tr>
+</table>
+
+<h2>2 · Tipologia istanza</h2>
+<table class="kv">
+  <tr>
+    <td class="label">Tipo di istanza</td>
+    <td class="value">
+      Connessione di impianto di produzione di energia elettrica
+      {%- if extras.tipologia_istanza_label %} — {{ extras.tipologia_istanza_label }}{% endif -%}
+    </td>
+  </tr>
+  <tr>
+    <td class="label">Tipologia impianto</td>
+    <td class="value">Fotovoltaico — fonte rinnovabile non programmabile</td>
+  </tr>
+  <tr>
+    <td class="label">Livello di tensione richiesto</td>
+    <td class="value">
+      {%- if impianto.potenza_kw and impianto.potenza_kw|float > 100 -%}
+        Media tensione (MT)
+      {%- else -%}
+        Bassa tensione (BT)
+      {%- endif -%}
+    </td>
+  </tr>
+</table>
+
+<h2>3 · Punto di connessione</h2>
+<table class="kv">
+  <tr>
+    <td class="label">Indirizzo</td>
+    <td class="value">{{ ubicazione.indirizzo or '—' }}</td>
+  </tr>
+  <tr>
+    <td class="label">CAP / Comune / Provincia</td>
+    <td class="value">
+      {{ ubicazione.cap or '—' }} {{ ubicazione.comune or '' }}
+      {%- if ubicazione.provincia %} ({{ ubicazione.provincia }}){% endif -%}
+    </td>
+  </tr>
+  {% if ubicazione.catastale_foglio or ubicazione.catastale_particella %}
+  <tr>
+    <td class="label">Riferimenti catastali</td>
+    <td class="value">
+      {%- if ubicazione.catastale_foglio %}Foglio {{ ubicazione.catastale_foglio }}{% endif -%}
+      {%- if ubicazione.catastale_particella %} · Particella {{ ubicazione.catastale_particella }}{% endif -%}
+      {%- if ubicazione.catastale_subalterno %} · Sub. {{ ubicazione.catastale_subalterno }}{% endif -%}
+    </td>
+  </tr>
+  {% endif %}
+  <tr>
+    <td class="label">POD esistente</td>
+    <td class="value">{{ impianto.pod or '— (richiesta primo allaccio)' }}</td>
+  </tr>
+  {% if extras.potenza_disponibile_kw %}
+  <tr>
+    <td class="label">Potenza disponibile attuale</td>
+    <td class="value">{{ extras.potenza_disponibile_kw | decimal_it(2) }} kW</td>
+  </tr>
+  {% endif %}
+</table>
+
+<div class="page-break"></div>
+
+<h2>4 · Dati impianto</h2>
+<table class="kv">
+  <tr>
+    <td class="label">Potenza nominale</td>
+    <td class="value">{{ impianto.potenza_kw | decimal_it(2) }} kW</td>
+  </tr>
+  {% if extras.potenza_immissione_kw %}
+  <tr>
+    <td class="label">Potenza in immissione richiesta</td>
+    <td class="value">{{ extras.potenza_immissione_kw | decimal_it(2) }} kW</td>
+  </tr>
+  {% endif %}
+  <tr>
+    <td class="label">Tipologia struttura</td>
+    <td class="value">{{ extras.tipologia_struttura_label or extras.tipologia_struttura or 'edificio esistente' }}</td>
+  </tr>
+  {% if impianto.pannelli_count %}
+  <tr>
+    <td class="label">Numero moduli</td>
+    <td class="value">{{ impianto.pannelli_count | int_it }}</td>
+  </tr>
+  {% endif %}
+  <tr>
+    <td class="label">Inverter</td>
+    <td class="value">
+      {{ componenti.inverter.marca or '—' }}
+      {%- if componenti.inverter.modello %} {{ componenti.inverter.modello }}{% endif -%}
+      {%- if componenti.inverter.potenza_kw %} — {{ componenti.inverter.potenza_kw | decimal_it(2) }} kW{% endif -%}
+    </td>
+  </tr>
+  {% if componenti.accumulo.presente %}
+  <tr>
+    <td class="label">Sistema di accumulo</td>
+    <td class="value">
+      {{ componenti.accumulo.marca or '—' }}
+      {%- if componenti.accumulo.capacita_kwh %} — {{ componenti.accumulo.capacita_kwh | decimal_it(1) }} kWh{% endif -%}
+      {%- if extras.configurazione_accumulo_label %} ({{ extras.configurazione_accumulo_label }}){% endif -%}
+    </td>
+  </tr>
+  {% endif %}
+  {% if impianto.data_inizio_lavori %}
+  <tr>
+    <td class="label">Inizio lavori previsto</td>
+    <td class="value">{{ impianto.data_inizio_lavori | date_it }}</td>
+  </tr>
+  {% endif %}
+</table>
+
+<h2>5 · Utente del dispacciamento</h2>
+<table class="kv">
+  {% if extras.utente_dispacciamento and extras.utente_dispacciamento.ragione_sociale %}
+    <tr>
+      <td class="label">Ragione sociale</td>
+      <td class="value">{{ extras.utente_dispacciamento.ragione_sociale }}</td>
+    </tr>
+    {% if extras.utente_dispacciamento.cf %}<tr><td class="label">Codice fiscale</td><td class="value">{{ extras.utente_dispacciamento.cf }}</td></tr>{% endif %}
+    {% if extras.utente_dispacciamento.piva %}<tr><td class="label">Partita IVA</td><td class="value">{{ extras.utente_dispacciamento.piva }}</td></tr>{% endif %}
+    {% if extras.utente_dispacciamento.codice_contratto %}<tr><td class="label">Codice contratto</td><td class="value">{{ extras.utente_dispacciamento.codice_contratto }}</td></tr>{% endif %}
+    {% if extras.utente_dispacciamento.pec %}<tr><td class="label">PEC</td><td class="value">{{ extras.utente_dispacciamento.pec }}</td></tr>{% endif %}
+  {% else %}
+    <tr>
+      <td class="value" colspan="2" style="font-style: italic; color: #666;">
+        Coincidente con il soggetto richiedente — il GSE/distributore
+        gestirà direttamente il contratto di dispacciamento.
+      </td>
+    </tr>
+  {% endif %}
+</table>
+
+<h2>6 · Regime commerciale richiesto</h2>
+<p>
+  Il richiedente intende avvalersi del seguente regime per la gestione
+  dell'energia elettrica prodotta:
+</p>
+<table class="kv">
+  <tr>
+    <td class="label">Regime</td>
+    <td class="value">
+      <strong>{{ extras.regime_ritiro_label or extras.regime_ritiro or '—' }}</strong>
+    </td>
+  </tr>
+  {% if extras.iban %}
+  <tr>
+    <td class="label">IBAN per accredito</td>
+    <td class="value">{{ extras.iban }}</td>
+  </tr>
+  {% endif %}
+</table>
+
+<div class="page-break"></div>
+
+<h2>7 · Documenti allegati</h2>
+<ul class="norme">
+  <li>Schema elettrico unifilare conforme alla CEI 0-21 / CEI 0-16</li>
+  <li>Attestazione del titolo a richiedere la connessione (Modulo ATR)</li>
+  <li>Planimetria con localizzazione dell'impianto</li>
+  <li>Schede tecniche moduli, inverter
+    {%- if componenti.accumulo.presente %} e sistema di accumulo{% endif -%}
+  </li>
+  <li>Copia documento d'identità del legale rappresentante</li>
+  {% if cliente.tipo != 'b2c' %}<li>Visura camerale aggiornata</li>{% endif %}
+  <li>Ricevuta versamento corrispettivo per ottenimento preventivo
+    (importi pubblicati dal distributore secondo le tabelle ARERA)</li>
+</ul>
+
+<h2>8 · Dichiarazioni</h2>
+<p>
+  Il sottoscritto
+  <strong>{{ decisore.nome_completo or cliente.ragione_sociale or '—' }}</strong>,
+  ai sensi degli artt. 46 e 47 del DPR 28/12/2000 n. 445,
+</p>
+<div class="callout"><strong>DICHIARA</strong></div>
+<ul>
+  <li>di accettare integralmente le condizioni tecniche, economiche e
+    procedurali pubblicate dal distributore secondo la delibera ARERA
+    109/2021/R/eel e successive modifiche;</li>
+  <li>che le informazioni e i documenti forniti sono veritieri e che
+    eventuali dichiarazioni mendaci comporteranno il rigetto della
+    presente istanza e le sanzioni di legge;</li>
+  <li>di impegnarsi al versamento del corrispettivo per
+    l'ottenimento del preventivo (TICA) entro i termini indicati e
+    al pagamento del corrispettivo di connessione una volta accettato
+    il preventivo;</li>
+  <li>di acconsentire al trattamento dei dati personali ai sensi del
+    Regolamento UE 2016/679 (GDPR) per le finalità connesse alla
+    presente istanza e all'eventuale contratto di connessione.</li>
+</ul>
+
+<div class="sign-block">
+  <p class="small">
+    Luogo e data:
+    {%- if ubicazione.comune %}{{ ubicazione.comune }}{% endif -%}
+    {%- if pratica.data_documento %}, {{ pratica.data_documento | date_it }}{% endif -%}
+  </p>
+
+  <div class="sign-row">
+    <div class="sign-cell" style="margin: 0 auto;">
+      Il richiedente<br>
+      <span class="role">{{ decisore.nome_completo or cliente.ragione_sociale or '—' }}</span>
+    </div>
+  </div>
+
+  <p class="small muted center" style="margin-top: 22px;">
+    Documento generato automaticamente da SolarLED — pratica {{ pratica.numero }}.
+  </p>
+</div>
+
+{% endblock %}

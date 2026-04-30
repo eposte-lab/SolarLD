@@ -1,0 +1,209 @@
+{# Comunicazione fine lavori al Comune.
+
+Reference: DPR 380/2001 art. 6 comma 1 lett. e-quater (attività edilizia
+libera per impianti solari fotovoltaici a servizio degli edifici, purché
+realizzati su edifici esistenti). For impianti maggiori o aree a vincolo,
+il Comune può richiedere SCIA: questo template è per il caso "edilizia
+libera" che copre la stragrande maggioranza degli interventi
+residenziali / piccoli commerciali.
+
+Layout: 1 page A4. Form ufficiale generico nazionale; format proprietari
+per Comune (es. Roma, Milano) verranno aggiunti in Sprint 2 con un
+template_code separato (``comunicazione_comune_roma`` etc.) e un picker
+nel form di creazione.
+#}
+{% extends "_base.html.j2" %}
+
+{% block document_title %}Comunicazione fine lavori al Comune{% endblock %}
+
+{% block document_body %}
+
+<div style="text-align: right; margin-bottom: 22px;">
+  <p class="small" style="margin: 0;">
+    Spett.le<br>
+    <strong>Comune di {{ ubicazione.comune or '—' }}</strong>
+    {%- if ubicazione.provincia %} ({{ ubicazione.provincia }}){% endif %}<br>
+    Ufficio Tecnico — Sportello Unico Edilizia
+  </p>
+  <p class="small muted" style="margin-top: 6px;">
+    Inviata a mezzo PEC al protocollo del Comune
+  </p>
+</div>
+
+<h1 class="doc-title">Comunicazione di fine lavori</h1>
+<p class="doc-subtitle">
+  Installazione impianto fotovoltaico — Edilizia libera ex art. 6 DPR 380/2001
+</p>
+
+<p class="small muted">
+  Pratica n. <strong>{{ pratica.numero }}</strong>
+  {% if pratica.data_documento %}— Data: {{ pratica.data_documento | date_it }}{% endif %}
+</p>
+
+<h2>Oggetto</h2>
+<p>
+  Comunicazione di avvenuta installazione di impianto solare fotovoltaico
+  della potenza di <strong>{{ impianto.potenza_kw | decimal_it(2) }} kW</strong>
+  presso l'immobile sito in
+  {% if ubicazione.indirizzo %}<strong>{{ ubicazione.indirizzo }}</strong>{% endif %}
+  {%- if ubicazione.cap %}, {{ ubicazione.cap }}{% endif %}
+  {{ ubicazione.comune or '' }}
+  {%- if ubicazione.provincia %} ({{ ubicazione.provincia }}){% endif %},
+  {% if cliente.tipo == 'b2c' %}
+    di proprietà di <strong>{{ cliente.ragione_sociale }}</strong>
+    {%- if cliente.codice_fiscale %} (CF {{ cliente.codice_fiscale }}){% endif -%}.
+  {% else %}
+    di proprietà della società <strong>{{ cliente.ragione_sociale }}</strong>
+    {%- if cliente.piva %} (P.IVA {{ cliente.piva }}){% endif -%}.
+  {% endif %}
+</p>
+
+<h2>1 · Dati identificativi</h2>
+<table class="kv">
+  <tr>
+    <td class="label">Committente</td>
+    <td class="value">
+      {{ cliente.ragione_sociale or '—' }}
+      {%- if cliente.piva %} · P.IVA {{ cliente.piva }}{% endif -%}
+    </td>
+  </tr>
+  <tr>
+    <td class="label">Sede / domicilio</td>
+    <td class="value">{{ cliente.sede_operativa or cliente.indirizzo_postale or '—' }}</td>
+  </tr>
+  <tr>
+    <td class="label">Impresa installatrice</td>
+    <td class="value">
+      {{ installatore.ragione_sociale }}
+      {%- if installatore.piva %} · P.IVA {{ installatore.piva }}{% endif -%}
+    </td>
+  </tr>
+  <tr>
+    <td class="label">CCIAA installatore</td>
+    <td class="value">{{ installatore.cciaa or '—' }}</td>
+  </tr>
+  <tr>
+    <td class="label">Responsabile tecnico</td>
+    <td class="value">
+      {{ installatore.responsabile_tecnico.nome_completo or '—' }}
+      {%- if installatore.responsabile_tecnico.iscrizione_albo %}
+        ({{ installatore.responsabile_tecnico.iscrizione_albo }})
+      {%- endif -%}
+    </td>
+  </tr>
+</table>
+
+<h2>2 · Ubicazione dell'intervento</h2>
+<table class="kv">
+  <tr>
+    <td class="label">Indirizzo</td>
+    <td class="value">{{ ubicazione.indirizzo_completo or ubicazione.indirizzo or '—' }}</td>
+  </tr>
+  {% if impianto.catastale_foglio or impianto.catastale_particella %}
+  <tr>
+    <td class="label">Dati catastali</td>
+    <td class="value">
+      {%- if impianto.catastale_foglio %}Foglio {{ impianto.catastale_foglio }}{% endif -%}
+      {%- if impianto.catastale_particella %} · Particella {{ impianto.catastale_particella }}{% endif -%}
+      {%- if impianto.catastale_subalterno %} · Sub. {{ impianto.catastale_subalterno }}{% endif -%}
+    </td>
+  </tr>
+  {% endif %}
+</table>
+
+<h2>3 · Caratteristiche tecniche dell'impianto</h2>
+<table class="kv">
+  <tr>
+    <td class="label">Tipologia</td>
+    <td class="value">Impianto solare fotovoltaico connesso alla rete</td>
+  </tr>
+  <tr>
+    <td class="label">Potenza nominale</td>
+    <td class="value">{{ impianto.potenza_kw | decimal_it(2) }} kW</td>
+  </tr>
+  {% if impianto.pannelli_count %}
+  <tr>
+    <td class="label">Numero moduli</td>
+    <td class="value">{{ impianto.pannelli_count | int_it }}</td>
+  </tr>
+  {% endif %}
+  <tr>
+    <td class="label">Modalità installazione</td>
+    <td class="value">Su edificio esistente — non integrato, complanare alla copertura</td>
+  </tr>
+  {% if impianto.distributore_label %}
+  <tr>
+    <td class="label">Distributore di rete</td>
+    <td class="value">{{ impianto.distributore_label }}</td>
+  </tr>
+  {% endif %}
+</table>
+
+<h2>4 · Tempistica dei lavori</h2>
+<table class="kv">
+  {% if impianto.data_inizio_lavori %}
+  <tr>
+    <td class="label">Data inizio lavori</td>
+    <td class="value">{{ impianto.data_inizio_lavori | date_it }}</td>
+  </tr>
+  {% endif %}
+  {% if impianto.data_fine_lavori %}
+  <tr>
+    <td class="label">Data fine lavori</td>
+    <td class="value">{{ impianto.data_fine_lavori | date_it }}</td>
+  </tr>
+  {% endif %}
+</table>
+
+<h2>5 · Riferimenti normativi</h2>
+<p class="small">
+  L'intervento rientra nell'attività edilizia libera ai sensi dell'art. 6,
+  comma 1, lettera e-quater del DPR 6 giugno 2001 n. 380, in quanto
+  installazione di pannelli solari fotovoltaici a servizio dell'edificio,
+  realizzata sull'edificio esistente, al di fuori della zona A di cui al
+  decreto del Ministro dei lavori pubblici 2 aprile 1968 n. 1444.
+</p>
+<p class="small">
+  L'impianto è stato realizzato nel rispetto delle norme tecniche
+  applicabili — in particolare {{ norme.cei_0_21 }} e {{ norme.cei_82_25 }} —
+  e dispone di Dichiarazione di Conformità ai sensi del DM 37/2008
+  rilasciata dall'impresa installatrice.
+</p>
+
+<h2>6 · Allegati</h2>
+<ul class="small">
+  <li>Dichiarazione di Conformità DM 37/2008 (a firma del responsabile tecnico)</li>
+  <li>Schema unifilare dell'impianto</li>
+  <li>Documento d'identità del committente</li>
+  <li>Visura camerale dell'impresa installatrice</li>
+</ul>
+
+<div class="sign-block">
+  <p class="small" style="margin-top: 18px;">
+    Si comunica quanto sopra per i provvedimenti di competenza.
+    L'impresa installatrice resta a disposizione per eventuali chiarimenti.
+  </p>
+
+  <p class="small">
+    Luogo e data:
+    {%- if ubicazione.comune %} {{ ubicazione.comune }}{% endif -%}
+    {%- if pratica.data_documento %}, {{ pratica.data_documento | date_it }}{% endif -%}
+  </p>
+
+  <div class="sign-row">
+    <div class="sign-cell">
+      Il committente<br>
+      <span class="role">{{ cliente.ragione_sociale or '—' }}</span>
+    </div>
+    <div class="sign-cell">
+      L'impresa installatrice<br>
+      <span class="role">{{ installatore.ragione_sociale }}</span>
+    </div>
+  </div>
+
+  <p class="small muted center" style="margin-top: 22px;">
+    Documento generato automaticamente da SolarLED — pratica {{ pratica.numero }}.
+  </p>
+</div>
+
+{% endblock %}

@@ -19,20 +19,22 @@ weasyprint = pytest.importorskip("weasyprint")  # noqa: F841
 
 
 def test_format_money_uses_italian_thousand_separator() -> None:
-    from src.services.quote_pdf_renderer import _format_money
+    # Filters were factored into jinja_filters.py so the practice
+    # renderer (Sprint 1) can reuse them. Behavior is identical.
+    from src.services.jinja_filters import format_money
 
-    assert _format_money(7531) == "7.531"
-    assert _format_money(1234567) == "1.234.567"
-    assert _format_money(0) == "0"
-    assert _format_money(None) == "0"
-    assert _format_money("garbage") == "0"
+    assert format_money(7531) == "7.531"
+    assert format_money(1234567) == "1.234.567"
+    assert format_money(0) == "0"
+    assert format_money(None) == "0"
+    assert format_money("garbage") == "0"
 
 
 def test_format_decimal_italian_uses_comma() -> None:
-    from src.services.quote_pdf_renderer import _format_decimal
+    from src.services.jinja_filters import format_decimal
 
-    assert _format_decimal(3.14159, 2) == "3,14"
-    assert _format_decimal(18.265, 1) == "18,3"
+    assert format_decimal(3.14159, 2) == "3,14"
+    assert format_decimal(18.265, 1) == "18,3"
 
 
 # ---------------------------------------------------------------------------

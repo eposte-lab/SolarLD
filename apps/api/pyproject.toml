@@ -83,6 +83,12 @@ dependencies = [
 
   # B2C door-to-door Excel export for field agents
   "openpyxl>=3.1.5",
+
+  # PDF→image rasterisation for Claude Vision OCR pipeline (practice
+  # uploads: visura camerale, carta d'identità, bolletta).  Pure-Python
+  # wheel built on PDFium — no system-lib dependency (unlike pdf2image
+  # which needs poppler), so the Dockerfile is unchanged.
+  "pypdfium2>=4.30.0",
 ]
 
 [project.optional-dependencies]

@@ -1,0 +1,320 @@
+{# Modello Unico — Parte I (pre-lavori)
+
+Reference: D.Lgs. 199/2021 art. 25 + DM Sviluppo Economico 19/05/2015 e
+successivi aggiornamenti. Il "Modello Unico semplificato" è il modulo
+combinato (autorizzazione + connessione + GSE) per impianti FV ≤200 kW
+realizzati su edifici esistenti, che sostituisce TICA + comunicazione
+inizio lavori + richiesta tariffa incentivante.
+
+Parte I → si invia PRIMA dei lavori al gestore di rete (e-distribuzione,
+Areti, Unareti, …). Contiene anagrafica richiedente + ubicazione + dati
+elettrici previsti + dati impianto previsti.
+
+Layout (3-4 pagine A4):
+  1. Identificazione richiedente + qualità (proprietario / amm. / …)
+  2. Ubicazione impianto + dati POD esistente
+  3. Dati impianto previsti + componenti previsti
+  4. Regime ritiro / scambio sul posto / utente del dispacciamento
+  5. Dichiarazioni + firma
+
+NON sostituisce gli allegati obbligatori (schema unifilare, attestazione
+titolo, planimetria) — questi vengono prodotti separatamente.
+#}
+{% extends "_base.html.j2" %}
+
+{% block document_title %}Modello Unico — Parte I{% endblock %}
+
+{% block document_body %}
+
+<h1 class="doc-title">Modello Unico — Parte I</h1>
+<p class="doc-subtitle">
+  Realizzazione, connessione ed esercizio di impianti fotovoltaici
+  fino a 200 kW (D.Lgs. 199/2021, art. 25)
+</p>
+
+<p class="small muted">
+  Pratica n. <strong>{{ pratica.numero }}</strong>
+  {% if pratica.data_documento %}— Data: {{ pratica.data_documento | date_it }}{% endif %}
+  — Da inviare al gestore di rete: <strong>{{ impianto.distributore_label or '—' }}</strong>
+</p>
+
+<h2>1 · Soggetto richiedente</h2>
+<table class="kv">
+  <tr>
+    <td class="label">{% if cliente.tipo == 'b2c' %}Nome e cognome{% else %}Ragione sociale{% endif %}</td>
+    <td class="value">{{ cliente.ragione_sociale or '—' }}</td>
+  </tr>
+  {% if cliente.codice_fiscale %}
+  <tr>
+    <td class="label">Codice fiscale</td>
+    <td class="value">{{ cliente.codice_fiscale }}</td>
+  </tr>
+  {% endif %}
+  {% if cliente.piva and cliente.piva != cliente.codice_fiscale %}
+  <tr>
+    <td class="label">Partita IVA</td>
+    <td class="value">{{ cliente.piva }}</td>
+  </tr>
+  {% endif %}
+  <tr>
+    <td class="label">Residenza / Sede legale</td>
+    <td class="value">{{ cliente.sede_operativa or cliente.indirizzo_postale or '—' }}</td>
+  </tr>
+  {% if decisore.nome_completo %}
+  <tr>
+    <td class="label">Legale rappresentante</td>
+    <td class="value">
+      {{ decisore.nome_completo }}
+      {%- if decisore.codice_fiscale %} · CF {{ decisore.codice_fiscale }}{% endif -%}
+      {%- if decisore.ruolo %} · {{ decisore.ruolo }}{% endif -%}
+    </td>
+  </tr>
+  {% endif %}
+  <tr>
+    <td class="label">Qualità del richiedente</td>
+    <td class="value">{{ extras.qualita_richiedente_label or extras.qualita_richiedente or '—' }}</td>
+  </tr>
+  <tr>
+    <td class="label">Recapiti</td>
+    <td class="value">
+      {%- if cliente.email %}{{ cliente.email }}{% endif -%}
+      {%- if cliente.telefono %} · {{ cliente.telefono }}{% endif -%}
+      {%- if cliente.pec %} · PEC {{ cliente.pec }}{% endif -%}
+    </td>
+  </tr>
+</table>
+
+<h2>2 · Ubicazione dell'impianto</h2>
+<table class="kv">
+  <tr>
+    <td class="label">Indirizzo</td>
+    <td class="value">{{ ubicazione.indirizzo or '—' }}</td>
+  </tr>
+  <tr>
+    <td class="label">CAP / Comune</td>
+    <td class="value">
+      {{ ubicazione.cap or '—' }} {{ ubicazione.comune or '' }}
+      {%- if ubicazione.provincia %} ({{ ubicazione.provincia }}){% endif -%}
+    </td>
+  </tr>
+  <tr>
+    <td class="label">Tipologia struttura</td>
+    <td class="value">{{ extras.tipologia_struttura_label or extras.tipologia_struttura or 'edificio esistente' }}</td>
+  </tr>
+  {% if ubicazione.catastale_foglio or ubicazione.catastale_particella %}
+  <tr>
+    <td class="label">Riferimenti catastali</td>
+    <td class="value">
+      {%- if ubicazione.catastale_foglio %}Foglio {{ ubicazione.catastale_foglio }}{% endif -%}
+      {%- if ubicazione.catastale_particella %} · Particella {{ ubicazione.catastale_particella }}{% endif -%}
+      {%- if ubicazione.catastale_subalterno %} · Sub. {{ ubicazione.catastale_subalterno }}{% endif -%}
+    </td>
+  </tr>
+  {% endif %}
+  {% if extras.denominazione_impianto %}
+  <tr>
+    <td class="label">Denominazione impianto</td>
+    <td class="value">{{ extras.denominazione_impianto }}</td>
+  </tr>
+  {% endif %}
+</table>
+
+<h2>3 · POD e fornitura esistente</h2>
+<table class="kv">
+  <tr>
+    <td class="label">Codice POD</td>
+    <td class="value">{{ impianto.pod or '—' }}</td>
+  </tr>
+  <tr>
+    <td class="label">Distributore</td>
+    <td class="value">{{ impianto.distributore_label or impianto.distributore or '—' }}</td>
+  </tr>
+  {% if extras.potenza_disponibile_kw %}
+  <tr>
+    <td class="label">Potenza disponibile attuale</td>
+    <td class="value">{{ extras.potenza_disponibile_kw | decimal_it(2) }} kW</td>
+  </tr>
+  {% endif %}
+  {% if extras.tensione_fornitura %}
+  <tr>
+    <td class="label">Tensione di fornitura</td>
+    <td class="value">{{ extras.tensione_fornitura }}</td>
+  </tr>
+  {% endif %}
+</table>
+
+<div class="page-break"></div>
+
+<h2>4 · Dati tecnici dell'impianto previsto</h2>
+<table class="kv">
+  <tr>
+    <td class="label">Tipologia</td>
+    <td class="value">Impianto fotovoltaico per la produzione di energia elettrica</td>
+  </tr>
+  <tr>
+    <td class="label">Potenza nominale (kW)</td>
+    <td class="value">{{ impianto.potenza_kw | decimal_it(2) }} kW</td>
+  </tr>
+  {% if extras.potenza_immissione_kw %}
+  <tr>
+    <td class="label">Potenza in immissione richiesta</td>
+    <td class="value">{{ extras.potenza_immissione_kw | decimal_it(2) }} kW</td>
+  </tr>
+  {% endif %}
+  {% if impianto.pannelli_count %}
+  <tr>
+    <td class="label">Numero moduli</td>
+    <td class="value">{{ impianto.pannelli_count | int_it }}</td>
+  </tr>
+  {% endif %}
+  {% if impianto.data_inizio_lavori %}
+  <tr>
+    <td class="label">Inizio lavori previsto</td>
+    <td class="value">{{ impianto.data_inizio_lavori | date_it }}</td>
+  </tr>
+  {% endif %}
+  {% if impianto.data_fine_lavori %}
+  <tr>
+    <td class="label">Fine lavori prevista</td>
+    <td class="value">{{ impianto.data_fine_lavori | date_it }}</td>
+  </tr>
+  {% endif %}
+</table>
+
+<h3>Moduli fotovoltaici</h3>
+<table class="components">
+  <tr>
+    <th>Marca</th><th>Modello</th><th>Potenza unitaria</th><th>Quantità</th>
+  </tr>
+  <tr>
+    <td>{{ componenti.pannelli.marca or '—' }}</td>
+    <td>{{ componenti.pannelli.modello or '—' }}</td>
+    <td>{{ componenti.pannelli.potenza_w or '—' }}{% if componenti.pannelli.potenza_w %} W{% endif %}</td>
+    <td>{{ componenti.pannelli.quantita or '—' }}</td>
+  </tr>
+</table>
+
+<h3>Inverter</h3>
+<table class="components">
+  <tr>
+    <th>Marca</th><th>Modello</th><th>Potenza</th><th>Quantità</th>
+  </tr>
+  <tr>
+    <td>{{ componenti.inverter.marca or '—' }}</td>
+    <td>{{ componenti.inverter.modello or '—' }}</td>
+    <td>
+      {%- if componenti.inverter.potenza_kw -%}
+        {{ componenti.inverter.potenza_kw | decimal_it(2) }} kW
+      {%- else %}—{% endif -%}
+    </td>
+    <td>{{ componenti.inverter.quantita or 1 }}</td>
+  </tr>
+</table>
+
+{% if componenti.accumulo.presente %}
+<h3>Sistema di accumulo</h3>
+<table class="components">
+  <tr>
+    <th>Marca</th><th>Modello</th><th>Capacità</th><th>Configurazione</th>
+  </tr>
+  <tr>
+    <td>{{ componenti.accumulo.marca or '—' }}</td>
+    <td>{{ componenti.accumulo.modello or '—' }}</td>
+    <td>
+      {%- if componenti.accumulo.capacita_kwh -%}
+        {{ componenti.accumulo.capacita_kwh | decimal_it(1) }} kWh
+      {%- else %}—{% endif -%}
+    </td>
+    <td>{{ extras.configurazione_accumulo_label or extras.configurazione_accumulo or '—' }}</td>
+  </tr>
+</table>
+{% endif %}
+
+<h2>5 · Regime di ritiro / scambio</h2>
+<table class="kv">
+  <tr>
+    <td class="label">Regime scelto</td>
+    <td class="value">{{ extras.regime_ritiro_label or extras.regime_ritiro or '—' }}</td>
+  </tr>
+  {% if extras.iban %}
+  <tr>
+    <td class="label">IBAN per accredito GSE</td>
+    <td class="value">{{ extras.iban }}</td>
+  </tr>
+  {% endif %}
+</table>
+
+{% if extras.utente_dispacciamento and extras.utente_dispacciamento.ragione_sociale %}
+<h3>Utente del dispacciamento (se diverso dal richiedente)</h3>
+<table class="kv">
+  <tr><td class="label">Ragione sociale</td><td class="value">{{ extras.utente_dispacciamento.ragione_sociale }}</td></tr>
+  {% if extras.utente_dispacciamento.cf %}<tr><td class="label">Codice fiscale</td><td class="value">{{ extras.utente_dispacciamento.cf }}</td></tr>{% endif %}
+  {% if extras.utente_dispacciamento.piva %}<tr><td class="label">Partita IVA</td><td class="value">{{ extras.utente_dispacciamento.piva }}</td></tr>{% endif %}
+  {% if extras.utente_dispacciamento.codice_contratto %}<tr><td class="label">Codice contratto dispacciamento</td><td class="value">{{ extras.utente_dispacciamento.codice_contratto }}</td></tr>{% endif %}
+  {% if extras.utente_dispacciamento.pec %}<tr><td class="label">PEC</td><td class="value">{{ extras.utente_dispacciamento.pec }}</td></tr>{% endif %}
+</table>
+{% endif %}
+
+<div class="page-break"></div>
+
+<h2>6 · Allegati alla Parte I</h2>
+<ul class="norme">
+  <li>Schema elettrico unifilare conforme alla CEI 0-21</li>
+  <li>Attestazione del titolo a richiedere la connessione</li>
+  <li>Planimetria con localizzazione dell'impianto e del punto di consegna</li>
+  <li>Copia documento d'identità del richiedente / legale rappresentante</li>
+  {% if componenti.accumulo.presente %}<li>Scheda tecnica del sistema di accumulo</li>{% endif %}
+  <li>Schede tecniche moduli e inverter</li>
+</ul>
+
+<h2>7 · Dichiarazioni</h2>
+<p>
+  Il sottoscritto
+  <strong>{{ decisore.nome_completo or cliente.ragione_sociale or '—' }}</strong>,
+  ai sensi degli artt. 46 e 47 del DPR 28/12/2000 n. 445,
+  consapevole delle sanzioni penali previste dall'art. 76 del medesimo
+  DPR per le ipotesi di falsità in atti e dichiarazioni mendaci,
+</p>
+
+<div class="callout"><strong>DICHIARA</strong></div>
+
+<ul>
+  <li>di essere in possesso del titolo idoneo per la realizzazione
+    dell'impianto sull'immobile sopra individuato (qualità:
+    <em>{{ extras.qualita_richiedente_label or extras.qualita_richiedente or '—' }}</em>);</li>
+  <li>che l'impianto rispetterà tutte le norme tecniche di
+    riferimento (CEI 0-21 / CEI 0-16, CEI 82-25, DM 37/08);</li>
+  <li>che la realizzazione avverrà nel rispetto delle prescrizioni
+    eventualmente impartite dal gestore della rete in fase di
+    accettazione del presente Modello Unico;</li>
+  <li>di accettare integralmente le condizioni economiche e tecniche
+    pubblicate dal gestore della rete e dal GSE per il regime di
+    ritiro/scambio prescelto;</li>
+  <li>di impegnarsi a comunicare la fine dei lavori mediante invio
+    del Modello Unico — Parte II al gestore di rete.</li>
+</ul>
+
+<div class="sign-block">
+  <p class="small">
+    Luogo e data:
+    {%- if ubicazione.comune %}{{ ubicazione.comune }}{% endif -%}
+    {%- if pratica.data_documento %}, {{ pratica.data_documento | date_it }}{% endif -%}
+  </p>
+
+  <div class="sign-row">
+    <div class="sign-cell">
+      Il richiedente<br>
+      <span class="role">{{ decisore.nome_completo or cliente.ragione_sociale or '—' }}</span>
+    </div>
+    <div class="sign-cell">
+      Per accettazione — l'installatore<br>
+      <span class="role">{{ installatore.ragione_sociale }}</span>
+    </div>
+  </div>
+
+  <p class="small muted center" style="margin-top: 22px;">
+    Documento generato automaticamente da SolarLED — pratica {{ pratica.numero }}.
+  </p>
+</div>
+
+{% endblock %}

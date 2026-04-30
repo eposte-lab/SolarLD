@@ -14,6 +14,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createBrowserClient } from '@supabase/ssr';
+import { CalendarClock } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 import type { NotificationRow } from '@/lib/data/notifications';
@@ -24,6 +25,12 @@ const SEVERITY_DOT: Record<NotificationRow['severity'], string> = {
   warning: 'bg-primary',
   error: 'bg-error',
 };
+
+/** Returns true for practice deadline breach notifications so they can
+ *  be rendered with a calendar icon instead of a generic dot. */
+function isPracticeDeadline(n: NotificationRow): boolean {
+  return n.metadata?.['kind'] === 'practice_deadline_breached';
+}
 
 function timeAgo(iso: string): string {
   const diffMin = Math.round((Date.now() - new Date(iso).getTime()) / 60_000);
@@ -172,14 +179,19 @@ export function NotificationsBell({
                         className={cn(
                           'flex gap-3 px-4 py-3 transition-colors hover:bg-white/5',
                           !n.read_at && 'bg-primary/8',
+                          isPracticeDeadline(n) && !n.read_at && 'bg-rose-500/8',
                         )}
                       >
-                        <span
-                          className={cn(
-                            'mt-1.5 h-2 w-2 shrink-0 rounded-full',
-                            SEVERITY_DOT[n.severity],
-                          )}
-                        />
+                        {isPracticeDeadline(n) ? (
+                          <CalendarClock className="mt-0.5 h-4 w-4 shrink-0 text-rose-500" />
+                        ) : (
+                          <span
+                            className={cn(
+                              'mt-1.5 h-2 w-2 shrink-0 rounded-full',
+                              SEVERITY_DOT[n.severity],
+                            )}
+                          />
+                        )}
                         <div className="min-w-0 flex-1">
                           <p className="font-semibold text-sm text-on-surface">
                             {n.title}

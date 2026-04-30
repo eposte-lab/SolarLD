@@ -1,0 +1,186 @@
+{# Allegato V al DM Transizione 5.0 — Attestazione di possesso
+
+Attestazione di possesso della Perizia tecnica giurata e della
+Certificazione contabile. Diversamente dagli allegati VIII (ex-ante)
+e X (ex-post) che certificano il merito tecnico/energetico, l'Allegato V
+è una dichiarazione formale del beneficiario:
+
+  - di avere la perizia tecnica asseverata che attesta la conformità
+    dei beni (interconnessione, integrazione 4.0/5.0)
+  - di avere la certificazione contabile rilasciata dal revisore legale
+    che attesta i costi sostenuti
+
+Non riporta i dati tecnici/energetici — quelli stanno nei VIII e X. È un
+modulo breve (1-2 pagine A4) firmato dal legale rappresentante.
+
+Layout:
+  1. Anagrafica beneficiario + progetto
+  2. Estremi della perizia + del revisore contabile
+  3. Dichiarazioni + firma
+#}
+{% extends "_base.html.j2" %}
+
+{% block document_title %}Transizione 5.0 — Attestazione perizia + certificazione contabile{% endblock %}
+
+{% block document_body %}
+
+<h1 class="doc-title">Attestazione di possesso</h1>
+<p class="doc-subtitle">
+  Allegato V al DM attuativo della Transizione 5.0 — Perizia tecnica
+  asseverata + Certificazione contabile
+</p>
+
+<p class="small muted">
+  Pratica n. <strong>{{ pratica.numero }}</strong>
+  {% if pratica.data_documento %}— Data: {{ pratica.data_documento | date_it }}{% endif %}
+</p>
+
+<h2>1 · Soggetto beneficiario</h2>
+<table class="kv">
+  <tr>
+    <td class="label">Ragione sociale</td>
+    <td class="value">{{ cliente.ragione_sociale or '—' }}</td>
+  </tr>
+  {% if cliente.codice_fiscale %}<tr><td class="label">Codice fiscale</td><td class="value">{{ cliente.codice_fiscale }}</td></tr>{% endif %}
+  {% if cliente.piva and cliente.piva != cliente.codice_fiscale %}<tr><td class="label">Partita IVA</td><td class="value">{{ cliente.piva }}</td></tr>{% endif %}
+  <tr>
+    <td class="label">Sede legale</td>
+    <td class="value">{{ cliente.sede_operativa or cliente.indirizzo_postale or '—' }}</td>
+  </tr>
+  {% if decisore.nome_completo %}
+  <tr>
+    <td class="label">Legale rappresentante</td>
+    <td class="value">
+      {{ decisore.nome_completo }}
+      {%- if decisore.codice_fiscale %} · CF {{ decisore.codice_fiscale }}{% endif -%}
+    </td>
+  </tr>
+  {% endif %}
+</table>
+
+<h2>2 · Estremi del progetto Transizione 5.0</h2>
+<table class="kv">
+  {% if extras.transizione50.codice_progetto_gse %}
+  <tr><td class="label">Codice progetto GSE</td><td class="value">{{ extras.transizione50.codice_progetto_gse }}</td></tr>
+  {% endif %}
+  <tr>
+    <td class="label">Denominazione progetto</td>
+    <td class="value">{{ extras.transizione50.progetto_denominazione or extras.denominazione_impianto or 'Impianto fotovoltaico per autoconsumo' }}</td>
+  </tr>
+  <tr>
+    <td class="label">Sede operativa interessata</td>
+    <td class="value">
+      {{ ubicazione.indirizzo or '—' }} —
+      {{ ubicazione.cap or '' }} {{ ubicazione.comune or '' }}
+      {%- if ubicazione.provincia %} ({{ ubicazione.provincia }}){% endif -%}
+    </td>
+  </tr>
+  <tr>
+    <td class="label">Investimento totale</td>
+    <td class="value">
+      {%- if extras.transizione50.investimento_totale_eur -%}
+        € {{ extras.transizione50.investimento_totale_eur | money }}
+      {%- else %}—{% endif -%}
+    </td>
+  </tr>
+</table>
+
+<h2>3 · Perizia tecnica asseverata</h2>
+<table class="kv">
+  <tr>
+    <td class="label">Perito firmatario</td>
+    <td class="value">{{ extras.transizione50.perito_nome or '—' }}</td>
+  </tr>
+  <tr>
+    <td class="label">Iscrizione albo</td>
+    <td class="value">{{ extras.transizione50.perito_albo or '—' }}</td>
+  </tr>
+  {% if extras.transizione50.perito_data_giuramento %}
+  <tr>
+    <td class="label">Data giuramento</td>
+    <td class="value">{{ extras.transizione50.perito_data_giuramento | date_it }}</td>
+  </tr>
+  {% endif %}
+  {% if extras.transizione50.perito_protocollo %}
+  <tr>
+    <td class="label">Estremi atto / protocollo</td>
+    <td class="value">{{ extras.transizione50.perito_protocollo }}</td>
+  </tr>
+  {% endif %}
+</table>
+
+<h2>4 · Certificazione contabile</h2>
+<table class="kv">
+  <tr>
+    <td class="label">Revisore legale / Società di revisione</td>
+    <td class="value">{{ extras.transizione50.revisore_nome or '—' }}</td>
+  </tr>
+  <tr>
+    <td class="label">Iscrizione registro revisori</td>
+    <td class="value">{{ extras.transizione50.revisore_registro or '—' }}</td>
+  </tr>
+  {% if extras.transizione50.revisore_data %}
+  <tr>
+    <td class="label">Data della certificazione contabile</td>
+    <td class="value">{{ extras.transizione50.revisore_data | date_it }}</td>
+  </tr>
+  {% endif %}
+  {% if extras.transizione50.revisore_protocollo %}
+  <tr>
+    <td class="label">Protocollo / numero</td>
+    <td class="value">{{ extras.transizione50.revisore_protocollo }}</td>
+  </tr>
+  {% endif %}
+</table>
+
+<h2>5 · Dichiarazione del beneficiario</h2>
+<p>
+  Il sottoscritto
+  <strong>{{ decisore.nome_completo or cliente.ragione_sociale or '—' }}</strong>,
+  in qualità di legale rappresentante del beneficiario, ai sensi degli
+  artt. 46 e 47 del DPR 28/12/2000 n. 445,
+</p>
+
+<div class="callout"><strong>ATTESTA</strong></div>
+
+<ul>
+  <li>di possedere, agli atti, la <strong>perizia tecnica asseverata</strong>
+    di cui al punto 3, redatta da professionista iscritto all'albo
+    competente, che attesta la conformità dei beni oggetto di
+    investimento ai requisiti di interconnessione e integrazione 4.0/5.0
+    previsti dall'art. 38 del D.L. 19/2024 e dai decreti attuativi;</li>
+  <li>di possedere, agli atti, la <strong>certificazione contabile</strong>
+    di cui al punto 4, rilasciata dal soggetto incaricato della revisione
+    legale dei conti, che attesta l'effettivo sostenimento delle spese
+    ammissibili e la corrispondenza delle stesse alla documentazione
+    contabile predisposta dall'impresa;</li>
+  <li>di impegnarsi a conservare entrambi i documenti per il periodo
+    previsto dalla normativa e a renderli disponibili in caso di
+    controllo da parte del GSE, del MIMIT o dell'Agenzia delle Entrate;</li>
+  <li>di essere consapevole che la mancanza o la falsità dei documenti
+    sopra dichiarati comporta la decadenza dal beneficio e l'applicazione
+    delle sanzioni previste dalla normativa vigente.</li>
+</ul>
+
+<div class="sign-block">
+  <p class="small">
+    Luogo e data:
+    {%- if ubicazione.comune %}{{ ubicazione.comune }}{% endif -%}
+    {%- if pratica.data_documento %}, {{ pratica.data_documento | date_it }}{% endif -%}
+  </p>
+
+  <div class="sign-row">
+    <div class="sign-cell" style="margin: 0 auto;">
+      Il legale rappresentante<br>
+      <span class="role">{{ decisore.nome_completo or cliente.ragione_sociale or '—' }}</span>
+    </div>
+  </div>
+
+  <p class="small muted center" style="margin-top: 22px;">
+    Documento generato automaticamente da SolarLED — pratica {{ pratica.numero }}.
+    L'attestazione è valida solo se sottoscritta digitalmente o
+    autografamente dal legale rappresentante del beneficiario.
+  </p>
+</div>
+
+{% endblock %}

@@ -80,6 +80,43 @@ export async function apiFetch<T = unknown>(
   return (await res.json()) as T;
 }
 
+/**
+ * Multipart upload — strips the JSON Content-Type so the browser sets
+ * the correct multipart boundary header automatically.  Used by the
+ * GSE practice OCR flow (POST /v1/practices/{id}/uploads).
+ */
+async function apiUpload<T = unknown>(
+  path: string,
+  formData: FormData,
+): Promise<T> {
+  const auth = await getAuthHeader();
+  const res = await fetch(`${API_URL}${path}`, {
+    method: 'POST',
+    headers: { ...auth }, // intentionally no Content-Type
+    body: formData,
+  });
+  if (!res.ok) {
+    let body: unknown;
+    try {
+      body = await res.json();
+    } catch {
+      body = await res.text();
+    }
+    let detail: string | null = null;
+    if (body != null && typeof body === 'object' && 'detail' in (body as object)) {
+      const raw = (body as Record<string, unknown>).detail;
+      if (typeof raw === 'string' && raw.trim()) detail = raw;
+    }
+    throw new ApiError(
+      detail ?? `Upload non riuscito (codice ${res.status}).`,
+      res.status,
+      body,
+    );
+  }
+  if (res.status === 204) return null as T;
+  return (await res.json()) as T;
+}
+
 export const api = {
   get: <T>(path: string) => apiFetch<T>(path),
   post: <T>(path: string, body: unknown) =>
@@ -89,6 +126,7 @@ export const api = {
   patch: <T>(path: string, body: unknown) =>
     apiFetch<T>(path, { method: 'PATCH', body: JSON.stringify(body) }),
   delete: <T>(path: string) => apiFetch<T>(path, { method: 'DELETE' }),
+  upload: <T>(path: string, formData: FormData) => apiUpload<T>(path, formData),
 };
 
 /** Alias for backwards-compatibility with components that import apiClient. */

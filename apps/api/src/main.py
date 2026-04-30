@@ -43,6 +43,7 @@ from .routes import (
     notifications,
     onboarding,
     outreach_sends,
+    practices,
     prospector,
     public,
     quarantine,
@@ -129,6 +130,10 @@ app.include_router(leads.router, prefix="/v1/leads", tags=["leads"])
 # keeps the URL surface consistent with how the UI thinks about a quote
 # as a thing-belonging-to-a-lead rather than a top-level resource.
 app.include_router(quotes.router, prefix="/v1", tags=["quotes"])
+# GSE Practice (post-firma) endpoints. Same /v1 mount as quotes — the
+# routes carry their own /leads/{id}/practice and /practices paths so
+# the URL surface mirrors the resource hierarchy.
+app.include_router(practices.router, prefix="/v1", tags=["practices"])
 # /v1/campaigns kept for backward compat (returns outreach_sends data)
 app.include_router(campaigns.router, prefix="/v1/campaigns", tags=["campaigns"])
 # New primary endpoints

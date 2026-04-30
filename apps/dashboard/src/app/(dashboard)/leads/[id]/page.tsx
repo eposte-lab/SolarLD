@@ -23,6 +23,7 @@ import {
   Check,
   ExternalLink,
   FileText,
+  FolderOpen,
   Phone,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -248,6 +249,20 @@ export default async function LeadDetailPage({ params }: PageProps) {
               <FileText size={11} strokeWidth={2.25} aria-hidden />
               Genera preventivo completo
             </Link>
+            {/* GSE practice entry-point. Sprint 1: visibile solo a contratto
+                firmato (post-firma). La pagina /leads/{id}/practice/new
+                fa il fetch del draft e gestisce sia "crea nuova" sia
+                "apri esistente" (1 pratica per lead). */}
+            {lead.feedback === 'contract_signed' && (
+              <Link
+                href={`/leads/${lead.id}/practice/new`}
+                className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
+                title="Crea pratica GSE post-firma (DM 37/08, Comunicazione Comune)"
+              >
+                <FolderOpen size={11} strokeWidth={2.25} aria-hidden />
+                Crea pratica GSE
+              </Link>
+            )}
           </div>
         </div>
 

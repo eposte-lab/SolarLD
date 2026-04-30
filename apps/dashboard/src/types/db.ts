@@ -700,3 +700,89 @@ export interface LeadQuoteRow {
   created_at: string;
   updated_at: string;
 }
+
+// ---------------------------------------------------------------------------
+// GSE Practices (migration 0083)
+// ---------------------------------------------------------------------------
+
+/**
+ * Practice lifecycle. The schema's CHECK constraint enforces the same
+ * set; keep this union in sync with `practices.status` in 0083.
+ */
+export type PracticeStatus =
+  | 'in_preparation'
+  | 'documents_ready'
+  | 'documents_sent'
+  | 'in_progress'
+  | 'completed'
+  | 'blocked'
+  | 'cancelled';
+
+/**
+ * Per-document lifecycle. Mirrors `practice_documents.status` in 0083.
+ * Sprint 1 mostly cycles `draft → reviewed → sent`; the rest are
+ * placeholders for Sprint 2 GSE feedback handling.
+ */
+export type PracticeDocumentStatus =
+  | 'draft'
+  | 'reviewed'
+  | 'sent'
+  | 'accepted'
+  | 'rejected'
+  | 'amended'
+  | 'completed';
+
+/**
+ * Sprint 1 ships dm_37_08 + comunicazione_comune. Sprint 2 plan adds
+ * tica, modello_unico_gse, schema_unifilare, transizione_50. Kept open
+ * (string) for forward compatibility — the worker validates against
+ * `SUPPORTED_TEMPLATE_CODES` in practice_pdf_renderer.py.
+ */
+export type PracticeTemplateCode =
+  | 'dm_37_08'
+  | 'comunicazione_comune'
+  | (string & {}); // eslint-disable-line @typescript-eslint/ban-types
+
+export interface PracticeRow {
+  id: string;
+  tenant_id: string;
+  lead_id: string;
+  quote_id: string | null;
+  practice_number: string; // e.g. "SOLE/2026/0042"
+  practice_seq: number;
+  status: PracticeStatus;
+  impianto_potenza_kw: number;
+  impianto_pannelli_count: number | null;
+  impianto_pod: string | null;
+  impianto_distributore: string;
+  impianto_data_inizio_lavori: string | null;
+  impianto_data_fine_lavori: string | null;
+  catastale_foglio: string | null;
+  catastale_particella: string | null;
+  catastale_subalterno: string | null;
+  componenti_data: Record<string, unknown>;
+  data_snapshot: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PracticeDocumentRow {
+  id: string;
+  practice_id: string;
+  tenant_id: string; // denormalized for RLS scan
+  template_code: PracticeTemplateCode;
+  template_version: string;
+  status: PracticeDocumentStatus;
+  pdf_url: string | null;
+  pdf_storage_path: string | null;
+  auto_data_snapshot: Record<string, unknown>;
+  manual_data: Record<string, unknown>;
+  generation_error: string | null;
+  generated_at: string | null;
+  sent_at: string | null;
+  accepted_at: string | null;
+  rejected_at: string | null;
+  rejection_reason: string | null;
+  created_at: string;
+  updated_at: string;
+}

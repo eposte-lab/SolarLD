@@ -967,3 +967,33 @@ def _parse_ts(raw: Any) -> datetime | None:
     except ValueError:
         return None
     return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+# ---------------------------------------------------------------------------
+# Practice deadlines — daily monitor (Livello 2 Sprint 1).
+# ---------------------------------------------------------------------------
+
+
+async def practice_deadlines_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
+    """Daily sweep of ``practice_deadlines`` open rows past their due date.
+
+    For each newly-overdue row:
+      1. flip status to ``'overdue'``,
+      2. record an ``EVT_DEADLINE_BREACHED`` event,
+      3. insert a tenant-wide notification (severity=warning) so the
+         bell lights up the next time a member opens the dashboard.
+
+    The function delegates to ``mark_overdue_and_notify``; this cron
+    is just the schedule + structured logging.  Idempotent in practice
+    because the partial index on (status='open') means a re-run on the
+    same day finds zero matching rows.
+    """
+    from ..services.practice_deadlines_service import mark_overdue_and_notify
+
+    summary = await asyncio.to_thread(mark_overdue_and_notify)
+    log.info(
+        "cron.practice_deadlines.complete",
+        newly_overdue=summary.get("newly_overdue", 0),
+        errors=summary.get("errors", 0),
+    )
+    return summary

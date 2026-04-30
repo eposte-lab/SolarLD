@@ -1,0 +1,259 @@
+{# Modello Unico — Parte II (as-built / fine lavori)
+
+Si invia DOPO i lavori al gestore di rete. Conferma che l'impianto è
+stato realizzato come da Parte I e contiene il "codice identificativo
+della connessione" (rilasciato dal distributore in seguito
+all'accettazione della Parte I) — campo obbligatorio.
+
+A differenza della Parte I, qui i dati sono "as-built": eventuali
+varianti rispetto alla Parte I vanno evidenziate nel campo "note".
+
+Layout (3 pagine A4):
+  1. Estremi richiedente + codice identificativo connessione + Parte I
+  2. Dati impianto realizzato + componenti effettivamente installati
+  3. Dichiarazione di conformità + firma
+#}
+{% extends "_base.html.j2" %}
+
+{% block document_title %}Modello Unico — Parte II{% endblock %}
+
+{% block document_body %}
+
+<h1 class="doc-title">Modello Unico — Parte II</h1>
+<p class="doc-subtitle">
+  Comunicazione di fine lavori — Impianti fotovoltaici fino a 200 kW
+  (D.Lgs. 199/2021, art. 25)
+</p>
+
+<p class="small muted">
+  Pratica n. <strong>{{ pratica.numero }}</strong>
+  {% if pratica.data_documento %}— Data: {{ pratica.data_documento | date_it }}{% endif %}
+</p>
+
+<h2>1 · Estremi della richiesta</h2>
+<table class="kv">
+  <tr>
+    <td class="label">Codice identificativo connessione</td>
+    <td class="value">
+      <strong>{{ extras.codice_identificativo_connessione or '—' }}</strong>
+    </td>
+  </tr>
+  <tr>
+    <td class="label">Codice rintracciabilità</td>
+    <td class="value">{{ extras.codice_rintracciabilita or '—' }}</td>
+  </tr>
+  {% if extras.data_invio_parte_1 %}
+  <tr>
+    <td class="label">Data invio Parte I</td>
+    <td class="value">{{ extras.data_invio_parte_1 | date_it }}</td>
+  </tr>
+  {% endif %}
+  <tr>
+    <td class="label">Distributore</td>
+    <td class="value">{{ impianto.distributore_label or impianto.distributore or '—' }}</td>
+  </tr>
+  <tr>
+    <td class="label">POD</td>
+    <td class="value">{{ impianto.pod or '—' }}</td>
+  </tr>
+</table>
+
+<h2>2 · Soggetto richiedente</h2>
+<table class="kv">
+  <tr>
+    <td class="label">{% if cliente.tipo == 'b2c' %}Nome e cognome{% else %}Ragione sociale{% endif %}</td>
+    <td class="value">{{ cliente.ragione_sociale or '—' }}</td>
+  </tr>
+  {% if cliente.codice_fiscale %}
+  <tr>
+    <td class="label">Codice fiscale</td>
+    <td class="value">{{ cliente.codice_fiscale }}</td>
+  </tr>
+  {% endif %}
+  {% if cliente.piva and cliente.piva != cliente.codice_fiscale %}
+  <tr>
+    <td class="label">Partita IVA</td>
+    <td class="value">{{ cliente.piva }}</td>
+  </tr>
+  {% endif %}
+  <tr>
+    <td class="label">Sede / domicilio</td>
+    <td class="value">{{ cliente.sede_operativa or cliente.indirizzo_postale or '—' }}</td>
+  </tr>
+  {% if decisore.nome_completo %}
+  <tr>
+    <td class="label">Legale rappresentante</td>
+    <td class="value">
+      {{ decisore.nome_completo }}
+      {%- if decisore.codice_fiscale %} · CF {{ decisore.codice_fiscale }}{% endif -%}
+    </td>
+  </tr>
+  {% endif %}
+</table>
+
+<h2>3 · Ubicazione impianto</h2>
+<table class="kv">
+  <tr>
+    <td class="label">Indirizzo</td>
+    <td class="value">{{ ubicazione.indirizzo or '—' }}</td>
+  </tr>
+  <tr>
+    <td class="label">CAP / Comune</td>
+    <td class="value">
+      {{ ubicazione.cap or '—' }} {{ ubicazione.comune or '' }}
+      {%- if ubicazione.provincia %} ({{ ubicazione.provincia }}){% endif -%}
+    </td>
+  </tr>
+  {% if ubicazione.catastale_foglio or ubicazione.catastale_particella %}
+  <tr>
+    <td class="label">Riferimenti catastali</td>
+    <td class="value">
+      {%- if ubicazione.catastale_foglio %}Foglio {{ ubicazione.catastale_foglio }}{% endif -%}
+      {%- if ubicazione.catastale_particella %} · Particella {{ ubicazione.catastale_particella }}{% endif -%}
+      {%- if ubicazione.catastale_subalterno %} · Sub. {{ ubicazione.catastale_subalterno }}{% endif -%}
+    </td>
+  </tr>
+  {% endif %}
+</table>
+
+<div class="page-break"></div>
+
+<h2>4 · Dati impianto realizzato</h2>
+<table class="kv">
+  <tr>
+    <td class="label">Potenza nominale (as-built)</td>
+    <td class="value">{{ impianto.potenza_kw | decimal_it(2) }} kW</td>
+  </tr>
+  {% if extras.potenza_immissione_kw %}
+  <tr>
+    <td class="label">Potenza in immissione</td>
+    <td class="value">{{ extras.potenza_immissione_kw | decimal_it(2) }} kW</td>
+  </tr>
+  {% endif %}
+  {% if impianto.pannelli_count %}
+  <tr>
+    <td class="label">Numero moduli installati</td>
+    <td class="value">{{ impianto.pannelli_count | int_it }}</td>
+  </tr>
+  {% endif %}
+  {% if impianto.data_inizio_lavori %}
+  <tr>
+    <td class="label">Inizio lavori</td>
+    <td class="value">{{ impianto.data_inizio_lavori | date_it }}</td>
+  </tr>
+  {% endif %}
+  {% if impianto.data_fine_lavori %}
+  <tr>
+    <td class="label">Fine lavori</td>
+    <td class="value">{{ impianto.data_fine_lavori | date_it }}</td>
+  </tr>
+  {% endif %}
+</table>
+
+<h3>Moduli fotovoltaici installati</h3>
+<table class="components">
+  <tr>
+    <th>Marca</th><th>Modello</th><th>Potenza unitaria</th><th>Quantità</th>
+  </tr>
+  <tr>
+    <td><strong>{{ componenti.pannelli.marca or '—' }}</strong></td>
+    <td>{{ componenti.pannelli.modello or '—' }}</td>
+    <td>{{ componenti.pannelli.potenza_w or '—' }}{% if componenti.pannelli.potenza_w %} W{% endif %}</td>
+    <td>{{ componenti.pannelli.quantita or '—' }}</td>
+  </tr>
+</table>
+
+<h3>Inverter installati</h3>
+<table class="components">
+  <tr>
+    <th>Marca</th><th>Modello</th><th>Potenza</th><th>Quantità</th>
+  </tr>
+  <tr>
+    <td><strong>{{ componenti.inverter.marca or '—' }}</strong></td>
+    <td>{{ componenti.inverter.modello or '—' }}</td>
+    <td>
+      {%- if componenti.inverter.potenza_kw -%}
+        {{ componenti.inverter.potenza_kw | decimal_it(2) }} kW
+      {%- else %}—{% endif -%}
+    </td>
+    <td>{{ componenti.inverter.quantita or 1 }}</td>
+  </tr>
+</table>
+
+{% if componenti.accumulo.presente %}
+<h3>Sistema di accumulo installato</h3>
+<table class="components">
+  <tr>
+    <th>Marca</th><th>Modello</th><th>Capacità</th><th>Configurazione</th>
+  </tr>
+  <tr>
+    <td>{{ componenti.accumulo.marca or '—' }}</td>
+    <td>{{ componenti.accumulo.modello or '—' }}</td>
+    <td>
+      {%- if componenti.accumulo.capacita_kwh -%}
+        {{ componenti.accumulo.capacita_kwh | decimal_it(1) }} kWh
+      {%- else %}—{% endif -%}
+    </td>
+    <td>{{ extras.configurazione_accumulo_label or extras.configurazione_accumulo or '—' }}</td>
+  </tr>
+</table>
+{% endif %}
+
+{% if extras.note_varianti %}
+<h2>5 · Varianti rispetto alla Parte I</h2>
+<div class="callout">
+  {{ extras.note_varianti }}
+</div>
+{% endif %}
+
+<div class="page-break"></div>
+
+<h2>6 · Dichiarazione di fine lavori</h2>
+<p>
+  Il sottoscritto
+  <strong>{{ decisore.nome_completo or cliente.ragione_sociale or '—' }}</strong>,
+  ai sensi degli artt. 46 e 47 del DPR 28/12/2000 n. 445,
+</p>
+<div class="callout"><strong>DICHIARA</strong></div>
+<ul>
+  <li>che i lavori di realizzazione dell'impianto fotovoltaico sopra
+    descritto si sono conclusi in data <strong>{{ impianto.data_fine_lavori | date_it if impianto.data_fine_lavori else '—' }}</strong>;</li>
+  <li>che l'impianto è stato realizzato in conformità alla Parte I del
+    Modello Unico precedentemente comunicata, salvo eventuali varianti
+    riportate al punto 5;</li>
+  <li>che l'impianto rispetta tutte le norme tecniche di riferimento
+    (CEI 0-21 / CEI 0-16, CEI 82-25, DM 37/08) ed è munito della
+    Dichiarazione di Conformità DM 37/08 rilasciata dall'impresa
+    installatrice;</li>
+  <li>di richiedere al gestore della rete l'attivazione della connessione
+    e — se applicabile — al GSE l'attivazione del regime
+    <em>{{ extras.regime_ritiro_label or extras.regime_ritiro or '—' }}</em>;</li>
+  <li>di allegare al presente modulo: Dichiarazione di Conformità DM 37/08,
+    schede tecniche dei componenti effettivamente installati,
+    schema unifilare as-built.</li>
+</ul>
+
+<div class="sign-block">
+  <p class="small">
+    Luogo e data:
+    {%- if ubicazione.comune %}{{ ubicazione.comune }}{% endif -%}
+    {%- if pratica.data_documento %}, {{ pratica.data_documento | date_it }}{% endif -%}
+  </p>
+
+  <div class="sign-row">
+    <div class="sign-cell">
+      Il richiedente<br>
+      <span class="role">{{ decisore.nome_completo or cliente.ragione_sociale or '—' }}</span>
+    </div>
+    <div class="sign-cell">
+      L'impresa installatrice<br>
+      <span class="role">{{ installatore.ragione_sociale }}</span>
+    </div>
+  </div>
+
+  <p class="small muted center" style="margin-top: 22px;">
+    Documento generato automaticamente da SolarLED — pratica {{ pratica.numero }}.
+  </p>
+</div>
+
+{% endblock %}

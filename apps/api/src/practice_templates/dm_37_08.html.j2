@@ -1,0 +1,337 @@
+{# Dichiarazione di Conformità DM 37/08 — fotovoltaico
+
+Reference: DM 22 gennaio 2008, n. 37 — installazione di impianti
+all'interno degli edifici. The form here follows the CNA / Confindustria
+"modello standard" — every distributore and Comune accepts that variant.
+
+Layout (3 pages on A4 with normal data density):
+  1. Header + dati identificativi installatore + responsabile tecnico
+  2. Dati committente + dati impianto + componenti
+  3. Norme + dichiarazione + spazio firma
+#}
+{% extends "_base.html.j2" %}
+
+{% block document_title %}Dichiarazione di Conformità DM 37/08{% endblock %}
+
+{% block document_body %}
+
+<h1 class="doc-title">Dichiarazione di Conformità</h1>
+<p class="doc-subtitle">
+  ai sensi del DM 22 gennaio 2008 n. 37 — Impianto fotovoltaico
+</p>
+
+<p class="small muted">
+  Pratica n. <strong>{{ pratica.numero }}</strong>
+  {% if pratica.data_documento %}— Data: {{ pratica.data_documento | date_it }}{% endif %}
+</p>
+
+<h2>1 · Impresa installatrice</h2>
+<table class="kv">
+  <tr>
+    <td class="label">Ragione sociale</td>
+    <td class="value">{{ installatore.ragione_sociale or '—' }}</td>
+  </tr>
+  <tr>
+    <td class="label">Sede legale</td>
+    <td class="value">{{ installatore.sede or '—' }}</td>
+  </tr>
+  <tr>
+    <td class="label">Partita IVA</td>
+    <td class="value">{{ installatore.piva or '—' }}</td>
+  </tr>
+  <tr>
+    <td class="label">Codice fiscale</td>
+    <td class="value">{{ installatore.codice_fiscale or '—' }}</td>
+  </tr>
+  <tr>
+    <td class="label">Iscrizione CCIAA</td>
+    <td class="value">{{ installatore.cciaa or '—' }}</td>
+  </tr>
+  <tr>
+    <td class="label">Recapiti</td>
+    <td class="value">
+      {%- if installatore.telefono %}{{ installatore.telefono }}{% endif -%}
+      {%- if installatore.email %} · {{ installatore.email }}{% endif -%}
+      {%- if installatore.pec %} · PEC {{ installatore.pec }}{% endif -%}
+    </td>
+  </tr>
+</table>
+
+<h2>2 · Responsabile tecnico</h2>
+<p class="small">
+  Tecnico abilitato di cui all'art. 4 comma 1 lettera a) del DM 37/08,
+  iscritto all'albo / collegio professionale di pertinenza.
+</p>
+<table class="kv">
+  <tr>
+    <td class="label">Nominativo</td>
+    <td class="value">{{ installatore.responsabile_tecnico.nome_completo or '—' }}</td>
+  </tr>
+  <tr>
+    <td class="label">Codice fiscale</td>
+    <td class="value">{{ installatore.responsabile_tecnico.codice_fiscale or '—' }}</td>
+  </tr>
+  <tr>
+    <td class="label">Qualifica</td>
+    <td class="value">{{ installatore.responsabile_tecnico.qualifica or '—' }}</td>
+  </tr>
+  <tr>
+    <td class="label">Iscrizione albo</td>
+    <td class="value">{{ installatore.responsabile_tecnico.iscrizione_albo or '—' }}</td>
+  </tr>
+</table>
+
+<h2>3 · Committente</h2>
+<table class="kv">
+  <tr>
+    <td class="label">{% if cliente.tipo == 'b2c' %}Nominativo{% else %}Ragione sociale{% endif %}</td>
+    <td class="value">{{ cliente.ragione_sociale or '—' }}</td>
+  </tr>
+  {% if cliente.piva %}
+  <tr>
+    <td class="label">Partita IVA</td>
+    <td class="value">{{ cliente.piva }}</td>
+  </tr>
+  {% endif %}
+  {% if cliente.codice_fiscale and cliente.codice_fiscale != cliente.piva %}
+  <tr>
+    <td class="label">Codice fiscale</td>
+    <td class="value">{{ cliente.codice_fiscale }}</td>
+  </tr>
+  {% endif %}
+  <tr>
+    <td class="label">Sede / domicilio</td>
+    <td class="value">{{ cliente.sede_operativa or cliente.indirizzo_postale or '—' }}</td>
+  </tr>
+  {% if decisore.nome_completo %}
+  <tr>
+    <td class="label">Referente</td>
+    <td class="value">
+      {{ decisore.nome_completo }}
+      {%- if decisore.ruolo %} · {{ decisore.ruolo }}{% endif -%}
+    </td>
+  </tr>
+  {% endif %}
+</table>
+
+<h2>4 · Ubicazione impianto</h2>
+<table class="kv">
+  <tr>
+    <td class="label">Indirizzo</td>
+    <td class="value">{{ ubicazione.indirizzo or '—' }}</td>
+  </tr>
+  <tr>
+    <td class="label">CAP / Comune</td>
+    <td class="value">
+      {{ ubicazione.cap or '—' }} {{ ubicazione.comune or '' }}
+      {%- if ubicazione.provincia %} ({{ ubicazione.provincia }}){% endif -%}
+    </td>
+  </tr>
+  {% if impianto.catastale_foglio or impianto.catastale_particella %}
+  <tr>
+    <td class="label">Dati catastali</td>
+    <td class="value">
+      {%- if impianto.catastale_foglio %}Foglio {{ impianto.catastale_foglio }}{% endif -%}
+      {%- if impianto.catastale_particella %} · Particella {{ impianto.catastale_particella }}{% endif -%}
+      {%- if impianto.catastale_subalterno %} · Sub. {{ impianto.catastale_subalterno }}{% endif -%}
+    </td>
+  </tr>
+  {% endif %}
+</table>
+
+<div class="page-break"></div>
+
+<h2>5 · Caratteristiche dell'impianto</h2>
+<table class="kv">
+  <tr>
+    <td class="label">Tipologia</td>
+    <td class="value">Impianto fotovoltaico per la produzione di energia elettrica</td>
+  </tr>
+  <tr>
+    <td class="label">Potenza nominale</td>
+    <td class="value">{{ impianto.potenza_kw | decimal_it(2) }} kW</td>
+  </tr>
+  {% if impianto.pannelli_count %}
+  <tr>
+    <td class="label">Numero moduli</td>
+    <td class="value">{{ impianto.pannelli_count | int_it }}</td>
+  </tr>
+  {% endif %}
+  {% if impianto.distributore_label %}
+  <tr>
+    <td class="label">Distributore di rete</td>
+    <td class="value">{{ impianto.distributore_label }}</td>
+  </tr>
+  {% endif %}
+  {% if impianto.pod %}
+  <tr>
+    <td class="label">POD esistente</td>
+    <td class="value">{{ impianto.pod }}</td>
+  </tr>
+  {% endif %}
+  {% if impianto.data_inizio_lavori %}
+  <tr>
+    <td class="label">Inizio lavori</td>
+    <td class="value">{{ impianto.data_inizio_lavori | date_it }}</td>
+  </tr>
+  {% endif %}
+  {% if impianto.data_fine_lavori %}
+  <tr>
+    <td class="label">Fine lavori</td>
+    <td class="value">{{ impianto.data_fine_lavori | date_it }}</td>
+  </tr>
+  {% endif %}
+</table>
+
+<h2>6 · Componenti principali</h2>
+
+<h3>Moduli fotovoltaici</h3>
+<table class="components">
+  <tr>
+    <th>Marca</th>
+    <th>Modello</th>
+    <th>Potenza unitaria</th>
+    <th>Quantità</th>
+    <th>Garanzia</th>
+  </tr>
+  <tr>
+    <td>{{ componenti.pannelli.marca or '—' }}</td>
+    <td>{{ componenti.pannelli.modello or '—' }}</td>
+    <td>{{ componenti.pannelli.potenza_w or '—' }}{% if componenti.pannelli.potenza_w %} W{% endif %}</td>
+    <td>{{ componenti.pannelli.quantita or '—' }}</td>
+    <td>
+      {%- if componenti.pannelli.garanzia_anni %}
+        {{ componenti.pannelli.garanzia_anni }} anni
+      {%- else %}—{% endif -%}
+    </td>
+  </tr>
+</table>
+
+<h3>Inverter</h3>
+<table class="components">
+  <tr>
+    <th>Marca</th>
+    <th>Modello</th>
+    <th>Potenza</th>
+    <th>Quantità</th>
+    <th>Garanzia</th>
+  </tr>
+  <tr>
+    <td>{{ componenti.inverter.marca or '—' }}</td>
+    <td>{{ componenti.inverter.modello or '—' }}</td>
+    <td>
+      {%- if componenti.inverter.potenza_kw -%}
+        {{ componenti.inverter.potenza_kw | decimal_it(2) }} kW
+      {%- else %}—{% endif -%}
+    </td>
+    <td>{{ componenti.inverter.quantita or 1 }}</td>
+    <td>
+      {%- if componenti.inverter.garanzia_anni %}
+        {{ componenti.inverter.garanzia_anni }} anni
+      {%- else %}—{% endif -%}
+    </td>
+  </tr>
+</table>
+
+{% if componenti.accumulo.presente %}
+<h3>Sistema di accumulo</h3>
+<table class="components">
+  <tr>
+    <th>Marca</th>
+    <th>Modello</th>
+    <th>Capacità</th>
+  </tr>
+  <tr>
+    <td>{{ componenti.accumulo.marca or '—' }}</td>
+    <td>{{ componenti.accumulo.modello or '—' }}</td>
+    <td>
+      {%- if componenti.accumulo.capacita_kwh -%}
+        {{ componenti.accumulo.capacita_kwh | decimal_it(1) }} kWh
+      {%- else %}—{% endif -%}
+    </td>
+  </tr>
+</table>
+{% endif %}
+
+<h2>7 · Norme tecniche di riferimento</h2>
+<p class="small">
+  L'impianto è stato realizzato in conformità alle vigenti disposizioni di
+  legge ed alle seguenti norme tecniche:
+</p>
+<ul class="norme">
+  <li>{{ norme.dm_37_08 }}</li>
+  <li>{{ norme.cei_0_21 }}</li>
+  <li>{{ norme.cei_0_16 }}</li>
+  <li>{{ norme.cei_82_25 }}</li>
+  <li>{{ norme.dlgs_28_2011 }}</li>
+</ul>
+
+<div class="page-break"></div>
+
+<h2>8 · Dichiarazione</h2>
+<p>
+  Il sottoscritto <strong>{{ installatore.responsabile_tecnico.nome_completo or '—' }}</strong>,
+  in qualità di responsabile tecnico dell'impresa
+  <strong>{{ installatore.ragione_sociale }}</strong>,
+  iscritto al registro {{ installatore.responsabile_tecnico.iscrizione_albo or '—' }},
+</p>
+
+<div class="callout">
+  <strong>DICHIARA</strong>
+</div>
+
+<p>
+  sotto la propria personale responsabilità, ai sensi e per gli effetti del
+  DM 22 gennaio 2008 n. 37, che l'impianto fotovoltaico sopra descritto è
+  stato realizzato:
+</p>
+<ul>
+  <li>a regola d'arte ed in conformità alla vigente normativa di sicurezza
+    e prevenzione degli infortuni;</li>
+  <li>nel rispetto delle norme tecniche di riferimento citate al punto 7,
+    con particolare riguardo alla CEI 0-21 (impianti in BT) e CEI 0-16
+    (impianti in MT) per la connessione alla rete del distributore;</li>
+  <li>secondo il progetto presentato e nel rispetto delle eventuali
+    prescrizioni rilasciate dagli Enti competenti;</li>
+  <li>con materiali e componenti costruiti a regola d'arte e marcati CE
+    laddove richiesto dalla normativa applicabile;</li>
+  <li>verificando la corretta installazione e funzionamento dei sistemi
+    di protezione attiva contro guasti d'isolamento, sovratensioni e
+    sovracorrenti, nonché dei dispositivi di interfaccia con la rete
+    pubblica conformi alla CEI 0-21 / CEI 0-16.</li>
+</ul>
+
+<p class="small em">
+  Sono allegati alla presente dichiarazione, ove richiesti dal distributore
+  o dagli Enti competenti: progetto, schema unifilare, relazione tecnica,
+  dichiarazioni di conformità dei materiali / componenti, copia
+  dell'iscrizione CCIAA dell'impresa, copia documento d'identità del
+  responsabile tecnico.
+</p>
+
+<div class="sign-block">
+  <p class="small">
+    Luogo e data:
+    {%- if ubicazione.comune %}{{ ubicazione.comune }}{% endif -%}
+    {%- if pratica.data_documento %}, {{ pratica.data_documento | date_it }}{% endif -%}
+  </p>
+
+  <div class="sign-row">
+    <div class="sign-cell">
+      Il legale rappresentante<br>
+      <span class="role">{{ installatore.ragione_sociale }}</span>
+    </div>
+    <div class="sign-cell">
+      Il responsabile tecnico<br>
+      <span class="role">{{ installatore.responsabile_tecnico.nome_completo or '—' }}</span>
+    </div>
+  </div>
+
+  <p class="small muted center" style="margin-top: 22px;">
+    Documento generato automaticamente da SolarLED — pratica {{ pratica.numero }}.
+    La validità legale è subordinata alla firma del responsabile tecnico
+    abilitato e del legale rappresentante.
+  </p>
+</div>
+
+{% endblock %}

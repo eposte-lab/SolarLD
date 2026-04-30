@@ -48,6 +48,8 @@ const NAV_SECTIONS: NavSection[] = [
       { href: '/', label: 'Panoramica', icon: 'dashboard' },
       { href: '/funnel', label: 'Funnel', icon: 'funnel' },
       { href: '/invii', label: 'Invii', icon: 'invii' },
+      { href: '/practices', label: 'Pratiche GSE', icon: 'pratiche' },
+      { href: '/scadenze', label: 'Scadenze', icon: 'scadenze' },
       { href: '/deliverability', label: 'Deliverability', icon: 'deliverability' },
     ],
   },

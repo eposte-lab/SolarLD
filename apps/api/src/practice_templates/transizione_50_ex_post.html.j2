@@ -1,0 +1,257 @@
+{# Allegato X al DM Transizione 5.0 — Certificazione ex-post
+
+Si rilascia DOPO il completamento del progetto. Conferma che il progetto
+è stato realizzato come da configurazione ex-ante e che gli investimenti
+risultano effettivamente sostenuti, attestando il risparmio energetico
+EFFETTIVO (a regime, sulla base dei consumi monitorati o dei dati di
+producibilità misurati).
+
+A differenza dell'ex-ante (stime), qui i dati sono CONSUNTIVI: kwh prodotti
+nel primo periodo di esercizio, fatture, verbali di collaudo.
+
+Layout (3 pagine A4):
+  1. Anagrafica + riferimento ex-ante
+  2. Stato di realizzazione + investimenti consuntivi
+  3. Risparmio energetico effettivo + dichiarazioni + firma
+#}
+{% extends "_base.html.j2" %}
+
+{% block document_title %}Transizione 5.0 — Certificazione ex-post{% endblock %}
+
+{% block document_body %}
+
+<h1 class="doc-title">Certificazione ex-post</h1>
+<p class="doc-subtitle">
+  Allegato X al DM attuativo della Transizione 5.0
+  (D.L. 19/2024, art. 38)
+</p>
+
+<p class="small muted">
+  Pratica n. <strong>{{ pratica.numero }}</strong>
+  {% if pratica.data_documento %}— Data: {{ pratica.data_documento | date_it }}{% endif %}
+</p>
+
+<h2>1 · Riferimento certificazione ex-ante</h2>
+<table class="kv">
+  {% if extras.transizione50.ex_ante_protocollo %}
+  <tr>
+    <td class="label">Protocollo ex-ante</td>
+    <td class="value">{{ extras.transizione50.ex_ante_protocollo }}</td>
+  </tr>
+  {% endif %}
+  {% if extras.transizione50.ex_ante_data %}
+  <tr>
+    <td class="label">Data ex-ante</td>
+    <td class="value">{{ extras.transizione50.ex_ante_data | date_it }}</td>
+  </tr>
+  {% endif %}
+  {% if extras.transizione50.codice_progetto_gse %}
+  <tr>
+    <td class="label">Codice progetto GSE</td>
+    <td class="value">{{ extras.transizione50.codice_progetto_gse }}</td>
+  </tr>
+  {% endif %}
+</table>
+
+<h2>2 · Soggetto beneficiario</h2>
+<table class="kv">
+  <tr>
+    <td class="label">Ragione sociale</td>
+    <td class="value">{{ cliente.ragione_sociale or '—' }}</td>
+  </tr>
+  {% if cliente.codice_fiscale %}<tr><td class="label">Codice fiscale</td><td class="value">{{ cliente.codice_fiscale }}</td></tr>{% endif %}
+  {% if cliente.piva and cliente.piva != cliente.codice_fiscale %}<tr><td class="label">Partita IVA</td><td class="value">{{ cliente.piva }}</td></tr>{% endif %}
+  <tr>
+    <td class="label">Sede operativa interessata</td>
+    <td class="value">
+      {{ ubicazione.indirizzo or '—' }} —
+      {{ ubicazione.cap or '' }} {{ ubicazione.comune or '' }}
+      {%- if ubicazione.provincia %} ({{ ubicazione.provincia }}){% endif -%}
+    </td>
+  </tr>
+  <tr>
+    <td class="label">Codice ATECO</td>
+    <td class="value">{{ cliente.ateco_code or extras.transizione50.ateco or '—' }}</td>
+  </tr>
+</table>
+
+<h2>3 · Soggetto certificatore</h2>
+<table class="kv">
+  <tr>
+    <td class="label">Nominativo / Ragione sociale</td>
+    <td class="value">{{ extras.transizione50.certificatore_nome or installatore.responsabile_tecnico.nome_completo or '—' }}</td>
+  </tr>
+  <tr>
+    <td class="label">Qualifica</td>
+    <td class="value">{{ extras.transizione50.certificatore_qualifica or installatore.responsabile_tecnico.qualifica or '—' }}</td>
+  </tr>
+  <tr>
+    <td class="label">Iscrizione albo / registro</td>
+    <td class="value">{{ extras.transizione50.certificatore_albo or installatore.responsabile_tecnico.iscrizione_albo or '—' }}</td>
+  </tr>
+</table>
+
+<h2>4 · Stato di realizzazione del progetto</h2>
+<table class="kv">
+  <tr>
+    <td class="label">Inizio lavori effettivo</td>
+    <td class="value">{{ impianto.data_inizio_lavori | date_it if impianto.data_inizio_lavori else '—' }}</td>
+  </tr>
+  <tr>
+    <td class="label">Fine lavori / collaudo</td>
+    <td class="value">{{ impianto.data_fine_lavori | date_it if impianto.data_fine_lavori else '—' }}</td>
+  </tr>
+  <tr>
+    <td class="label">Potenza nominale realizzata</td>
+    <td class="value">{{ impianto.potenza_kw | decimal_it(2) }} kW</td>
+  </tr>
+  {% if componenti.accumulo.presente %}
+  <tr>
+    <td class="label">Capacità accumulo realizzata</td>
+    <td class="value">
+      {%- if componenti.accumulo.capacita_kwh -%}
+        {{ componenti.accumulo.capacita_kwh | decimal_it(1) }} kWh
+      {%- else %}—{% endif -%}
+    </td>
+  </tr>
+  {% endif %}
+  {% if extras.transizione50.note_varianti %}
+  <tr>
+    <td class="label">Varianti rispetto a ex-ante</td>
+    <td class="value">{{ extras.transizione50.note_varianti }}</td>
+  </tr>
+  {% endif %}
+</table>
+
+<div class="page-break"></div>
+
+<h2>5 · Investimenti effettivamente sostenuti</h2>
+<table class="components">
+  <tr>
+    <th>Voce</th><th>Fornitore</th><th>Importo (€)</th>
+  </tr>
+  <tr>
+    <td>Moduli + inverter + BoS</td>
+    <td>{{ installatore.ragione_sociale or '—' }}</td>
+    <td>
+      {%- if extras.transizione50.investimento_consuntivo_eur -%}
+        {{ extras.transizione50.investimento_consuntivo_eur | money }}
+      {%- elif extras.transizione50.investimento_totale_eur -%}
+        {{ extras.transizione50.investimento_totale_eur | money }}
+      {%- else %}—{% endif -%}
+    </td>
+  </tr>
+  {% if componenti.accumulo.presente %}
+  <tr>
+    <td>Sistema di accumulo</td>
+    <td>{{ componenti.accumulo.marca or '—' }}</td>
+    <td>{{ extras.transizione50.investimento_accumulo_eur | money if extras.transizione50.investimento_accumulo_eur else '—' }}</td>
+  </tr>
+  {% endif %}
+</table>
+
+<p class="small em">
+  Importi al netto dell'IVA, comprensivi di spese di installazione e
+  collaudo, documentati dalle relative fatture intestate al beneficiario
+  e dai pagamenti tracciati come previsto dall'art. 38 D.L. 19/2024.
+</p>
+
+<h2>6 · Risparmio energetico effettivo</h2>
+<table class="kv">
+  <tr>
+    <td class="label">Energia autoprodotta nel primo periodo</td>
+    <td class="value">
+      {%- if extras.transizione50.kwh_prodotti_consuntivo_anno -%}
+        {{ extras.transizione50.kwh_prodotti_consuntivo_anno | int_it }} kWh
+      {%- else %}—{% endif -%}
+    </td>
+  </tr>
+  <tr>
+    <td class="label">Energia autoconsumata</td>
+    <td class="value">
+      {%- if extras.transizione50.kwh_autoconsumo_consuntivo_anno -%}
+        {{ extras.transizione50.kwh_autoconsumo_consuntivo_anno | int_it }} kWh
+      {%- else %}—{% endif -%}
+    </td>
+  </tr>
+  <tr>
+    <td class="label">Risparmio (tep) consuntivo</td>
+    <td class="value">
+      <strong>
+        {%- if extras.transizione50.tep_consuntivo_anno -%}
+          {{ extras.transizione50.tep_consuntivo_anno | decimal_it(3) }} tep/anno
+        {%- elif extras.transizione50.tep_anno -%}
+          {{ extras.transizione50.tep_anno | decimal_it(3) }} tep/anno (stima ex-ante confermata)
+        {%- else %}—{% endif -%}
+      </strong>
+    </td>
+  </tr>
+  <tr>
+    <td class="label">Riduzione effettiva consumi</td>
+    <td class="value">
+      <strong>
+        {%- if extras.transizione50.percentuale_riduzione_consuntivo -%}
+          {{ extras.transizione50.percentuale_riduzione_consuntivo | decimal_it(2) }} %
+        {%- elif extras.transizione50.percentuale_riduzione -%}
+          {{ extras.transizione50.percentuale_riduzione | decimal_it(2) }} % (stima ex-ante confermata)
+        {%- else %}—{% endif -%}
+      </strong>
+    </td>
+  </tr>
+  <tr>
+    <td class="label">Fascia agevolativa confermata</td>
+    <td class="value"><strong>{{ extras.transizione50.fascia_agevolativa or '—' }}</strong></td>
+  </tr>
+</table>
+
+<div class="page-break"></div>
+
+<h2>7 · Dichiarazioni del certificatore</h2>
+<p>
+  Il sottoscritto certificatore, ai sensi e per gli effetti dell'art. 38
+  del D.L. 19/2024 e dell'allegato X al DM attuativo,
+</p>
+<div class="callout"><strong>CERTIFICA</strong></div>
+<ul>
+  <li>che il progetto di innovazione di cui alla certificazione ex-ante
+    sopra richiamata è stato effettivamente realizzato e completato
+    entro i termini previsti dalla normativa;</li>
+  <li>che gli investimenti documentati dalle fatture richiamate al punto 5
+    sono pertinenti, sono stati effettivamente sostenuti dal beneficiario
+    con pagamenti tracciati e rientrano nelle categorie agevolabili;</li>
+  <li>che il risparmio energetico effettivamente conseguito è coerente
+    con quanto stimato in fase ex-ante (entro le tolleranze previste
+    dal DM attuativo) e rispetta la soglia minima della fascia agevolativa
+    indicata al punto 6;</li>
+  <li>di mantenere la propria indipendenza nei confronti del beneficiario
+    e del fornitore e di aver effettuato la verifica con la diligenza
+    richiesta dalla qualifica professionale.</li>
+</ul>
+
+<div class="sign-block">
+  <p class="small">
+    Luogo e data:
+    {%- if ubicazione.comune %}{{ ubicazione.comune }}{% endif -%}
+    {%- if pratica.data_documento %}, {{ pratica.data_documento | date_it }}{% endif -%}
+  </p>
+
+  <div class="sign-row">
+    <div class="sign-cell">
+      Il certificatore<br>
+      <span class="role">
+        {{ extras.transizione50.certificatore_nome or installatore.responsabile_tecnico.nome_completo or '—' }}<br>
+        {{ extras.transizione50.certificatore_albo or installatore.responsabile_tecnico.iscrizione_albo or '' }}
+      </span>
+    </div>
+    <div class="sign-cell">
+      Il legale rappresentante beneficiario<br>
+      <span class="role">{{ decisore.nome_completo or cliente.ragione_sociale or '—' }}</span>
+    </div>
+  </div>
+
+  <p class="small muted center" style="margin-top: 22px;">
+    Documento generato automaticamente da SolarLED — pratica {{ pratica.numero }}.
+  </p>
+</div>
+
+{% endblock %}
