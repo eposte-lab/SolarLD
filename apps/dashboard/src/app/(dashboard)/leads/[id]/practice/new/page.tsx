@@ -18,7 +18,7 @@
  */
 'use client';
 
-import { useEffect, useState } from 'react';
+import { use, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, FileText, Loader2, AlertTriangle } from 'lucide-react';
@@ -215,10 +215,13 @@ const DISTRIBUTORI: Array<{ value: string; label: string }> = [
 export default function NewPracticePage({
   params,
 }: {
-  params: { id: string };
+  // Next.js 15 ships `params` as a Promise on every page (server *and*
+  // client). `React.use()` unwraps it ergonomically inside a client
+  // component without needing to convert this whole page to async.
+  params: Promise<{ id: string }>;
 }) {
   const router = useRouter();
-  const leadId = params.id;
+  const { id: leadId } = use(params);
 
   const [draft, setDraft] = useState<DraftPreview | null>(null);
   const [draftError, setDraftError] = useState<string | null>(null);

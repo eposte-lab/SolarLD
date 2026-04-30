@@ -18,7 +18,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { use, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   ArrowLeft,
@@ -275,9 +275,11 @@ function computeDeadline(
 export default function PracticeDetailPage({
   params,
 }: {
-  params: { id: string };
+  // Next.js 15 ships `params` as a Promise — unwrap with React.use() in
+  // a client component (cf. quote/page.tsx, practice/new/page.tsx).
+  params: Promise<{ id: string }>;
 }) {
-  const practiceId = params.id;
+  const { id: practiceId } = use(params);
 
   const [data, setData] = useState<PracticeDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -437,7 +439,7 @@ export default function PracticeDetailPage({
           href="/practices"
           className="inline-flex items-center gap-1 text-xs text-on-surface-variant hover:text-primary"
         >
-          <ArrowLeft size={12} /> Torna all'elenco
+          <ArrowLeft size={12} /> Torna all&apos;elenco
         </Link>
         <div className="rounded-xl bg-rose-50 p-4 text-sm text-rose-700">
           {error ?? 'Pratica non trovata.'}
@@ -457,7 +459,7 @@ export default function PracticeDetailPage({
         href="/practices"
         className="inline-flex items-center gap-1 text-xs font-medium text-on-surface-variant hover:text-primary"
       >
-        <ArrowLeft size={12} strokeWidth={2.25} /> Torna all'elenco pratiche
+        <ArrowLeft size={12} strokeWidth={2.25} /> Torna all&apos;elenco pratiche
       </Link>
 
       {/* Header */}

@@ -741,7 +741,12 @@ export type PracticeDocumentStatus =
 export type PracticeTemplateCode =
   | 'dm_37_08'
   | 'comunicazione_comune'
-  | (string & {}); // eslint-disable-line @typescript-eslint/ban-types
+  // The `(string & Record<never, never>)` pattern preserves literal-union
+  // autocomplete (otherwise TS widens the union to plain `string`).  The
+  // older `(string & {})` trick triggered `@typescript-eslint/ban-types`
+  // in v7, which has been removed in v8 — so we use the explicit empty
+  // record form, which is portable across both rule sets.
+  | (string & Record<never, never>);
 
 export interface PracticeRow {
   id: string;

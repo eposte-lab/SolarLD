@@ -21,7 +21,7 @@
  */
 'use client';
 
-import { useEffect, useState } from 'react';
+import { use, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, Check, FileText, Loader2, X } from 'lucide-react';
 import Link from 'next/link';
@@ -151,9 +151,15 @@ const DEFAULT_FORM: ManualForm = {
 // Component
 // ---------------------------------------------------------------------------
 
-export default function QuoteEditorPage({ params }: { params: { id: string } }) {
+export default function QuoteEditorPage({
+  params,
+}: {
+  // Next.js 15 ships `params` as a Promise — see also practice/new/page.tsx
+  // for the same client-component unwrap pattern.
+  params: Promise<{ id: string }>;
+}) {
   const router = useRouter();
-  const leadId = params.id;
+  const { id: leadId } = use(params);
 
   const [draft, setDraft] = useState<QuoteDraft | null>(null);
   const [draftError, setDraftError] = useState<string | null>(null);
