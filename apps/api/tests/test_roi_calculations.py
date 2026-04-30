@@ -172,6 +172,84 @@ def test_compute_roi_to_jsonb_rounds_sensibly() -> None:
     assert 0.0 <= j["self_consumption_ratio"] <= 1.0
 
 
+def test_compute_roi_b2b_seven_metric_fields_present() -> None:
+    """The 7-metric email block (4 economic + 3 environmental) reads
+    these fields. They must all be populated and self-consistent for
+    a typical B2B sizing.
+
+    Reference: 50 kWp B2B, 65k kWh/yr, Sud Italia.
+        net_self_savings_eur = 65000 × 0.65 × 0.22 = 9_295 €
+        savings_25y_eur      = 9_295 × 25 × 0.85   ≈ 197_519 €
+        net_capex_eur        = 50 × 1200 × 0.70    = 42_000 €
+        roi_pct_25y          = (197_519 - 42_000) / 42_000 × 100 ≈ 370 %
+        co2_kg_per_year      = 65_000 × 0.281      = 18_265 kg
+        trees_equivalent     = round(18_265 / 21)  = 870
+    """
+    est = compute_roi(
+        estimated_kwp=50.0,
+        estimated_yearly_kwh=65_000.0,
+        subject_type="b2b",
+    )
+    assert est is not None
+
+    # Economic 4 ----------------------------------------------------------
+    expected_net_self = 65000 * SELF_CONSUMPTION_RATIO_B2B * GRID_PRICE_EUR_PER_KWH_B2B
+    assert abs(est.net_self_savings_eur - expected_net_self) < 1e-6
+    # Strict-self number must be SMALLER than yearly_savings_eur (which
+    # adds the export term) — that's the whole point of having both.
+    assert est.net_self_savings_eur < est.yearly_savings_eur
+
+    expected_25y = expected_net_self * 25.0 * 0.85
+    assert abs(est.savings_25y_eur - expected_25y) < 1e-6
+
+    expected_roi = (expected_25y - est.net_capex_eur) / est.net_capex_eur * 100.0
+    assert abs(est.roi_pct_25y - expected_roi) < 1e-3
+    # Sanity: a 50 kWp B2B in central Italy should clear 100% ROI.
+    assert est.roi_pct_25y > 100.0
+
+    # Payback unchanged (still uses the fuller yearly_savings_eur)
+    assert est.payback_years is not None
+    assert est.payback_years > 0
+
+    # Environmental 3 -----------------------------------------------------
+    assert abs(est.co2_kg_per_year - 65_000 * 0.281) < 1e-6
+    # round(18265 / 21) = 870
+    assert est.trees_equivalent == round(65_000 * 0.281 / 21.0)
+
+
+def test_compute_roi_to_jsonb_includes_seven_metric_fields() -> None:
+    """The email template reads `roi` from `leads.roi_data` JSONB. The
+    new fields MUST land in `to_jsonb` or the email block goes blank."""
+    est = compute_roi(
+        estimated_kwp=10.0,
+        estimated_yearly_kwh=13_000.0,
+        subject_type="b2b",
+    )
+    assert est is not None
+    j = est.to_jsonb()
+    assert "net_self_savings_eur" in j
+    assert "savings_25y_eur" in j
+    assert "roi_pct_25y" in j
+    assert "trees_equivalent" in j
+    # Types must be JSON-safe (no float NaN, no Decimal)
+    assert isinstance(j["trees_equivalent"], int)
+    assert isinstance(j["net_self_savings_eur"], (int, float))
+
+
+def test_compute_roi_25y_savings_strictly_positive_for_real_systems() -> None:
+    """A real solar system that produces net savings must have positive
+    savings_25y_eur. This guards against accidental sign flip when the
+    formula gets edited."""
+    for st in ("b2c", "b2b", "unknown"):
+        est = compute_roi(
+            estimated_kwp=8.0, estimated_yearly_kwh=10_400.0, subject_type=st
+        )
+        assert est is not None
+        assert est.net_self_savings_eur > 0
+        assert est.savings_25y_eur > 0
+        assert est.trees_equivalent > 0
+
+
 def test_compute_roi_garbage_inputs_are_coerced_or_rejected() -> None:
     # Strings that look numeric should still work.
     est = compute_roi(

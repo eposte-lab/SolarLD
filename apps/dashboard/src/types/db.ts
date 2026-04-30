@@ -670,3 +670,33 @@ export interface CampaignOverrideRow {
   created_at: string;
   created_by: string | null;
 }
+
+/**
+ * One row from `lead_quotes` (migration 0081).
+ *
+ * A formal preventivo (PDF) generated from a hot lead. Versions are
+ * immutable: each "Salva e genera PDF" creates a new row with
+ * `version = max+1`; the previous row's `status` flips to `superseded`.
+ *
+ * `auto_fields` is the snapshot of system-computed values at issue
+ * time (tenant/azienda/solar/econ/render); `manual_fields` is what the
+ * installer typed in the editor (commerciale, tech, prezzo, pagamento,
+ * tempi, note). Both are JSONB on the Postgres side.
+ */
+export type LeadQuoteStatus = 'draft' | 'issued' | 'superseded';
+
+export interface LeadQuoteRow {
+  id: string;
+  tenant_id: string;
+  lead_id: string;
+  preventivo_number: string; // e.g. "2026/PV/0042"
+  preventivo_seq: number;
+  version: number;
+  status: LeadQuoteStatus;
+  auto_fields: Record<string, unknown>;
+  manual_fields: Record<string, unknown>;
+  pdf_url: string | null;
+  hero_url: string | null;
+  created_at: string;
+  updated_at: string;
+}

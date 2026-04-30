@@ -74,6 +74,13 @@ dependencies = [
   "reportlab>=4.2.5",
   "qrcode[pil]>=8.0",
 
+  # HTML→PDF rendering for the lead → preventivo flow. WeasyPrint has
+  # first-class CSS Paged Media support (`@page`, page-breaks, running
+  # elements) which the 7-page preventivo template uses heavily.
+  # System libs (Pango, Cairo, GDK-Pixbuf) are provisioned in the
+  # Dockerfile's runtime stage.
+  "weasyprint>=63.0",
+
   # B2C door-to-door Excel export for field agents
   "openpyxl>=3.1.5",
 ]

@@ -46,6 +46,7 @@ from .routes import (
     prospector,
     public,
     quarantine,
+    quotes,
     sector_news,
     tenants,
     territories,
@@ -123,6 +124,11 @@ app.include_router(modules.router, prefix="/v1/modules", tags=["modules"])
 app.include_router(onboarding.router, prefix="/v1/onboarding", tags=["onboarding"])
 app.include_router(territories.router, prefix="/v1/territories", tags=["territories"])
 app.include_router(leads.router, prefix="/v1/leads", tags=["leads"])
+# Lead → Preventivo (formal quote PDF) endpoints. Mounted at /v1 (no
+# prefix) because routes carry their own /leads/{lead_id}/quote path —
+# keeps the URL surface consistent with how the UI thinks about a quote
+# as a thing-belonging-to-a-lead rather than a top-level resource.
+app.include_router(quotes.router, prefix="/v1", tags=["quotes"])
 # /v1/campaigns kept for backward compat (returns outreach_sends data)
 app.include_router(campaigns.router, prefix="/v1/campaigns", tags=["campaigns"])
 # New primary endpoints

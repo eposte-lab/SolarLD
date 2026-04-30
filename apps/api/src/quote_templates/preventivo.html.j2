@@ -1,0 +1,748 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<title>Preventivo impianto fotovoltaico — {{ azienda_ragione_sociale }}</title>
+
+{# ================================================================
+   SOLARLEAD — TEMPLATE PREVENTIVO FOTOVOLTAICO INDUSTRIALE
+   ================================================================
+   Ported from the user-supplied HTML template. Three differences
+   vs. the original:
+     1. Handlebars-style ternaries `{{ cond ? 'a' : 'b' }}` rewritten
+        as Jinja `{% if cond %}a{% else %}b{% endif %}`.
+     2. The `{{#each cashflow_years}}` block is now `{% for y in
+        cashflow_years %}` — quote_service builds the 25-year series.
+     3. Optional sections (accumulo, finanziamento, note, render hero
+        fallback) wrapped in `{% if %}` so the PDF doesn't render
+        empty rows when an installer skips that detail.
+   The Italian number filters (`money`, `int_it`, `decimal_it`) are
+   declared in quote_pdf_renderer.py.
+#}
+
+<style>
+  @page { size: A4; margin: 1.5cm; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+    color: #2b2b2b;
+    line-height: 1.5;
+    margin: 0;
+    padding: 0;
+    background: #ffffff;
+  }
+
+  .page {
+    max-width: 210mm;
+    margin: 0 auto;
+    padding: 0;
+    background: #ffffff;
+  }
+
+  .page-break { page-break-after: always; }
+
+  /* HEADER su ogni pagina */
+  .page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-bottom: 16px;
+    border-bottom: 2px solid {{ tenant_brand_color }};
+    margin-bottom: 30px;
+  }
+  .page-header img { max-height: 50px; max-width: 180px; }
+  .page-header .header-info {
+    text-align: right;
+    font-size: 10px;
+    color: #6b6b6b;
+    line-height: 1.4;
+  }
+
+  /* COPERTINA */
+  .cover { text-align: left; padding-top: 40px; }
+  .cover-title {
+    font-size: 36px;
+    font-weight: 700;
+    color: {{ tenant_brand_color }};
+    margin: 0 0 12px 0;
+    line-height: 1.1;
+  }
+  .cover-subtitle {
+    font-size: 18px;
+    color: #6b6b6b;
+    margin: 0 0 40px 0;
+    font-weight: 300;
+  }
+  .cover-render {
+    width: 100%;
+    height: 320px;
+    background: #f5f2eb;
+    border-radius: 12px;
+    margin: 30px 0;
+    overflow: hidden;
+  }
+  .cover-render img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .cover-render-blank {
+    width: 100%;
+    height: 100%;
+    background:
+      linear-gradient(135deg, {{ tenant_brand_color }} 0%, {{ tenant_brand_color_accent }} 100%);
+  }
+  .cover-meta {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    margin-top: 40px;
+    padding: 24px;
+    background: #f5f2eb;
+    border-radius: 8px;
+  }
+  .cover-meta-block { font-size: 11px; }
+  .cover-meta-label {
+    color: #6b6b6b;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+  }
+  .cover-meta-value {
+    color: {{ tenant_brand_color }};
+    font-size: 14px;
+    font-weight: 600;
+  }
+
+  /* SEZIONI */
+  h1 {
+    font-size: 22px;
+    color: {{ tenant_brand_color }};
+    border-bottom: 1px solid #e8e3d4;
+    padding-bottom: 8px;
+    margin: 30px 0 16px 0;
+    font-weight: 700;
+  }
+  h2 {
+    font-size: 15px;
+    color: #1a1a1a;
+    margin: 20px 0 8px 0;
+    font-weight: 700;
+  }
+  p { margin: 0 0 10px 0; font-size: 12px; }
+
+  /* TABELLE DATI */
+  table.data-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0;
+    font-size: 11px;
+  }
+  table.data-table th {
+    background: {{ tenant_brand_color }};
+    color: white;
+    padding: 10px;
+    text-align: left;
+    font-weight: 600;
+    font-size: 11px;
+  }
+  table.data-table td {
+    padding: 8px 10px;
+    border-bottom: 1px solid #e8e3d4;
+  }
+  table.data-table tr:nth-child(even) td { background: #f9f7f0; }
+  table.data-table .label { font-weight: 600; color: #1a1a1a; }
+  table.data-table .value {
+    text-align: right;
+    color: {{ tenant_brand_color }};
+    font-weight: 600;
+  }
+
+  /* HIGHLIGHT BOX */
+  .highlight-box {
+    background: {{ tenant_brand_color }};
+    color: white;
+    padding: 24px;
+    border-radius: 8px;
+    margin: 16px 0;
+  }
+  .highlight-box h2 {
+    color: white;
+    margin-top: 0;
+    margin-bottom: 16px;
+    font-size: 14px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    opacity: 0.9;
+  }
+  .highlight-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 20px;
+  }
+  .highlight-item-label { font-size: 11px; opacity: 0.8; margin-bottom: 4px; }
+  .highlight-item-value {
+    font-size: 24px;
+    font-weight: 700;
+    color: {{ tenant_brand_color_accent }};
+  }
+
+  /* INFO BOX */
+  .info-box {
+    background: #f5f2eb;
+    border-left: 4px solid {{ tenant_brand_color_accent }};
+    padding: 16px 20px;
+    margin: 12px 0;
+    font-size: 11px;
+  }
+
+  /* TABELLA CASHFLOW */
+  .cashflow {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0;
+    font-size: 9.5px;
+  }
+  .cashflow th, .cashflow td {
+    padding: 6px 8px;
+    text-align: right;
+    border-bottom: 1px solid #e8e3d4;
+  }
+  .cashflow th {
+    background: {{ tenant_brand_color }};
+    color: white;
+    text-align: center;
+    font-weight: 600;
+  }
+  .cashflow td:first-child {
+    text-align: center;
+    font-weight: 600;
+    color: {{ tenant_brand_color }};
+  }
+  .cashflow tr.payback-year td {
+    background: {{ tenant_brand_color_accent }};
+    color: {{ tenant_brand_color }};
+    font-weight: 700;
+  }
+
+  /* FIRMA */
+  .signature-block {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 60px;
+    margin-top: 60px;
+  }
+  .signature-line {
+    border-bottom: 1px solid #1a1a1a;
+    margin-bottom: 8px;
+    height: 40px;
+  }
+  .signature-label { font-size: 10px; color: #6b6b6b; }
+
+  /* FOOTER */
+  .page-footer {
+    margin-top: 50px;
+    padding-top: 16px;
+    border-top: 1px solid #e8e3d4;
+    font-size: 9px;
+    color: #6b6b6b;
+    text-align: center;
+  }
+
+  /* Highlighted final-price row */
+  tr.row-final-price td { background: {{ tenant_brand_color }}; color: white; }
+  tr.row-final-price td.label { color: white; }
+  tr.row-final-price td.value { color: {{ tenant_brand_color_accent }}; }
+</style>
+</head>
+
+<body>
+
+<!-- ====================================================================== -->
+<!-- PAGINA 1 — COPERTINA                                                    -->
+<!-- ====================================================================== -->
+<div class="page">
+  <div class="page-header">
+    {% if tenant_logo_url %}
+      <img src="{{ tenant_logo_url }}" alt="{{ tenant_company_name }}">
+    {% else %}
+      <strong style="color: {{ tenant_brand_color }}; font-size: 18px;">{{ tenant_company_name }}</strong>
+    {% endif %}
+    <div class="header-info">
+      Preventivo n. {{ preventivo_numero }}<br>
+      {{ preventivo_data }}
+    </div>
+  </div>
+
+  <div class="cover">
+    <p style="font-size: 12px; color: #6b6b6b; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px;">
+      Proposta tecnico-economica
+    </p>
+    <h1 class="cover-title" style="border-bottom: none;">Impianto fotovoltaico industriale</h1>
+    <p class="cover-subtitle">{{ solar_kw_installabili }} kW di picco · {{ azienda_ragione_sociale }}</p>
+
+    <div class="cover-render">
+      {% if render_after_url %}
+        <img src="{{ render_after_url }}" alt="Simulazione fotovoltaica del tetto di {{ azienda_ragione_sociale }}">
+      {% else %}
+        <div class="cover-render-blank"></div>
+      {% endif %}
+    </div>
+
+    <div class="cover-meta">
+      <div class="cover-meta-block">
+        <div class="cover-meta-label">Cliente</div>
+        <div class="cover-meta-value">{{ azienda_ragione_sociale }}</div>
+        <div style="font-size: 10px; color: #6b6b6b; margin-top: 2px;">
+          {{ azienda_sede_operativa }}<br>
+          {% if azienda_piva %}P.IVA {{ azienda_piva }}{% endif %}
+        </div>
+      </div>
+
+      <div class="cover-meta-block">
+        <div class="cover-meta-label">Riferimento</div>
+        <div class="cover-meta-value">{{ azienda_decisore_nome }}</div>
+        <div style="font-size: 10px; color: #6b6b6b; margin-top: 2px;">
+          {{ azienda_decisore_ruolo }}
+        </div>
+      </div>
+
+      <div class="cover-meta-block" style="margin-top: 16px;">
+        <div class="cover-meta-label">Preparato da</div>
+        <div class="cover-meta-value">{{ tenant_company_name }}</div>
+        <div style="font-size: 10px; color: #6b6b6b; margin-top: 2px;">
+          {{ commerciale_nome }}{% if commerciale_ruolo %}, {{ commerciale_ruolo }}{% endif %}<br>
+          {{ commerciale_email }}{% if commerciale_telefono %} · {{ commerciale_telefono }}{% endif %}
+        </div>
+      </div>
+
+      <div class="cover-meta-block" style="margin-top: 16px;">
+        <div class="cover-meta-label">Validità offerta</div>
+        <div class="cover-meta-value">{{ preventivo_validita }}</div>
+        <div style="font-size: 10px; color: #6b6b6b; margin-top: 2px;">
+          dalla data del preventivo
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="page-break"></div>
+
+<!-- ====================================================================== -->
+<!-- PAGINA 2 — SINTESI TECNICO-ECONOMICA                                    -->
+<!-- ====================================================================== -->
+<div class="page">
+  <div class="page-header">
+    {% if tenant_logo_url %}<img src="{{ tenant_logo_url }}" alt="{{ tenant_company_name }}">{% else %}<span></span>{% endif %}
+    <div class="header-info">
+      Preventivo {{ preventivo_numero }} · {{ azienda_ragione_sociale }}
+    </div>
+  </div>
+
+  <h1>Sintesi della proposta</h1>
+  <p>
+    Il presente preventivo descrive la fornitura e installazione di un impianto fotovoltaico
+    industriale presso la sede operativa di {{ azienda_ragione_sociale }} ubicata in
+    {{ azienda_sede_operativa }}. La proposta è elaborata sulla base dell'analisi satellitare
+    del tetto effettuata tramite Google Solar API e sui consumi stimati per il settore
+    {{ azienda_settore }}.
+  </p>
+
+  <div class="highlight-box">
+    <h2>I numeri chiave del progetto</h2>
+    <div class="highlight-grid">
+      <div>
+        <div class="highlight-item-label">Potenza di picco</div>
+        <div class="highlight-item-value">{{ solar_kw_installabili }} kWp</div>
+      </div>
+      <div>
+        <div class="highlight-item-label">Producibilità annua</div>
+        <div class="highlight-item-value">{{ solar_kwh_annui | int_it }} kWh</div>
+      </div>
+      <div>
+        <div class="highlight-item-label">Risparmio bolletta primo anno</div>
+        <div class="highlight-item-value">€ {{ econ_risparmio_anno_1 | money }}</div>
+      </div>
+      <div>
+        <div class="highlight-item-label">Tempo di rientro</div>
+        <div class="highlight-item-value">{{ econ_payback_anni }} anni</div>
+      </div>
+    </div>
+  </div>
+
+  <h2>Parametri tecnici principali</h2>
+  <table class="data-table">
+    <tr><td class="label">Numero pannelli</td><td class="value">{{ solar_pannelli_numero | int_it }}</td></tr>
+    <tr><td class="label">Superficie utile del tetto</td><td class="value">{{ solar_m2_tetto | int_it }} m²</td></tr>
+    <tr><td class="label">Orientamento prevalente</td><td class="value">{{ solar_orientamento }}</td></tr>
+    <tr><td class="label">Inclinazione media</td><td class="value">{{ solar_inclinazione }}°</td></tr>
+    <tr><td class="label">Irraggiamento solare medio annuo</td><td class="value">{{ solar_irraggiamento_kwh_m2 | int_it }} kWh/m²</td></tr>
+    <tr><td class="label">Copertura del fabbisogno energetico stimato</td><td class="value">{{ econ_copertura_perc }}%</td></tr>
+  </table>
+
+  <h2>Parametri economici principali</h2>
+  <table class="data-table">
+    <tr><td class="label">Consumo elettrico annuo stimato</td><td class="value">{{ econ_consumo_stimato_kwh | int_it }} kWh</td></tr>
+    <tr><td class="label">Costo attuale energia (stimato)</td><td class="value">€ {{ econ_costo_attuale_anno | money }}/anno</td></tr>
+    <tr><td class="label">Costo per kWh attuale (stimato)</td><td class="value">{{ econ_costo_kwh_attuale }} €/kWh</td></tr>
+    <tr><td class="label">Risparmio cumulato 25 anni</td><td class="value">€ {{ econ_risparmio_25_anni | money }}</td></tr>
+    <tr><td class="label">IRR a 25 anni</td><td class="value">{{ econ_irr_25_anni }}%</td></tr>
+  </table>
+
+  <div class="info-box">
+    I dati di consumo sono stimati sul fatturato e sul codice ATECO dichiarato.
+    Per un dimensionamento definitivo si raccomanda l'analisi delle bollette
+    elettriche degli ultimi 12 mesi, che potrà essere effettuata in fase di
+    sopralluogo tecnico.
+  </div>
+</div>
+
+<div class="page-break"></div>
+
+<!-- ====================================================================== -->
+<!-- PAGINA 3 — CONFIGURAZIONE TECNICA DELL'IMPIANTO                         -->
+<!-- ====================================================================== -->
+<div class="page">
+  <div class="page-header">
+    {% if tenant_logo_url %}<img src="{{ tenant_logo_url }}" alt="{{ tenant_company_name }}">{% else %}<span></span>{% endif %}
+    <div class="header-info">
+      Preventivo {{ preventivo_numero }} · {{ azienda_ragione_sociale }}
+    </div>
+  </div>
+
+  <h1>Configurazione tecnica dell'impianto</h1>
+
+  <h2>Moduli fotovoltaici</h2>
+  <table class="data-table">
+    <tr><td class="label">Marca</td><td class="value">{{ tech_marca_pannelli }}</td></tr>
+    <tr><td class="label">Modello</td><td class="value">{{ tech_modello_pannelli }}</td></tr>
+    <tr><td class="label">Potenza singolo modulo</td><td class="value">{{ tech_potenza_singolo_pannello }}</td></tr>
+    <tr><td class="label">Quantità installata</td><td class="value">{{ solar_pannelli_numero | int_it }} moduli</td></tr>
+    <tr><td class="label">Potenza totale di picco</td><td class="value">{{ solar_kw_installabili }} kWp</td></tr>
+    <tr><td class="label">Garanzia prodotto</td><td class="value">{{ tech_garanzia_pannelli_anni }} anni</td></tr>
+    <tr><td class="label">Garanzia produzione lineare</td><td class="value">{{ tech_garanzia_produzione_anni }} anni</td></tr>
+  </table>
+
+  <h2>Sistema di conversione</h2>
+  <table class="data-table">
+    <tr><td class="label">Inverter — Marca</td><td class="value">{{ tech_marca_inverter }}</td></tr>
+    <tr><td class="label">Inverter — Modello</td><td class="value">{{ tech_modello_inverter }}</td></tr>
+    <tr><td class="label">Garanzia inverter</td><td class="value">{{ tech_garanzia_inverter_anni }} anni</td></tr>
+    <tr><td class="label">Sistema di monitoraggio</td><td class="value">{{ tech_sistema_monitoraggio }}</td></tr>
+  </table>
+
+  <h2>Strutture di montaggio</h2>
+  <table class="data-table">
+    <tr><td class="label">Sistema di fissaggio</td><td class="value">{{ tech_struttura_montaggio }}</td></tr>
+    <tr><td class="label">Garanzia strutturale</td><td class="value">25 anni</td></tr>
+  </table>
+
+  {% if tech_accumulo_incluso %}
+    <h2>Sistema di accumulo</h2>
+    <table class="data-table">
+      <tr><td class="label">Accumulo incluso</td><td class="value">Sì</td></tr>
+      <tr><td class="label">Capacità accumulo</td><td class="value">{{ tech_accumulo_kwh }} kWh</td></tr>
+      <tr><td class="label">Marca / modello</td><td class="value">{{ tech_accumulo_marca }}</td></tr>
+    </table>
+  {% endif %}
+
+  <div class="info-box">
+    Tutti i componenti sono di marche tier-1, con garanzie del produttore valide
+    sul mercato italiano. La progettazione esecutiva e la scelta finale dei
+    componenti sarà confermata in fase di sopralluogo tecnico, in funzione delle
+    caratteristiche specifiche del tetto e dei carichi elettrici dell'azienda.
+  </div>
+</div>
+
+<div class="page-break"></div>
+
+<!-- ====================================================================== -->
+<!-- PAGINA 4 — ANALISI ECONOMICA E INCENTIVI                                -->
+<!-- ====================================================================== -->
+<div class="page">
+  <div class="page-header">
+    {% if tenant_logo_url %}<img src="{{ tenant_logo_url }}" alt="{{ tenant_company_name }}">{% else %}<span></span>{% endif %}
+    <div class="header-info">
+      Preventivo {{ preventivo_numero }} · {{ azienda_ragione_sociale }}
+    </div>
+  </div>
+
+  <h1>Analisi economica e incentivi</h1>
+
+  <h2>Investimento</h2>
+  <table class="data-table">
+    <tr><td class="label">Costo impianto chiavi in mano (lordo)</td><td class="value">€ {{ prezzo_costo_impianto_lordo | money }}</td></tr>
+    {% if prezzo_sconto_eur %}
+      <tr><td class="label">Sconto applicato ({{ prezzo_sconto_perc }}%)</td><td class="value">- € {{ prezzo_sconto_eur | money }}</td></tr>
+    {% endif %}
+    <tr class="row-final-price">
+      <td class="label">Prezzo finale</td>
+      <td class="value">
+        € {{ prezzo_finale | money }}
+        {% if prezzo_iva_inclusa %}(IVA inclusa){% else %}+ IVA{% endif %}
+      </td>
+    </tr>
+  </table>
+
+  <h2>Incentivi e agevolazioni applicabili</h2>
+  <table class="data-table">
+    {% if incentivo_transizione_50_eur %}
+      <tr>
+        <td class="label">Credito imposta Transizione 5.0 ({{ incentivo_transizione_50_perc }}%)</td>
+        <td class="value">- € {{ incentivo_transizione_50_eur | money }}</td>
+      </tr>
+    {% endif %}
+    <tr>
+      <td class="label">IVA agevolata al {{ prezzo_aliquota_iva }}%</td>
+      <td class="value">{% if incentivo_iva_agevolata %}Applicabile{% else %}Non applicabile{% endif %}</td>
+    </tr>
+    {% if incentivo_super_ammortamento %}
+      <tr>
+        <td class="label">Super ammortamento {{ incentivo_super_ammortamento }}%</td>
+        <td class="value">Beneficio fiscale pluriennale</td>
+      </tr>
+    {% endif %}
+    {% if incentivo_altri_descrizione and incentivo_altri_eur %}
+      <tr>
+        <td class="label">{{ incentivo_altri_descrizione }}</td>
+        <td class="value">- € {{ incentivo_altri_eur | money }}</td>
+      </tr>
+    {% endif %}
+    {% if incentivo_totale_eur %}
+      <tr style="background: #f5f2eb;">
+        <td class="label">Totale incentivi diretti</td>
+        <td class="value">- € {{ incentivo_totale_eur | money }}</td>
+      </tr>
+    {% endif %}
+  </table>
+
+  {% if costo_netto_post_incentivi %}
+    <div class="highlight-box">
+      <h2>Costo netto post-incentivi</h2>
+      <div style="font-size: 36px; font-weight: 700; color: {{ tenant_brand_color_accent }}; line-height: 1.1;">
+        € {{ costo_netto_post_incentivi | money }}
+      </div>
+      <p style="color: rgba(255,255,255,0.85); margin-top: 12px; font-size: 12px;">
+        Investimento effettivo a carico dell'azienda dopo l'applicazione di tutti
+        gli incentivi disponibili. Il valore è calcolato in via indicativa: il
+        perfezionamento delle agevolazioni avviene in collaborazione con il vostro
+        consulente fiscale al momento dell'investimento.
+      </p>
+    </div>
+  {% endif %}
+
+  <h2>Modalità di pagamento</h2>
+  <p>{{ pagamento_modalita_descrizione }}</p>
+
+  {% if pagamento_finanziamento_disponibile %}
+    <div class="info-box" style="border-left-color: {{ tenant_brand_color }};">
+      <strong>Soluzione di finanziamento disponibile:</strong><br>
+      {{ pagamento_finanziamento_descrizione }}
+    </div>
+  {% endif %}
+</div>
+
+<div class="page-break"></div>
+
+<!-- ====================================================================== -->
+<!-- PAGINA 5 — PIANO DI RIENTRO 25 ANNI                                     -->
+<!-- ====================================================================== -->
+<div class="page">
+  <div class="page-header">
+    {% if tenant_logo_url %}<img src="{{ tenant_logo_url }}" alt="{{ tenant_company_name }}">{% else %}<span></span>{% endif %}
+    <div class="header-info">
+      Preventivo {{ preventivo_numero }} · {{ azienda_ragione_sociale }}
+    </div>
+  </div>
+
+  <h1>Piano di rientro a 25 anni</h1>
+
+  <p>
+    La tabella seguente mostra l'evoluzione anno per anno del flusso di cassa
+    cumulato derivante dall'impianto. L'anno di pareggio (payback) è evidenziato
+    in giallo.
+  </p>
+
+  <table class="cashflow">
+    <thead>
+      <tr>
+        <th>Anno</th>
+        <th>Producibilità (kWh)</th>
+        <th>Risparmio annuo</th>
+        <th>Manutenzione</th>
+        <th>Cashflow netto</th>
+        <th>Cumulato</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for y in cashflow_years %}
+        <tr{% if y.is_payback_year %} class="payback-year"{% endif %}>
+          <td>{{ y.year_number }}</td>
+          <td>{{ y.kwh_produced | int_it }}</td>
+          <td>€ {{ y.savings_eur | money }}</td>
+          <td>€ {{ y.maintenance_cost | money }}</td>
+          <td>€ {{ y.net_cashflow | money }}</td>
+          <td>€ {{ y.cumulative_cashflow | money }}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <div class="info-box">
+    Il piano economico considera: degrado annuo della produzione dello 0,5%,
+    inflazione media del costo dell'energia del 3% annuo, costi di manutenzione
+    ordinaria stimati allo 0,5% dell'investimento iniziale per anno, sostituzione
+    dell'inverter prevista all'anno 12-13.
+  </div>
+
+  <h2>Considerazioni</h2>
+  <p>
+    Al termine dei 25 anni di vita utile dell'impianto, il beneficio economico
+    cumulato stimato per {{ azienda_ragione_sociale }} è di
+    <strong>€ {{ econ_risparmio_25_anni | money }}</strong>. L'impianto continuerà a produrre
+    energia oltre i 25 anni, anche se con un decadimento progressivo della
+    produzione (in genere intorno all'80% del valore nominale dopo 25 anni).
+  </p>
+</div>
+
+<div class="page-break"></div>
+
+<!-- ====================================================================== -->
+<!-- PAGINA 6 — IMPATTO AMBIENTALE E SOSTENIBILITÀ                           -->
+<!-- ====================================================================== -->
+<div class="page">
+  <div class="page-header">
+    {% if tenant_logo_url %}<img src="{{ tenant_logo_url }}" alt="{{ tenant_company_name }}">{% else %}<span></span>{% endif %}
+    <div class="header-info">
+      Preventivo {{ preventivo_numero }} · {{ azienda_ragione_sociale }}
+    </div>
+  </div>
+
+  <h1>Impatto ambientale e sostenibilità</h1>
+
+  <p>
+    Oltre al ritorno economico, l'impianto fotovoltaico produce un impatto
+    significativo in termini di riduzione delle emissioni di CO₂ e contribuisce
+    al raggiungimento degli obiettivi ESG aziendali, sempre più richiesti dai
+    grandi committenti e dai mercati finanziari.
+  </p>
+
+  <div class="highlight-box">
+    <h2>Impatto ambientale annuale</h2>
+    <div class="highlight-grid">
+      <div>
+        <div class="highlight-item-label">CO₂ evitata ogni anno</div>
+        <div class="highlight-item-value">{{ econ_co2_ton_anno | decimal_it(1) }} ton</div>
+      </div>
+      <div>
+        <div class="highlight-item-label">Equivalente in alberi piantati</div>
+        <div class="highlight-item-value">{{ econ_alberi_equivalenti | int_it }}</div>
+      </div>
+    </div>
+    <p style="margin-top: 16px; font-size: 11px; color: rgba(255,255,255,0.85);">
+      Su 25 anni di vita utile dell'impianto, l'azienda contribuirà a evitare
+      l'emissione di oltre {{ econ_co2_25_anni | decimal_it(1) }} tonnellate di CO₂.
+    </p>
+  </div>
+
+  <h2>Vantaggi per la posizione ESG dell'azienda</h2>
+  <ul style="font-size: 12px; line-height: 1.7;">
+    <li>Riduzione delle emissioni Scope 2 (energia acquistata)</li>
+    <li>Possibilità di certificazione ISO 14001 facilitata</li>
+    <li>Rendicontazione ESG migliorata per relazioni con stakeholder</li>
+    <li>Posizionamento competitivo in gare e bandi con requisiti ambientali</li>
+    <li>Riduzione dell'esposizione a future tasse sul carbonio (CBAM)</li>
+  </ul>
+</div>
+
+<div class="page-break"></div>
+
+<!-- ====================================================================== -->
+<!-- PAGINA 7 — TEMPISTICHE, GARANZIE, FIRMA                                 -->
+<!-- ====================================================================== -->
+<div class="page">
+  <div class="page-header">
+    {% if tenant_logo_url %}<img src="{{ tenant_logo_url }}" alt="{{ tenant_company_name }}">{% else %}<span></span>{% endif %}
+    <div class="header-info">
+      Preventivo {{ preventivo_numero }} · {{ azienda_ragione_sociale }}
+    </div>
+  </div>
+
+  <h1>Tempi di realizzazione</h1>
+
+  <table class="data-table">
+    <tr><td class="label">Progettazione esecutiva</td><td class="value">{{ tempi_progettazione_giorni }} giorni</td></tr>
+    <tr><td class="label">Pratiche autorizzative (Comune, GSE, distributore)</td><td class="value">{{ tempi_pratiche_giorni }} giorni</td></tr>
+    <tr><td class="label">Installazione e cablaggio</td><td class="value">{{ tempi_installazione_giorni }} giorni</td></tr>
+    <tr><td class="label">Collaudo e messa in esercizio</td><td class="value">{{ tempi_collaudo_giorni }} giorni</td></tr>
+    <tr class="row-final-price">
+      <td class="label">Tempo totale dalla firma alla messa in esercizio</td>
+      <td class="value">{{ tempi_totale_giorni }} giorni</td>
+    </tr>
+  </table>
+
+  <h1>Garanzie e assistenza</h1>
+  <p>
+    {{ tenant_company_name }} fornisce un servizio completo che va oltre la
+    semplice installazione, garantendo l'operatività dell'impianto per l'intera
+    vita utile.
+  </p>
+
+  <table class="data-table">
+    <tr><td class="label">Garanzia prodotto pannelli</td><td class="value">{{ tech_garanzia_pannelli_anni }} anni</td></tr>
+    <tr><td class="label">Garanzia produzione lineare pannelli</td><td class="value">{{ tech_garanzia_produzione_anni }} anni</td></tr>
+    <tr><td class="label">Garanzia inverter</td><td class="value">{{ tech_garanzia_inverter_anni }} anni</td></tr>
+    <tr><td class="label">Garanzia strutture</td><td class="value">25 anni</td></tr>
+    <tr><td class="label">Garanzia opere di installazione</td><td class="value">10 anni</td></tr>
+    <tr><td class="label">Manutenzione ordinaria primo anno</td><td class="value">Inclusa</td></tr>
+    <tr><td class="label">Monitoraggio remoto attivo</td><td class="value">Incluso a vita</td></tr>
+  </table>
+
+  {% if note_aggiuntive %}
+    <div class="info-box">
+      <strong>Note specifiche di questa proposta:</strong><br>
+      {{ note_aggiuntive }}
+    </div>
+  {% endif %}
+
+  <h1>Accettazione</h1>
+  <p>
+    Per accettare la presente proposta è sufficiente firmare nello spazio
+    sottostante e inviare copia controfirmata via email a
+    <strong>{{ commerciale_email }}</strong>.
+    Da quel momento partiranno le attività di progettazione esecutiva e
+    le pratiche autorizzative.
+  </p>
+
+  <div class="signature-block">
+    <div>
+      <div class="signature-line"></div>
+      <div class="signature-label">
+        Per {{ azienda_ragione_sociale }}<br>
+        {{ azienda_decisore_nome }}{% if azienda_decisore_ruolo %}, {{ azienda_decisore_ruolo }}{% endif %}
+      </div>
+    </div>
+    <div>
+      <div class="signature-line"></div>
+      <div class="signature-label">
+        Per {{ tenant_company_name }}<br>
+        {{ commerciale_nome }}{% if commerciale_ruolo %}, {{ commerciale_ruolo }}{% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="page-footer">
+    {{ tenant_company_name }}{% if tenant_piva %} · P.IVA {{ tenant_piva }}{% endif %}<br>
+    {% if tenant_sede_legale %}{{ tenant_sede_legale }}{% endif %}
+    {% if tenant_telefono %} · Tel. {{ tenant_telefono }}{% endif %}
+    {% if tenant_email %} · {{ tenant_email }}{% endif %}<br>
+    {% if tenant_pec %}PEC: {{ tenant_pec }}{% endif %}
+    {% if tenant_iscrizione_albo %} · Iscrizione albo installatori: {{ tenant_iscrizione_albo }}{% endif %}<br>
+    {% if tenant_anni_esperienza %}{{ tenant_anni_esperienza }} anni di esperienza{% endif %}
+    {% if tenant_impianti_installati %} · {{ tenant_impianti_installati }}+ impianti realizzati{% endif %}
+  </div>
+</div>
+
+</body>
+</html>

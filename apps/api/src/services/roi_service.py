@@ -60,12 +60,29 @@ class RoiEstimate:
     co2_kg_per_year: float
     co2_tonnes_25_years: float
     self_consumption_ratio: float
+    # ---- Decision-maker-friendly metrics (the "7 efficientamento" set) ---
+    # `yearly_savings_eur` includes the export-to-grid term (RID price),
+    # which inflates the headline number. `net_self_savings_eur` follows
+    # the strict formula `self_kwh × grid_price` — only what's actually
+    # avoided on the bill — so the email block doesn't oversell.
+    net_self_savings_eur: float = 0.0
+    # 25-year cumulative net savings, with a 0.85 derate for panel
+    # degradation. The formula assumes year-1 savings × 25 × 0.85 (a
+    # conservative compound average; long-run linear degradation is ~0.5%/yr,
+    # so 0.85 is roughly the 25-year average factor).
+    savings_25y_eur: float = 0.0
+    # ROI a 25 anni recomputed against the strict-self savings — keeps the
+    # email block self-consistent (savings_25y / net_capex).
+    roi_pct_25y: float = 0.0
+    # Avg Italian beech absorbs ~21 kg CO2/year; round the ratio to a clean
+    # integer so the email shows e.g. "= 25 alberi piantati".
+    trees_equivalent: int = 0
     # True when payback_years ≤ the tenant's roi_target_years.  Surfaces on
     # the lead portal as a green "rientra nel tuo target ROI" badge and lets
     # the creative agent personalise the email copy.
     meets_roi_target: bool = True
 
-    def to_jsonb(self) -> dict[str, float | None | bool]:
+    def to_jsonb(self) -> dict[str, float | int | None | bool]:
         """Shape the estimate for the `leads.roi_data` JSONB column."""
         return {
             "estimated_kwp": round(self.estimated_kwp, 2),
@@ -74,6 +91,10 @@ class RoiEstimate:
             "incentive_eur": round(self.incentive_eur, 0),
             "net_capex_eur": round(self.net_capex_eur, 0),
             "yearly_savings_eur": round(self.yearly_savings_eur, 0),
+            "net_self_savings_eur": round(self.net_self_savings_eur, 0),
+            "savings_25y_eur": round(self.savings_25y_eur, 0),
+            "roi_pct_25y": round(self.roi_pct_25y, 0),
+            "trees_equivalent": int(self.trees_equivalent),
             "payback_years": (
                 round(self.payback_years, 1) if self.payback_years is not None else None
             ),
@@ -138,11 +159,26 @@ def compute_roi(
     export_kwh = yearly_kwh * (1.0 - self_ratio)
     yearly_savings = self_kwh * grid_price + export_kwh * EXPORT_PRICE_EUR_PER_KWH
 
+    # Strict self-consumption savings: only what's avoided on the bill,
+    # without the export-to-grid term. This is the conservative number
+    # we surface to the decision maker in the email — easier to defend
+    # ("we just avoid buying these kWh") and immune to RID-price drift.
+    net_self_savings = self_kwh * grid_price
+    # 25-year cumulative with degradation derate. The 0.85 factor is the
+    # long-run average accounting for ~0.5%/yr panel degradation (so year 25
+    # produces ~88% of year 1; mean across the 25 years is ~0.85).
+    savings_25y = net_self_savings * 25.0 * 0.85
+    # ROI on the strict-self number. If net_capex is zero (full incentive),
+    # report 0 to avoid div-by-zero and a meaningless infinity.
+    roi_pct_25y = ((savings_25y - net_capex) / net_capex * 100.0) if net_capex > 0 else 0.0
+
     payback: float | None = None
     if yearly_savings > 0:
         payback = net_capex / yearly_savings
 
     co2_per_year = yearly_kwh * CO2_KG_PER_KWH
+    # Average mature beech absorbs ~21 kg CO2/year (FAO/ISPRA estimate).
+    trees_equivalent = round(co2_per_year / 21.0)
 
     # meets_roi_target: True when payback ≤ tenant's target, or when no
     # target is set (default to True so the badge doesn't show as red
@@ -159,6 +195,10 @@ def compute_roi(
         incentive_eur=incentive,
         net_capex_eur=net_capex,
         yearly_savings_eur=yearly_savings,
+        net_self_savings_eur=net_self_savings,
+        savings_25y_eur=savings_25y,
+        roi_pct_25y=roi_pct_25y,
+        trees_equivalent=trees_equivalent,
         payback_years=payback,
         co2_kg_per_year=co2_per_year,
         co2_tonnes_25_years=co2_per_year * 25 / 1000.0,

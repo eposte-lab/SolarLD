@@ -134,6 +134,12 @@
       .roi-row   { display:flex; justify-content:space-between; margin:7px 0; }
       .roi-label { color:#9ca3af; font-size:13px; }
       .roi-value { color:#f9fafb; font-weight:700; font-size:14px; }
+      /* Section header for the 7-metric layout (Economia / Ambiente) */
+      .roi-section-title {
+        font-size:10px; font-weight:700; letter-spacing:.2em; text-transform:uppercase;
+        color:{{ brand_primary_color }}; margin:14px 0 6px 0;
+      }
+      .roi-section-title:first-child { margin-top:0; }
 
       /* CTA — pill with arrow */
       .cta {
@@ -227,6 +233,12 @@
         color:#111; font-weight:700; font-size:17px;
         font-family:Georgia,"Times New Roman",serif;
       }
+      .roi-section-title {
+        font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;
+        font-size:10px; font-weight:700; letter-spacing:.2em; text-transform:uppercase;
+        color:{{ brand_primary_color }}; margin:18px 0 8px 0;
+      }
+      .roi-section-title:first-child { margin-top:0; }
 
       /* CTA — elegant underline link */
       .cta {
@@ -321,6 +333,11 @@
       .roi-row   { display:flex; justify-content:space-between; margin:7px 0; padding:4px 0; }
       .roi-label { color:#64748b; font-size:13px; }
       .roi-value { color:#0f172a; font-weight:700; font-size:15px; }
+      .roi-section-title {
+        font-size:10px; font-weight:700; letter-spacing:.2em; text-transform:uppercase;
+        color:{{ brand_primary_color }}; margin:14px 0 6px 0;
+      }
+      .roi-section-title:first-child { margin-top:0; }
 
       /* CTA — solid rounded with arrow */
       .cta {
@@ -410,54 +427,66 @@
 
           {% block content %}{% endblock %}
 
-          {# ROI data — redesigned with eyebrow + stat hero (Bold) #}
+          {# ROI data — 7-metric layout (4 economic + 3 environmental).
+             Single layout across all three styles: per-style CSS in
+             `.roi`, `.roi-row`, `.roi-section-title` already differentiates
+             classic / bold / minimal. Numbers come from roi_service.compute_roi:
+               - net_self_savings_eur  : strict self-consumption × grid price
+               - savings_25y_eur       : year-1 × 25 × 0.85 degradation
+               - payback_years         : net_capex / yearly_savings
+               - roi_pct_25y           : (savings_25y - net_capex) / net_capex × 100
+               - yearly_kwh            : production estimate
+               - co2_kg_per_year       : yearly_kwh × 0.281
+               - trees_equivalent      : round(co2 / 21)
+          #}
           {% if roi %}
             <div class="roi">
               {% if template_style == 'bold' %}
+                {# Bold keeps the kWp stat-hero anchor, then the 7 metrics below. #}
                 <p class="roi-eyebrow">Potenziale impianto</p>
                 <p class="roi-hero">
                   {{ roi.estimated_kwp }}<span class="unit">kWp</span>
                 </p>
                 <p class="roi-hero-label">potenza installabile stimata</p>
                 <div class="roi-divider"></div>
-                <div class="roi-row">
-                  <span class="roi-label">Risparmio annuo</span>
-                  <span class="roi-value">€ {{ roi.yearly_savings_eur | format_money }}</span>
-                </div>
-                {% if roi.payback_years %}
-                  <div class="roi-row">
-                    <span class="roi-label">Rientro stimato</span>
-                    <span class="roi-value">~ {{ roi.payback_years }} anni</span>
-                  </div>
-                {% endif %}
-                {% if roi.co2_tonnes_25_years %}
-                  <div class="roi-row">
-                    <span class="roi-label">CO<sub>2</sub> evitata · 25 anni</span>
-                    <span class="roi-value">~ {{ roi.co2_tonnes_25_years }} t</span>
-                  </div>
-                {% endif %}
-              {% else %}
-                <p class="roi-eyebrow">Numeri indicativi</p>
-                <div class="roi-row">
-                  <span class="roi-label">Potenza installabile</span>
-                  <span class="roi-value">{{ roi.estimated_kwp }} kWp</span>
-                </div>
-                <div class="roi-row">
-                  <span class="roi-label">Risparmio annuo stimato</span>
-                  <span class="roi-value">€ {{ roi.yearly_savings_eur | format_money }}</span>
-                </div>
-                {% if roi.payback_years %}
-                  <div class="roi-row">
-                    <span class="roi-label">Rientro stimato</span>
-                    <span class="roi-value">~ {{ roi.payback_years }} anni</span>
-                  </div>
-                {% endif %}
-                {% if roi.co2_tonnes_25_years %}
-                  <div class="roi-row">
-                    <span class="roi-label">CO<sub>2</sub> evitata · 25 anni</span>
-                    <span class="roi-value">~ {{ roi.co2_tonnes_25_years }} t</span>
-                  </div>
-                {% endif %}
+              {% endif %}
+
+              <p class="roi-section-title">Economia</p>
+              <div class="roi-row">
+                <span class="roi-label">Risparmio annuo netto</span>
+                <span class="roi-value">€ {{ (roi.net_self_savings_eur or roi.yearly_savings_eur) | format_money }}</span>
+              </div>
+              <div class="roi-row">
+                <span class="roi-label">Risparmio in 25 anni</span>
+                <span class="roi-value">€ {{ (roi.savings_25y_eur or 0) | format_money }}</span>
+              </div>
+              {% if roi.payback_years %}
+              <div class="roi-row">
+                <span class="roi-label">Tempo di rientro</span>
+                <span class="roi-value">~ {{ roi.payback_years }} anni</span>
+              </div>
+              {% endif %}
+              {% if roi.roi_pct_25y %}
+              <div class="roi-row">
+                <span class="roi-label">ROI a 25 anni</span>
+                <span class="roi-value">{{ roi.roi_pct_25y | round(0) | int }} %</span>
+              </div>
+              {% endif %}
+
+              <p class="roi-section-title">Ambiente</p>
+              <div class="roi-row">
+                <span class="roi-label">Produzione annua</span>
+                <span class="roi-value">{{ roi.yearly_kwh | format_money }} kWh</span>
+              </div>
+              <div class="roi-row">
+                <span class="roi-label">CO<sub>2</sub> evitata / anno</span>
+                <span class="roi-value">{{ roi.co2_kg_per_year | format_money }} kg</span>
+              </div>
+              {% if roi.trees_equivalent %}
+              <div class="roi-row">
+                <span class="roi-label">Equivalente alberi piantati</span>
+                <span class="roi-value">{{ roi.trees_equivalent }}</span>
+              </div>
               {% endif %}
             </div>
           {% endif %}

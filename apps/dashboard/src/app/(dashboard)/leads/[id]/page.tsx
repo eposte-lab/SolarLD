@@ -22,6 +22,7 @@ import {
   ArrowUpRight,
   Check,
   ExternalLink,
+  FileText,
   Phone,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -223,6 +224,30 @@ export default async function LeadDetailPage({ params }: PageProps) {
               Pagina personale
               <ExternalLink size={11} strokeWidth={2.25} aria-hidden />
             </a>
+            {/* Preventivo entry-point. Disabled when the lead lacks the
+                two prerequisites the AUTO bag needs (sized roof + ROI),
+                so the editor never opens with a half-empty sidebar. */}
+            <Link
+              href={
+                lead.roi_data && lead.roofs?.estimated_kwp
+                  ? `/leads/${lead.id}/quote`
+                  : '#'
+              }
+              aria-disabled={!lead.roi_data || !lead.roofs?.estimated_kwp}
+              title={
+                lead.roi_data && lead.roofs?.estimated_kwp
+                  ? 'Genera un preventivo formale (PDF) per questo lead'
+                  : 'Disponibile solo per lead con ROI e dimensionamento completati'
+              }
+              className={
+                lead.roi_data && lead.roofs?.estimated_kwp
+                  ? 'inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline'
+                  : 'inline-flex cursor-not-allowed items-center gap-1 text-xs font-semibold text-on-surface-variant opacity-50'
+              }
+            >
+              <FileText size={11} strokeWidth={2.25} aria-hidden />
+              Genera preventivo completo
+            </Link>
           </div>
         </div>
 

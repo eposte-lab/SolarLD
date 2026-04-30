@@ -33,6 +33,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libjpeg62-turbo \
         zlib1g \
         curl \
+        # WeasyPrint runtime deps — needed by the preventivo PDF renderer
+        # (apps/api/src/services/quote_pdf_renderer.py). WeasyPrint links
+        # against Pango (text shaping), Cairo (rasterization), GDK-Pixbuf
+        # (raster image decode), HarfBuzz, and libffi at runtime.
+        # `shared-mime-info` resolves <img src="..."> MIME types so the
+        # render hero loads correctly. `fonts-dejavu` ships a sane
+        # fallback font for Italian glyphs (€, à, ò, …) so the PDF
+        # never falls back to .notdef tofu.
+        libpango-1.0-0 \
+        libpangoft2-1.0-0 \
+        libharfbuzz0b \
+        libcairo2 \
+        libgdk-pixbuf-2.0-0 \
+        libffi8 \
+        shared-mime-info \
+        fonts-dejavu \
     && rm -rf /var/lib/apt/lists/*
 
 RUN useradd -m -u 1000 solarlead
