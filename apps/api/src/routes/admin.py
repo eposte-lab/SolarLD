@@ -18,6 +18,7 @@ Surface area:
     PATCH  /tenants/{id}/feature-flags       — update one flag (partial)
     GET    /cost-report?days=30              — spend rollup platform-wide
     POST   /seed-test-candidate              — inject synthetic company, run full pipeline
+    POST   /demo/reset-attempts             — reset demo pipeline attempt counter for a tenant
 """
 
 from __future__ import annotations
@@ -627,4 +628,116 @@ async def seed_test_candidate(
             + creative_warn
             + outreach_msg
         ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Demo pipeline attempt counter — reset
+# ---------------------------------------------------------------------------
+
+
+class DemoResetAttemptsRequest(BaseModel):
+    """POST /v1/admin/demo/reset-attempts
+
+    Resets ``tenants.demo_pipeline_test_remaining`` for a demo tenant to
+    ``count`` (default 999).  Use this during QA to avoid manually editing
+    the counter in Supabase Studio between test runs.
+
+    The endpoint intentionally does NOT toggle ``is_demo`` — that flag is
+    managed via PATCH /v1/admin/tenants/{id}.  Resetting the counter on a
+    non-demo tenant has no visible effect (the dashboard banner only renders
+    when ``is_demo = true AND demo_pipeline_test_remaining > 0``).
+    """
+
+    tenant_id: str = Field(description="UUID of the tenant to reset")
+    count: int = Field(
+        default=999,
+        ge=1,
+        le=999,
+        description="New value for demo_pipeline_test_remaining (1-999).",
+    )
+
+
+class DemoResetAttemptsResponse(BaseModel):
+    ok: bool = True
+    tenant_id: str
+    attempts_remaining: int
+    message: str
+
+
+@router.post(
+    "/demo/reset-attempts",
+    response_model=DemoResetAttemptsResponse,
+)
+async def admin_demo_reset_attempts(
+    ctx: CurrentUser, body: DemoResetAttemptsRequest
+) -> DemoResetAttemptsResponse:
+    """Reset the demo pipeline attempt counter for a tenant.
+
+    Calls the ``demo_reset_pipeline_attempts`` SQL RPC (migration 0088)
+    which sets ``demo_pipeline_test_remaining`` to ``body.count``
+    unconditionally.
+
+    Typical QA usage::
+
+        POST /v1/admin/demo/reset-attempts
+        { "tenant_id": "<uuid>" }
+
+    Returns the post-update remaining count so the caller can confirm
+    the change took effect.  Returns 404 when the tenant doesn't exist.
+    """
+    _require_super_admin(ctx)
+    sb = get_service_client()
+
+    try:
+        res = sb.rpc(
+            "demo_reset_pipeline_attempts",
+            {"p_tenant_id": body.tenant_id, "p_new_count": body.count},
+        ).execute()
+    except Exception as exc:  # noqa: BLE001
+        log.error(
+            "admin.demo_reset_attempts_rpc_failed",
+            tenant_id=body.tenant_id,
+            err=str(exc),
+        )
+        raise HTTPException(
+            status_code=502,
+            detail="Failed to reset demo attempts counter via RPC.",
+        ) from exc
+
+    val = res.data
+    # RPC returns NULL when no tenant row matched.
+    if val is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Tenant {body.tenant_id!r} not found.",
+        )
+    # PostgREST may wrap the scalar in a list of dicts depending on version.
+    if isinstance(val, list):
+        if not val:
+            raise HTTPException(status_code=404, detail="Tenant not found.")
+        row = val[0]
+        remaining = row if isinstance(row, int) else row.get("demo_reset_pipeline_attempts")
+    elif isinstance(val, dict):
+        remaining = val.get("demo_reset_pipeline_attempts")
+    else:
+        remaining = int(val)
+
+    if remaining is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Tenant {body.tenant_id!r} not found.",
+        )
+
+    log.info(
+        "admin.demo_reset_attempts",
+        tenant_id=body.tenant_id,
+        new_count=remaining,
+        reset_by=ctx.sub,
+    )
+
+    return DemoResetAttemptsResponse(
+        tenant_id=body.tenant_id,
+        attempts_remaining=remaining,
+        message=f"Demo pipeline counter reset to {remaining} for tenant {body.tenant_id}.",
     )

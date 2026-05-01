@@ -52,6 +52,7 @@ from pydantic import BaseModel, Field
 from ..agents.creative import CreativeAgent, CreativeInput
 from ..agents.outreach import OutreachAgent, OutreachInput
 from ..agents.scoring import ScoringAgent, ScoringInput
+from ..core.config import settings
 from ..core.logging import get_logger
 from ..core.security import CurrentUser, require_tenant
 from ..core.supabase_client import get_service_client
@@ -679,7 +680,20 @@ async def demo_test_pipeline(
         # Recipient — what OutreachAgent will email. We mark it
         # verified so NeverBounce gating doesn't skip the send (the
         # prospect typed it themselves; trust > probabilistic check).
-        "decision_maker_email": body.recipient_email,
+        #
+        # When DEMO_EMAIL_RECIPIENT_OVERRIDE is set, ALL demo pipeline
+        # emails are routed to that address (e.g. qa@agenda-pro.it) so
+        # the operator can visually inspect the rendered email in their
+        # own inbox without the prospect receiving anything.  The stored
+        # email is the override address so OutreachAgent picks it up
+        # automatically — no changes needed in that agent.  Copy
+        # personalisation (decision_maker_name) still uses the real
+        # prospect name because that field is never overridden.
+        "decision_maker_email": (
+            settings.demo_email_recipient_override.strip()
+            if settings.demo_email_recipient_override.strip()
+            else body.recipient_email
+        ),
         "decision_maker_email_verified": True,
         # Tag the data_sources array so ops can filter "leads from
         # demo with mock enrichment vs without" without a join.
@@ -824,6 +838,22 @@ async def demo_test_pipeline(
         .execute()
     )
     public_slug = (lead_row.data or [{}])[0].get("public_slug") if lead_row.data else None
+
+    # Warn when the email override is active so operators don't wonder
+    # why the prospect's inbox didn't receive anything during a live call.
+    _email_override = settings.demo_email_recipient_override.strip()
+    if _email_override:
+        log.warning(
+            "demo.email_recipient_overridden",
+            tenant_id=tenant_id,
+            lead_id=lead_id,
+            override_address=_email_override,
+            note=(
+                "DEMO_EMAIL_RECIPIENT_OVERRIDE is set — the outreach email "
+                "will be delivered to the override address, NOT to the "
+                "prospect's typed email. Unset the env var for live demos."
+            ),
+        )
 
     log.info(
         "demo.test_pipeline_started",

@@ -121,6 +121,20 @@ class Settings(BaseSettings):
     resend_webhook_secret: str = ""
     resend_inbound_secret: str = ""  # shared secret appended as ?secret= on inbound webhook URL
 
+    # Demo email routing — when set, ALL emails sent during a demo pipeline
+    # run (is_demo=true tenant) are delivered to this address instead of the
+    # prospect's typed email. Set to your QA inbox (e.g. qa@agenda-pro.it)
+    # so you can visually inspect the rendered email without spamming real
+    # inboxes during testing. Leave empty to deliver to the prospect's typed
+    # address (normal behaviour during live sales demos).
+    #
+    # The decision-maker email stored on the `subjects` row is still set to
+    # the prospect's typed value so copy personalisation ("Caro Mario,…")
+    # works correctly — only the OutreachAgent delivery address is overridden.
+    #
+    # Example: DEMO_EMAIL_RECIPIENT_OVERRIDE=qa@agenda-pro.it
+    demo_email_recipient_override: str = ""
+
     # ---- CDN (Cloudflare R2 — Sprint 9: rendering GIF public delivery) ----
     # Public base URL for the R2 bucket (no trailing slash).
     # Example: https://cdn.solarld.app
