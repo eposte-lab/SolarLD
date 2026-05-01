@@ -19,6 +19,7 @@ Surface area:
     GET    /cost-report?days=30              — spend rollup platform-wide
     POST   /seed-test-candidate              — inject synthetic company, run full pipeline
     POST   /demo/reset-attempts             — reset demo pipeline attempt counter for a tenant
+    GET    /demo/runs                        — all demo pipeline runs (cross-tenant, super_admin)
 """
 
 from __future__ import annotations
@@ -741,3 +742,98 @@ async def admin_demo_reset_attempts(
         attempts_remaining=remaining,
         message=f"Demo pipeline counter reset to {remaining} for tenant {body.tenant_id}.",
     )
+
+
+# ---------------------------------------------------------------------------
+# Demo pipeline runs — cross-tenant audit log
+# ---------------------------------------------------------------------------
+
+
+class DemoRunRow(BaseModel):
+    id: str
+    tenant_id: str
+    tenant_name: str | None = None
+    lead_id: str | None = None
+    status: str
+    failed_step: str | None = None
+    error_message: str | None = None
+    notes: str | None = None
+    created_at: str
+    updated_at: str
+
+
+class DemoRunsResponse(BaseModel):
+    runs: list[DemoRunRow]
+    total: int
+
+
+@router.get("/demo/runs", response_model=DemoRunsResponse)
+async def admin_demo_runs(
+    ctx: CurrentUser,
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    status: str | None = Query(default=None),
+    tenant_id: str | None = Query(default=None),
+) -> DemoRunsResponse:
+    """List all demo pipeline runs across all tenants.
+
+    Returns runs ordered newest-first.  Supports optional filtering by
+    ``status`` (scoring|creative|outreach|done|failed) and ``tenant_id``.
+    Used by the ``/admin/demo-runs`` dashboard page to give the operator
+    a real-time view of every customer-facing test run.
+    """
+    _require_super_admin(ctx)
+    sb = get_service_client()
+
+    # --- Count (for pagination header) ---
+    count_q = sb.table("demo_pipeline_runs").select("id", count="exact", head=True)
+    if status:
+        count_q = count_q.eq("status", status)
+    if tenant_id:
+        count_q = count_q.eq("tenant_id", tenant_id)
+    count_res = count_q.execute()
+    total: int = count_res.count or 0
+
+    # --- Rows ---
+    q = (
+        sb.table("demo_pipeline_runs")
+        .select(
+            "id, tenant_id, lead_id, status, failed_step, "
+            "error_message, notes, created_at, updated_at, "
+            "tenants!inner(business_name)"
+        )
+        .order("created_at", desc=True)
+        .limit(limit)
+        .offset(offset)
+    )
+    if status:
+        q = q.eq("status", status)
+    if tenant_id:
+        q = q.eq("tenant_id", tenant_id)
+
+    try:
+        res = q.execute()
+    except Exception as exc:  # noqa: BLE001
+        log.error("admin.demo_runs_query_failed", err=str(exc))
+        raise HTTPException(status_code=502, detail="Failed to query demo runs.") from exc
+
+    rows: list[DemoRunRow] = []
+    for r in res.data or []:
+        tenant_data = r.get("tenants") or {}
+        rows.append(
+            DemoRunRow(
+                id=r["id"],
+                tenant_id=r["tenant_id"],
+                tenant_name=tenant_data.get("business_name") if isinstance(tenant_data, dict) else None,
+                lead_id=r.get("lead_id"),
+                status=r["status"],
+                failed_step=r.get("failed_step"),
+                error_message=r.get("error_message"),
+                notes=r.get("notes"),
+                created_at=r["created_at"],
+                updated_at=r["updated_at"],
+            )
+        )
+
+    log.info("admin.demo_runs_listed", count=len(rows), total=total, super_admin=ctx.sub)
+    return DemoRunsResponse(runs=rows, total=total)

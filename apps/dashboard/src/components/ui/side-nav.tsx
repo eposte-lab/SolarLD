@@ -33,6 +33,7 @@ import {
   Settings,
   ShieldCheck,
   Target,
+  Terminal,
   Users,
 } from 'lucide-react';
 import { BrandLogo } from '@/components/ui/brand-logo';
@@ -58,7 +59,8 @@ export type NavIconKey =
   | 'experiments'
   | 'scoperta'
   | 'pratiche'
-  | 'scadenze';
+  | 'scadenze'
+  | 'admin';
 
 const ICON_MAP: Record<NavIconKey, LucideIcon> = {
   dashboard: Home,
@@ -79,6 +81,8 @@ const ICON_MAP: Record<NavIconKey, LucideIcon> = {
   pratiche: FolderOpen,
   // Scadenze GSE — calendar-clock evokes regulatory SLA deadlines.
   scadenze: CalendarClock,
+  // Super-admin internal tooling — terminal icon signals dev/ops surface.
+  admin: Terminal,
 };
 
 export interface NavItem {

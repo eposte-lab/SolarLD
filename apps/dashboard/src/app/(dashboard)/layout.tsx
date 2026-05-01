@@ -111,12 +111,28 @@ export default async function DashboardLayout({
   // Demo tenants don't see internal/admin surfaces. Right now we hide
   // the entire Settings hub — once we ship a "customer-safe" settings
   // page we'll switch this to a denylist of specific subpages.
-  const visibleSections = ctx.tenant.is_demo
+  const baseSections = ctx.tenant.is_demo
     ? NAV_SECTIONS.map((s) => ({
         ...s,
         items: s.items.filter((i) => i.href !== '/settings'),
       })).filter((s) => s.items.length > 0)
     : NAV_SECTIONS;
+
+  // Super-admin only section — never shown to regular tenant users or
+  // demo tenants. Injected at the bottom of the nav rail.
+  const adminSection: NavSection | null =
+    ctx.role === 'super_admin'
+      ? {
+          label: 'Admin',
+          items: [
+            { href: '/admin/demo-runs', label: 'Demo Runs', icon: 'admin' },
+          ],
+        }
+      : null;
+
+  const visibleSections: NavSection[] = adminSection
+    ? [...baseSections, adminSection]
+    : baseSections;
 
   return (
     <div className="flex min-h-screen bg-surface">
