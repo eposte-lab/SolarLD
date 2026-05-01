@@ -340,7 +340,7 @@ export default function AdminDemoRunsPage() {
             Test runs
           </h1>
           <p className="mt-1 max-w-2xl text-sm text-on-surface-variant">
-            Ogni esecuzione di "Avvia test pipeline" dai tenant demo. Log
+            Ogni esecuzione di &ldquo;Avvia test pipeline&rdquo; dai tenant demo. Log
             cross-tenant in tempo reale.
           </p>
         </div>
