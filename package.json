@@ -26,7 +26,10 @@
     "db:migrate": "pnpm --filter @solarlead/db migrate",
     "api:dev": "pnpm --filter @solarlead/api dev",
     "dashboard:dev": "pnpm --filter @solarlead/dashboard dev",
-    "lead-portal:dev": "pnpm --filter @solarlead/lead-portal dev"
+    "lead-portal:dev": "pnpm --filter @solarlead/lead-portal dev",
+    "seed:demo": "cd apps/api && .venv/bin/python scripts/seed_demo_pipeline.py",
+    "seed:demo:reset": "cd apps/api && .venv/bin/python scripts/seed_demo_pipeline.py --reset",
+    "seed:demo:full": "cd apps/api && .venv/bin/python scripts/seed_demo_pipeline.py --reset --full-render"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
