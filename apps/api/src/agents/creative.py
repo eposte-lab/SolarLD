@@ -346,16 +346,23 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
                 )
             except (RemotionError, httpx.HTTPError) as exc:
                 gif_fallback_reason = "remotion_failed"
+                # Capture exception class name explicitly because some httpx
+                # exceptions (e.g. ReadTimeout) have empty str() representations
+                # and just logging `err=str(exc)` produces useless "err=" lines.
+                err_type = type(exc).__name__
+                err_str = str(exc) or err_type
                 log.warning(
                     "creative.remotion_failed",
                     lead_id=payload.lead_id,
-                    err=str(exc),
+                    err=err_str,
+                    err_type=err_type,
                 )
                 log.warning(
                     "creative.gif_fallback",
                     lead_id=payload.lead_id,
                     reason=gif_fallback_reason,
-                    err=str(exc)[:160],
+                    err=err_str[:160],
+                    err_type=err_type,
                 )
                 if skipped_reason is None:
                     skipped_reason = "remotion_error"

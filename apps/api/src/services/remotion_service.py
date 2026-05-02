@@ -22,7 +22,12 @@ from dataclasses import dataclass
 from typing import Any
 
 import httpx
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 from ..core.config import settings
 from ..core.logging import get_logger
@@ -135,19 +140,28 @@ def _sidecar_url() -> str:
 
 
 @retry(
-    stop=stop_after_attempt(3),
+    stop=stop_after_attempt(2),
     wait=wait_exponential(multiplier=1, min=1, max=8),
+    retry=retry_if_exception_type(RemotionError),
     reraise=True,
 )
 async def render_transition(
     data: RenderTransitionInput,
     *,
     client: httpx.AsyncClient | None = None,
-    timeout_s: float = 180.0,
+    timeout_s: float = 600.0,
 ) -> RenderTransitionResult:
     """Call the sidecar and return the uploaded URLs.
 
-    Retries 3x on transient errors (timeouts, 5xx). A 4xx is treated as
+    Timeout is 600s (10 min) because Kling 1.6-Pro routinely needs
+    90-180s for the AI render plus FFmpeg conversion + Storage upload,
+    and Replicate queue depth can push it past 5 min during peak load.
+    A 180s default was hitting ReadTimeout consistently on prod.
+
+    Retries: only on ``RemotionError`` (connect / 5xx / non-json).
+    ``httpx.ReadTimeout`` is NOT retried — if the first render genuinely
+    timed out, hammering the sidecar with a fresh Replicate prediction
+    burns credits and almost always times out again. A 4xx is treated as
     permanent — ``RemotionError`` bubbles up after the first attempt so
     the CreativeAgent can skip the video step and carry on.
     """
