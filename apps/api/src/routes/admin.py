@@ -821,8 +821,10 @@ async def admin_demo_runs(
             "id, tenant_id, lead_id, status, failed_step, "
             "error_message, notes, created_at, updated_at, "
             "tenants!inner(business_name), "
-            "leads(subject_id, decision_maker_email, "
-            "subjects(sede_operativa_source, sede_operativa_confidence))"
+            # decision_maker_email lives on ``subjects`` (not ``leads``).
+            "leads(subject_id, "
+            "subjects(decision_maker_email, sede_operativa_source, "
+            "sede_operativa_confidence))"
         )
         .order("created_at", desc=True)
         .limit(limit)
@@ -898,7 +900,7 @@ async def admin_demo_runs(
                 email_status_detail=send_row.get("failure_reason"),
                 email_message_id=send_row.get("email_message_id"),
                 email_sent_at=send_row.get("sent_at"),
-                email_recipient=(leads_data or {}).get("decision_maker_email"),
+                email_recipient=(subject_data or {}).get("decision_maker_email"),
                 roof_source=(subject_data or {}).get("sede_operativa_source"),
                 roof_confidence=(subject_data or {}).get("sede_operativa_confidence"),
             )

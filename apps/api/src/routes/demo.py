@@ -1055,8 +1055,10 @@ async def demo_pipeline_run_status(
         lambda: sb.table("demo_pipeline_runs")
         .select(
             "id, lead_id, status, failed_step, error_message, notes, updated_at, "
-            "leads(decision_maker_email, subject_id, "
-            "subjects(sede_operativa_source, sede_operativa_confidence))"
+            # decision_maker_email lives on subjects (not leads).
+            "leads(subject_id, "
+            "subjects(decision_maker_email, sede_operativa_source, "
+            "sede_operativa_confidence))"
         )
         .eq("id", run_id)
         .eq("tenant_id", tenant_id)
@@ -1105,7 +1107,7 @@ async def demo_pipeline_run_status(
         updated_at=row["updated_at"],
         email_status=email_state.get("status"),
         email_status_detail=email_state.get("failure_reason"),
-        email_recipient=(leads_data or {}).get("decision_maker_email"),
+        email_recipient=(subject_data or {}).get("decision_maker_email"),
         email_message_id=email_state.get("email_message_id"),
         roof_source=(subject_data or {}).get("sede_operativa_source"),
         roof_confidence=(subject_data or {}).get("sede_operativa_confidence"),
