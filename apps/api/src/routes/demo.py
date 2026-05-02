@@ -135,6 +135,24 @@ class DemoTestPipelineRequest(BaseModel):
             "active inboxes for the tenant (legacy behaviour)."
         ),
     )
+    # Building Identification Cascade (BIC) — optional pre-resolved coords.
+    # When the dashboard ran POST /v1/demo/identify-building (and possibly
+    # POST /v1/demo/confirm-building) before this submit, it sends back the
+    # winning lat/lng so the pipeline skips the cascade entirely and uses
+    # those coords directly. None = run the cascade inline (legacy path).
+    confirmed_building_lat: float | None = Field(
+        default=None,
+        description=(
+            "Latitude of the user-confirmed (or auto-resolved high-confidence) "
+            "building from the BIC preview. When set together with "
+            "confirmed_building_lng, the pipeline skips the operating-site "
+            "cascade and uses these coords for the Roof + Solar API calls."
+        ),
+    )
+    confirmed_building_lng: float | None = Field(
+        default=None,
+        description="Companion to confirmed_building_lat.",
+    )
 
 
 class DemoTestPipelineResponse(BaseModel):
@@ -665,21 +683,50 @@ async def demo_test_pipeline(
         except Exception:  # noqa: BLE001
             website_domain_hint = None
 
-    # Demo runs are user-facing and pay extra Solar API calls happily —
-    # ``validate_with_solar=True`` rejects Atoka coords that don't sit on
-    # a real building (commercialista pattern), which is the failure mode
-    # that produced rooftops on the wrong building during demo calls.
-    async with httpx.AsyncClient(timeout=15.0) as resolver_client:
-        resolved_site: OperatingSite = await resolve_operating_site(
-            profile=demo_profile,
-            legal_name=body.legal_name,
-            website_domain=website_domain_hint,
-            hq_address=geo.address or body.hq_address,
-            hq_city=geo.comune,
-            hq_province=geo.provincia,
-            http_client=resolver_client,
-            validate_with_solar=True,
+    # ─── Building Identification ─────────────────────────────────────
+    # If the dashboard ran the BIC preview (POST /v1/demo/identify-
+    # building) and possibly POST /v1/demo/confirm-building, the
+    # confirmed coords come back attached to this submit. Trust them
+    # unconditionally — the user / cascade has already done the
+    # disambiguation work and we'd just waste API budget re-running.
+    #
+    # Fallback (legacy path): no confirmed coords → run the 4-tier
+    # operating-site resolver inline. This preserves backward
+    # compatibility with API consumers that don't yet call
+    # /identify-building first.
+    resolved_site: OperatingSite
+    if (
+        body.confirmed_building_lat is not None
+        and body.confirmed_building_lng is not None
+    ):
+        log.info(
+            "demo.confirmed_building_used",
+            vat_number=body.vat_number,
+            lat=body.confirmed_building_lat,
+            lng=body.confirmed_building_lng,
         )
+        resolved_site = OperatingSite(
+            lat=body.confirmed_building_lat,
+            lng=body.confirmed_building_lng,
+            address=geo.address or body.hq_address,
+            cap=geo.cap,
+            city=geo.comune,
+            province=geo.provincia,
+            source="user_confirmed",
+            confidence="high",
+        )
+    else:
+        async with httpx.AsyncClient(timeout=15.0) as resolver_client:
+            resolved_site = await resolve_operating_site(
+                profile=demo_profile,
+                legal_name=body.legal_name,
+                website_domain=website_domain_hint,
+                hq_address=geo.address or body.hq_address,
+                hq_city=geo.comune,
+                hq_province=geo.provincia,
+                http_client=resolver_client,
+                validate_with_solar=True,
+            )
 
     if resolved_site.has_coords:
         roof_lat = resolved_site.lat

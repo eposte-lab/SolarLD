@@ -30,6 +30,8 @@ import { useEffect, useRef, useState } from 'react';
 import {
   AlertTriangle,
   ArrowRight,
+  Building,
+  Check,
   Loader2,
   MapPin,
   Rocket,
@@ -38,6 +40,10 @@ import {
 import { GradientButton } from '@/components/ui/gradient-button';
 import { createBrowserClient } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils';
+import {
+  BuildingPicker,
+  type PickerCandidate,
+} from '@/components/demo/building-picker';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -70,6 +76,20 @@ interface InboxOption {
   id: string;
   email: string;
   display_name: string | null;
+}
+
+// Mirror of the API's IdentifyBuildingResponse (see routes/demo.py).
+// Confidence buckets match `subjects.sede_operativa_confidence`.
+interface BicResult {
+  confidence: 'high' | 'medium' | 'low' | 'none' | 'user_confirmed';
+  needs_user_confirmation: boolean;
+  lat: number | null;
+  lng: number | null;
+  address: string | null;
+  source: string;
+  source_chain: Record<string, unknown>[];
+  candidates: PickerCandidate[];
+  cached: boolean;
 }
 
 interface GeocodePreview {
@@ -159,6 +179,21 @@ export function TestPipelineDialog({
   const [attemptsAfterRun, setAttemptsAfterRun] = useState<number | null>(null);
   const [inboxes, setInboxes] = useState<InboxOption[]>([]);
   const [inboxesLoading, setInboxesLoading] = useState(true);
+
+  // ─── Building Identification Cascade (BIC) state ────────────────
+  // Triggered manually via the "Identifica capannone" button (we don't
+  // run the cascade on every keystroke — Vision API is ~$0.025/call).
+  // The button is enabled once vat_number + legal_name + hq_address
+  // are all filled.
+  const [bicLoading, setBicLoading] = useState(false);
+  const [bicResult, setBicResult] = useState<BicResult | null>(null);
+  // Set once the user has either confirmed a candidate from the picker
+  // OR the cascade returned high/medium confidence and the user tacitly
+  // accepted by clicking "Avvia pipeline". When non-null, /test-pipeline
+  // submits this lat/lng and the backend short-circuits the cascade.
+  const [confirmedBuilding, setConfirmedBuilding] = useState<
+    { lat: number; lng: number } | null
+  >(null);
 
   // Fetch the available senders (tenant_inboxes rows) once on mount so
   // the dialog can render a dropdown. We refetch nothing — inbox config
@@ -276,6 +311,85 @@ export function TestPipelineDialog({
     };
   }, [run]);
 
+  async function handleIdentifyBuilding() {
+    if (
+      !form.vat_number ||
+      !form.legal_name ||
+      !form.hq_address ||
+      form.hq_address.trim().length < 6
+    ) {
+      setBicResult({
+        confidence: 'none',
+        needs_user_confirmation: true,
+        lat: null,
+        lng: null,
+        address: null,
+        source: 'unresolved',
+        source_chain: [],
+        candidates: [],
+        cached: false,
+      });
+      return;
+    }
+    setBicLoading(true);
+    setConfirmedBuilding(null);
+    try {
+      const auth = await authHeader();
+      const res = await fetch(`${API_URL}/v1/demo/identify-building`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...auth },
+        body: JSON.stringify({
+          vat_number: form.vat_number,
+          legal_name: form.legal_name,
+          hq_address: form.hq_address,
+          ateco_code: form.ateco_code || null,
+        }),
+      });
+      const data = (await res.json().catch(() => null)) as BicResult | null;
+      if (!res.ok || !data) {
+        setBicResult({
+          confidence: 'none',
+          needs_user_confirmation: true,
+          lat: null,
+          lng: null,
+          address: null,
+          source: 'unresolved',
+          source_chain: [],
+          candidates: [],
+          cached: false,
+        });
+        return;
+      }
+      setBicResult(data);
+      // High / medium / user_confirmed → tacit acceptance: pre-fill the
+      // confirmed lat/lng so submit short-circuits the cascade. Low /
+      // none → wait for the user to click in the picker.
+      if (
+        (data.confidence === 'high' ||
+          data.confidence === 'medium' ||
+          data.confidence === 'user_confirmed') &&
+        data.lat !== null &&
+        data.lng !== null
+      ) {
+        setConfirmedBuilding({ lat: data.lat, lng: data.lng });
+      }
+    } catch {
+      setBicResult({
+        confidence: 'none',
+        needs_user_confirmation: true,
+        lat: null,
+        lng: null,
+        address: null,
+        source: 'unresolved',
+        source_chain: [],
+        candidates: [],
+        cached: false,
+      });
+    } finally {
+      setBicLoading(false);
+    }
+  }
+
   async function handleGeocodeBlur() {
     if (!form.hq_address || form.hq_address.trim().length < 6) {
       setGeocode(null);
@@ -313,6 +427,13 @@ export function TestPipelineDialog({
       const { inbox_id: pickedInboxId, ...rest } = form;
       const payload: Record<string, unknown> = { ...rest };
       if (pickedInboxId) payload.inbox_id = pickedInboxId;
+      // When the BIC has resolved a building (auto-high or user click)
+      // we pass the coords so /test-pipeline can short-circuit the
+      // cascade. The backend ignores these fields when null.
+      if (confirmedBuilding) {
+        payload.confirmed_building_lat = confirmedBuilding.lat;
+        payload.confirmed_building_lng = confirmedBuilding.lng;
+      }
       const res = await fetch(`${API_URL}/v1/demo/test-pipeline`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...auth },
@@ -490,6 +611,31 @@ export function TestPipelineDialog({
                   preview={geocode}
                 />
               </Field>
+
+              {/* Building Identification Cascade — manual trigger.
+                  We don't auto-fire on blur because the cascade is
+                  expensive (Vision API ~$0.025) and hits multiple
+                  external services in series. Once clicked, the result
+                  is cached server-side per-VAT so subsequent runs are
+                  instant. */}
+              <BicSection
+                bicResult={bicResult}
+                bicLoading={bicLoading}
+                confirmedBuilding={confirmedBuilding}
+                vatNumber={form.vat_number}
+                onIdentify={handleIdentifyBuilding}
+                onConfirmed={(lat, lng) => {
+                  setConfirmedBuilding({ lat, lng });
+                  // Bump the result to user_confirmed so the badge
+                  // turns green even though we don't refetch.
+                  setBicResult((prev) =>
+                    prev
+                      ? { ...prev, confidence: 'user_confirmed', lat, lng }
+                      : prev,
+                  );
+                }}
+              />
+
 
               <div className="grid grid-cols-2 gap-3">
                 <Field label="Decision-maker · nome" required>
@@ -957,3 +1103,164 @@ function Field({
 
 const inputClass =
   'rounded-lg border border-outline-variant bg-surface-container-lowest px-3 py-2 text-sm text-on-surface placeholder:text-on-surface-variant focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30';
+
+// ---------------------------------------------------------------------------
+// BicSection — the "Identifica capannone" panel inside the form.
+//
+// Three states:
+//   1. Idle (no result yet)        → show "Identifica capannone" button.
+//   2. Loading                     → show spinner + "Sto cercando il capannone…".
+//   3. Resolved with high/medium   → show green badge + summary.
+//   4. Resolved with low/none      → show <BuildingPicker/> inline (the user
+//      MUST click a candidate before we let the form submit).
+// ---------------------------------------------------------------------------
+
+function BicSection({
+  bicResult,
+  bicLoading,
+  confirmedBuilding,
+  vatNumber,
+  onIdentify,
+  onConfirmed,
+}: {
+  bicResult: BicResult | null;
+  bicLoading: boolean;
+  confirmedBuilding: { lat: number; lng: number } | null;
+  vatNumber: string;
+  onIdentify: () => void;
+  onConfirmed: (lat: number, lng: number) => void;
+}) {
+  // Idle — show the trigger button only.
+  if (!bicResult && !bicLoading) {
+    return (
+      <div className="rounded-lg bg-surface-container-low p-3 ring-1 ring-on-surface/10">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold text-on-surface">
+              Identifica capannone
+            </p>
+            <p className="text-[11px] text-on-surface-variant">
+              Avvia la cascade (Atoka + Places + OSM + Vision) per
+              localizzare l&apos;edificio prima del render. Costo ~ €0,15
+              quando arriva fino alla vision; risultato cachato per VAT.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onIdentify}
+            className="inline-flex items-center gap-1.5 rounded-full bg-secondary-container px-3 py-1.5 text-xs font-semibold text-on-secondary-container hover:shadow-ambient-sm"
+          >
+            <Building size={13} strokeWidth={2.5} />
+            Identifica capannone
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (bicLoading) {
+    return (
+      <div className="flex items-center gap-2 rounded-lg bg-surface-container-low p-3 ring-1 ring-on-surface/10">
+        <Loader2 size={14} strokeWidth={2.5} className="animate-spin text-primary" />
+        <p className="text-xs text-on-surface">
+          Sto cercando il capannone — Atoka → Places → OSM → Vision…
+          (può richiedere fino a 30s)
+        </p>
+      </div>
+    );
+  }
+
+  if (!bicResult) return null;
+
+  const isHigh = bicResult.confidence === 'high';
+  const isMedium = bicResult.confidence === 'medium';
+  const isUserConfirmed = bicResult.confidence === 'user_confirmed' || !!confirmedBuilding;
+  const isLow = bicResult.confidence === 'low';
+  const isNone = bicResult.confidence === 'none';
+
+  // High / medium / user_confirmed → show summary badge only.
+  if (isHigh || isMedium || isUserConfirmed) {
+    const tone = isUserConfirmed || isHigh ? 'primary' : 'secondary';
+    return (
+      <div
+        className={cn(
+          'flex items-start gap-2 rounded-lg p-3 ring-1',
+          tone === 'primary'
+            ? 'bg-primary/5 ring-primary/30'
+            : 'bg-secondary-container ring-secondary/30',
+        )}
+      >
+        <Check
+          size={16}
+          strokeWidth={2.5}
+          className={cn(
+            'mt-0.5 shrink-0',
+            tone === 'primary' ? 'text-primary' : 'text-on-secondary-container',
+          )}
+        />
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-semibold text-on-surface">
+            {isUserConfirmed
+              ? 'Capannone confermato dall’utente'
+              : isHigh
+                ? 'Capannone identificato (alta confidenza)'
+                : 'Capannone identificato (media confidenza)'}
+          </p>
+          <p className="text-[11px] text-on-surface-variant">
+            Sorgente: {bicResult.source}
+            {bicResult.cached ? ' · da cache' : ''}
+            {bicResult.lat !== null && bicResult.lng !== null
+              ? ` · ${bicResult.lat.toFixed(5)}, ${bicResult.lng.toFixed(5)}`
+              : ''}
+          </p>
+          {bicResult.address && (
+            <p className="mt-0.5 truncate text-[11px] text-on-surface">
+              {bicResult.address}
+            </p>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={onIdentify}
+          className="text-[10px] font-semibold text-on-surface-variant hover:text-on-surface"
+        >
+          Re-identifica
+        </button>
+      </div>
+    );
+  }
+
+  // Low / none → show the picker inline. The user MUST click a candidate
+  // (or freehand) before the form will submit — the form's submit button
+  // is left enabled but /test-pipeline will re-run the cascade if the
+  // user submits anyway, so the worst case is a slow second cascade.
+  return (
+    <div className="space-y-2">
+      <div className="flex items-start gap-2 rounded-lg bg-warning-container/40 p-3 ring-1 ring-warning/30">
+        <AlertTriangle size={16} strokeWidth={2.5} className="mt-0.5 shrink-0 text-warning" />
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-semibold text-on-warning-container">
+            {isLow
+              ? 'Capannone identificato con bassa confidenza'
+              : 'Non sono riuscito a identificare il capannone automaticamente'}
+          </p>
+          <p className="text-[11px] text-on-warning-container/80">
+            Conferma cliccando il candidato giusto sulla mappa. Il pick
+            verrà salvato per la P.IVA, quindi al prossimo run il render
+            partirà subito senza chiedere di nuovo.
+          </p>
+        </div>
+      </div>
+      <BuildingPicker
+        vatNumber={vatNumber}
+        candidates={bicResult.candidates}
+        fallbackCentre={
+          bicResult.lat !== null && bicResult.lng !== null
+            ? { lat: bicResult.lat, lng: bicResult.lng }
+            : undefined
+        }
+        onConfirmed={onConfirmed}
+      />
+    </div>
+  );
+}
