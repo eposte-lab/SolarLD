@@ -57,9 +57,20 @@ const DEFAULT_FORM = {
   decision_maker_role: 'Amministratore Delegato',
   decision_maker_email: 'multilogspa@pec.it',
   recipient_email: '',
+  // UUID of the chosen tenant_inboxes row (the "From" sender). Empty
+  // string means "fall back to round-robin / legacy". The dialog
+  // populates this with the first available inbox once the
+  // /v1/demo/inboxes fetch resolves.
+  inbox_id: '',
 };
 
 type FormState = typeof DEFAULT_FORM;
+
+interface InboxOption {
+  id: string;
+  email: string;
+  display_name: string | null;
+}
 
 interface GeocodePreview {
   found: boolean;
@@ -146,6 +157,50 @@ export function TestPipelineDialog({
   const [error, setError] = useState<string | null>(null);
   const [run, setRun] = useState<RunSnapshot | null>(null);
   const [attemptsAfterRun, setAttemptsAfterRun] = useState<number | null>(null);
+  const [inboxes, setInboxes] = useState<InboxOption[]>([]);
+  const [inboxesLoading, setInboxesLoading] = useState(true);
+
+  // Fetch the available senders (tenant_inboxes rows) once on mount so
+  // the dialog can render a dropdown. We refetch nothing — inbox config
+  // changes rarely and a stale list is recoverable via the 422 the
+  // backend returns when the chosen UUID is no longer active.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const auth = await authHeader();
+        const res = await fetch(`${API_URL}/v1/demo/inboxes`, {
+          headers: { ...auth },
+        });
+        if (!res.ok) {
+          if (!cancelled) setInboxesLoading(false);
+          return;
+        }
+        const data = (await res.json().catch(() => null)) as
+          | { inboxes?: InboxOption[] }
+          | null;
+        if (cancelled) return;
+        const list = data?.inboxes ?? [];
+        setInboxes(list);
+        // Pre-select the first inbox so the prospect doesn't have to
+        // open the dropdown to pick one — they can still change it.
+        const first = list[0];
+        if (first) {
+          setForm((prev) =>
+            prev.inbox_id ? prev : { ...prev, inbox_id: first.id },
+          );
+        }
+      } catch {
+        // Soft-fail: leave the list empty. The form still submits and
+        // the backend falls back to the legacy single-inbox path.
+      } finally {
+        if (!cancelled) setInboxesLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   function open() {
     setError(null);
@@ -250,10 +305,18 @@ export function TestPipelineDialog({
     setSubmitting(true);
     try {
       const auth = await authHeader();
+      // The API treats `inbox_id` as optional (None = legacy round-robin),
+      // but our form always carries an empty string when no sender is
+      // configured for the tenant. Strip the empty value so the request
+      // body matches the Pydantic optional contract instead of failing
+      // the UUID coerce on the server.
+      const { inbox_id: pickedInboxId, ...rest } = form;
+      const payload: Record<string, unknown> = { ...rest };
+      if (pickedInboxId) payload.inbox_id = pickedInboxId;
       const res = await fetch(`${API_URL}/v1/demo/test-pipeline`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...auth },
-        body: JSON.stringify(form),
+        body: JSON.stringify(payload),
       });
       const data = (await res.json().catch(() => null)) as
         | {
@@ -473,6 +536,39 @@ export function TestPipelineDialog({
               </Field>
 
               <Field
+                label="Mittente (inbox da cui parte l&apos;email)"
+                required={inboxes.length > 0}
+                helper={
+                  inboxesLoading
+                    ? 'Carico le inbox configurate…'
+                    : inboxes.length === 0
+                      ? 'Nessuna inbox configurata per il tenant — verrà usato il mittente di default.'
+                      : 'L&apos;email arriverà al destinatario con questo From / DKIM.'
+                }
+              >
+                <select
+                  required={inboxes.length > 0}
+                  disabled={inboxesLoading || inboxes.length === 0}
+                  value={form.inbox_id}
+                  onChange={(e) =>
+                    setForm({ ...form, inbox_id: e.target.value })
+                  }
+                  className={inputClass}
+                >
+                  {inboxes.length === 0 && (
+                    <option value="">— nessuna inbox disponibile —</option>
+                  )}
+                  {inboxes.map((ib) => (
+                    <option key={ib.id} value={ib.id}>
+                      {ib.display_name
+                        ? `${ib.display_name} <${ib.email}>`
+                        : ib.email}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+
+              <Field
                 label="Email destinatario (dove arriva il test)"
                 required
                 helper="Usa una tua casella reale per vedere atterrare l&apos;email."
@@ -612,9 +708,8 @@ function SuccessPanel({
             Resend ha rifiutato la consegna
             {emailRecipient ? ` verso ${emailRecipient}` : ''}
             {emailStatusDetail ? ` (${emailStatusDetail})` : ''}. Verifica
-            l&apos;indirizzo del destinatario, lo stato del dominio
-            mittente in Resend (DKIM/SPF) e — se in modalità demo — la env
-            var <code>DEMO_EMAIL_RECIPIENT_OVERRIDE</code>.
+            l&apos;indirizzo del destinatario e lo stato del dominio
+            mittente in Resend (DKIM/SPF/MX su <code>agenda-pro.it</code>).
           </>
         ) : (
           <>

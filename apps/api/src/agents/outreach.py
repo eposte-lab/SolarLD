@@ -143,6 +143,21 @@ class OutreachInput(BaseModel):
             "they trigger an in-app notification path.)"
         ),
     )
+    # Demo / manual-pin inbox selection.
+    # When set, ``pick_and_claim`` is called with ``campaign_inbox_ids=[inbox_id]``
+    # so only the requested inbox is considered. Used by the customer-facing
+    # demo dialog to let the prospect pick which sender (e.g. Alfonso vs
+    # Gaetano) the test email should appear to come from. Production cron
+    # paths leave this ``None`` and let the round-robin selector decide.
+    inbox_id: str | None = Field(
+        default=None,
+        description=(
+            "Optional pinned inbox UUID. When provided, OutreachAgent restricts "
+            "the inbox selector to this single inbox row (still respects daily "
+            "cap / paused_until / domain pause). None = round-robin across all "
+            "active inboxes for the tenant (default production behaviour)."
+        ),
+    )
 
 
 class OutreachOutput(BaseModel):
@@ -499,12 +514,16 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
         #     single-inbox address derived from tenant.email_from_domain.
         #
         # The campaign_inbox_ids filter is reserved for campaign-level
-        # inbox restrictions (Phase A); today it is always None.
+        # inbox restrictions (Phase A) and the demo dialog's "scegli mittente"
+        # picker (passes a single inbox UUID via OutreachInput.inbox_id).
         # ------------------------------------------------------------------
+        pinned_inbox_ids: list[str] | None = (
+            [payload.inbox_id] if payload.inbox_id else None
+        )
         selected_inbox: dict[str, Any] | None = await inbox_service.pick_and_claim(
             sb,
             payload.tenant_id,
-            campaign_inbox_ids=None,
+            campaign_inbox_ids=pinned_inbox_ids,
         )
 
         # Detect "inboxes exist but all blocked" vs "no inboxes at all".

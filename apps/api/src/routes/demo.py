@@ -125,6 +125,16 @@ class DemoTestPipelineRequest(BaseModel):
             "Usually the prospect's own inbox so they can see the result land."
         ),
     )
+    inbox_id: str | None = Field(
+        default=None,
+        description=(
+            "Optional UUID of the tenant_inboxes row to send FROM. When set, "
+            "OutreachAgent pins the selector to this single inbox so the "
+            "prospect can pick whether the demo email arrives 'from Alfonso' "
+            "vs 'from Gaetano'. Defaults to None → round-robin across all "
+            "active inboxes for the tenant (legacy behaviour)."
+        ),
+    )
 
 
 class DemoTestPipelineResponse(BaseModel):
@@ -426,6 +436,57 @@ async def demo_geocode_preview(
 
 
 # ---------------------------------------------------------------------------
+# Inbox picker — list active senders for the demo tenant
+# ---------------------------------------------------------------------------
+
+
+class DemoInboxOption(BaseModel):
+    """One row of the sender (mittente) dropdown in the test dialog."""
+
+    id: str
+    email: str
+    display_name: str | None = None
+
+
+class DemoInboxListResponse(BaseModel):
+    inboxes: list[DemoInboxOption]
+
+
+@router.get("/inboxes", response_model=DemoInboxListResponse)
+async def demo_list_inboxes(ctx: CurrentUser) -> DemoInboxListResponse:
+    """Return the active inboxes the demo tenant can send FROM.
+
+    Used by the test-pipeline dialog to render a "scegli mittente"
+    dropdown so the prospect can pick which sender (Alfonso vs Gaetano,
+    say) the demo email will appear to come from. Returns an empty list
+    when the tenant has no inbox rows yet — the dialog falls back to
+    the legacy ``email_from_domain`` path silently.
+    """
+    tenant_id = require_tenant(ctx)
+    await _require_demo_tenant(tenant_id)
+    sb = get_service_client()
+    res = await asyncio.to_thread(
+        lambda: sb.table("tenant_inboxes")
+        .select("id, email, display_name")
+        .eq("tenant_id", tenant_id)
+        .eq("active", True)
+        .order("display_name", desc=False)
+        .execute()
+    )
+    rows = res.data or []
+    return DemoInboxListResponse(
+        inboxes=[
+            DemoInboxOption(
+                id=str(r["id"]),
+                email=r["email"],
+                display_name=r.get("display_name"),
+            )
+            for r in rows
+        ]
+    )
+
+
+# ---------------------------------------------------------------------------
 # Test pipeline — the headline endpoint
 # ---------------------------------------------------------------------------
 
@@ -454,6 +515,43 @@ async def demo_test_pipeline(
     """
     tenant_id = require_tenant(ctx)
     tenant_row = await _require_demo_tenant(tenant_id)
+
+    # 0. Validate the inbox pin (if any) belongs to this tenant. We do this
+    #    BEFORE decrementing the counter so a stale UUID from the dropdown
+    #    doesn't burn an attempt — the dialog can show a friendly 422 and
+    #    the prospect re-picks. A genuine mid-flight inbox deletion is rare
+    #    enough that we don't try to recover automatically.
+    if body.inbox_id:
+        sb_check = get_service_client()
+        try:
+            inbox_check = await asyncio.to_thread(
+                lambda: sb_check.table("tenant_inboxes")
+                .select("id, active")
+                .eq("id", body.inbox_id)
+                .eq("tenant_id", tenant_id)
+                .limit(1)
+                .execute()
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.warning(
+                "demo.inbox_validate_failed",
+                tenant_id=tenant_id,
+                inbox_id=body.inbox_id,
+                err=str(exc),
+            )
+            raise HTTPException(
+                status_code=502,
+                detail="Errore nella verifica del mittente. Riprova fra qualche secondo.",
+            ) from exc
+        rows = inbox_check.data or []
+        if not rows or not rows[0].get("active"):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    "Il mittente selezionato non è più disponibile. "
+                    "Ricarica la pagina e scegli un'altra inbox."
+                ),
+            )
 
     # 1. Atomic decrement — fail fast on exhaustion before doing any work.
     remaining = await asyncio.to_thread(_decrement_attempts, tenant_id)
@@ -717,19 +815,15 @@ async def demo_test_pipeline(
         # verified so NeverBounce gating doesn't skip the send (the
         # prospect typed it themselves; trust > probabilistic check).
         #
-        # When DEMO_EMAIL_RECIPIENT_OVERRIDE is set, ALL demo pipeline
-        # emails are routed to that address (e.g. qa@agenda-pro.it) so
-        # the operator can visually inspect the rendered email in their
-        # own inbox without the prospect receiving anything.  The stored
-        # email is the override address so OutreachAgent picks it up
-        # automatically — no changes needed in that agent.  Copy
-        # personalisation (decision_maker_name) still uses the real
-        # prospect name because that field is never overridden.
-        "decision_maker_email": (
-            settings.demo_email_recipient_override.strip()
-            if settings.demo_email_recipient_override.strip()
-            else body.recipient_email
-        ),
+        # The form's ``recipient_email`` is the source of truth — the
+        # prospect / operator typed where the test email should land and
+        # we honour that exactly. (Earlier versions of this code applied
+        # a server-side ``DEMO_EMAIL_RECIPIENT_OVERRIDE`` redirect to a
+        # QA inbox; we removed it because operators couldn't tell the
+        # silent redirect apart from a real bounce — the dialog showed
+        # "Email accettata · in attesa di consegna" while the prospect's
+        # mailbox stayed empty.)
+        "decision_maker_email": body.recipient_email,
         "decision_maker_email_verified": True,
         # Tag the data_sources array so ops can filter "leads from
         # demo with mock enrichment vs without" without a join.
@@ -864,7 +958,10 @@ async def demo_test_pipeline(
     # done → email queued → email sent → recipient opens, etc).
     asyncio.create_task(
         _run_creative_and_outreach_background(
-            tenant_id=tenant_id, lead_id=lead_id, run_id=run_id
+            tenant_id=tenant_id,
+            lead_id=lead_id,
+            run_id=run_id,
+            inbox_id=body.inbox_id,
         )
     )
 
@@ -878,22 +975,6 @@ async def demo_test_pipeline(
         .execute()
     )
     public_slug = (lead_row.data or [{}])[0].get("public_slug") if lead_row.data else None
-
-    # Warn when the email override is active so operators don't wonder
-    # why the prospect's inbox didn't receive anything during a live call.
-    _email_override = settings.demo_email_recipient_override.strip()
-    if _email_override:
-        log.warning(
-            "demo.email_recipient_overridden",
-            tenant_id=tenant_id,
-            lead_id=lead_id,
-            override_address=_email_override,
-            note=(
-                "DEMO_EMAIL_RECIPIENT_OVERRIDE is set — the outreach email "
-                "will be delivered to the override address, NOT to the "
-                "prospect's typed email. Unset the env var for live demos."
-            ),
-        )
 
     log.info(
         "demo.test_pipeline_started",
@@ -912,7 +993,7 @@ async def demo_test_pipeline(
 
 
 async def _run_creative_and_outreach_background(
-    *, tenant_id: str, lead_id: str, run_id: str
+    *, tenant_id: str, lead_id: str, run_id: str, inbox_id: str | None = None
 ) -> None:
     """Fire-and-forget runner for the slow tail of the demo pipeline.
 
@@ -1020,6 +1101,7 @@ async def _run_creative_and_outreach_background(
                 channel=OutreachChannel.EMAIL,
                 sequence_step=1,
                 force=True,
+                inbox_id=inbox_id,
             )
         )
     except Exception as exc:  # noqa: BLE001
