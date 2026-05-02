@@ -95,6 +95,24 @@ class AuthContext(BaseModel):
     tenant_id: str | None = None
     role: str = "member"
 
+    @property
+    def sub(self) -> str:
+        """JWT-style ``sub`` alias for ``user_id``.
+
+        Several routes (``leads.py``, ``experiments.py``, ``admin.py``)
+        and ``audit_service.py``'s docstring/contract historically read
+        ``ctx.sub`` from the auth context — that's the JWT claim name.
+        ``AuthContext`` was renamed to expose ``user_id`` directly but
+        the legacy callers were never updated, so any of them would
+        crash with ``AttributeError: 'AuthContext' object has no
+        attribute 'sub'`` the first time their codepath actually runs
+        (e.g. /admin/demo/runs after the new logging line landed).
+
+        Returning ``user_id`` here keeps the older API alive without a
+        bulk find-and-replace across half the codebase.
+        """
+        return self.user_id
+
 
 async def get_current_user(
     creds: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],

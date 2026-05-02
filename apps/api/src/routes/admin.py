@@ -734,7 +734,7 @@ async def admin_demo_reset_attempts(
         "admin.demo_reset_attempts",
         tenant_id=body.tenant_id,
         new_count=remaining,
-        reset_by=ctx.sub,
+        reset_by=ctx.user_id,
     )
 
     return DemoResetAttemptsResponse(
@@ -1004,5 +1004,5 @@ async def _admin_demo_runs_impl(
             )
         )
 
-    log.info("admin.demo_runs_listed", count=len(rows), total=total, super_admin=ctx.sub)
+    log.info("admin.demo_runs_listed", count=len(rows), total=total, super_admin=ctx.user_id)
     return DemoRunsResponse(runs=rows, total=total)
