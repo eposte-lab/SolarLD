@@ -810,21 +810,33 @@ async def admin_demo_runs(
     total: int = count_res.count or 0
 
     # --- Rows ---
-    # Pull demo runs along with the lead's subject (for roof badge) and
-    # tenant name in one round-trip via PostgREST embedded resources.
-    # ``leads(subject_id, subjects(...))`` resolves the subject's resolved
-    # operating-site provenance so the dashboard can label each run with
-    # the cascade tier that produced the rooftop coordinates.
+    # Two-step lookup instead of a single embedded-resource query.
+    #
+    # Earlier revisions of this endpoint piled the tenant + leads +
+    # subjects join into one PostgREST embedded select. That broke
+    # transparently in two distinct ways across the day:
+    #   1. A column referenced in the embed didn't exist yet
+    #      (sede_operativa_confidence — added by migration 0090).
+    #   2. PostgREST schema cache hadn't picked up a column rename
+    #      (decision_maker_email moved between tables in our heads
+    #      before we double-checked the source-of-truth in outreach.py).
+    #
+    # In both cases the dashboard fell back to "Failed to query demo
+    # runs" with no actionable signal. The ergonomics are awful: any
+    # future schema drift on subjects or leads silently nukes the
+    # whole admin page.
+    #
+    # Splitting into 2 round-trips trades a tiny amount of latency for
+    # the ability to log + degrade per-step. The "rows" query stays
+    # narrow on demo_pipeline_runs (+ tenant name only) and never
+    # blocks on a join we don't strictly need; the subject / send
+    # lookups happen below as best-effort batched ``in`` queries.
     q = (
         sb.table("demo_pipeline_runs")
         .select(
             "id, tenant_id, lead_id, status, failed_step, "
             "error_message, notes, created_at, updated_at, "
-            "tenants!inner(business_name), "
-            # decision_maker_email lives on ``subjects`` (not ``leads``).
-            "leads(subject_id, "
-            "subjects(decision_maker_email, sede_operativa_source, "
-            "sede_operativa_confidence))"
+            "tenants!inner(business_name)"
         )
         .order("created_at", desc=True)
         .limit(limit)
@@ -838,10 +850,46 @@ async def admin_demo_runs(
     try:
         res = q.execute()
     except Exception as exc:  # noqa: BLE001
-        log.error("admin.demo_runs_query_failed", err=str(exc))
+        log.error(
+            "admin.demo_runs_query_failed",
+            err_type=type(exc).__name__,
+            err=str(exc)[:300],
+        )
         raise HTTPException(status_code=502, detail="Failed to query demo runs.") from exc
 
     raw_rows = res.data or []
+
+    # ---- Subjects batch lookup (roof badge + recipient address) --------
+    # Pull the subject row for every lead in the page in one ``in`` query.
+    # Soft-fail: if the subjects table is unreachable, the page still
+    # loads — the rows just lose their roof badge / recipient column.
+    lead_ids_for_subjects = [r["lead_id"] for r in raw_rows if r.get("lead_id")]
+    subjects_by_lead: dict[str, dict[str, Any]] = {}
+    if lead_ids_for_subjects:
+        try:
+            leads_res = (
+                sb.table("leads")
+                .select(
+                    "id, subject_id, "
+                    "subjects(decision_maker_email, sede_operativa_source, "
+                    "sede_operativa_confidence)"
+                )
+                .in_("id", lead_ids_for_subjects)
+                .execute()
+            )
+            for lr in leads_res.data or []:
+                lid = lr.get("id")
+                subj = lr.get("subjects") or {}
+                if isinstance(subj, list):
+                    subj = subj[0] if subj else {}
+                if lid:
+                    subjects_by_lead[lid] = subj or {}
+        except Exception as exc:  # noqa: BLE001 — degrade gracefully
+            log.warning(
+                "admin.demo_runs_subjects_lookup_failed",
+                err_type=type(exc).__name__,
+                err=str(exc)[:160],
+            )
 
     # ---- Email status batch lookup -------------------------------------
     # outreach_sends has multiple rows per lead in production (re-sends,
@@ -875,12 +923,9 @@ async def admin_demo_runs(
     rows: list[DemoRunRow] = []
     for r in raw_rows:
         tenant_data = r.get("tenants") or {}
-        leads_data = r.get("leads") or {}
-        if isinstance(leads_data, list):
-            leads_data = leads_data[0] if leads_data else {}
-        subject_data = (leads_data or {}).get("subjects") or {}
-        if isinstance(subject_data, list):
-            subject_data = subject_data[0] if subject_data else {}
+        # Subject is now sourced from the separate batch lookup above
+        # (subjects_by_lead) instead of an embedded-resource select.
+        subject_data = subjects_by_lead.get(r.get("lead_id") or "") or {}
 
         send_row = sends_by_lead.get(r.get("lead_id") or "") or {}
 

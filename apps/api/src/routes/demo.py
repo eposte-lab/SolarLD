@@ -1055,15 +1055,13 @@ async def demo_pipeline_run_status(
     tenant_id = require_tenant(ctx)
     sb = get_service_client()
 
+    # Step 1: fetch the demo_pipeline_runs row alone. Keeping this query
+    # narrow shields the UI from PostgREST schema-cache lag whenever we
+    # add columns on subjects (the embedded-resource select was failing
+    # silently in production whenever a new column hadn't propagated yet).
     res = await asyncio.to_thread(
         lambda: sb.table("demo_pipeline_runs")
-        .select(
-            "id, lead_id, status, failed_step, error_message, notes, updated_at, "
-            # decision_maker_email lives on subjects (not leads).
-            "leads(subject_id, "
-            "subjects(decision_maker_email, sede_operativa_source, "
-            "sede_operativa_confidence))"
-        )
+        .select("id, lead_id, status, failed_step, error_message, notes, updated_at")
         .eq("id", run_id)
         .eq("tenant_id", tenant_id)
         .limit(1)
@@ -1073,19 +1071,44 @@ async def demo_pipeline_run_status(
     if not rows:
         raise HTTPException(status_code=404, detail="Run not found")
     row = rows[0]
-    leads_data = row.get("leads") or {}
-    if isinstance(leads_data, list):
-        leads_data = leads_data[0] if leads_data else {}
-    subject_data = (leads_data or {}).get("subjects") or {}
-    if isinstance(subject_data, list):
-        subject_data = subject_data[0] if subject_data else {}
+
+    # Step 2: best-effort lookup of the lead's subject. Soft-fail keeps
+    # the polling endpoint healthy even if subjects/leads is briefly
+    # unreachable — the dialog falls back to the "in attesa di consegna"
+    # panel instead of erroring out the whole run.
+    subject_data: dict[str, Any] = {}
+    lead_id = row.get("lead_id")
+    if lead_id:
+        try:
+            lead_res = await asyncio.to_thread(
+                lambda: sb.table("leads")
+                .select(
+                    "subject_id, "
+                    "subjects(decision_maker_email, sede_operativa_source, "
+                    "sede_operativa_confidence)"
+                )
+                .eq("id", lead_id)
+                .limit(1)
+                .execute()
+            )
+            if lead_res.data:
+                subj = lead_res.data[0].get("subjects") or {}
+                if isinstance(subj, list):
+                    subj = subj[0] if subj else {}
+                subject_data = subj or {}
+        except Exception as exc:  # noqa: BLE001 — degrade gracefully
+            log.debug(
+                "demo.run_subject_lookup_failed",
+                err_type=type(exc).__name__,
+                err=str(exc)[:120],
+                run_id=run_id,
+            )
 
     # ---- Email delivery state ------------------------------------------
     # Look up the most recent outreach_sends row for this lead. We cap to
     # one extra round-trip so polling stays cheap (the dialog hits this
     # endpoint every 2s for up to 3 minutes).
     email_state: dict[str, Any] = {}
-    lead_id = row.get("lead_id")
     if lead_id:
         try:
             send_res = await asyncio.to_thread(
