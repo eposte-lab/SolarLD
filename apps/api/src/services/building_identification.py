@@ -690,3 +690,72 @@ async def identify_building(
         )
 
     return match
+
+
+# ---------------------------------------------------------------------------
+# Backwards compatibility — project BuildingMatch → legacy OperatingSite
+# ---------------------------------------------------------------------------
+
+
+def match_to_operating_site(match: "BuildingMatch") -> Any:
+    """Project a BuildingMatch onto the legacy ``OperatingSite`` dataclass.
+
+    Production call sites (level4_solar_gate, hunter cron, etc.) still
+    expect the old ``OperatingSite`` shape because that's what the
+    Postgres ``subjects.sede_operativa_*`` writers and the dashboard
+    badge consume. Once the BIC is universally adopted we can flatten
+    these into a single record; until then this helper lets us flip
+    callers over one at a time without a big-bang migration.
+
+    The mapping preserves source labels where possible:
+      * BIC ``user_confirmed`` / ``user_pick`` → ``OperatingSite.source='user_confirmed'``
+      * BIC ``vision`` → keep ``vision`` (new value, dashboard badge will need a row)
+      * BIC ``cache`` → preserve underlying source from the cache row
+        (we don't have it here cleanly — fall back to ``cache`` literal)
+      * Other legacy sources (atoka, atoka_civic, places_*, website_*,
+        osm_*, mapbox_hq) pass through; the dashboard already knows
+        the legacy ones and treats unknown values as "unspecified".
+
+    Confidence buckets are 1:1 (high/medium/low/none/user_confirmed)
+    so we don't have to remap them.
+    """
+    # Local import to avoid a top-level circular: operating_site_resolver
+    # imports building_identification (in callers that wrap the BIC),
+    # which would re-import operating_site_resolver here.
+    from .operating_site_resolver import OperatingSite
+
+    if not match.has_coords:
+        return OperatingSite.empty()
+
+    # Normalise the source label. The BIC's voter copies ``leader.source``
+    # which can be e.g. ``places_x3``, ``osm_name``, ``vision``,
+    # ``atoka_civic``. The legacy enum ('atoka' | 'website_scrape' |
+    # 'google_places' | 'mapbox_hq' | 'unresolved') is what the
+    # dashboard badge currently switches on. We project onto the
+    # closest match so the existing rendering keeps working; the new
+    # values (``vision``, ``user_confirmed``, ``places_xN``) leak
+    # through as-is so the dashboard can be extended later.
+    src = match.source
+    if src.startswith("places"):
+        src = "google_places"
+    elif src in ("osm_name", "osm_zone"):
+        src = "osm_snap"
+    elif src == "atoka_civic":
+        src = "atoka"
+    elif src == "user_pick":
+        src = "user_confirmed"
+
+    # Confidence: 'user_confirmed' from BIC stays as-is so the dashboard
+    # can later add a green "operatore" badge; for now the legacy
+    # OperatingSite confidence field accepts any string so we don't
+    # have to coerce it.
+    return OperatingSite(
+        lat=match.lat,
+        lng=match.lng,
+        address=match.address,
+        cap=match.cap,
+        city=match.city,
+        province=match.province,
+        source=src,
+        confidence=str(match.confidence),
+    )

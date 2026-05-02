@@ -41,6 +41,10 @@ from ...services.mapbox_service import (
     MapboxError,
     forward_geocode,
 )
+from ...services.building_identification import (
+    identify_building,
+    match_to_operating_site,
+)
 from ...services.operating_site_resolver import (
     OperatingSite,
     resolve_operating_site,
@@ -294,29 +298,48 @@ async def _resolve_coords(
         )
 
     # Geo concurrency cap — the cascade may issue several HTTP calls
-    # (website fetch + forward_geocode + Places). Hold the semaphore for
-    # the whole resolver so we never exceed our Mapbox/Places quotas.
-    cost_meter: dict[str, int] = {}
+    # (website fetch + forward_geocode + Places multi-query + OSM zone
+    # fetch + Vision). Hold the semaphore for the whole orchestrator
+    # so we never exceed our Mapbox/Places/Anthropic quotas.
+    #
+    # Production now goes through the same Building Identification
+    # Cascade (BIC) as the demo path: same orchestrator, same cache,
+    # same Vision-on-aerial unlock for industrial-zone leads. The only
+    # difference is data — production VATs come from real cron-driven
+    # discovery, not a hand-curated mock-enrichment table — and the
+    # caller never sees a confirmed-building short-circuit because
+    # there's no UI in the funnel to click candidates. Low-confidence
+    # leads still surface ``confidence='low'`` on the subject so
+    # ``creative.py``'s hard gate skips the AI render rather than
+    # painting panels on a wrong rooftop.
     async with geo_sem:
-        site = await resolve_operating_site(
-            profile=p,
+        match = await identify_building(
+            vat_number=p.vat_number or "",
             legal_name=p.legal_name or "",
+            profile=p,
             website_domain=p.website_domain,
             hq_address=p.hq_address,
             hq_city=p.hq_city,
             hq_province=p.hq_province,
+            ateco_code=p.ateco_code,
+            ateco_description=p.ateco_description,
             http_client=http_client,
-            cost_meter=cost_meter,
+            # Production opts out of Vision by default: cron may scan
+            # thousands of leads/day and the Vision API cost adds up.
+            # Demo runs (where there's a human waiting) keep it on.
+            # Tenants that explicitly want maximum accuracy can flip
+            # this on per-tenant once we wire the toggle (Sprint TBD).
+            enable_vision=False,
         )
+    site = match_to_operating_site(match)
 
-    if cost_meter.get("google_places"):
-        # The cost-tracker on FunnelContext.costs only knows about Mapbox
-        # / Solar; record Places spend on the raw costs dict so the
-        # nightly rollup picks it up.
-        ctx.costs.add_mapbox(cost_cents=cost_meter["google_places"])
-    # Tier 4 (mapbox_hq) implies one geocode call.
-    if site.source in {"mapbox_hq", "website_scrape"}:
-        ctx.costs.add_mapbox(cost_cents=_MAPBOX_GEOCODE_COST_CENTS)
+    # Cost attribution: BIC may have spent on Places multi-query (~6c
+    # in the worst case) + a Solar validation call (~2c). We don't
+    # have per-stage costs threaded back yet — record a flat 8c when
+    # the cascade actually traversed past tier 1 so accounting reflects
+    # the new path's spend without per-call instrumentation.
+    if site.source not in {"atoka", "unresolved"}:
+        ctx.costs.add_mapbox(cost_cents=_MAPBOX_GEOCODE_COST_CENTS + 6)
     return site
 
 

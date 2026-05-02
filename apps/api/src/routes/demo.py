@@ -59,6 +59,10 @@ from ..core.supabase_client import get_service_client
 from ..models.enums import OutreachChannel, RoofDataSource, RoofStatus, SubjectType
 from ..services.italian_business_service import AtokaProfile
 from ..services.mapbox_service import MapboxError, forward_geocode
+from ..services.building_identification import (
+    identify_building,
+    match_to_operating_site,
+)
 from ..services.operating_site_resolver import (
     OperatingSite,
     resolve_operating_site,
@@ -716,17 +720,26 @@ async def demo_test_pipeline(
             confidence="high",
         )
     else:
-        async with httpx.AsyncClient(timeout=15.0) as resolver_client:
-            resolved_site = await resolve_operating_site(
-                profile=demo_profile,
+        # No confirmed coords from the dialog → run the full BIC
+        # inline. Demo runs always have a human waiting on the dialog,
+        # so we enable Vision (~$0.025) for the unlock case where
+        # textual signals don't converge. Production runs in
+        # ``level4_solar_gate.py`` use the same orchestrator with
+        # ``enable_vision=False`` to keep cron costs predictable.
+        async with httpx.AsyncClient(timeout=30.0) as resolver_client:
+            match = await identify_building(
+                vat_number=body.vat_number,
                 legal_name=body.legal_name,
+                profile=demo_profile,
                 website_domain=website_domain_hint,
                 hq_address=geo.address or body.hq_address,
                 hq_city=geo.comune,
                 hq_province=geo.provincia,
+                ateco_code=body.ateco_code,
                 http_client=resolver_client,
-                validate_with_solar=True,
+                enable_vision=True,
             )
+        resolved_site = match_to_operating_site(match)
 
     if resolved_site.has_coords:
         roof_lat = resolved_site.lat
