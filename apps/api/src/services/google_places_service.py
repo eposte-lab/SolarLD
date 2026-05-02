@@ -33,7 +33,9 @@ later geocoding refresh.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
+from typing import Any
 
 import httpx
 from tenacity import retry, stop_after_attempt, wait_exponential
@@ -198,3 +200,280 @@ async def search_text(
         display_name=display_text,
         confidence=confidence,
     )
+
+
+# ---------------------------------------------------------------------------
+# BIC Stage 2 — multi-query
+# ---------------------------------------------------------------------------
+
+
+# ATECO prefix → keyword hint to inject into a Places query. Built from
+# Italian ATECO 2007 sector descriptions; we deliberately keep this
+# small and high-precision (over-tagged keywords cause false matches
+# against generic businesses with the same word in their description).
+_ATECO_KEYWORD_HINTS = {
+    "01": "agricola",
+    "10": "alimentare",
+    "13": "tessile",
+    "14": "abbigliamento",
+    "20": "chimica",
+    "22": "plastica",
+    "23": "ceramica",
+    "24": "metallurgica",
+    "25": "metalmeccanica",
+    "27": "elettrotecnica",
+    "28": "macchinari",
+    "29": "automotive",
+    "31": "mobili",
+    "33": "manutenzione",
+    "41": "edilizia",
+    "43": "impianti",
+    "45": "concessionaria",
+    "46": "commercio ingrosso",
+    "47": "commercio dettaglio",
+    "49": "logistica trasporto",
+    "52": "magazzini logistica",
+    "55": "hotel",
+    "56": "ristorazione",
+    "62": "informatica",
+    "70": "consulenza",
+    "85": "scuola",
+    "86": "sanità",
+}
+
+
+def _strip_corporate_suffix(name: str) -> str:
+    """Remove Italian corporate suffixes (S.P.A., S.R.L., …) for query building."""
+    out = name.strip()
+    for suffix in (
+        " S.P.A.", " S.p.A.", " SPA", " s.p.a.", " spa",
+        " S.R.L.", " S.r.l.", " SRL", " s.r.l.", " srl",
+        " S.A.S.", " S.a.s.", " SAS", " s.a.s.", " sas",
+        " S.N.C.", " S.n.c.", " SNC", " s.n.c.", " snc",
+        " & C.", " & C", " soc. coop.", " soc coop",
+    ):
+        if out.endswith(suffix):
+            out = out[: -len(suffix)].strip()
+    return out
+
+
+def build_multi_query_variants(
+    legal_name: str,
+    *,
+    city: str | None = None,
+    province: str | None = None,
+    ateco_code: str | None = None,
+    ateco_description: str | None = None,
+) -> list[str]:
+    """Build 4-6 differently-formatted Places queries for one company.
+
+    The Places "FindPlaceFromText" API ranks by a synthetic relevance
+    score that's heavily affected by exact name match. By probing
+    multiple formulations of the same company name we boost recall
+    when:
+      * the company is registered as "Multilog S.P.A." but Google's
+        business listing shows just "Multilog";
+      * the listing mentions only the trade name (e.g. "Multilog
+        Logistics") rather than the legal name;
+      * the company is in a Z.I. but Google's place is anchored on the
+        nearby town rather than the agglomerato.
+
+    Each unique ``place_id`` returned by the variants ends up as one
+    BuildingCandidate; multiple variants converging on the same place
+    naturally pool weight in the voter.
+    """
+    base = _strip_corporate_suffix(legal_name)
+    first_token = base.split()[0] if base.split() else legal_name
+    queries: list[str] = []
+
+    def _add(q: str) -> None:
+        q = " ".join(q.split())  # collapse whitespace
+        if q and q not in queries:
+            queries.append(q)
+
+    # Variant 1 — exact legal name (kept verbatim so a perfectly listed
+    # SPA still hits even when subsequent variants would lose a token).
+    _add(legal_name)
+
+    # Variant 2 — stripped, plus city when known.
+    _add(f"{base} {city or ''}".strip())
+
+    # Variant 3 — stripped, plus province (catches companies whose
+    # listing is anchored on the province capital rather than the comune).
+    if province:
+        _add(f"{base} {province}")
+
+    # Variant 4 — first-token + city. Helpful when the legal name is
+    # multi-word but the trade name is just the first token.
+    if first_token != base:
+        _add(f"{first_token} {city or ''}".strip())
+
+    # Variant 5 — ATECO keyword hint. Helpful for generic names ("Sole
+    # Energy" → "Sole Energy logistica") to disambiguate against random
+    # POIs sharing the same word.
+    keyword: str | None = None
+    if ateco_code:
+        keyword = _ATECO_KEYWORD_HINTS.get(str(ateco_code).strip()[:2])
+    if not keyword and ateco_description:
+        # Take the first content word of the ATECO description as a
+        # fallback. Skip the leading article if any.
+        words = [w for w in ateco_description.split() if len(w) > 3]
+        keyword = words[0].lower() if words else None
+    if keyword:
+        _add(f"{base} {keyword}")
+
+    # Cap at 6 variants — anything beyond this rarely surfaces a new
+    # place_id and just multiplies cost.
+    return queries[:6]
+
+
+@dataclass(slots=True)
+class _PlaceFromVariant:
+    place_id: str
+    lat: float
+    lng: float
+    formatted_address: str | None
+    display_name: str | None
+    confidence: float
+    matched_variants: list[str]
+
+
+async def search_text_multi_query(
+    *,
+    legal_name: str,
+    city: str | None = None,
+    province: str | None = None,
+    ateco_code: str | None = None,
+    ateco_description: str | None = None,
+    http_client: httpx.AsyncClient | None = None,
+    location_bias_centre: tuple[float, float] | None = None,
+    api_key: str | None = None,
+) -> "list[Any]":
+    """Stage 2 of the BIC: fan out 4-6 query variants → BuildingCandidate list.
+
+    Returns a list of ``BuildingCandidate`` (one per unique ``place_id``)
+    with ``weight`` proportional to how many variants converged on it
+    *and* the per-result Places confidence. Empty list on no API key,
+    no hits, or any failure.
+
+    ``location_bias_centre`` (lat, lng) — when provided, restricts the
+    search to ~5 km around that point so a generic name like
+    "Multilog" doesn't pull a national chain match. Typically the
+    caller passes the legacy resolver's coordinates here so we stay
+    anchored on the right industrial zone.
+    """
+    # Local import to avoid the circular building_identification → here.
+    from . import building_identification as bic
+
+    queries = build_multi_query_variants(
+        legal_name=legal_name,
+        city=city,
+        province=province,
+        ateco_code=ateco_code,
+        ateco_description=ateco_description,
+    )
+    if not queries:
+        return []
+
+    # Group by place_id so duplicates from different variants pool
+    # their evidence into a single BuildingCandidate.
+    by_place: dict[str, _PlaceFromVariant] = {}
+
+    async def _run_one(query: str) -> None:
+        try:
+            res = await search_text(
+                query,
+                client=http_client,
+                api_key=api_key,
+            )
+        except GooglePlacesError as exc:
+            log.warning(
+                "places_multi.error",
+                query=query[:80],
+                err=str(exc)[:120],
+            )
+            return
+        except Exception as exc:  # noqa: BLE001
+            log.warning(
+                "places_multi.unexpected",
+                query=query[:80],
+                err=type(exc).__name__,
+            )
+            return
+
+        if res is None or not res.place_id:
+            return
+
+        # Drop hits that fall too far from the location bias — the
+        # Places API itself doesn't currently honour locationBias on
+        # text search the way it does on findPlaceFromText, so we
+        # post-filter to avoid pulling in a same-named POI from a
+        # different region.
+        if location_bias_centre is not None:
+            from .osm_building_service import _haversine_m  # reuse helper
+
+            d = _haversine_m(
+                location_bias_centre[0],
+                location_bias_centre[1],
+                res.lat,
+                res.lng,
+            )
+            if d > 5_000:
+                log.info(
+                    "places_multi.outside_bias",
+                    query=query[:80],
+                    distance_m=int(d),
+                )
+                return
+
+        existing = by_place.get(res.place_id)
+        if existing is None:
+            by_place[res.place_id] = _PlaceFromVariant(
+                place_id=res.place_id,
+                lat=res.lat,
+                lng=res.lng,
+                formatted_address=res.formatted_address,
+                display_name=res.display_name,
+                confidence=res.confidence,
+                matched_variants=[query],
+            )
+        else:
+            existing.matched_variants.append(query)
+            existing.confidence = max(existing.confidence, res.confidence)
+
+    # Fire all variants in parallel — Places handles a few concurrent
+    # requests fine and total wall-clock for 6 calls drops from ~3s to
+    # ~0.5s.
+    await asyncio.gather(*(_run_one(q) for q in queries), return_exceptions=False)
+
+    # Project into BuildingCandidates. Weight = base 0.3 per match,
+    # boosted by per-result confidence. A place that surfaced in 3+
+    # variants and has formatted_address with a CAP gets up to ~0.9.
+    out: "list[Any]" = []
+    for hit in by_place.values():
+        # Each variant adds ~0.2 weight (capped to avoid runaway).
+        variant_score = min(0.6, 0.2 * len(hit.matched_variants))
+        weight = variant_score + 0.3 * hit.confidence  # 0.0..0.84 typical
+        out.append(
+            bic.BuildingCandidate(
+                lat=hit.lat,
+                lng=hit.lng,
+                weight=round(weight, 3),
+                source=f"places_x{len(hit.matched_variants)}",
+                polygon_geojson=None,
+                metadata={
+                    "place_id": hit.place_id,
+                    "address": hit.formatted_address,
+                    "display_name": hit.display_name,
+                    "matched_variants": hit.matched_variants,
+                    "places_confidence": hit.confidence,
+                },
+            )
+        )
+    log.info(
+        "places_multi.completed",
+        legal_name=legal_name,
+        n_queries=len(queries),
+        n_unique_places=len(out),
+    )
+    return out

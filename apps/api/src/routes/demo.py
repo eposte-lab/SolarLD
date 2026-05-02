@@ -1223,6 +1223,234 @@ async def demo_pipeline_run_status(
     )
 
 
+# ---------------------------------------------------------------------------
+# Building Identification Cascade (BIC) — preview + user confirmation
+# ---------------------------------------------------------------------------
+
+
+class IdentifyBuildingRequest(BaseModel):
+    """Inputs for the BIC preview run.
+
+    Mirrors the subset of ``DemoTestPipelineRequest`` fields that the
+    cascade actually uses, so the dialog can call this BEFORE submitting
+    the whole pipeline. Returns the resolved building (or candidate
+    list) without running scoring / creative / outreach — the dialog
+    surfaces a "Conferma il capannone" picker when confidence is low.
+    """
+
+    vat_number: str = Field(min_length=5, max_length=30)
+    legal_name: str = Field(min_length=1, max_length=255)
+    hq_address: str = Field(min_length=4, max_length=300)
+    ateco_code: str | None = Field(default=None, max_length=20)
+
+
+class IdentifyBuildingCandidate(BaseModel):
+    """One BIC candidate surfaced to the picker UI."""
+
+    rank: int
+    lat: float
+    lng: float
+    weight: float
+    source: str
+    polygon_geojson: dict | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    # Mapbox Static URL for the picker thumbnails — pre-computed
+    # server-side so the browser doesn't have to know our access token.
+    preview_url: str | None = None
+
+
+class IdentifyBuildingResponse(BaseModel):
+    """BIC preview result — winning match + ranked candidates."""
+
+    confidence: str                  # high|medium|low|none|user_confirmed
+    needs_user_confirmation: bool
+    lat: float | None = None
+    lng: float | None = None
+    address: str | None = None
+    source: str
+    source_chain: list[dict[str, Any]] = Field(default_factory=list)
+    candidates: list[IdentifyBuildingCandidate] = Field(default_factory=list)
+    cached: bool = False
+
+
+@router.post("/identify-building", response_model=IdentifyBuildingResponse)
+async def demo_identify_building(
+    ctx: CurrentUser, body: IdentifyBuildingRequest
+) -> IdentifyBuildingResponse:
+    """Run the BIC end-to-end and return the resolved building (no decrement).
+
+    Used by the test-pipeline dialog as a pre-submit step: the operator
+    types the address, this endpoint runs the cascade synchronously
+    (~5-30s depending on which stages fire), and the response carries
+    either a high-confidence winner or a ranked list of candidates so
+    the user can click the right one. The chosen building is then
+    passed back as ``confirmed_building_lat/lng`` on the
+    ``/test-pipeline`` request, skipping the cascade on the second call.
+    """
+    tenant_id = require_tenant(ctx)
+    await _require_demo_tenant(tenant_id)
+
+    from ..services.building_identification import identify_building
+    from ..services.italian_business_service import AtokaProfile
+    from ..services.mapbox_service import (
+        MapboxError,
+        build_static_satellite_url,
+        forward_geocode,
+    )
+
+    # Geocode the HQ address first so the cascade has hq_city / hq_province
+    # to feed into Places multi-query and the OSM zone bbox computation.
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            geo = await forward_geocode(
+                body.hq_address.strip(),
+                client=client,
+                min_relevance=0.5,
+            )
+    except MapboxError as exc:
+        log.warning("demo.identify_building.geocode_error", err=str(exc))
+        geo = None
+
+    profile = AtokaProfile(
+        vat_number=body.vat_number,
+        legal_name=body.legal_name,
+        ateco_code=body.ateco_code,
+        hq_address=(geo.address if geo else body.hq_address) if geo else body.hq_address,
+        hq_cap=geo.cap if geo else None,
+        hq_city=geo.comune if geo else None,
+        hq_province=geo.provincia if geo else None,
+        hq_lat=geo.lat if geo else None,
+        hq_lng=geo.lng if geo else None,
+    )
+
+    async with httpx.AsyncClient(timeout=30.0) as http_client:
+        match = await identify_building(
+            vat_number=body.vat_number,
+            legal_name=body.legal_name,
+            profile=profile,
+            hq_address=geo.address if geo else body.hq_address,
+            hq_city=geo.comune if geo else None,
+            hq_province=geo.provincia if geo else None,
+            ateco_code=body.ateco_code,
+            http_client=http_client,
+        )
+
+    # Surface the source_chain entries (which already came back from
+    # the voter) as picker candidates. We sort by weight desc + rank
+    # them so the dialog can colour-code (rank 1 green, 2-3 amber,
+    # 4-5 grey).
+    sorted_chain = sorted(
+        match.source_chain, key=lambda e: e.get("weight", 0.0), reverse=True
+    )
+    cands: list[IdentifyBuildingCandidate] = []
+    for i, entry in enumerate(sorted_chain[:5]):
+        try:
+            preview_url = build_static_satellite_url(
+                float(entry["lat"]),
+                float(entry["lng"]),
+                zoom=18,
+                width=320,
+                height=320,
+            )
+        except Exception:  # noqa: BLE001 — preview is optional
+            preview_url = None
+        cands.append(
+            IdentifyBuildingCandidate(
+                rank=i + 1,
+                lat=float(entry["lat"]),
+                lng=float(entry["lng"]),
+                weight=float(entry.get("weight") or 0.0),
+                source=str(entry.get("stage") or "unknown"),
+                # Polygon may be in metadata; the voter doesn't currently
+                # plumb it back to source_chain entries, so this stays
+                # None for now (vision/OSM polygons are still on the
+                # leader's metadata used for the winning match).
+                polygon_geojson=None,
+                metadata={
+                    k: v for k, v in entry.items()
+                    if k not in ("stage", "weight", "lat", "lng")
+                },
+                preview_url=preview_url,
+            )
+        )
+
+    return IdentifyBuildingResponse(
+        confidence=match.confidence,
+        needs_user_confirmation=match.needs_user_confirmation,
+        lat=match.lat,
+        lng=match.lng,
+        address=match.address,
+        source=match.source,
+        source_chain=match.source_chain,
+        candidates=cands,
+        cached=match.source in ("cache", "user_confirmed"),
+    )
+
+
+class ConfirmBuildingRequest(BaseModel):
+    """User clicked a building on the picker map (or a freehand point)."""
+
+    vat_number: str = Field(min_length=5, max_length=30)
+    lat: float
+    lng: float
+    polygon_geojson: dict | None = None
+    note: str | None = Field(default=None, max_length=400)
+
+
+class ConfirmBuildingResponse(BaseModel):
+    confidence: str
+    cached: bool = True
+
+
+@router.post("/confirm-building", response_model=ConfirmBuildingResponse)
+async def demo_confirm_building(
+    ctx: CurrentUser, body: ConfirmBuildingRequest
+) -> ConfirmBuildingResponse:
+    """Persist a user-clicked building as the authoritative pin for this VAT.
+
+    Stage 7 of the BIC, but driven by a UI click rather than a vote.
+    The cache write uses ``confidence='user_confirmed'`` which the
+    automatic resolver will never overwrite — once the operator
+    confirms, future runs short-circuit at Stage 0.
+    """
+    tenant_id = require_tenant(ctx)
+    await _require_demo_tenant(tenant_id)
+
+    from ..services.building_identification import (
+        BuildingMatch,
+        cache_building_match,
+    )
+
+    match = BuildingMatch(
+        lat=body.lat,
+        lng=body.lng,
+        address=None,
+        cap=None,
+        city=None,
+        province=None,
+        polygon_geojson=body.polygon_geojson,
+        confidence="user_confirmed",
+        source="user_pick",
+        source_chain=[
+            {
+                "stage": "user_pick",
+                "weight": 1.0,
+                "lat": body.lat,
+                "lng": body.lng,
+                "note": body.note,
+            }
+        ],
+        needs_user_confirmation=False,
+    )
+    await cache_building_match(
+        vat_number=body.vat_number,
+        tenant_id=tenant_id,
+        match=match,
+        user_id=ctx.user_id,
+    )
+    return ConfirmBuildingResponse(confidence="user_confirmed", cached=True)
+
+
 def _refund_attempt(tenant_id: str) -> None:
     """Increment the counter back up by 1. Used when the attempt could
     not be started (e.g. geocoding failed). Best-effort — a refund
