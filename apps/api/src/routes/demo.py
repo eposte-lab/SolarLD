@@ -755,6 +755,10 @@ async def demo_test_pipeline(
                 "sede_operativa_lat": resolved_site.lat,
                 "sede_operativa_lng": resolved_site.lng,
                 "sede_operativa_source": resolved_site.source,
+                # Persist the confidence bucket alongside the source so the
+                # CreativeAgent's hard gate (Sprint 2.1) and the
+                # /admin/demo-runs roof badge can both read it back.
+                "sede_operativa_confidence": resolved_site.confidence,
             }
         )
     try:

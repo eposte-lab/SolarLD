@@ -467,6 +467,11 @@ def _upsert_roof_and_subject(
                             "sede_operativa_lat": site.lat,
                             "sede_operativa_lng": site.lng,
                             "sede_operativa_source": site.source,
+                            # Persist confidence alongside source so the
+                            # CreativeAgent gate + dashboard roof badge
+                            # can read it back. Mapping is identical to
+                            # the one in operating_site_resolver.
+                            "sede_operativa_confidence": site.confidence,
                         }
                     )
                 ins = sb.table("subjects").insert(subject_payload).execute()
