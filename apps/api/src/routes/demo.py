@@ -145,6 +145,13 @@ class DemoPipelineRunResponse(BaseModel):
     happy path, or jumps to ``failed`` with ``failed_step`` set. The
     dialog only flips to a success toast on ``done``; on ``failed`` it
     shows ``error_message`` and the user has already been refunded.
+
+    Beyond the pipeline state, we also project the email-delivery truth
+    (``email_status`` / ``email_status_detail``) and the rooftop
+    identification provenance (``roof_source`` / ``roof_confidence``)
+    so the dialog can keep polling past ``done`` until Resend confirms
+    the delivery — that's the only way to tell ``DEMO_EMAIL_RECIPIENT_OVERRIDE``
+    redirects and silent bounces apart from a real successful send.
     """
 
     id: str
@@ -154,6 +161,16 @@ class DemoPipelineRunResponse(BaseModel):
     error_message: str | None
     notes: str | None
     updated_at: str
+    # Delivery truth — populated from outreach_sends after the
+    # OutreachAgent has inserted the row, then mutated by the Resend
+    # webhook (TrackingAgent) when delivered/bounced events land.
+    email_status: str | None = None              # SENT|DELIVERED|FAILED|...
+    email_status_detail: str | None = None        # bounce_reason, complaint code
+    email_recipient: str | None = None            # actual To: address (post override)
+    email_message_id: str | None = None
+    # Roof identification cascade outcome (subjects.sede_operativa_*).
+    roof_source: str | None = None                # atoka|website_scrape|google_places|mapbox_hq|osm_snap|unresolved
+    roof_confidence: str | None = None            # high|medium|low|none
 
 
 # ---------------------------------------------------------------------------
@@ -536,15 +553,34 @@ async def demo_test_pipeline(
             else None
         ),
     )
-    async with httpx.AsyncClient(timeout=10.0) as resolver_client:
+    # Pass the Atoka-recorded website (when present) so the resolver can
+    # fall through to tier 2 (website scrape) if Atoka tier 1 fails the
+    # Solar-API validation step. Without a domain hint the cascade jumps
+    # straight to Google Places, which is noisier for B2B SMEs.
+    website_domain_hint: str | None = None
+    if demo_profile is not None and getattr(demo_profile, "website_url", None):
+        try:
+            from urllib.parse import urlparse
+
+            parsed = urlparse(str(demo_profile.website_url))
+            website_domain_hint = (parsed.hostname or "").lstrip("www.") or None
+        except Exception:  # noqa: BLE001
+            website_domain_hint = None
+
+    # Demo runs are user-facing and pay extra Solar API calls happily —
+    # ``validate_with_solar=True`` rejects Atoka coords that don't sit on
+    # a real building (commercialista pattern), which is the failure mode
+    # that produced rooftops on the wrong building during demo calls.
+    async with httpx.AsyncClient(timeout=15.0) as resolver_client:
         resolved_site: OperatingSite = await resolve_operating_site(
             profile=demo_profile,
             legal_name=body.legal_name,
-            website_domain=None,
+            website_domain=website_domain_hint,
             hq_address=geo.address or body.hq_address,
             hq_city=geo.comune,
             hq_province=geo.provincia,
             http_client=resolver_client,
+            validate_with_solar=True,
         )
 
     if resolved_site.has_coords:
@@ -1017,7 +1053,11 @@ async def demo_pipeline_run_status(
 
     res = await asyncio.to_thread(
         lambda: sb.table("demo_pipeline_runs")
-        .select("id, lead_id, status, failed_step, error_message, notes, updated_at")
+        .select(
+            "id, lead_id, status, failed_step, error_message, notes, updated_at, "
+            "leads(decision_maker_email, subject_id, "
+            "subjects(sede_operativa_source, sede_operativa_confidence))"
+        )
         .eq("id", run_id)
         .eq("tenant_id", tenant_id)
         .limit(1)
@@ -1027,14 +1067,48 @@ async def demo_pipeline_run_status(
     if not rows:
         raise HTTPException(status_code=404, detail="Run not found")
     row = rows[0]
+    leads_data = row.get("leads") or {}
+    if isinstance(leads_data, list):
+        leads_data = leads_data[0] if leads_data else {}
+    subject_data = (leads_data or {}).get("subjects") or {}
+    if isinstance(subject_data, list):
+        subject_data = subject_data[0] if subject_data else {}
+
+    # ---- Email delivery state ------------------------------------------
+    # Look up the most recent outreach_sends row for this lead. We cap to
+    # one extra round-trip so polling stays cheap (the dialog hits this
+    # endpoint every 2s for up to 3 minutes).
+    email_state: dict[str, Any] = {}
+    lead_id = row.get("lead_id")
+    if lead_id:
+        try:
+            send_res = await asyncio.to_thread(
+                lambda: sb.table("outreach_sends")
+                .select("status, failure_reason, email_message_id, sent_at")
+                .eq("lead_id", lead_id)
+                .order("created_at", desc=False)
+                .limit(1)
+                .execute()
+            )
+            if send_res.data:
+                email_state = send_res.data[0] or {}
+        except Exception as exc:  # noqa: BLE001 — degrade gracefully
+            log.debug("demo.run_email_lookup_failed", err=str(exc), run_id=run_id)
+
     return DemoPipelineRunResponse(
         id=row["id"],
-        lead_id=row.get("lead_id"),
+        lead_id=lead_id,
         status=row["status"],
         failed_step=row.get("failed_step"),
         error_message=row.get("error_message"),
         notes=row.get("notes"),
         updated_at=row["updated_at"],
+        email_status=email_state.get("status"),
+        email_status_detail=email_state.get("failure_reason"),
+        email_recipient=(leads_data or {}).get("decision_maker_email"),
+        email_message_id=email_state.get("email_message_id"),
+        roof_source=(subject_data or {}).get("sede_operativa_source"),
+        roof_confidence=(subject_data or {}).get("sede_operativa_confidence"),
     )
 
 

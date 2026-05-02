@@ -128,6 +128,9 @@ def build_paint_prompt(
     primary_azimuth_deg: float | None = None,
     kwp: float | None = None,
     subject_type: str = "unknown",
+    roof_area_sqm: float | None = None,
+    roof_segment_count: int | None = None,
+    roof_pitch_deg: float | None = None,
 ) -> str:
     """Compose the master instruction Gemini Flash Image will follow.
 
@@ -179,6 +182,36 @@ def build_paint_prompt(
         else ""
     )
 
+    # Roof geometry hints sourced from Google Solar API. These are the
+    # tightest constraints we have on what the rooftop *actually* looks
+    # like and they massively reduce the chance nano-banana paints panels
+    # on a neighbouring building when the aerial crop has overlap. The
+    # numbers are appended into a single sentence so the model treats them
+    # as constraints rather than separate (and skippable) bullet points.
+    geometry_parts: list[str] = []
+    if roof_area_sqm and roof_area_sqm > 0:
+        geometry_parts.append(
+            f"approximately {roof_area_sqm:.0f} square metres of usable roof surface"
+        )
+    if roof_segment_count and roof_segment_count > 0:
+        plane_word = "plane" if roof_segment_count == 1 else "distinct planes"
+        geometry_parts.append(
+            f"{roof_segment_count} {plane_word}"
+        )
+    if roof_pitch_deg is not None and roof_pitch_deg > 0:
+        geometry_parts.append(
+            f"a dominant pitch of about {roof_pitch_deg:.0f}°"
+        )
+    geometry_hint = ""
+    if geometry_parts:
+        geometry_hint = (
+            " The structural analysis identified "
+            + ", ".join(geometry_parts)
+            + " on this rooftop — use these dimensions as a hard constraint "
+            "for panel placement and total array footprint, and never let "
+            "the array spill onto adjacent surfaces."
+        )
+
     return (
         # ── 1. Identify the target ────────────────────────────────────
         "TASK: Edit this top-down aerial photograph by adding "
@@ -206,7 +239,8 @@ def build_paint_prompt(
         f"Add {panel_word} dark-blue rectangular panels with thin "
         "silver aluminium frames, arranged in clean parallel rows "
         f"aligned with the existing roof edges{scale_hint}."
-        f"{azimuth_hint} "
+        f"{azimuth_hint}"
+        f"{geometry_hint} "
         # ── 4. Geometry / lighting ──────────────────────────────────
         "The panels MUST lie flat on the roof surface, follow its "
         "exact perspective, slope and orientation, and inherit the "
@@ -269,6 +303,9 @@ async def paint_panels_on_aerial(
     primary_azimuth_deg: float | None = None,
     kwp: float | None = None,
     subject_type: str = "unknown",
+    roof_area_sqm: float | None = None,
+    roof_segment_count: int | None = None,
+    roof_pitch_deg: float | None = None,
     poll_timeout_s: float = 120.0,
     poll_interval_s: float = 2.0,
     http_client: httpx.AsyncClient | None = None,
@@ -296,6 +333,9 @@ async def paint_panels_on_aerial(
         primary_azimuth_deg=primary_azimuth_deg,
         kwp=kwp,
         subject_type=subject_type,
+        roof_area_sqm=roof_area_sqm,
+        roof_segment_count=roof_segment_count,
+        roof_pitch_deg=roof_pitch_deg,
     )
 
     log.info(

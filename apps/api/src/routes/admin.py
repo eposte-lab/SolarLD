@@ -760,6 +760,21 @@ class DemoRunRow(BaseModel):
     notes: str | None = None
     created_at: str
     updated_at: str
+    # Email delivery status — derived from the most-recent ``outreach_sends``
+    # row for the run's lead. Lets the dashboard tell the difference between
+    # "Resend accepted the request" (sent) and "the recipient mailbox actually
+    # received it" (delivered) — the gap that hid silent bounces and the
+    # ``DEMO_EMAIL_RECIPIENT_OVERRIDE`` redirect from operators on demo calls.
+    email_status: str | None = None              # SCHEDULED|SENT|DELIVERED|FAILED|...
+    email_status_detail: str | None = None        # outreach_sends.failure_reason (bounce/complaint code)
+    email_message_id: str | None = None           # for cross-checking against Resend dashboard
+    email_sent_at: str | None = None              # ISO-8601, when status became SENT
+    email_recipient: str | None = None            # the address the email was actually sent to
+    # Roof identification provenance — lets the dashboard render a badge
+    # showing whether the rendered roof was confirmed by Atoka, scraped, or
+    # is just an HQ centroid (low confidence → review before demoing).
+    roof_source: str | None = None                # subjects.sede_operativa_source
+    roof_confidence: str | None = None            # high|medium|low|none
 
 
 class DemoRunsResponse(BaseModel):
@@ -795,12 +810,19 @@ async def admin_demo_runs(
     total: int = count_res.count or 0
 
     # --- Rows ---
+    # Pull demo runs along with the lead's subject (for roof badge) and
+    # tenant name in one round-trip via PostgREST embedded resources.
+    # ``leads(subject_id, subjects(...))`` resolves the subject's resolved
+    # operating-site provenance so the dashboard can label each run with
+    # the cascade tier that produced the rooftop coordinates.
     q = (
         sb.table("demo_pipeline_runs")
         .select(
             "id, tenant_id, lead_id, status, failed_step, "
             "error_message, notes, created_at, updated_at, "
-            "tenants!inner(business_name)"
+            "tenants!inner(business_name), "
+            "leads(subject_id, decision_maker_email, "
+            "subjects(sede_operativa_source, sede_operativa_confidence))"
         )
         .order("created_at", desc=True)
         .limit(limit)
@@ -817,9 +839,49 @@ async def admin_demo_runs(
         log.error("admin.demo_runs_query_failed", err=str(exc))
         raise HTTPException(status_code=502, detail="Failed to query demo runs.") from exc
 
+    raw_rows = res.data or []
+
+    # ---- Email status batch lookup -------------------------------------
+    # outreach_sends has multiple rows per lead in production (re-sends,
+    # follow-ups). For demo runs we want the FIRST send (the one created by
+    # the demo pipeline). Doing this as one batched ``in`` query keeps the
+    # endpoint at O(2) round-trips regardless of page size.
+    lead_ids = [r["lead_id"] for r in raw_rows if r.get("lead_id")]
+    sends_by_lead: dict[str, dict[str, Any]] = {}
+    if lead_ids:
+        try:
+            # Note: outreach_sends does not store recipient_email — the
+            # actual recipient is on leads.decision_maker_email (already
+            # joined above). We only project the send-level metadata here.
+            sends_res = (
+                sb.table("outreach_sends")
+                .select(
+                    "lead_id, status, failure_reason, email_message_id, "
+                    "sent_at, created_at"
+                )
+                .in_("lead_id", lead_ids)
+                .order("created_at", desc=False)  # earliest first → demo send wins
+                .execute()
+            )
+            for s in sends_res.data or []:
+                lid = s.get("lead_id")
+                if lid and lid not in sends_by_lead:
+                    sends_by_lead[lid] = s
+        except Exception as exc:  # noqa: BLE001 — degrade gracefully
+            log.warning("admin.demo_runs_email_status_lookup_failed", err=str(exc))
+
     rows: list[DemoRunRow] = []
-    for r in res.data or []:
+    for r in raw_rows:
         tenant_data = r.get("tenants") or {}
+        leads_data = r.get("leads") or {}
+        if isinstance(leads_data, list):
+            leads_data = leads_data[0] if leads_data else {}
+        subject_data = (leads_data or {}).get("subjects") or {}
+        if isinstance(subject_data, list):
+            subject_data = subject_data[0] if subject_data else {}
+
+        send_row = sends_by_lead.get(r.get("lead_id") or "") or {}
+
         rows.append(
             DemoRunRow(
                 id=r["id"],
@@ -832,6 +894,13 @@ async def admin_demo_runs(
                 notes=r.get("notes"),
                 created_at=r["created_at"],
                 updated_at=r["updated_at"],
+                email_status=send_row.get("status"),
+                email_status_detail=send_row.get("failure_reason"),
+                email_message_id=send_row.get("email_message_id"),
+                email_sent_at=send_row.get("sent_at"),
+                email_recipient=(leads_data or {}).get("decision_maker_email"),
+                roof_source=(subject_data or {}).get("sede_operativa_source"),
+                roof_confidence=(subject_data or {}).get("sede_operativa_confidence"),
             )
         )
 

@@ -21,7 +21,11 @@ import {
   Clock,
   Info,
   Loader2,
+  Mail,
+  MailX,
+  MapPin,
   RefreshCw,
+  Send,
   Zap,
 } from 'lucide-react';
 
@@ -32,6 +36,25 @@ import { cn } from '@/lib/utils';
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
+
+/**
+ * Outreach send statuses we surface here.  Mirrors
+ * ``apps/api/src/models/enums.py::CampaignStatus`` plus a few in-flight
+ * values that the TrackingAgent writes when Resend webhooks land.
+ *
+ * The two statuses that matter most for demo runs:
+ *   - SENT     → Resend accepted the request (HTTP 2xx). Not delivery.
+ *   - DELIVERED → recipient mailbox accepted the message (delivered webhook).
+ *   - FAILED   → bounced, complained, or send-time error. ``email_status_detail``
+ *                carries the bounce/complaint code.
+ */
+type EmailStatus =
+  | 'SCHEDULED'
+  | 'SENT'
+  | 'DELIVERED'
+  | 'OPENED'
+  | 'CLICKED'
+  | 'FAILED';
 
 interface DemoRunRow {
   id: string;
@@ -44,6 +67,22 @@ interface DemoRunRow {
   notes: string | null;
   created_at: string;
   updated_at: string;
+  // Email truth: what really happened after Resend accepted the send.
+  email_status: EmailStatus | null;
+  email_status_detail: string | null;
+  email_message_id: string | null;
+  email_sent_at: string | null;
+  email_recipient: string | null;
+  // Roof identification provenance (Sprint 2 cascade).
+  roof_source:
+    | 'atoka'
+    | 'website_scrape'
+    | 'google_places'
+    | 'mapbox_hq'
+    | 'osm_snap'
+    | 'unresolved'
+    | null;
+  roof_confidence: 'high' | 'medium' | 'low' | 'none' | null;
 }
 
 interface DemoRunsResponse {
@@ -237,6 +276,157 @@ function ErrorNotesBadge({ run }: { run: DemoRunRow }) {
 }
 
 // ---------------------------------------------------------------------------
+// Email delivery chip — renders the *real* state of the demo email,
+// distinguishing "Resend accepted it" (sent) from "actually arrived"
+// (delivered) and from "bounced/complained" (failed). Tooltip surfaces
+// the failure reason and the recipient address so an operator can spot
+// silent ``DEMO_EMAIL_RECIPIENT_OVERRIDE`` redirects at a glance.
+// ---------------------------------------------------------------------------
+
+const EMAIL_STATUS_CONFIG: Record<
+  EmailStatus,
+  { label: string; tone: string; icon: React.FC<{ className?: string }> }
+> = {
+  SCHEDULED: {
+    label: 'In coda',
+    tone: 'bg-on-surface/8 text-on-surface-variant',
+    icon: ({ className }) => <Clock className={className} />,
+  },
+  SENT: {
+    label: 'Accettata',
+    tone: 'bg-amber-500/15 text-amber-300',
+    icon: ({ className }) => <Send className={className} />,
+  },
+  DELIVERED: {
+    label: 'Consegnata',
+    tone: 'bg-emerald-500/15 text-emerald-300',
+    icon: ({ className }) => <Mail className={className} />,
+  },
+  OPENED: {
+    label: 'Aperta',
+    tone: 'bg-emerald-500/20 text-emerald-200',
+    icon: ({ className }) => <Mail className={className} />,
+  },
+  CLICKED: {
+    label: 'Cliccata',
+    tone: 'bg-emerald-500/25 text-emerald-200',
+    icon: ({ className }) => <Mail className={className} />,
+  },
+  FAILED: {
+    label: 'Errore',
+    tone: 'bg-rose-500/15 text-rose-300',
+    icon: ({ className }) => <MailX className={className} />,
+  },
+};
+
+function EmailStatusChip({ run }: { run: DemoRunRow }) {
+  // Outreach step hasn't started yet → nothing to show.
+  if (run.status === 'scoring' || run.status === 'creative') {
+    return <span className="text-xs text-on-surface-muted">—</span>;
+  }
+  // Outreach step ran but the send wasn't recorded — could be the
+  // OutreachAgent failed before the insert, or Resend rejected the
+  // request. The ``error_message`` on the run row carries the detail.
+  if (!run.email_status) {
+    return run.status === 'failed' && run.failed_step === 'outreach' ? (
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-500/15 px-2 py-0.5 text-[11px] font-semibold text-rose-300">
+        <MailX className="h-3 w-3" />
+        Non inviata
+      </span>
+    ) : (
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-on-surface/8 px-2 py-0.5 text-[11px] font-medium text-on-surface-variant">
+        <Loader2 className="h-3 w-3 animate-spin" />
+        In invio…
+      </span>
+    );
+  }
+  const cfg = EMAIL_STATUS_CONFIG[run.email_status] ?? EMAIL_STATUS_CONFIG.SENT;
+  const Icon = cfg.icon;
+  // Tooltip text — recipient + bounce code so operators don't need to
+  // jump to Resend dashboard for the obvious cases (bounced mailbox,
+  // recipient mismatch when the override env var is set).
+  const tooltipParts: string[] = [];
+  if (run.email_recipient) tooltipParts.push(`A: ${run.email_recipient}`);
+  if (run.email_status_detail) tooltipParts.push(`Motivo: ${run.email_status_detail}`);
+  if (run.email_message_id) tooltipParts.push(`Resend ID: ${run.email_message_id}`);
+  const tooltip = tooltipParts.join('\n');
+
+  return (
+    <span
+      title={tooltip || undefined}
+      className={cn(
+        'inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-semibold',
+        cfg.tone,
+      )}
+    >
+      <Icon className="h-3 w-3" />
+      {cfg.label}
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Roof identification badge — shows which tier of the operating-site
+// cascade actually produced the rooftop coords. Red ``Centroide HQ`` /
+// ``Non risolto`` flag the runs where the rendered roof is almost
+// certainly the wrong building (hand-review before showing the lead
+// in a demo call).
+// ---------------------------------------------------------------------------
+
+const ROOF_SOURCE_CONFIG: Record<
+  NonNullable<DemoRunRow['roof_source']>,
+  { label: string; tone: string }
+> = {
+  atoka: {
+    label: 'Atoka',
+    tone: 'bg-emerald-500/15 text-emerald-300',
+  },
+  website_scrape: {
+    label: 'Sito web',
+    tone: 'bg-emerald-500/15 text-emerald-300',
+  },
+  osm_snap: {
+    label: 'Snap OSM',
+    tone: 'bg-amber-500/15 text-amber-300',
+  },
+  google_places: {
+    label: 'Google Places',
+    tone: 'bg-amber-500/15 text-amber-300',
+  },
+  mapbox_hq: {
+    label: 'Centroide HQ',
+    tone: 'bg-rose-500/15 text-rose-300',
+  },
+  unresolved: {
+    label: 'Non risolto',
+    tone: 'bg-on-surface/10 text-on-surface-muted',
+  },
+};
+
+function RoofBadge({ run }: { run: DemoRunRow }) {
+  if (!run.roof_source) {
+    return <span className="text-xs text-on-surface-muted">—</span>;
+  }
+  const cfg = ROOF_SOURCE_CONFIG[run.roof_source] ?? null;
+  if (!cfg) return <span className="text-xs text-on-surface-muted">—</span>;
+  const tooltip = run.roof_confidence
+    ? `Confidence: ${run.roof_confidence}`
+    : undefined;
+  return (
+    <span
+      title={tooltip}
+      className={cn(
+        'inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-semibold',
+        cfg.tone,
+      )}
+    >
+      <MapPin className="h-3 w-3" />
+      {cfg.label}
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Filter chip
 // ---------------------------------------------------------------------------
 
@@ -316,14 +506,37 @@ export default function AdminDemoRunsPage() {
     return () => clearInterval(t);
   }, [autoRefresh, load]);
 
-  // Stats
+  // Stats — pipeline state plus delivery-truth counts that surface
+  // silent bounces and mis-routed sends. ``deliveredOk`` and
+  // ``deliveryFailed`` derive from ``email_status``, which only the
+  // Resend webhook can set — so they double as a heartbeat for the
+  // webhook integration itself.
   const stats = useMemo(() => {
     const done = runs.filter((r) => r.status === 'done').length;
     const failed = runs.filter((r) => r.status === 'failed').length;
     const inFlight = runs.filter(
       (r) => r.status === 'scoring' || r.status === 'creative' || r.status === 'outreach',
     ).length;
-    return { done, failed, inFlight };
+    const deliveredOk = runs.filter(
+      (r) =>
+        r.email_status === 'DELIVERED' ||
+        r.email_status === 'OPENED' ||
+        r.email_status === 'CLICKED',
+    ).length;
+    const deliveryPending = runs.filter((r) => r.email_status === 'SENT').length;
+    const deliveryFailed = runs.filter((r) => r.email_status === 'FAILED').length;
+    const lowConfidenceRoof = runs.filter(
+      (r) => r.roof_source === 'mapbox_hq' || r.roof_source === 'unresolved',
+    ).length;
+    return {
+      done,
+      failed,
+      inFlight,
+      deliveredOk,
+      deliveryPending,
+      deliveryFailed,
+      lowConfidenceRoof,
+    };
   }, [runs]);
 
   const totalPages = Math.ceil(total / PAGE_SIZE);
@@ -392,6 +605,37 @@ export default function AdminDemoRunsPage() {
               {stats.failed} falliti
             </div>
           )}
+          {/* Delivery truth chips — populated only when the Resend webhook
+              has landed for at least one run. If they stay at zero across a
+              page of completed runs, the webhook integration is broken (or
+              no Resend events have arrived yet). */}
+          {stats.deliveredOk > 0 && (
+            <div className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-3 py-1.5 text-sm font-medium text-emerald-300">
+              <Mail className="h-3.5 w-3.5" />
+              {stats.deliveredOk} consegnate
+            </div>
+          )}
+          {stats.deliveryPending > 0 && (
+            <div className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/15 px-3 py-1.5 text-sm font-medium text-amber-300">
+              <Send className="h-3.5 w-3.5" />
+              {stats.deliveryPending} in attesa
+            </div>
+          )}
+          {stats.deliveryFailed > 0 && (
+            <div className="inline-flex items-center gap-1.5 rounded-full bg-rose-500/15 px-3 py-1.5 text-sm font-semibold text-rose-300">
+              <MailX className="h-3.5 w-3.5" />
+              {stats.deliveryFailed} bouncate
+            </div>
+          )}
+          {stats.lowConfidenceRoof > 0 && (
+            <div
+              className="inline-flex items-center gap-1.5 rounded-full bg-orange-500/15 px-3 py-1.5 text-sm font-semibold text-orange-300"
+              title="Run con tetto identificato solo via centroide HQ o non risolto — verifica manuale prima di mostrare in demo"
+            >
+              <MapPin className="h-3.5 w-3.5" />
+              {stats.lowConfidenceRoof} tetto da verificare
+            </div>
+          )}
         </div>
       )}
 
@@ -458,6 +702,12 @@ export default function AdminDemoRunsPage() {
                 <th className="hidden px-4 py-3 text-left text-xs font-semibold uppercase tracking-widest text-on-surface-variant md:table-cell">
                   Timeline
                 </th>
+                <th className="hidden px-4 py-3 text-left text-xs font-semibold uppercase tracking-widest text-on-surface-variant lg:table-cell">
+                  Email
+                </th>
+                <th className="hidden px-4 py-3 text-left text-xs font-semibold uppercase tracking-widest text-on-surface-variant lg:table-cell">
+                  Tetto
+                </th>
                 <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-widest text-on-surface-variant">
                   Avviato
                 </th>
@@ -514,6 +764,18 @@ export default function AdminDemoRunsPage() {
                     {/* Timeline bar */}
                     <td className="hidden px-4 py-4 md:table-cell">
                       <TimelineBar run={run} />
+                    </td>
+
+                    {/* Email delivery state — the truth column, distinct
+                        from the pipeline ``status`` so a green outreach
+                        dot can still surface a red bounce here. */}
+                    <td className="hidden px-4 py-4 lg:table-cell">
+                      <EmailStatusChip run={run} />
+                    </td>
+
+                    {/* Roof identification provenance */}
+                    <td className="hidden px-4 py-4 lg:table-cell">
+                      <RoofBadge run={run} />
                     </td>
 
                     {/* Started at */}

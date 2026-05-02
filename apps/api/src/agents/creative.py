@@ -75,6 +75,7 @@ from ..services.google_solar_service import (
     SolarApiNotFound,
     fetch_building_insight,
 )
+from ..services.osm_building_service import find_nearest_building
 from ..services.remotion_service import (
     RemotionError,
     RenderTransitionInput,
@@ -173,8 +174,40 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
         lat = _to_float(roof.get("lat"))
         lng = _to_float(roof.get("lng"))
 
+        # Operating-site confidence gate.
+        #
+        # The 4-tier resolver (apps/api/src/services/operating_site_resolver.py)
+        # tags the subject with a confidence bucket: ``high`` (Atoka match
+        # confirmed), ``medium`` (website scrape or Google Places),
+        # ``low`` (Mapbox HQ centroid — almost always wrong for B2B leads
+        # whose registered office is the accountant or a notary), ``none``
+        # (cascade fully failed). Rendering on a low-confidence point is
+        # the exact failure mode that drove the user to flag panels-on-the-
+        # wrong-rooftop on the demo call: Solar API picks the closest
+        # building to the centroid, which is rarely the real one.
+        #
+        # We only block the render — the email still goes out with the
+        # static fallback image. Skipping silently here used to mean the
+        # operator never noticed the wrong roof until the prospect did.
+        roof_confidence = (subject.get("sede_operativa_confidence") or "").lower()
+        roof_source = (subject.get("sede_operativa_source") or "").lower()
+
         if lat is None or lng is None:
             skipped_reason = "missing_coords"
+        elif roof_confidence in {"low", "none"} or roof_source in {
+            "mapbox_hq",
+            "unresolved",
+        }:
+            skipped_reason = f"roof_confidence_too_low:{roof_source or 'unknown'}"
+            log.warning(
+                "creative.roof_low_confidence",
+                lead_id=payload.lead_id,
+                tenant_id=payload.tenant_id,
+                lat=lat,
+                lng=lng,
+                roof_source=roof_source or None,
+                roof_confidence=roof_confidence or None,
+            )
         elif not settings.google_solar_api_key and not settings.google_solar_mock_mode:
             skipped_reason = "solar_api_key_not_configured"
             log.warning("creative.solar_api_key_missing", lead_id=payload.lead_id)
@@ -189,8 +222,54 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
                 # (Hunter L4 already called this but didn't persist panel
                 # geometry). Cost: ~$0.02 (buildingInsights) + ~$0.03
                 # (dataLayers) per lead.
+                #
+                # Solar 404 retry path
+                # ────────────────────
+                # When Solar returns 404 the geocoded coordinate doesn't
+                # sit on a building it knows about. Before giving up, we
+                # snap to the nearest OSM building polygon centroid (free,
+                # via Overpass API) and retry once. This catches the
+                # common "30-50m offset between geocode and rooftop"
+                # pattern that's been showing up in demo runs. We only
+                # accept the snap when the building is < 60m away to
+                # avoid landing on a neighbour's roof.
                 async with httpx.AsyncClient(timeout=30.0) as http:
-                    insight = await fetch_building_insight(lat, lng, client=http)
+                    try:
+                        insight = await fetch_building_insight(
+                            lat, lng, client=http
+                        )
+                    except SolarApiNotFound:
+                        snap = await find_nearest_building(
+                            lat, lng, max_distance_m=80, client=http
+                        )
+                        if snap is None or snap.distance_m > 60:
+                            log.info(
+                                "creative.osm_snap_unavailable",
+                                lead_id=payload.lead_id,
+                                lat=lat,
+                                lng=lng,
+                                snap_distance_m=(
+                                    round(snap.distance_m, 1) if snap else None
+                                ),
+                            )
+                            raise
+                        log.info(
+                            "creative.osm_snap_retry",
+                            lead_id=payload.lead_id,
+                            from_lat=lat,
+                            from_lng=lng,
+                            to_lat=snap.lat,
+                            to_lng=snap.lng,
+                            distance_m=round(snap.distance_m, 1),
+                            osm_id=snap.osm_id,
+                        )
+                        # Update the working coords so all downstream
+                        # rendering (before image crop, panel-paint
+                        # prompt, telemetry) uses the snapped point.
+                        lat, lng = snap.lat, snap.lng
+                        insight = await fetch_building_insight(
+                            lat, lng, client=http
+                        )
 
                 log.info(
                     "creative.solar_insight_fetched",
@@ -228,10 +307,20 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
 
                 # 4b) AFTER — Gemini Flash Image paints photoreal panels
                 #     on the real aerial photo. Solar API drives the prompt
-                #     (panel count, dominant azimuth, kWp scale) but the
-                #     pixels are produced by the AI engine, not PIL.
+                #     (panel count, dominant azimuth, kWp scale, roof
+                #     geometry) but the pixels are produced by the AI
+                #     engine, not PIL.
                 primary_az = (
                     insight.panels[0].segment_azimuth_deg
+                    if insight.panels
+                    else None
+                )
+                # Number of distinct roof planes — extracted from the
+                # per-panel ``segment_index`` so the prompt can constrain
+                # nano-banana on multi-segment roofs (typical for L-shaped
+                # houses and industrial buildings with mixed orientations).
+                roof_segment_count: int | None = (
+                    len({p.segment_index for p in insight.panels})
                     if insight.panels
                     else None
                 )
@@ -241,6 +330,9 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
                     primary_azimuth_deg=primary_az,
                     kwp=insight.estimated_kwp,
                     subject_type=subject.get("type") or "unknown",
+                    roof_area_sqm=insight.area_sqm or None,
+                    roof_segment_count=roof_segment_count,
+                    roof_pitch_deg=insight.pitch_degrees or None,
                 )
                 after_url = upload_bytes(
                     bucket=RENDERINGS_BUCKET,

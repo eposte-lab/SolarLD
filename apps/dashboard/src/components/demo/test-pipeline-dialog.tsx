@@ -37,6 +37,7 @@ import {
 
 import { GradientButton } from '@/components/ui/gradient-button';
 import { createBrowserClient } from '@/lib/supabase/client';
+import { cn } from '@/lib/utils';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -83,6 +84,20 @@ type RunStatus =
   | 'done'
   | 'failed';
 
+/**
+ * Outreach send statuses we recognise from the API. Mirrors the API's
+ * ``CampaignStatus`` enum plus the in-flight states the TrackingAgent
+ * writes when Resend webhook events arrive (``DELIVERED`` / ``FAILED``
+ * are the only ones the user-facing copy distinguishes).
+ */
+type EmailStatus =
+  | 'SCHEDULED'
+  | 'SENT'
+  | 'DELIVERED'
+  | 'OPENED'
+  | 'CLICKED'
+  | 'FAILED';
+
 interface RunSnapshot {
   id: string;
   lead_id: string | null;
@@ -91,6 +106,21 @@ interface RunSnapshot {
   error_message: string | null;
   notes: string | null;
   updated_at: string;
+  // Delivery truth — populated even after the pipeline reaches ``done``.
+  // The dialog keeps polling on done until ``email_status`` becomes
+  // DELIVERED/FAILED so the toast tells the user the *real* outcome
+  // instead of a misleading "Email inviata 🎉" the moment Resend's API
+  // returned 2xx.
+  email_status: EmailStatus | null;
+  email_status_detail: string | null;
+  email_recipient: string | null;
+  email_message_id: string | null;
+  // Roof identification provenance — exposed for completeness.  The
+  // dialog could surface a "tetto da verificare" warning for low-confidence
+  // runs in a future iteration; for now we just include the fields so
+  // the polling response stays in sync with the admin endpoint.
+  roof_source: string | null;
+  roof_confidence: 'high' | 'medium' | 'low' | 'none' | null;
 }
 
 async function authHeader(): Promise<Record<string, string>> {
@@ -128,12 +158,26 @@ export function TestPipelineDialog({
     ref.current?.close();
   }
 
-  // Poll the demo_pipeline_runs row for ~2 minutes after submit. We
-  // stop polling on `done` (show success) or `failed` (show error +
-  // user has already been refunded server-side). Cleanup on unmount
-  // or when the run resolves keeps us from leaking timers.
+  // Poll the demo_pipeline_runs row for up to ~3 minutes after submit.
+  //
+  // Pipeline terminal states are ``done`` and ``failed``, but we keep
+  // polling on ``done`` until ``email_status`` reaches a terminal value
+  // (DELIVERED / OPENED / CLICKED / FAILED). That delivery confirmation
+  // only lands when the Resend webhook fires, so it's the only signal
+  // that proves the email *actually arrived* in the recipient's inbox
+  // (vs. just being accepted by the Resend API). On ``failed`` we stop
+  // immediately — the user has already been refunded and no email will
+  // ever be sent.
   useEffect(() => {
-    if (!run || run.status === 'done' || run.status === 'failed') return;
+    if (!run) return;
+    const isEmailTerminal =
+      run.email_status === 'DELIVERED' ||
+      run.email_status === 'OPENED' ||
+      run.email_status === 'CLICKED' ||
+      run.email_status === 'FAILED';
+    if (run.status === 'failed') return;
+    if (run.status === 'done' && isEmailTerminal) return;
+
     const runId = run.id;
     let cancelled = false;
     const start = Date.now();
@@ -148,12 +192,20 @@ export function TestPipelineDialog({
         if (res.ok) {
           const next = (await res.json()) as RunSnapshot;
           if (!cancelled) setRun(next);
-          if (next.status === 'done' || next.status === 'failed') return;
+          if (next.status === 'failed') return;
+          const nextEmailTerminal =
+            next.email_status === 'DELIVERED' ||
+            next.email_status === 'OPENED' ||
+            next.email_status === 'CLICKED' ||
+            next.email_status === 'FAILED';
+          if (next.status === 'done' && nextEmailTerminal) return;
         }
       } catch {
         // Swallow transient errors — we'll retry on the next tick.
       }
-      // Bail after 3 minutes so we don't poll forever on a stuck job.
+      // Bail after 3 minutes so we don't poll forever on a stuck job
+      // or a webhook that never arrives. The success panel falls back
+      // to "in attesa di conferma" when we time out without DELIVERED.
       if (Date.now() - start > 180_000) return;
       if (!cancelled) setTimeout(tick, 2_000);
     };
@@ -226,6 +278,12 @@ export function TestPipelineDialog({
         error_message: null,
         notes: null,
         updated_at: new Date().toISOString(),
+        email_status: null,
+        email_status_detail: null,
+        email_recipient: null,
+        email_message_id: null,
+        roof_source: null,
+        roof_confidence: null,
       });
     } catch (err) {
       setError(
@@ -296,6 +354,9 @@ export function TestPipelineDialog({
               leadId={run.lead_id ?? ''}
               attemptsRemaining={attemptsAfterRun ?? 0}
               notes={run.notes}
+              emailStatus={run.email_status}
+              emailStatusDetail={run.email_status_detail}
+              emailRecipient={run.email_recipient}
               onClose={close}
             />
           ) : run ? (
@@ -478,23 +539,87 @@ function SuccessPanel({
   leadId,
   attemptsRemaining,
   notes,
+  emailStatus,
+  emailStatusDetail,
+  emailRecipient,
   onClose,
 }: {
   leadId: string;
   attemptsRemaining: number;
   notes?: string | null;
+  emailStatus: EmailStatus | null;
+  emailStatusDetail: string | null;
+  emailRecipient: string | null;
   onClose: () => void;
 }) {
+  // Pick the panel tone + copy from the *real* delivery state, not just
+  // "pipeline is done". The previous behaviour celebrated success the
+  // moment the API queued the send, hiding silent bounces and the
+  // ``DEMO_EMAIL_RECIPIENT_OVERRIDE`` redirect from operators.
+  //
+  // Mapping:
+  //   DELIVERED/OPENED/CLICKED → success (green)
+  //   FAILED                   → error   (red, surface bounce reason)
+  //   SENT (no webhook yet)    → pending (amber, ask user to wait/check)
+  //   null  (still in flight)  → pending — same copy
+  const isDelivered =
+    emailStatus === 'DELIVERED' ||
+    emailStatus === 'OPENED' ||
+    emailStatus === 'CLICKED';
+  const isFailed = emailStatus === 'FAILED';
+  const isPending = !isDelivered && !isFailed; // SENT or null
+
+  // Tone: green for delivered, red for failed, amber for pending.
+  const tone = isDelivered
+    ? {
+        bg: 'bg-primary/5 ring-primary/15',
+        title: 'text-primary',
+        heading: 'Email consegnata 🎉',
+      }
+    : isFailed
+      ? {
+          bg: 'bg-rose-500/5 ring-rose-500/20',
+          title: 'text-rose-300',
+          heading: 'Email non recapitata',
+        }
+      : {
+          bg: 'bg-amber-500/5 ring-amber-500/20',
+          title: 'text-amber-300',
+          heading: 'Email accettata · in attesa di consegna',
+        };
+
   return (
-    <div className="space-y-3 rounded-xl bg-primary/5 p-4 ring-1 ring-primary/15">
-      <p className="font-headline text-lg font-bold text-primary">
-        Email inviata 🎉
+    <div className={cn('space-y-3 rounded-xl p-4 ring-1', tone.bg)}>
+      <p className={cn('font-headline text-lg font-bold', tone.title)}>
+        {tone.heading}
       </p>
       <p className="text-sm text-on-surface">
-        Il lead è stato creato, il tetto renderizzato e l&apos;email
-        inviata al destinatario. Apri la scheda del lead per vedere
-        l&apos;anagrafica completa e gli eventi di tracking in tempo reale
-        (apertura, click, visita pagina personale).
+        {isDelivered ? (
+          <>
+            Il lead è stato creato, il tetto renderizzato e l&apos;email
+            consegnata{emailRecipient ? ` a ${emailRecipient}` : ''}. Apri
+            la scheda del lead per vedere gli eventi di tracking in tempo
+            reale (apertura, click, visita pagina personale).
+          </>
+        ) : isFailed ? (
+          <>
+            Resend ha rifiutato la consegna
+            {emailRecipient ? ` verso ${emailRecipient}` : ''}
+            {emailStatusDetail ? ` (${emailStatusDetail})` : ''}. Verifica
+            l&apos;indirizzo del destinatario, lo stato del dominio
+            mittente in Resend (DKIM/SPF) e — se in modalità demo — la env
+            var <code>DEMO_EMAIL_RECIPIENT_OVERRIDE</code>.
+          </>
+        ) : (
+          <>
+            Resend ha accettato la richiesta di invio
+            {emailRecipient ? ` (destinatario: ${emailRecipient})` : ''}
+            ma non abbiamo ancora ricevuto la conferma di consegna. La
+            conferma arriva via webhook entro 1-2 minuti; se questo box
+            resta giallo, il webhook non è registrato o il dominio
+            mittente non è verificato in Resend.
+          </>
+        )}
       </p>
       {notes && (
         <p className="rounded-lg bg-warning-container/50 px-3 py-2 text-xs text-on-warning-container">
@@ -514,7 +639,14 @@ function SuccessPanel({
         </button>
         <a
           href={`/leads/${leadId}`}
-          className="inline-flex items-center gap-1.5 rounded-full bg-primary px-4 py-2 text-xs font-semibold text-on-primary shadow-ambient-sm hover:shadow-ambient-md"
+          className={cn(
+            'inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-xs font-semibold shadow-ambient-sm hover:shadow-ambient-md',
+            isFailed
+              ? 'bg-rose-500 text-white'
+              : isDelivered
+                ? 'bg-primary text-on-primary'
+                : 'bg-amber-500 text-white',
+          )}
         >
           Vai al lead
           <ArrowRight size={14} strokeWidth={2.5} />

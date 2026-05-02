@@ -76,6 +76,11 @@ import httpx
 from ..core.logging import get_logger
 from ..services.italian_business_service import AtokaProfile
 from . import email_extractor, google_places_service, mapbox_service
+from .google_solar_service import (
+    SolarApiError,
+    SolarApiNotFound,
+    fetch_building_insight,
+)
 
 log = get_logger(__name__)
 
@@ -148,6 +153,16 @@ async def resolve_operating_site(
     hq_province: str | None,
     http_client: httpx.AsyncClient | None = None,
     cost_meter: dict[str, int] | None = None,
+    # When True, Atoka tier-1 hits are double-checked against Google Solar
+    # API before being trusted. If Solar returns 404 (no building at the
+    # exact coordinates), we discard the Atoka match and let the cascade
+    # continue to tier 2 (website scrape) — Atoka frequently records a
+    # commercialista or comune centroid for SMEs that haven't kept their
+    # Camera di Commercio entry up to date, and rendering panels on the
+    # accountant's office is the exact failure mode we're trying to fix.
+    # Costs ~$0.02/call → opt-in: demo runs use it, production batches
+    # leave it off.
+    validate_with_solar: bool = False,
     # Test seams. Default to the real services.
     scan_website: _ScanWebsiteCallable = email_extractor.scan_website_for_address,
     forward_geocode: _ForwardGeocodeCallable = mapbox_service.forward_geocode,
@@ -195,16 +210,70 @@ async def resolve_operating_site(
             legal_name=legal_name,
             address=profile.sede_operativa_address,
         )
-        return OperatingSite(
-            lat=profile.sede_operativa_lat,
-            lng=profile.sede_operativa_lng,
-            address=profile.sede_operativa_address,
-            cap=profile.sede_operativa_cap,
-            city=profile.sede_operativa_city,
-            province=profile.sede_operativa_province,
-            source="atoka",
-            confidence=HIGH_CONFIDENCE,
-        )
+
+        # Optional Tier 1.5 — confirm the Atoka coords actually point at a
+        # building before trusting them.
+        #
+        # Solar API ``buildingInsights:findClosest`` returns 404 when the
+        # input lat/lng has no building within ~100m. That happens
+        # routinely with Atoka data because:
+        #   * ``sede_operativa_*`` is sometimes the comune centroid
+        #     (rural / tax-residence pattern), and
+        #   * Atoka resolves PEC office addresses, accountant offices and
+        #     post-office boxes for thousands of SMEs.
+        #
+        # When the validation fails we *do not* return — we fall through
+        # to tier 2 (website scrape) and beyond, giving the cascade a real
+        # chance at the operating address. Any error other than 404 is
+        # logged and treated as fail-open: keep the Atoka match rather
+        # than punish the user for a transient Google Solar outage.
+        if validate_with_solar:
+            try:
+                await fetch_building_insight(
+                    profile.sede_operativa_lat,
+                    profile.sede_operativa_lng,
+                    client=http_client,
+                )
+                log.info(
+                    "operating_site.tier1_atoka_solar_validated",
+                    legal_name=legal_name,
+                    lat=profile.sede_operativa_lat,
+                    lng=profile.sede_operativa_lng,
+                )
+            except SolarApiNotFound:
+                log.warning(
+                    "operating_site.tier1_atoka_no_solar_match",
+                    legal_name=legal_name,
+                    lat=profile.sede_operativa_lat,
+                    lng=profile.sede_operativa_lng,
+                    address=profile.sede_operativa_address,
+                )
+                profile = None  # invalidate tier 1, cascade proceeds
+            except SolarApiError as exc:
+                # Non-404 Solar failure → keep the Atoka match (fail-open).
+                # We still log so the demo dashboard can surface it later.
+                log.warning(
+                    "operating_site.tier1_solar_validation_error",
+                    legal_name=legal_name,
+                    err=str(exc)[:160],
+                )
+
+        # Re-check profile in case validation invalidated it above.
+        if (
+            profile is not None
+            and profile.sede_operativa_lat is not None
+            and profile.sede_operativa_lng is not None
+        ):
+            return OperatingSite(
+                lat=profile.sede_operativa_lat,
+                lng=profile.sede_operativa_lng,
+                address=profile.sede_operativa_address,
+                cap=profile.sede_operativa_cap,
+                city=profile.sede_operativa_city,
+                province=profile.sede_operativa_province,
+                source="atoka",
+                confidence=HIGH_CONFIDENCE,
+            )
 
     # ── Tier 2: Website scrape → Mapbox forward_geocode ─────────
     if website_domain:
