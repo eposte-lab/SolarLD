@@ -227,12 +227,22 @@ async def resolve_operating_site(
         # chance at the operating address. Any error other than 404 is
         # logged and treated as fail-open: keep the Atoka match rather
         # than punish the user for a transient Google Solar outage.
+        #
+        # Hard 8s asyncio timeout on top of whatever timeout the shared
+        # HTTP client uses. We don't want a slow Solar response to wedge
+        # the demo pipeline at the "creative" step — the validation is
+        # an opportunistic improvement, not a blocking gate.
         if validate_with_solar:
             try:
-                await fetch_building_insight(
-                    profile.sede_operativa_lat,
-                    profile.sede_operativa_lng,
-                    client=http_client,
+                import asyncio
+
+                await asyncio.wait_for(
+                    fetch_building_insight(
+                        profile.sede_operativa_lat,
+                        profile.sede_operativa_lng,
+                        client=http_client,
+                    ),
+                    timeout=8.0,
                 )
                 log.info(
                     "operating_site.tier1_atoka_solar_validated",
@@ -249,12 +259,15 @@ async def resolve_operating_site(
                     address=profile.sede_operativa_address,
                 )
                 profile = None  # invalidate tier 1, cascade proceeds
-            except SolarApiError as exc:
-                # Non-404 Solar failure → keep the Atoka match (fail-open).
-                # We still log so the demo dashboard can surface it later.
+            except Exception as exc:  # noqa: BLE001
+                # Any other failure (timeout, network, SolarApiError,
+                # parse error) → fail-open: keep the Atoka match. Solar
+                # validation is opportunistic; we never want it to slow
+                # down or break the pipeline for everyone.
                 log.warning(
                     "operating_site.tier1_solar_validation_error",
                     legal_name=legal_name,
+                    err_type=type(exc).__name__,
                     err=str(exc)[:160],
                 )
 

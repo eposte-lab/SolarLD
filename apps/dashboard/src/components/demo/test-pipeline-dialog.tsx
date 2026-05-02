@@ -203,10 +203,15 @@ export function TestPipelineDialog({
       } catch {
         // Swallow transient errors — we'll retry on the next tick.
       }
-      // Bail after 3 minutes so we don't poll forever on a stuck job
-      // or a webhook that never arrives. The success panel falls back
-      // to "in attesa di conferma" when we time out without DELIVERED.
-      if (Date.now() - start > 180_000) return;
+      // Bail after 10 minutes so we don't poll forever on a stuck job
+      // or a webhook that never arrives. 10 min is the realistic upper
+      // bound: Solar + OSM-snap retry (~30s) + nano-banana paint
+      // (~60-90s) + Kling 1.6-Pro video render (~90-300s, queue
+      // dependent) + Remotion encode/upload (~10s) + outreach (~5s).
+      // The Resend webhook arrives within ~1 min after the SENT
+      // status flip on a healthy domain, so 10 min covers the whole
+      // happy path with margin.
+      if (Date.now() - start > 600_000) return;
       if (!cancelled) setTimeout(tick, 2_000);
     };
     const t = setTimeout(tick, 2_000);
@@ -326,7 +331,8 @@ export function TestPipelineDialog({
               </h2>
               <p className="mt-1 text-xs text-on-surface-variant">
                 Lead pronto in ~5 secondi · rendering tetto + invio email
-                continuano in background (visibili live nella scheda del lead).
+                continuano in background (2-10 min, visibili live nella scheda
+                del lead e in <code>/admin/demo-runs</code>).
               </p>
             </div>
             <button
@@ -672,8 +678,10 @@ function ProgressPanel({ run }: { run: RunSnapshot }) {
         Pipeline in corso…
       </p>
       <p className="text-xs text-on-surface-variant">
-        Lead creato. Rendering ~60s · invio ~5s. Resta su questa schermata,
-        non chiudere finché non vedi la conferma.
+        Lead creato. Rendering tetto 2-5 min · video Kling fino a 5 min
+        aggiuntivi nei picchi di coda Replicate · invio email ~5s. Puoi
+        chiudere questa finestra: il pipeline continua in background, lo
+        stato live è su <code>/admin/demo-runs</code> e nella scheda del lead.
       </p>
       <ul className="space-y-2">
         {steps.map((step, idx) => {

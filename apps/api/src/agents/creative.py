@@ -239,9 +239,27 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
                             lat, lng, client=http
                         )
                     except SolarApiNotFound:
-                        snap = await find_nearest_building(
-                            lat, lng, max_distance_m=80, client=http
-                        )
+                        # Bound the OSM snap with an asyncio timeout so a
+                        # slow Overpass mirror can't wedge the creative
+                        # step. ``find_nearest_building`` already returns
+                        # None on its own internal failures; the wait_for
+                        # here is the belt-and-braces upper bound.
+                        import asyncio
+                        try:
+                            snap = await asyncio.wait_for(
+                                find_nearest_building(
+                                    lat, lng, max_distance_m=80, client=http
+                                ),
+                                timeout=15.0,
+                            )
+                        except (asyncio.TimeoutError, Exception) as snap_exc:  # noqa: BLE001
+                            log.warning(
+                                "creative.osm_snap_failed",
+                                lead_id=payload.lead_id,
+                                err_type=type(snap_exc).__name__,
+                                err=str(snap_exc)[:160],
+                            )
+                            snap = None
                         if snap is None or snap.distance_m > 60:
                             log.info(
                                 "creative.osm_snap_unavailable",
