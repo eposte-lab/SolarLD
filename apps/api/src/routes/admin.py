@@ -796,18 +796,71 @@ async def admin_demo_runs(
     ``status`` (scoring|creative|outreach|done|failed) and ``tenant_id``.
     Used by the ``/admin/demo-runs`` dashboard page to give the operator
     a real-time view of every customer-facing test run.
+
+    Any unhandled exception below the auth gate is caught at the bottom
+    and surfaced as a 502 with the exception type/message in the body —
+    this beats letting FastAPI's default 500 ("Internal Server Error",
+    21 bytes) hide the cause when the dashboard goes red.
+    """
+    try:
+        return await _admin_demo_runs_impl(
+            ctx, limit=limit, offset=offset, status=status, tenant_id=tenant_id
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001 — last-mile catchall
+        log.exception(
+            "admin.demo_runs_unhandled",
+            err_type=type(exc).__name__,
+            err=str(exc)[:300],
+        )
+        raise HTTPException(
+            status_code=502,
+            detail=f"{type(exc).__name__}: {str(exc)[:200]}",
+        ) from exc
+
+
+async def _admin_demo_runs_impl(
+    ctx: CurrentUser,
+    *,
+    limit: int,
+    offset: int,
+    status: str | None,
+    tenant_id: str | None,
+) -> DemoRunsResponse:
+    """Inner implementation of ``admin_demo_runs``.
+
+    Split out so the public endpoint can wrap the whole flow in one
+    last-mile try/except without rewriting every code path. Tests can
+    also hit this directly when they want to bypass the catchall.
     """
     _require_super_admin(ctx)
     sb = get_service_client()
 
     # --- Count (for pagination header) ---
-    count_q = sb.table("demo_pipeline_runs").select("id", count="exact", head=True)
-    if status:
-        count_q = count_q.eq("status", status)
-    if tenant_id:
-        count_q = count_q.eq("tenant_id", tenant_id)
-    count_res = count_q.execute()
-    total: int = count_res.count or 0
+    # Soft-fail: a count error never deserves to block the page —
+    # at worst we render with ``total=0`` and the pagination footer
+    # quietly disappears. Earlier this endpoint surfaced as an
+    # opaque 500 when a transient PostgREST hiccup hit the count
+    # query, which made the whole admin page unusable instead of
+    # degrading gracefully.
+    total: int = 0
+    try:
+        count_q = sb.table("demo_pipeline_runs").select(
+            "id", count="exact", head=True
+        )
+        if status:
+            count_q = count_q.eq("status", status)
+        if tenant_id:
+            count_q = count_q.eq("tenant_id", tenant_id)
+        count_res = count_q.execute()
+        total = count_res.count or 0
+    except Exception as exc:  # noqa: BLE001
+        log.warning(
+            "admin.demo_runs_count_failed",
+            err_type=type(exc).__name__,
+            err=str(exc)[:200],
+        )
 
     # --- Rows ---
     # Two-step lookup instead of a single embedded-resource query.
