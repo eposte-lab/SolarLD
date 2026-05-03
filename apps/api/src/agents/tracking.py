@@ -689,11 +689,16 @@ class TrackingAgent(AgentBase[TrackingInput, TrackingOutput]):
         """
         if not subject_id:
             return
-        try:
-            import asyncio
-            import hashlib
+        import asyncio
+        import hashlib
 
-            # Look up the decision_maker_email from subjects.
+        # Sprint 3.3 — wrap the entire 2-step sequence (subject lookup
+        # + blacklist upsert) in a 5 s wall-clock timeout so a slow
+        # Supabase response can't delay the webhook ACK to Resend.
+        # Resend retries failed webhooks, so a timeout here means we
+        # fall back to the async global_blacklist compliance task.
+        # 5 s is generous: typical roundtrip is sub-200ms.
+        async def _do_write() -> None:
             subj_res = await asyncio.to_thread(
                 lambda: sb.table("subjects")
                 .select("decision_maker_email, pii_hash")
@@ -724,6 +729,19 @@ class TrackingAgent(AgentBase[TrackingInput, TrackingOutput]):
                 tenant_id=tenant_id,
                 email_hash=email_hash[:8] + "...",
                 source=source,
+            )
+
+        try:
+            await asyncio.wait_for(_do_write(), timeout=5.0)
+        except asyncio.TimeoutError:
+            log.warning(
+                "tracking.email_blacklist_immediate_timeout",
+                tenant_id=tenant_id,
+                subject_id=subject_id,
+                note=(
+                    "synchronous blacklist write exceeded 5 s budget; "
+                    "falling back to async global_blacklist task"
+                ),
             )
         except Exception as exc:  # noqa: BLE001
             log.warning(

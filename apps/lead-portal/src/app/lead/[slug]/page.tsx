@@ -21,7 +21,17 @@ export default async function LeadPage({ params }: PageProps) {
   if (result.kind === 'gone') redirect(`/optout/${encodeURIComponent(slug)}?already=1`);
 
   const lead = result.lead;
-  const { roofs: roof, tenant, roi_data: roi } = lead;
+  // ROI source priority — single source of truth (Sprint 1.1):
+  //   1. roof.derivations — canonical snapshot from
+  //      compute_full_derivations, refreshed when the prospect
+  //      uploads a bolletta. Same numbers the dashboard inspector,
+  //      email body, and preventivo PDF read from.
+  //   2. lead.roi_data — legacy snapshot, fallback for leads
+  //      created before migration 0094 added the derivations column.
+  const { roofs: roof, tenant } = lead;
+  const roi =
+    ((roof as { derivations?: typeof lead.roi_data | null } | null)?.derivations) ??
+    lead.roi_data;
   const hero = leadHeroCopy(lead);
   const brandColor = tenant?.brand_primary_color || '#0F766E';
   const tenantName = tenant?.business_name ?? 'SolarLead';

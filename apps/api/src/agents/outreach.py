@@ -343,6 +343,39 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
                 )
 
         # ------------------------------------------------------------------
+        # 4c) Tenant business_name gate (Sprint 2.1)
+        #     The email "From" name and signature read tenant.business_name.
+        #     When that field is null the legacy fallback was the literal
+        #     string "SolarLead" — which produces emails signed "SolarLead"
+        #     and identified as such in the From line, leaking our brand
+        #     into a tenant's outreach.
+        #
+        #     Block the send when business_name is missing AND the caller
+        #     isn't explicitly forcing (admin smoke-test). The operator
+        #     fixes it on the onboarding company-info step; the cron picks
+        #     the lead up next pass.
+        # ------------------------------------------------------------------
+        if (
+            payload.channel == OutreachChannel.EMAIL
+            and not payload.force
+            and not (tenant_row.get("business_name") or "").strip()
+        ):
+            log.warning(
+                "outreach.tenant_business_name_missing",
+                tenant_id=payload.tenant_id,
+                note=(
+                    "tenant.business_name is null/empty — refusing to send "
+                    "an email that would identify as 'SolarLead'. Configure "
+                    "the field in /onboarding before retrying."
+                ),
+            )
+            return OutreachOutput(
+                lead_id=payload.lead_id,
+                skipped=True,
+                reason="tenant_business_name_missing",
+            )
+
+        # ------------------------------------------------------------------
         # 5) Channel routing
         # ------------------------------------------------------------------
         if payload.channel == OutreachChannel.POSTAL:
@@ -601,10 +634,33 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
         )
         # Tenant-level override (from modules.outreach settings).
         t_settings: dict = dict(tenant_row.get("settings") or {})
-        email_style = (
-            t_settings.get("outreach_email_style")
-            or inbox_email_style
-        )
+        tenant_style_override = t_settings.get("outreach_email_style")
+        email_style = tenant_style_override or inbox_email_style
+
+        # Sprint 2.4 — surface the override decision in logs so
+        # operators who configure per-inbox styles can see when their
+        # tenant-level setting is silently winning. The previous
+        # behaviour was a silent override — confusing UX when an
+        # inbox configured for ``visual_preventivo`` was producing
+        # ``plain_conversational`` because the tenant settings still
+        # held the legacy default.
+        if (
+            tenant_style_override
+            and inbox_email_style
+            and tenant_style_override != inbox_email_style
+        ):
+            log.info(
+                "outreach.email_style_override",
+                lead_id=payload.lead_id,
+                tenant_setting=tenant_style_override,
+                inbox_setting=inbox_email_style,
+                resolved=email_style,
+                note=(
+                    "tenant.settings.outreach_email_style overrides the "
+                    "per-inbox email_style. Clear the tenant setting to "
+                    "let the inbox's own style apply."
+                ),
+            )
 
         # Sender first name: from inbox display_name (e.g. "Alfonso Gallo" → "Alfonso").
         sender_first_name: str | None = None
@@ -863,6 +919,19 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
         if email_style == "plain_conversational":
             personalized_opener = None
 
+        # ROI source priority — single source of truth (Sprint 1.1):
+        #   1. ``roof.derivations`` — the canonical snapshot computed by
+        #      ``roi_service.compute_full_derivations`` at roof-write
+        #      time (and refreshed when the customer uploads a bolletta,
+        #      Sprint 1.2). Same dict the dashboard inspector +
+        #      preventivo PDF + lead portal page read from.
+        #   2. ``lead.roi_data`` — legacy snapshot written by the
+        #      CreativeAgent on first render. Kept as fallback for
+        #      leads created before migration 0094 added the
+        #      ``derivations`` column. Newer leads read derivations
+        #      directly so the email body never drifts from the
+        #      portal page numbers.
+        roof_derivations = roof.get("derivations") if roof else None
         ctx = OutreachContext(
             tenant_name=tenant_row.get("business_name") or "SolarLead",
             brand_primary_color=tenant_row.get("brand_primary_color")
@@ -873,7 +942,7 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
             optout_url=optout_url,
             subject_template=final_subject,
             subject_type=subject_type,
-            roi=lead.get("roi_data") or None,
+            roi=roof_derivations or lead.get("roi_data") or None,
             hero_image_url=lead.get("rendering_image_url"),
             personalized_opener=personalized_opener,
             business_name=subject.get("business_name"),

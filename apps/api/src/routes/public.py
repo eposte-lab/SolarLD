@@ -59,7 +59,7 @@ async def get_public_lead(slug: str) -> dict[str, object]:
             "pipeline_status, outreach_sent_at, "
             "tenant_id, subjects(type, business_name, owner_first_name), "
             "roofs(address, cap, comune, provincia, area_sqm, "
-            "estimated_kwp, estimated_yearly_kwh)"
+            "estimated_kwp, estimated_yearly_kwh, derivations)"
         )
         .eq("public_slug", slug)
         .limit(1)
@@ -468,6 +468,30 @@ async def upload_bolletta(
     except Exception as exc:  # noqa: BLE001
         log.warning("bolletta.lead_stamp_failed", err=str(exc))
 
+    # ---- 7b. Recompute roof.derivations + leads.roi_data using the
+    # customer's ACTUAL annual consumption from OCR (Sprint 1.2).
+    # Without this, the email body / lead portal / preventivo PDF
+    # all keep showing the median-Italian estimate (60% self-
+    # consumption × estimated-yearly-production) — the bolletta
+    # upload would be tracked but the numbers never updated.
+    if ocr and ocr.success and ocr.kwh_yearly:
+        try:
+            await _recompute_roi_after_bolletta(
+                sb,
+                lead_id=lead["id"],
+                tenant_id=lead["tenant_id"],
+                consumption_kwh_yearly=ocr.kwh_yearly,
+                consumption_eur_yearly=ocr.eur_yearly,
+                bolletta_upload_id=upload_id,
+            )
+        except Exception as exc:  # noqa: BLE001 — never fail the upload
+            log.warning(
+                "bolletta.roi_recompute_failed",
+                lead_id=lead["id"],
+                err_type=type(exc).__name__,
+                err=str(exc)[:200],
+            )
+
     _emit_public_event(
         sb,
         event_type="lead.bolletta_uploaded",
@@ -599,6 +623,26 @@ async def upload_bolletta_manual(
         ).eq("id", lead["id"]).execute()
     except Exception as exc:  # noqa: BLE001
         log.warning("bolletta.lead_stamp_failed", err=str(exc))
+
+    # Sprint 1.2 — same recompute path as the OCR upload route, this
+    # time fed by the manual values.
+    if body.kwh_yearly:
+        try:
+            await _recompute_roi_after_bolletta(
+                sb,
+                lead_id=lead["id"],
+                tenant_id=lead["tenant_id"],
+                consumption_kwh_yearly=body.kwh_yearly,
+                consumption_eur_yearly=body.eur_yearly,
+                bolletta_upload_id=upload_id,
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.warning(
+                "bolletta.roi_recompute_failed",
+                lead_id=lead["id"],
+                err_type=type(exc).__name__,
+                err=str(exc)[:200],
+            )
 
     _emit_public_event(
         sb,
@@ -1183,6 +1227,180 @@ def _load_lead_by_slug(sb: Any, slug: str) -> dict[str, Any] | None:
     if not res.data:
         return None
     return res.data[0]
+
+
+async def _recompute_roi_after_bolletta(
+    sb: Any,
+    *,
+    lead_id: str,
+    tenant_id: str,
+    consumption_kwh_yearly: int | float,
+    consumption_eur_yearly: int | float | None,
+    bolletta_upload_id: str,
+) -> None:
+    """Recompute ``roof.derivations`` + ``leads.roi_data`` from real consumption.
+
+    Sprint 1.2 — when a prospect uploads their bolletta the OCR
+    surfaces the actual annual kWh consumption. Until now we ignored
+    that number and kept showing the median-Italian estimate (60% of
+    the rooftop's potential production). This helper:
+
+      * fetches the lead's roof + tenant cost_assumptions
+      * calls compute_full_derivations with the real consumption as
+        the ``self_consumed_kwh`` baseline (override the default
+        self_consumption_ratio so the math reflects what the customer
+        actually uses, not a generic 60%)
+      * UPDATEs roof.derivations + leads.roi_data so every downstream
+        surface (dashboard inspector, email body, lead-portal page,
+        preventivo PDF) reads the refreshed numbers
+
+    Best-effort — never raises. The bolletta upload completes either
+    way; the recompute is a refinement, not a gate.
+    """
+    from ..services.roi_service import compute_full_derivations
+
+    # Pull the lead row + roof + tenant cost_assumptions in a single
+    # round-trip via embedded select.
+    res = sb.table("leads").select(
+        "id, subject_id, roof_id, "
+        "subjects(type), "
+        "roofs(id, estimated_kwp, estimated_yearly_kwh, area_sqm)"
+    ).eq("id", lead_id).limit(1).execute()
+    rows = res.data or []
+    if not rows:
+        log.info(
+            "bolletta.roi_recompute_skip_no_lead",
+            lead_id=lead_id,
+        )
+        return
+    lead_row = rows[0]
+    roof = lead_row.get("roofs") or {}
+    subj = lead_row.get("subjects") or {}
+    if isinstance(roof, list):
+        roof = roof[0] if roof else {}
+    if isinstance(subj, list):
+        subj = subj[0] if subj else {}
+    if not roof.get("id"):
+        log.info("bolletta.roi_recompute_skip_no_roof", lead_id=lead_id)
+        return
+
+    # Tenant cost_assumptions — we may also override
+    # self_consumption_ratio to reflect the customer's real
+    # consumption-vs-production split.
+    tenant_res = (
+        sb.table("tenants")
+        .select("cost_assumptions")
+        .eq("id", tenant_id)
+        .limit(1)
+        .execute()
+    )
+    tenant_cost = (
+        (tenant_res.data or [{}])[0].get("cost_assumptions") or {}
+    )
+
+    # Real self-consumption ratio: clip(consumption / production, 0, 1).
+    # If consumption exceeds production the ratio is 1 (every kWh
+    # produced gets self-consumed); the surplus is bought from grid.
+    yearly_production = roof.get("estimated_yearly_kwh") or 0.0
+    if yearly_production > 0:
+        real_ratio = min(
+            1.0, float(consumption_kwh_yearly) / float(yearly_production)
+        )
+    else:
+        real_ratio = 0.6  # fallback to default if production unknown
+
+    # Layer the bolletta-derived ratio on top of the tenant override.
+    # The tenant override stays for grid_price + capex tier; we just
+    # swap the self_consumption_ratio key.
+    subject_type = (subj.get("type") or "b2b").lower()
+    refined_assumptions = dict(tenant_cost)
+    if subject_type == "b2b":
+        refined_assumptions["self_consumption_ratio_b2b"] = real_ratio
+    else:
+        refined_assumptions["self_consumption_ratio_b2c"] = real_ratio
+
+    derivations = compute_full_derivations(
+        estimated_kwp=roof.get("estimated_kwp"),
+        estimated_yearly_kwh=roof.get("estimated_yearly_kwh"),
+        roof_area_sqm=roof.get("area_sqm"),
+        panel_count=None,  # not needed for the refresh path
+        subject_type=subject_type,
+        tenant_cost_assumptions=refined_assumptions,
+    )
+    if derivations is None:
+        log.info(
+            "bolletta.roi_recompute_skip_no_derivations",
+            lead_id=lead_id,
+        )
+        return
+
+    # Annotate the snapshot so the dashboard can show "valori
+    # ricalcolati su bolletta del cliente" provenance.
+    derivations["assumptions_resolved"] = derivations.get(
+        "assumptions_resolved", {}
+    )
+    derivations["assumptions_resolved"]["consumption_source"] = "bolletta_ocr"
+    derivations["assumptions_resolved"]["consumption_kwh_yearly"] = (
+        float(consumption_kwh_yearly)
+    )
+    if consumption_eur_yearly is not None:
+        derivations["assumptions_resolved"]["consumption_eur_yearly"] = (
+            float(consumption_eur_yearly)
+        )
+    derivations["assumptions_resolved"][
+        "consumption_source_upload_id"
+    ] = bolletta_upload_id
+
+    # Persist on roof + lead. Keep both in sync so legacy readers
+    # (still on roi_data) and new readers (on derivations) see the
+    # same fresh numbers.
+    try:
+        sb.table("roofs").update({"derivations": derivations}).eq(
+            "id", roof["id"]
+        ).execute()
+        # leads.roi_data is the lite-shape (compute_roi.to_jsonb), so
+        # we keep a subset of derivations matching that schema. The
+        # `_jsonb_subset_for_roi_data` filter strips the sizing/monthly
+        # extras that don't fit the legacy shape.
+        roi_data_subset = {
+            k: derivations[k]
+            for k in (
+                "estimated_kwp",
+                "yearly_kwh",
+                "gross_capex_eur",
+                "incentive_eur",
+                "net_capex_eur",
+                "yearly_savings_eur",
+                "net_self_savings_eur",
+                "savings_25y_eur",
+                "roi_pct_25y",
+                "trees_equivalent",
+                "payback_years",
+                "co2_kg_per_year",
+                "co2_tonnes_25_years",
+                "self_consumption_ratio",
+                "meets_roi_target",
+            )
+            if k in derivations
+        }
+        sb.table("leads").update({"roi_data": roi_data_subset}).eq(
+            "id", lead_id
+        ).execute()
+        log.info(
+            "bolletta.roi_recomputed",
+            lead_id=lead_id,
+            roof_id=roof["id"],
+            consumption_kwh=float(consumption_kwh_yearly),
+            real_self_ratio=round(real_ratio, 3),
+            new_payback=derivations.get("payback_years"),
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning(
+            "bolletta.roi_persist_failed",
+            lead_id=lead_id,
+            err_type=type(exc).__name__,
+            err=str(exc)[:200],
+        )
 
 
 def _emit_public_event(

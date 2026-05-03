@@ -121,12 +121,15 @@ def build_auto_fields(lead_id: str | UUID, tenant_id: str | UUID) -> dict[str, A
     subject = lead.get("subjects") or {}
     roof = lead.get("roofs") or {}
 
-    # 2. Tenant branding + business info.
+    # 2. Tenant branding + business info + cost_assumptions for ROI
+    #    overrides (Sprint 1.3 — replace the hardcoded 0,22 €/kWh with
+    #    the per-tenant grid tariff when configured).
     tenant_res = (
         sb.table("tenants")
         .select(
             "id, business_name, legal_name, vat_number, contact_email, "
-            "contact_phone, brand_logo_url, brand_primary_color, settings"
+            "contact_phone, brand_logo_url, brand_primary_color, settings, "
+            "cost_assumptions"
         )
         .eq("id", str(tenant_id))
         .limit(1)
@@ -135,18 +138,27 @@ def build_auto_fields(lead_id: str | UUID, tenant_id: str | UUID) -> dict[str, A
     tenant = tenant_res.data[0] if tenant_res.data else {}
     settings = tenant.get("settings") or {}
 
-    # 3. Fresh ROI computation. We deliberately DON'T trust
-    #    ``leads.roi_data`` (which may be stale from when the lead was
-    #    first scored) — recompute from the kWp/kWh sizing on the lead
-    #    itself, so the preventivo always shows the latest numbers.
-    roi = compute_roi(
-        estimated_kwp=lead.get("estimated_kwp") or roof.get("estimated_kwp"),
-        estimated_yearly_kwh=lead.get("estimated_yearly_kwh")
-        or roof.get("estimated_yearly_kwh"),
-        subject_type=(subject.get("type") or "b2b").lower(),
-        roi_target_years=settings.get("roi_target_years"),
-    )
-    roi_jsonb = roi.to_jsonb() if roi else {}
+    # 3. ROI source — single source of truth (Sprint 1.1).
+    #    Prefer the persisted ``roof.derivations`` (computed by
+    #    ``compute_full_derivations`` at roof-write time, refreshed
+    #    when the customer uploads a bolletta in
+    #    ``routes/public.upload_bolletta``) so the preventivo PDF
+    #    shows the same numbers as the dashboard inspector, the
+    #    email body, and the lead-portal page. Recompute only as
+    #    fallback for legacy roofs (pre-migration 0094) where
+    #    ``derivations`` is null.
+    persisted = roof.get("derivations") or {}
+    if persisted:
+        roi_jsonb = dict(persisted)
+    else:
+        roi = compute_roi(
+            estimated_kwp=lead.get("estimated_kwp") or roof.get("estimated_kwp"),
+            estimated_yearly_kwh=lead.get("estimated_yearly_kwh")
+            or roof.get("estimated_yearly_kwh"),
+            subject_type=(subject.get("type") or "b2b").lower(),
+            roi_target_years=settings.get("roi_target_years"),
+        )
+        roi_jsonb = roi.to_jsonb() if roi else {}
 
     # 4. Hero image fallback chain (see plan: after.png is NOT always
     #    present — three failure paths in creative.py leave it null).
@@ -248,11 +260,44 @@ def build_auto_fields(lead_id: str | UUID, tenant_id: str | UUID) -> dict[str, A
         "solar_inclinazione": _to_int(roof.get("primary_tilt_deg")),
         "solar_irraggiamento_kwh_m2": _to_int(roof.get("ghi_kwh_m2_year")),
         "solar_imagery_quality": roof.get("imagery_quality") or "",
-        # Economic block (4 of the 7 metrics + extras for the cashflow) --
+        # Economic block (4 of the 7 metrics + extras for the cashflow).
+        #
+        # Sprint 1.3 — grid_price + self-consumption pulled from the
+        # tenant's cost_assumptions (or the persisted derivations'
+        # assumptions_resolved, which already encoded the per-tenant
+        # values when the roof was written). Falls back to the
+        # ``roi_service`` module defaults only when the tenant
+        # hasn't configured anything. No more hardcoded 0,22.
+        # The manual_fields merge in save_quote can still override
+        # for the rare case where the customer's actual tariff
+        # differs from the tenant default.
         "econ_consumo_stimato_kwh": _to_int(yearly_kwh),
-        "econ_costo_kwh_attuale": "0,22",  # B2B default; manual can override
-        "econ_costo_attuale_anno": _to_int(yearly_kwh * 0.22),
-        "econ_copertura_perc": 65,
+        "econ_costo_kwh_attuale": _resolve_grid_price_eur_per_kwh(
+            tenant=tenant,
+            subject_type=(subject.get("type") or "b2b").lower(),
+            assumptions_resolved=persisted.get("assumptions_resolved")
+            if isinstance(persisted, dict)
+            else None,
+        ),
+        "econ_costo_attuale_anno": _to_int(
+            yearly_kwh
+            * _resolve_grid_price_float(
+                tenant=tenant,
+                subject_type=(subject.get("type") or "b2b").lower(),
+                assumptions_resolved=persisted.get("assumptions_resolved")
+                if isinstance(persisted, dict)
+                else None,
+            )
+        ),
+        "econ_copertura_perc": _to_int(
+            _resolve_self_consumption_pct(
+                tenant=tenant,
+                subject_type=(subject.get("type") or "b2b").lower(),
+                assumptions_resolved=persisted.get("assumptions_resolved")
+                if isinstance(persisted, dict)
+                else None,
+            )
+        ),
         "econ_risparmio_anno_1": _to_int(roi_jsonb.get("net_self_savings_eur")),
         "econ_risparmio_25_anni": _to_int(roi_jsonb.get("savings_25y_eur")),
         "econ_payback_anni": roi_jsonb.get("payback_years") or 0,
@@ -277,6 +322,113 @@ def build_auto_fields(lead_id: str | UUID, tenant_id: str | UUID) -> dict[str, A
         "preventivo_data": today_iso,
     }
     return auto
+
+
+# ---------------------------------------------------------------------------
+# Cost assumption resolvers (Sprint 1.3)
+#
+# Three sources for grid price / self-consumption %, in priority order:
+#   1. ``persisted.assumptions_resolved`` — what compute_full_derivations
+#      actually used at roof-write time. Most accurate because it
+#      includes per-tenant overrides AND any consumption_source
+#      metadata from a bolletta upload.
+#   2. ``tenant.cost_assumptions`` — current tenant override (may
+#      have changed since the roof was written; we read the live
+#      value as fallback so quotes generated months later reflect
+#      newer tenant config).
+#   3. ``roi_service`` module defaults — public Italian PV market
+#      averages.
+# ---------------------------------------------------------------------------
+
+
+def _resolve_grid_price_float(
+    *,
+    tenant: dict[str, Any],
+    subject_type: str,
+    assumptions_resolved: dict[str, Any] | None,
+) -> float:
+    """Live €/kWh grid price for this tenant + subject classification."""
+    if assumptions_resolved and "grid_price" in assumptions_resolved:
+        try:
+            return float(assumptions_resolved["grid_price"])
+        except (TypeError, ValueError):
+            pass
+
+    overrides = tenant.get("cost_assumptions") or {}
+    key = (
+        "grid_price_eur_per_kwh_b2b"
+        if subject_type == "b2b"
+        else "grid_price_eur_per_kwh_b2c"
+    )
+    if key in overrides:
+        try:
+            return float(overrides[key])
+        except (TypeError, ValueError):
+            pass
+
+    # Fall back to the canonical Italian-market defaults from
+    # roi_service. Lazy import to avoid circular module deps.
+    from . import roi_service
+
+    return (
+        roi_service.GRID_PRICE_EUR_PER_KWH_B2B
+        if subject_type == "b2b"
+        else roi_service.GRID_PRICE_EUR_PER_KWH_B2C
+    )
+
+
+def _resolve_grid_price_eur_per_kwh(
+    *,
+    tenant: dict[str, Any],
+    subject_type: str,
+    assumptions_resolved: dict[str, Any] | None,
+) -> str:
+    """Italian-locale formatted €/kWh string for the PDF template (e.g. ``0,27``)."""
+    val = _resolve_grid_price_float(
+        tenant=tenant,
+        subject_type=subject_type,
+        assumptions_resolved=assumptions_resolved,
+    )
+    return f"{val:.2f}".replace(".", ",")
+
+
+def _resolve_self_consumption_pct(
+    *,
+    tenant: dict[str, Any],
+    subject_type: str,
+    assumptions_resolved: dict[str, Any] | None,
+) -> float:
+    """Self-consumption percentage 0..100 for the preventivo header.
+
+    Same priority chain as grid price — derivations snapshot >
+    tenant override > module default. Returned as a percentage
+    (e.g. 65.0) because the template renders it as ``65 %``.
+    """
+    if assumptions_resolved and "self_ratio" in assumptions_resolved:
+        try:
+            return float(assumptions_resolved["self_ratio"]) * 100.0
+        except (TypeError, ValueError):
+            pass
+
+    overrides = tenant.get("cost_assumptions") or {}
+    key = (
+        "self_consumption_ratio_b2b"
+        if subject_type == "b2b"
+        else "self_consumption_ratio_b2c"
+    )
+    if key in overrides:
+        try:
+            return float(overrides[key]) * 100.0
+        except (TypeError, ValueError):
+            pass
+
+    from . import roi_service
+
+    return (
+        roi_service.SELF_CONSUMPTION_RATIO_B2B * 100.0
+        if subject_type == "b2b"
+        else roi_service.SELF_CONSUMPTION_RATIO_B2C * 100.0
+    )
 
 
 # ---------------------------------------------------------------------------

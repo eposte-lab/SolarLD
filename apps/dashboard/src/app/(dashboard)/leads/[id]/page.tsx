@@ -751,6 +751,25 @@ export default async function LeadDetailPage({ params }: PageProps) {
         </CollapsibleCard>
       )}
 
+      {/* ─── Breakdown punteggio ──────────────────────────────────────────
+          Sprint 3.1 — explain WHY this lead has score X. The 5
+          sub-scores (technical/consumption/incentives/solvency/
+          distance) are written to leads.score_breakdown by ScoringAgent
+          but were never surfaced. Operators couldn't tell the
+          difference between a 48 (close to the threshold) and a 22
+          (genuinely weak signal). */}
+      {lead.score_breakdown &&
+        typeof lead.score_breakdown === 'object' && (
+          <CollapsibleCard
+            label="Punteggio"
+            title="Breakdown punteggio"
+            badge={lead.score != null ? `${lead.score}/100` : undefined}
+            defaultOpen={false}
+          >
+            <ScoreBreakdownGrid breakdown={lead.score_breakdown as Record<string, unknown>} />
+          </CollapsibleCard>
+        )}
+
       {/* ─── Storico eventi ───────────────────────────────────────────── */}
       <CollapsibleCard
         label="Cronologia"
@@ -929,4 +948,76 @@ function isLatestSent(
     (best.sent_at ?? '') > (curr.sent_at ?? '') ? best : curr,
   );
   return latest.id === c.id;
+}
+
+// ---------------------------------------------------------------------------
+// ScoreBreakdownGrid — Sprint 3.1
+//
+// Renders the 5 sub-scores ScoringAgent persists on `leads.score_breakdown`
+// as a horizontal bar chart so the operator can see at a glance which
+// signals drove the final number. Each bar is 0..100; the labels are
+// the canonical sub-score keys: technical, consumption, incentives,
+// solvency, distance.
+//
+// We intentionally don't HARDCODE the sub-score names — we render
+// whatever keys appear in the dict. ScoringAgent may add a 6th
+// (e.g. ``intent_signals``) and this component picks it up
+// automatically.
+// ---------------------------------------------------------------------------
+
+const SCORE_LABELS: Record<string, string> = {
+  technical: 'Tecnico',
+  consumption: 'Consumi',
+  incentives: 'Incentivi',
+  solvency: 'Solvibilità',
+  distance: 'Distanza',
+  intent_signals: 'Segnali intent',
+};
+
+function ScoreBreakdownGrid({
+  breakdown,
+}: {
+  breakdown: Record<string, unknown>;
+}) {
+  const entries = Object.entries(breakdown)
+    .filter(([, v]) => typeof v === 'number')
+    .sort(([, a], [, b]) => (b as number) - (a as number));
+
+  if (entries.length === 0) {
+    return (
+      <p className="text-sm text-on-surface-variant">
+        Breakdown non disponibile per questo lead.
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-2 pt-1">
+      {entries.map(([key, raw]) => {
+        const value = Math.round(raw as number);
+        const pct = Math.max(0, Math.min(100, value));
+        return (
+          <div key={key} className="flex items-center gap-3">
+            <span className="w-32 shrink-0 text-xs text-on-surface-variant">
+              {SCORE_LABELS[key] ?? key}
+            </span>
+            <div className="h-2 flex-1 rounded-full bg-surface-container-low">
+              <div
+                className="h-full rounded-full bg-primary"
+                style={{ width: `${pct}%` }}
+                aria-hidden
+              />
+            </div>
+            <span className="w-10 text-right font-mono text-xs font-semibold text-on-surface">
+              {value}
+            </span>
+          </div>
+        );
+      })}
+      <p className="pt-1 text-[11px] text-on-surface-variant">
+        Sub-score 0-100 calcolato da ScoringAgent. Il punteggio finale è la
+        media pesata secondo i moduli configurati in /settings.
+      </p>
+    </div>
+  );
 }

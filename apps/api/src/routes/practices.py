@@ -240,6 +240,116 @@ class UpdateDocumentRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+async def _check_practice_eligibility(
+    *, tenant_id: UUID, lead_id: UUID
+) -> list[dict[str, str]]:
+    """Return a list of eligibility errors for creating a GSE practice.
+
+    Sprint 2.3 — refuse to instantiate a practice when the lead is
+    missing data the GSE form will eventually reject. Each error has a
+    machine-readable ``code`` and a user-facing Italian ``message`` so
+    the dashboard can render them as a checklist next to the
+    "Crea pratica" button.
+
+    Empty list = lead is eligible. Errors:
+      * subject_anagrafica_incomplete — missing business_name, vat,
+        decision_maker_email
+      * roof_specs_missing — no estimated_kwp / area_sqm
+      * bolletta_missing — no upload row for this lead
+
+    Best-effort: any DB error during the check returns "no errors"
+    (graceful degradation; the route layer trusts existing 4xx/5xx
+    handling for the actual create_practice call).
+    """
+    from ..core.supabase_client import get_service_client
+
+    sb = get_service_client()
+    errors: list[dict[str, str]] = []
+
+    try:
+        res = (
+            sb.table("leads")
+            .select(
+                "id, "
+                "subjects(business_name, vat_number, decision_maker_email), "
+                "roofs(estimated_kwp, area_sqm)"
+            )
+            .eq("id", str(lead_id))
+            .eq("tenant_id", str(tenant_id))
+            .limit(1)
+            .execute()
+        )
+        rows = res.data or []
+        if not rows:
+            return [{"code": "lead_not_found", "message": "Lead non trovato."}]
+        lead = rows[0]
+        subj = lead.get("subjects") or {}
+        roof = lead.get("roofs") or {}
+        if isinstance(subj, list):
+            subj = subj[0] if subj else {}
+        if isinstance(roof, list):
+            roof = roof[0] if roof else {}
+
+        # Subject completeness
+        subj_missing: list[str] = []
+        if not (subj.get("business_name") or "").strip():
+            subj_missing.append("business_name")
+        if not (subj.get("vat_number") or "").strip():
+            subj_missing.append("vat_number")
+        if not (subj.get("decision_maker_email") or "").strip():
+            subj_missing.append("decision_maker_email")
+        if subj_missing:
+            errors.append({
+                "code": "subject_anagrafica_incomplete",
+                "message": (
+                    "Anagrafica cliente incompleta. Mancano: "
+                    + ", ".join(subj_missing)
+                ),
+            })
+
+        # Roof technical specs
+        roof_missing: list[str] = []
+        if not roof.get("estimated_kwp"):
+            roof_missing.append("estimated_kwp")
+        if not roof.get("area_sqm"):
+            roof_missing.append("area_sqm")
+        if roof_missing:
+            errors.append({
+                "code": "roof_specs_missing",
+                "message": (
+                    "Dati tecnici tetto mancanti. Eseguire l'analisi "
+                    "Solar API prima di creare la pratica."
+                ),
+            })
+
+        # At least one bolletta upload row for this lead
+        bolletta_res = (
+            sb.table("bolletta_uploads")
+            .select("id")
+            .eq("lead_id", str(lead_id))
+            .limit(1)
+            .execute()
+        )
+        if not (bolletta_res.data or []):
+            errors.append({
+                "code": "bolletta_missing",
+                "message": (
+                    "Bolletta non caricata. Il cliente deve caricare "
+                    "almeno una bolletta sul portale, oppure inserisci i "
+                    "consumi manualmente."
+                ),
+            })
+    except Exception as exc:  # noqa: BLE001 — soft-fail to allow create
+        log.warning(
+            "practice.eligibility_check_failed",
+            lead_id=str(lead_id),
+            err=str(exc)[:200],
+        )
+        return []
+
+    return errors
+
+
 @router.get(
     "/leads/{lead_id}/practice/draft",
     response_model=DraftPreviewResponse,
@@ -281,6 +391,28 @@ async def post_practice(
     ``existing_practice_id``.
     """
     tenant_id = require_tenant(ctx)
+
+    # Sprint 2.3 — eligibility gate. Refuse to create a practice when
+    # the lead is missing prerequisite data (incomplete subject, no
+    # roof technical specs, no bolletta). Without this gate the
+    # operator could generate PDFs with empty fields on demo VATs or
+    # half-enriched leads, then waste time figuring out why the GSE
+    # form is rejected on submission.
+    eligibility_errors = await _check_practice_eligibility(
+        tenant_id=tenant_id,
+        lead_id=lead_id,
+    )
+    if eligibility_errors:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "message": (
+                    "Lead non idoneo alla creazione di pratica GSE: dati "
+                    "mancanti. Completa i campi indicati e riprova."
+                ),
+                "eligibility_errors": eligibility_errors,
+            },
+        )
 
     payload: dict[str, Any] = body.model_dump(exclude={"template_codes"})
     if body.quote_id is not None:

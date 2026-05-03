@@ -45,6 +45,13 @@ export type PublicLead = {
     area_sqm?: number | null;
     estimated_kwp?: number | null;
     estimated_yearly_kwh?: number | null;
+    // Cached compute_full_derivations snapshot (cost / sizing /
+    // monthly curve / coverage). Same dict the dashboard inspector
+    // and preventivo PDF read from. Single source of truth — when
+    // present, the lead-portal ROI block prefers this over
+    // lead.roi_data so a bolletta upload that refreshed the
+    // derivations doesn't leave the portal showing stale numbers.
+    derivations?: Record<string, unknown> | null;
   } | null;
   tenant: {
     business_name: string;
