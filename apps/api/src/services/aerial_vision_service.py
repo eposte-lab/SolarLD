@@ -142,8 +142,17 @@ def _parse_vision_response(text: str) -> dict[str, Any] | None:
     return data
 
 
+# Hard cap on the Anthropic call. Without this, the SDK falls back to
+# httpx's 600 s default — long enough that Railway's 30 s idle-connection
+# timeout closes the browser connection BEFORE Claude responds, and the
+# user sees a generic "Failed to fetch" with no upstream signal as to why.
+# 18 s is empirically enough for a 5-image multimodal Sonnet call (p95
+# ≈ 6-10 s) with margin; we'd rather skip Vision than hang the cascade.
+_VISION_API_TIMEOUT_S = 18.0
+
+
 @retry(
-    stop=stop_after_attempt(2),
+    stop=stop_after_attempt(1),  # No retry — too slow under Railway's idle window
     wait=wait_exponential(multiplier=1, min=2, max=10),
     reraise=True,
 )
@@ -216,21 +225,38 @@ async def identify_company_building_in_zone(
 
     try:
         client = _get_client()
-        msg = await client.messages.create(
-            model=model,
-            max_tokens=400,
-            temperature=0.0,
-            system=SYSTEM_PROMPT,
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        *image_blocks,
-                        {"type": "text", "text": prompt},
-                    ],
-                }
-            ],
+        # Hard wall-clock budget so a slow Anthropic response can't
+        # exceed Railway's idle-connection timeout. On TimeoutError we
+        # log + skip — the cascade falls through to whatever textual
+        # signals it has, and the user sees the picker fallback rather
+        # than a "Failed to fetch" black hole.
+        import asyncio
+
+        msg = await asyncio.wait_for(
+            client.messages.create(
+                model=model,
+                max_tokens=400,
+                temperature=0.0,
+                system=SYSTEM_PROMPT,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            *image_blocks,
+                            {"type": "text", "text": prompt},
+                        ],
+                    }
+                ],
+            ),
+            timeout=_VISION_API_TIMEOUT_S,
         )
+    except asyncio.TimeoutError:
+        log.warning(
+            "vision.api_timeout",
+            timeout_s=_VISION_API_TIMEOUT_S,
+            n_candidates=len(candidate_buildings),
+        )
+        return None
     except Exception as exc:  # noqa: BLE001
         log.warning(
             "vision.api_error",

@@ -1398,17 +1398,36 @@ async def demo_identify_building(
         hq_lng=geo.lng if geo else None,
     )
 
-    async with httpx.AsyncClient(timeout=30.0) as http_client:
-        match = await identify_building(
-            vat_number=body.vat_number,
-            legal_name=body.legal_name,
-            profile=profile,
-            hq_address=geo.address if geo else body.hq_address,
-            hq_city=geo.comune if geo else None,
-            hq_province=geo.provincia if geo else None,
-            ateco_code=body.ateco_code,
-            http_client=http_client,
-        )
+    # Hard outer timeout for the whole cascade. Railway terminates idle
+    # connections after ~30 s of no response bytes; if the BIC takes
+    # longer the browser sees "Failed to fetch" with no diagnostic. We
+    # cap the run at 22 s and degrade to whatever signals returned in
+    # time, so the dialog always gets a structured response (with the
+    # picker fallback when confidence is low/none).
+    async with httpx.AsyncClient(timeout=18.0) as http_client:
+        try:
+            match = await asyncio.wait_for(
+                identify_building(
+                    vat_number=body.vat_number,
+                    legal_name=body.legal_name,
+                    profile=profile,
+                    hq_address=geo.address if geo else body.hq_address,
+                    hq_city=geo.comune if geo else None,
+                    hq_province=geo.provincia if geo else None,
+                    ateco_code=body.ateco_code,
+                    http_client=http_client,
+                ),
+                timeout=22.0,
+            )
+        except asyncio.TimeoutError:
+            log.warning(
+                "demo.identify_building.cascade_timeout",
+                vat_number=body.vat_number,
+                budget_s=22.0,
+            )
+            from ..services.building_identification import BuildingMatch
+
+            match = BuildingMatch.empty()
 
     # Surface the source_chain entries (which already came back from
     # the voter) as picker candidates. We sort by weight desc + rank
@@ -1449,12 +1468,43 @@ async def demo_identify_building(
             )
         )
 
+    # When the cascade returned no candidates (timeout, no API keys,
+    # or the geocoded address truly resolves nowhere identifiable),
+    # the picker would otherwise render an empty Italy-centred map
+    # with no markers and no fallback centre — useless. Inject the
+    # Mapbox-geocoded HQ centroid as a single low-weight candidate so
+    # at least the user can pan around the right neighbourhood and
+    # drop a freehand pin on the actual capannone.
+    if not cands and geo is not None:
+        try:
+            preview_url = build_static_satellite_url(
+                geo.lat, geo.lng, zoom=17, width=320, height=320
+            )
+        except Exception:  # noqa: BLE001
+            preview_url = None
+        cands.append(
+            IdentifyBuildingCandidate(
+                rank=1,
+                lat=geo.lat,
+                lng=geo.lng,
+                weight=0.0,
+                source="geocode_fallback",
+                polygon_geojson=None,
+                metadata={"address": geo.address, "note": "centroid_only"},
+                preview_url=preview_url,
+            )
+        )
+
     return IdentifyBuildingResponse(
         confidence=match.confidence,
         needs_user_confirmation=match.needs_user_confirmation,
-        lat=match.lat,
-        lng=match.lng,
-        address=match.address,
+        # When the BIC produced nothing but we have a geocoded HQ,
+        # surface those coords so the dialog's auto-fill skips the
+        # "no preview centre" branch and the picker map can frame on
+        # the right zone.
+        lat=match.lat if match.lat is not None else (geo.lat if geo else None),
+        lng=match.lng if match.lng is not None else (geo.lng if geo else None),
+        address=match.address or (geo.address if geo else None),
         source=match.source,
         source_chain=match.source_chain,
         candidates=cands,
