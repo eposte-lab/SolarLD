@@ -1331,6 +1331,13 @@ class IdentifyBuildingResponse(BaseModel):
     source_chain: list[dict[str, Any]] = Field(default_factory=list)
     candidates: list[IdentifyBuildingCandidate] = Field(default_factory=list)
     cached: bool = False
+    # Per-stage diagnostics so the dashboard can show "Places ran 12
+    # variants, returned 0 unique places", "OSM returned 18 buildings,
+    # 0 with name match", "Vision skipped because no zone anchor", etc.
+    # Surfaces directly in the dialog when confidence is low/none, so
+    # the operator can tell whether the cascade is genuinely stuck or
+    # if a stage is misconfigured (missing API key, network failure).
+    stage_diagnostics: dict[str, Any] = Field(default_factory=dict)
 
 
 @router.post("/identify-building", response_model=IdentifyBuildingResponse)
@@ -1509,6 +1516,7 @@ async def demo_identify_building(
         source_chain=match.source_chain,
         candidates=cands,
         cached=match.source in ("cache", "user_confirmed"),
+        stage_diagnostics=match.stage_diagnostics,
     )
 
 

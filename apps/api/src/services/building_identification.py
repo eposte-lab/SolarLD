@@ -137,6 +137,12 @@ class BuildingMatch:
 
     ``source_chain`` is the JSON-serialisable record persisted in
     ``known_company_buildings.source_chain`` for debugging.
+
+    ``stage_diagnostics`` is a per-stage counter (e.g. ``{"places_unique": 3,
+    "osm_zone_total": 18, "osm_name_match": 0, "vision_invoked": True,
+    "vision_match": False}``) so the UI / dashboard / Railway logs can
+    answer "why did the cascade pick THIS?" without re-running it. Not
+    persisted in the cache row — re-evaluated on every cascade execution.
     """
 
     lat: float | None
@@ -150,6 +156,7 @@ class BuildingMatch:
     source: str
     source_chain: list[dict]
     needs_user_confirmation: bool
+    stage_diagnostics: dict = field(default_factory=dict)
 
     @classmethod
     def empty(cls) -> "BuildingMatch":
@@ -165,6 +172,7 @@ class BuildingMatch:
             source="unresolved",
             source_chain=[],
             needs_user_confirmation=True,
+            stage_diagnostics={},
         )
 
     @property
@@ -487,6 +495,18 @@ async def identify_building(
     from .operating_site_resolver import resolve_operating_site
 
     candidates: list[BuildingCandidate] = []
+    diagnostics: dict[str, Any] = {
+        "stages_run": [],
+        "places_queries_built": 0,
+        "places_unique_results": 0,
+        "osm_zone_total": 0,
+        "osm_name_match": 0,
+        "vision_invoked": False,
+        "vision_match": False,
+        "vision_reasoning": None,
+        "legacy_source": None,
+        "legacy_confidence": None,
+    }
 
     # ── Stage 1+3 — reuse the legacy resolver ────────────────────────
     # The 4-tier resolver still does Atoka + website + Places + Mapbox
@@ -512,6 +532,9 @@ async def identify_building(
         legacy = None
 
     if legacy is not None and legacy.has_coords:
+        diagnostics["stages_run"].append("legacy_resolver")
+        diagnostics["legacy_source"] = legacy.source
+        diagnostics["legacy_confidence"] = legacy.confidence
         # Confidence → weight mapping. The legacy resolver's "high" is
         # Atoka civic match (+ Solar validation), which is a deterministic
         # pin. Medium is website / Places — strong but not pin-precise.
@@ -572,6 +595,8 @@ async def identify_building(
         )
         place_candidates = []
 
+    diagnostics["stages_run"].append("places_multi_query")
+    diagnostics["places_unique_results"] = len(place_candidates)
     candidates.extend(place_candidates)
 
     # ── Stage 4 — OSM Overpass with name fuzzy match ─────────────────
@@ -609,6 +634,9 @@ async def identify_building(
             )
             osm_buildings = []
 
+    diagnostics["stages_run"].append("osm_zone")
+    diagnostics["osm_zone_total"] = len(osm_buildings)
+    diagnostics["osm_name_match"] = sum(1 for c in osm_buildings if c.weight > 0)
     # OSM buildings whose name matches the company become weighted
     # candidates; the rest are kept around as zero-weight "vision
     # candidates" — they don't influence the vote on their own but
@@ -635,6 +663,8 @@ async def identify_building(
         and len(vision_eligible_buildings) >= 2
         and zone_anchor is not None
     ):
+        diagnostics["stages_run"].append("vision")
+        diagnostics["vision_invoked"] = True
         try:
             from . import aerial_vision_service
 
@@ -647,6 +677,10 @@ async def identify_building(
                 zone_anchor=zone_anchor,
             )
             if vision_pick is not None:
+                diagnostics["vision_match"] = True
+                diagnostics["vision_reasoning"] = vision_pick.metadata.get(
+                    "vision_reasoning"
+                )
                 candidates.append(vision_pick)
         except Exception as exc:  # noqa: BLE001
             log.warning(
@@ -669,6 +703,10 @@ async def identify_building(
 
     # ── Stage 6 — Voting ─────────────────────────────────────────────
     match = vote_on_candidates(candidates)
+    match.stage_diagnostics = diagnostics
+    diagnostics["winning_source"] = match.source
+    diagnostics["winning_confidence"] = match.confidence
+    diagnostics["total_candidates"] = len(candidates)
 
     log.info(
         "bic.cascade_decision",
@@ -679,6 +717,7 @@ async def identify_building(
         n_clusters_evaluated=(
             len(_cluster_candidates(candidates)) if candidates else 0
         ),
+        diagnostics=diagnostics,
     )
 
     # Stage 7 — Cache (only when we actually have coords)

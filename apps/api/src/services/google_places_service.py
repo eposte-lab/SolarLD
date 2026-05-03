@@ -257,6 +257,48 @@ def _strip_corporate_suffix(name: str) -> str:
     return out
 
 
+def _denormalise_punctuation(name: str) -> str:
+    """Strip dots from corporate abbreviations: 'IDANA F.W.A. S.R.L.' → 'IDANA FWA SRL'.
+
+    Google Places business listings are inconsistent about punctuation.
+    Some businesses are registered with dots ("S.R.L."), Google indexes
+    them without ("SRL"), and a search with the original punctuation
+    misses them entirely. We always probe BOTH variants so a query like
+    "IDANA SRL" hits the listing even when the legal name is registered
+    as "IDANA S.R.L." — and vice-versa.
+    """
+    out = name
+    # Collapse single-letter-dot sequences into the unpunctuated form,
+    # e.g. "S.R.L." → "SRL", "F.W.A." → "FWA". The pattern is
+    # specifically letter+dot+letter+dot to avoid touching legitimate
+    # abbreviations like "Via S. Antonio" → "Via S Antonio" (we only
+    # touch sequences of 2+ adjacent letter-dots).
+    import re
+
+    out = re.sub(r"\b((?:[A-Za-z]\.){2,})", lambda m: m.group(1).replace(".", ""), out)
+    return out.strip()
+
+
+def _normalise_punctuation(name: str) -> str:
+    """The opposite — try to add dots where the listing might use them.
+
+    'MULTILOG SPA' → 'MULTILOG S.P.A.'  Best-effort, only applies to
+    well-known Italian corporate suffixes at the end of the name.
+    """
+    out = name.strip()
+    suffix_map = {
+        " SPA": " S.P.A.",
+        " SRL": " S.R.L.",
+        " SAS": " S.A.S.",
+        " SNC": " S.N.C.",
+    }
+    upper = out.upper()
+    for raw_suffix, dotted_suffix in suffix_map.items():
+        if upper.endswith(raw_suffix):
+            return out[: -len(raw_suffix)] + dotted_suffix
+    return out
+
+
 def build_multi_query_variants(
     legal_name: str,
     *,
@@ -265,66 +307,94 @@ def build_multi_query_variants(
     ateco_code: str | None = None,
     ateco_description: str | None = None,
 ) -> list[str]:
-    """Build 4-6 differently-formatted Places queries for one company.
+    """Build a long list of differently-formatted Places queries.
 
-    The Places "FindPlaceFromText" API ranks by a synthetic relevance
-    score that's heavily affected by exact name match. By probing
-    multiple formulations of the same company name we boost recall
-    when:
-      * the company is registered as "Multilog S.P.A." but Google's
-        business listing shows just "Multilog";
-      * the listing mentions only the trade name (e.g. "Multilog
-        Logistics") rather than the legal name;
-      * the company is in a Z.I. but Google's place is anchored on the
-        nearby town rather than the agglomerato.
+    Italian B2B listings are wildly inconsistent in how they appear on
+    Google: punctuation varies (S.P.A. vs SPA), the trade name may be
+    the first token only, the city in the listing may be the comune or
+    the more famous nearby town, and the sector hint matters when the
+    name itself is a common word. Recall-first strategy: generate up to
+    ~12 unique formulations, fire them in parallel against Places (each
+    call is ~$0.017), pool by place_id in the voter — one place that
+    surfaces under 3+ formulations is far more credible than one that
+    only matches the literal legal name.
 
-    Each unique ``place_id`` returned by the variants ends up as one
-    BuildingCandidate; multiple variants converging on the same place
-    naturally pool weight in the voter.
+    The variant set covers:
+      1. Verbatim legal name (literal listing match)
+      2-3. Punctuation normalised + denormalised (S.R.L. ↔ SRL)
+      4-7. Stripped corporate suffix × {bare, +city, +province, +"italia"}
+      8-9. First token only × {bare, +city}
+      10-11. ATECO keyword hint × {full name, first token}
+      12. ATECO description first-word verbatim
     """
-    base = _strip_corporate_suffix(legal_name)
-    first_token = base.split()[0] if base.split() else legal_name
     queries: list[str] = []
 
     def _add(q: str) -> None:
-        q = " ".join(q.split())  # collapse whitespace
+        q = " ".join(q.split()).strip()
         if q and q not in queries:
             queries.append(q)
 
-    # Variant 1 — exact legal name (kept verbatim so a perfectly listed
-    # SPA still hits even when subsequent variants would lose a token).
-    _add(legal_name)
+    legal_clean = legal_name.strip()
+    base = _strip_corporate_suffix(legal_clean)
+    first_token = base.split()[0] if base.split() else legal_clean
+    name_no_dots = _denormalise_punctuation(legal_clean)
+    name_with_dots = _normalise_punctuation(legal_clean)
 
-    # Variant 2 — stripped, plus city when known.
-    _add(f"{base} {city or ''}".strip())
+    # 1. Verbatim — preserves the exact registered form so a perfectly
+    #    listed company hits on the first call.
+    _add(legal_clean)
 
-    # Variant 3 — stripped, plus province (catches companies whose
-    # listing is anchored on the province capital rather than the comune).
+    # 2. Punctuation removed: "MULTILOG S.P.A." → "MULTILOG SPA".
+    _add(name_no_dots)
+
+    # 3. Punctuation added: "MULTILOG SPA" → "MULTILOG S.P.A.".
+    _add(name_with_dots)
+
+    # 4. Bare stripped name. Many Italian listings are registered under
+    #    the trade name without any suffix at all.
+    _add(base)
+
+    # 5-7. Stripped + city / province / "italia" (covers listings
+    #      anchored on a different geography than the registered HQ).
+    if city:
+        _add(f"{base} {city}")
     if province:
         _add(f"{base} {province}")
+    _add(f"{base} italia")
 
-    # Variant 4 — first-token + city. Helpful when the legal name is
-    # multi-word but the trade name is just the first token.
+    # 8-9. First-token only with optional city (catches "Multilog
+    #      Logistics SRL" → listing as just "Multilog").
     if first_token != base:
-        _add(f"{first_token} {city or ''}".strip())
+        _add(first_token)
+        if city:
+            _add(f"{first_token} {city}")
 
-    # Variant 5 — ATECO keyword hint. Helpful for generic names ("Sole
-    # Energy" → "Sole Energy logistica") to disambiguate against random
-    # POIs sharing the same word.
+    # 10. ATECO keyword hint — disambiguates generic names like "Sole
+    #     Energy SRL" → "Sole Energy logistica" so the result isn't a
+    #     hotel with the same word in its name.
     keyword: str | None = None
     if ateco_code:
         keyword = _ATECO_KEYWORD_HINTS.get(str(ateco_code).strip()[:2])
     if not keyword and ateco_description:
-        # Take the first content word of the ATECO description as a
-        # fallback. Skip the leading article if any.
         words = [w for w in ateco_description.split() if len(w) > 3]
         keyword = words[0].lower() if words else None
     if keyword:
         _add(f"{base} {keyword}")
+        # 11. ATECO keyword + first token (covers very short trade names).
+        if first_token != base:
+            _add(f"{first_token} {keyword}")
 
-    # Cap at 6 variants — anything beyond this rarely surfaces a new
-    # place_id and just multiplies cost.
-    return queries[:6]
+    # 12. ATECO description first chunk verbatim (matches listings whose
+    #     description text Google indexes).
+    if ateco_description:
+        first_chunk = ateco_description.split(",")[0].strip()
+        if first_chunk and len(first_chunk) <= 60:
+            _add(f"{base} {first_chunk}")
+
+    # Cap at 12 — beyond this we hit diminishing returns and Places cost
+    # starts to dominate. Even at 12 × $0.017 = ~$0.20 worst case it's
+    # an acceptable cost for a demo-call-critical signal.
+    return queries[:12]
 
 
 @dataclass(slots=True)
@@ -418,7 +488,13 @@ async def search_text_multi_query(
                 res.lat,
                 res.lng,
             )
-            if d > 5_000:
+            # 15 km radius — Italian "Z.I." footprints can be huge
+            # (Pascarola spans ~3 km × 3 km on its own, and the
+            # legacy mapbox_hq centroid often lands at the
+            # geographical centre of the comune which is several
+            # km from the actual industrial cluster). 5 km was
+            # rejecting legitimate matches.
+            if d > 15_000:
                 log.info(
                     "places_multi.outside_bias",
                     query=query[:80],
