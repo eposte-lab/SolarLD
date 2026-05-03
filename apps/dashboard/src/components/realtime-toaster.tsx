@@ -46,9 +46,32 @@ export function classify(
     return { title: 'Click su WhatsApp', subtitle: event_type, type: 'engagement' };
   if (event_type === 'lead.appointment_requested')
     return {
-      title: 'Richiesta appuntamento!',
-      subtitle: (payload?.contact_name as string) || event_type,
+      title: '🔥 Richiesta di contatto ricevuta',
+      // The contact-form submission is the single highest-intent
+      // signal the prospect can give us — they explicitly asked the
+      // operator to call back. Surface contact name + phone in the
+      // toast subtitle so the operator can decide on first glance
+      // whether to reach out immediately.
+      subtitle: [
+        payload?.contact_name as string | undefined,
+        payload?.contact_phone as string | undefined,
+      ]
+        .filter(Boolean)
+        .join(' · ') || event_type,
       type: 'conversion',
+    };
+  if (event_type === 'lead.bolletta_uploaded')
+    return {
+      title: 'Bolletta caricata sul portale',
+      subtitle: (() => {
+        const kwh = payload?.ocr_kwh_yearly as number | undefined;
+        const eur = payload?.ocr_eur_yearly as number | undefined;
+        if (kwh && eur)
+          return `${Math.round(kwh).toLocaleString('it-IT')} kWh/anno · €${Math.round(eur).toLocaleString('it-IT')}`;
+        if (kwh) return `${Math.round(kwh).toLocaleString('it-IT')} kWh/anno`;
+        return event_type;
+      })(),
+      type: 'engagement',
     };
   if (event_type === 'lead.optout_requested')
     return { title: 'Opt-out ricevuto', subtitle: event_type, type: 'default' };

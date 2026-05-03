@@ -1193,7 +1193,16 @@ def _emit_public_event(
     lead_id: str,
     payload: dict[str, Any],
 ) -> None:
-    """Best-effort events insert — never fails the HTTP handler."""
+    """Best-effort events insert — never fails the HTTP handler.
+
+    For high-intent inbound events (contact-form submission and
+    bolletta upload) we also schedule a fire-and-forget operator
+    notification email so the operator hears about the lead within
+    seconds rather than at the next dashboard visit. The dashboard
+    realtime toaster catches the same events; the email is the
+    durable channel for operators not actively looking at the
+    dashboard.
+    """
     try:
         sb.table("events").insert(
             {
@@ -1210,3 +1219,32 @@ def _emit_public_event(
             event_type=event_type,
             err=str(exc),
         )
+
+    # Operator-alert side effect. Best-effort — never blocks the user's
+    # request. Failures inside notify_operator log + swallow.
+    if event_type in ("lead.appointment_requested", "lead.bolletta_uploaded"):
+        try:
+            import asyncio
+
+            from ..services.operator_notification_service import notify_operator
+
+            asyncio.create_task(
+                notify_operator(
+                    tenant_id=tenant_id,
+                    lead_id=lead_id,
+                    event_type=event_type,
+                    payload=payload,
+                )
+            )
+        except RuntimeError:
+            # No running event loop (unlikely on a FastAPI route, but
+            # defensive). Skip the notification rather than crash.
+            log.warning(
+                "public.operator_notify_no_loop", event_type=event_type
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.warning(
+                "public.operator_notify_schedule_failed",
+                event_type=event_type,
+                err=str(exc),
+            )
