@@ -195,6 +195,10 @@ export function TestPipelineDialog({
   const [attemptsAfterRun, setAttemptsAfterRun] = useState<number | null>(null);
   const [inboxes, setInboxes] = useState<InboxOption[]>([]);
   const [inboxesLoading, setInboxesLoading] = useState(true);
+  const [seedRolling, setSeedRolling] = useState(false);
+  // VAT of the most recent seed → passed back to /v1/demo/random-seed
+  // as exclude_vat so the next re-roll guarantees a different company.
+  const [lastSeedVat, setLastSeedVat] = useState<string | null>(null);
 
   // ─── Building Identification Cascade (BIC) state ────────────────
   // Triggered manually via the "Identifica capannone" button (we don't
@@ -253,11 +257,71 @@ export function TestPipelineDialog({
     };
   }, []);
 
+  // Fetch one random row from demo_mock_enrichment to prefill the form
+  // with a real Italian company. Different sector / region every time
+  // (well — different from the previously-seeded one, see exclude_vat
+  // logic in the route). Best-effort: on failure we leave whatever's
+  // currently in `form` untouched so the operator can still type
+  // values manually.
+  async function rollSeed(opts: { excludeLast?: boolean } = {}) {
+    setSeedRolling(true);
+    try {
+      const auth = await authHeader();
+      const params = new URLSearchParams();
+      if (opts.excludeLast && lastSeedVat) {
+        params.set('exclude_vat', lastSeedVat);
+      }
+      const qs = params.toString();
+      const res = await fetch(
+        `${API_URL}/v1/demo/random-seed${qs ? `?${qs}` : ''}`,
+        { headers: { ...auth } },
+      );
+      if (!res.ok) return;
+      const seed = (await res.json().catch(() => null)) as
+        | {
+            vat_number: string;
+            legal_name: string;
+            ateco_code: string | null;
+            hq_address: string;
+            decision_maker_name: string;
+            decision_maker_role: string;
+            decision_maker_email: string;
+          }
+        | null;
+      if (!seed) return;
+      setForm((prev) => ({
+        ...prev,
+        vat_number: seed.vat_number,
+        legal_name: seed.legal_name,
+        ateco_code: seed.ateco_code ?? '',
+        hq_address: seed.hq_address,
+        decision_maker_name: seed.decision_maker_name,
+        decision_maker_role: seed.decision_maker_role,
+        decision_maker_email: seed.decision_maker_email,
+      }));
+      setLastSeedVat(seed.vat_number);
+      // Reset BIC state so the operator re-runs the cascade for the
+      // new company instead of seeing stale candidates from the
+      // previous one.
+      setBicResult(null);
+      setConfirmedBuilding(null);
+      setGeocode(null);
+    } catch {
+      // Soft-fail: keep the current form values.
+    } finally {
+      setSeedRolling(false);
+    }
+  }
+
   function open() {
     setError(null);
     setRun(null);
     setAttemptsAfterRun(null);
     ref.current?.showModal();
+    // Roll a fresh seed every time the dialog opens. Different real
+    // company each time so the operator's smoke tests cover varied
+    // sectors / regions instead of always testing MULTILOG.
+    void rollSeed({ excludeLast: true });
   }
 
   function close() {
@@ -526,8 +590,8 @@ export function TestPipelineDialog({
         }}
       >
         <div className="space-y-4 p-6">
-          <header className="flex items-start justify-between">
-            <div>
+          <header className="flex items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
               <p className="text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">
                 Test pipeline · {attemptsRemaining}/3 rimanenti
               </p>
@@ -540,14 +604,35 @@ export function TestPipelineDialog({
                 del lead e in <code>/admin/demo-runs</code>).
               </p>
             </div>
-            <button
-              type="button"
-              onClick={close}
-              className="rounded-full p-1 text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface"
-              aria-label="Chiudi"
-            >
-              ✕
-            </button>
+            <div className="flex shrink-0 items-center gap-2">
+              {/* "Cambia azienda" — re-rolls demo_mock_enrichment seed
+                  so the next test targets a different real Italian
+                  company. Auto-fires on dialog open already; this is
+                  the manual override for "I want a different one
+                  RIGHT NOW" without closing/reopening. */}
+              <button
+                type="button"
+                onClick={() => void rollSeed({ excludeLast: true })}
+                disabled={seedRolling || run !== null}
+                title="Pesca un'altra azienda reale dal seed"
+                className="inline-flex items-center gap-1 rounded-full bg-surface-container-high px-2.5 py-1 text-[11px] font-semibold text-on-surface hover:bg-surface-container-highest disabled:opacity-50"
+              >
+                {seedRolling ? (
+                  <Loader2 size={12} strokeWidth={2.5} className="animate-spin" />
+                ) : (
+                  <span aria-hidden>🎲</span>
+                )}
+                Cambia azienda
+              </button>
+              <button
+                type="button"
+                onClick={close}
+                className="rounded-full p-1 text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface"
+                aria-label="Chiudi"
+              >
+                ✕
+              </button>
+            </div>
           </header>
 
           {run && run.status === 'failed' ? (

@@ -513,6 +513,103 @@ async def demo_list_inboxes(ctx: CurrentUser) -> DemoInboxListResponse:
 
 
 # ---------------------------------------------------------------------------
+# Random seed — rotate through demo_mock_enrichment for variety
+# ---------------------------------------------------------------------------
+
+
+class DemoFormSeed(BaseModel):
+    """One pre-filled "real Italian company" set for the test dialog.
+
+    Sources from ``demo_mock_enrichment`` (a curated table of ~10 real-
+    looking Italian SMEs across sectors and regions). Lets the dialog
+    rotate through different companies on each open instead of always
+    showing MULTILOG, so the operator gets a more representative sense
+    of how the pipeline performs across sectors.
+    """
+
+    vat_number: str
+    legal_name: str
+    ateco_code: str | None = None
+    ateco_description: str | None = None
+    hq_address: str
+    decision_maker_name: str
+    decision_maker_role: str
+    decision_maker_email: str
+    employees: int | None = None
+    yearly_revenue_eur: int | None = None
+
+
+@router.get("/random-seed", response_model=DemoFormSeed)
+async def demo_random_seed(
+    ctx: CurrentUser,
+    exclude_vat: str | None = None,
+) -> DemoFormSeed:
+    """Return ONE random demo_mock_enrichment row to prefill the dialog.
+
+    Optional ``exclude_vat`` query param — when set, the row picked
+    is guaranteed to be different from the one the operator just
+    submitted (so re-rolls cycle through the pool instead of
+    occasionally landing on the same VAT twice in a row).
+
+    No counter decrement. No side effects. Cheap-ish (single
+    PostgREST roundtrip + Python random pick on a 10-row pool).
+    """
+    tenant_id = require_tenant(ctx)
+    await _require_demo_tenant(tenant_id)
+    sb = get_service_client()
+
+    res = await asyncio.to_thread(
+        lambda: sb.table("demo_mock_enrichment")
+        .select(
+            "vat_number, legal_name, ateco_code, ateco_description, "
+            "hq_address, decision_maker_name, decision_maker_role, "
+            "decision_maker_email, employees, yearly_revenue_cents"
+        )
+        # Only return rows that have the prefill fields populated —
+        # legacy rows (pre-migration 0095) without legal_name would
+        # produce a half-broken form.
+        .not_.is_("legal_name", "null")
+        .not_.is_("hq_address", "null")
+        .execute()
+    )
+    rows = res.data or []
+    if exclude_vat:
+        rows = [r for r in rows if r.get("vat_number") != exclude_vat]
+    if not rows:
+        # Fall back to the static MULTILOG defaults so the form is
+        # never empty even if the seed pool has been emptied.
+        return DemoFormSeed(
+            vat_number="09881610019",
+            legal_name="MULTILOG S.P.A.",
+            ateco_code="49.41",
+            ateco_description="Trasporto di merci su strada",
+            hq_address="Zona Industriale ASI, 80023 Agglomerato Asi Pascarola NA",
+            decision_maker_name="Antonio De Luca",
+            decision_maker_role="Amministratore Delegato",
+            decision_maker_email="multilogspa@pec.it",
+        )
+
+    import secrets
+    pick = rows[secrets.randbelow(len(rows))]
+    return DemoFormSeed(
+        vat_number=pick["vat_number"],
+        legal_name=pick["legal_name"],
+        ateco_code=pick.get("ateco_code"),
+        ateco_description=pick.get("ateco_description"),
+        hq_address=pick["hq_address"],
+        decision_maker_name=pick["decision_maker_name"],
+        decision_maker_role=pick["decision_maker_role"],
+        decision_maker_email=pick["decision_maker_email"],
+        employees=pick.get("employees"),
+        yearly_revenue_eur=(
+            int(pick["yearly_revenue_cents"] / 100)
+            if pick.get("yearly_revenue_cents") is not None
+            else None
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Test pipeline — the headline endpoint
 # ---------------------------------------------------------------------------
 
