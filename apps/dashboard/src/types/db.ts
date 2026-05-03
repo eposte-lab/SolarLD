@@ -325,6 +325,11 @@ export interface OutreachSendRow {
   failure_reason: string | null;
   acquisition_campaign_id: string | null;
   inbox_id: string | null;
+  // Rendering artefacts snapshotted at send time (migrations 0067 + 0096).
+  // Used by /invii detail to show what the prospect ACTUALLY received.
+  rendering_gif_url: string | null;
+  rendering_video_url: string | null;
+  rendering_image_url: string | null;
   created_at: string;
   updated_at: string;
 }

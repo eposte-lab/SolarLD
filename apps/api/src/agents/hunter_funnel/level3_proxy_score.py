@@ -13,9 +13,21 @@ The prompt lives in `apps/api/src/prompts/proxy_score.md` so non-engineers
 can tune it. The JSON schema is hard-coded here so a prompt edit that
 breaks the output contract is caught by the parser, not in production.
 
-Output: updates the `score`, `score_reasons`, `score_flags` columns and
-advances `stage` to 3. Returns `ScoredCandidate`s sorted by descending
-score — L4 consumes this ordering directly for the top-N cutoff.
+Output: updates the `score`, `score_reasons`, `score_flags`,
+`predicted_ateco_codes` columns and advances `stage` to 3. Returns
+``ScoredCandidate``s sorted by descending score — L4 consumes this
+ordering directly for the top-N cutoff.
+
+Sector-aware (Sprint B.4):
+  * When the tenant has ``target_wizard_groups``, each batch's prompt
+    includes a ``target_sector`` block telling Haiku which settori the
+    user cares about and which is the predicted match for each candidate.
+  * The output JSON now carries ``sector_match_score`` and
+    ``predicted_ateco_codes``. We post-validate the latter against
+    ``ateco_google_types.ateco_code`` to reject LLM hallucinations.
+  * Rule-based safety net: any candidate with sector_match_score < 30
+    receives an automatic ``wrong_sector`` flag in addition to whatever
+    Haiku reported.
 """
 
 from __future__ import annotations
@@ -119,7 +131,11 @@ async def _score_batch(
     parse failure so L3 output is always dense (every L2 candidate gets
     *some* score, L4 never receives `None`s it has to filter out).
     """
-    prompt = _build_batch_prompt(batch)
+    sector_mode_active = bool(ctx.config.target_wizard_groups)
+    prompt = _build_batch_prompt(
+        batch,
+        target_wizard_groups=ctx.config.target_wizard_groups,
+    )
     system_prompt = _load_prompt()
 
     client = get_client()
@@ -152,8 +168,31 @@ async def _score_batch(
         )
         return [_fallback_score(c) for c in batch]
 
+    # Sprint B.4 — validate predicted_ateco_codes from Haiku against the
+    # seed table (rejects hallucinated ATECO codes). One async lookup per
+    # batch, cached after the first call.
+    valid_atecos = await _known_ateco_codes()
+
     out: list[ScoredCandidate] = []
     for cand, item in zip(batch, parsed, strict=True):
+        flags = _str_list(item.get("flags"))
+        sector_match = _maybe_clamp_score(item.get("sector_match_score"))
+
+        # Rule-based safety net: when sector mode is active and Haiku
+        # didn't already flag the candidate, force `wrong_sector` if
+        # sector_match_score is decisively low.
+        if (
+            sector_mode_active
+            and sector_match is not None
+            and sector_match < 30
+            and "wrong_sector" not in flags
+        ):
+            flags.append("wrong_sector")
+
+        predicted_codes = _validate_ateco_codes(
+            item.get("predicted_ateco_codes"), valid=valid_atecos
+        )
+
         out.append(
             ScoredCandidate(
                 candidate_id=cand.candidate_id,
@@ -161,44 +200,144 @@ async def _score_batch(
                 enrichment=cand.enrichment,
                 score=_clamp_score(item.get("score")),
                 reasons=_str_list(item.get("reasons")),
-                flags=_str_list(item.get("flags")),
+                flags=flags,
+                predicted_sector=cand.predicted_sector,
+                sector_confidence=cand.sector_confidence,
+                sector_match_score=sector_match,
+                predicted_ateco_codes=predicted_codes,
             )
         )
     return out
 
 
-def _build_batch_prompt(batch: list[EnrichedCandidate]) -> str:
+def _build_batch_prompt(
+    batch: list[EnrichedCandidate],
+    *,
+    target_wizard_groups: tuple[str, ...] | list[str] = (),
+) -> str:
     """Serialise a batch of candidates into the compact JSON the model
     expects. Order matters — the response array is position-keyed.
+
+    When ``target_wizard_groups`` is non-empty (sector-aware mode), we
+    prepend a ``target_sector`` context block listing the tenant's
+    enabled palettes and the per-candidate predicted_sector. The system
+    prompt teaches Haiku how to weigh ``sector_match_score`` from this.
     """
     items: list[dict[str, Any]] = []
     for i, c in enumerate(batch):
         p = c.profile
-        items.append(
-            {
-                "idx": i,
-                "name": p.legal_name,
-                "ateco": p.ateco_code,
-                "ateco_desc": p.ateco_description,
-                "employees": p.employees,
-                "revenue_eur": (
-                    p.yearly_revenue_cents // 100
-                    if p.yearly_revenue_cents
-                    else None
-                ),
-                "province": p.hq_province,
-                "city": p.hq_city,
-                "site_signals": c.enrichment.site_signals,
-                "website": c.enrichment.website,
-            }
+        item: dict[str, Any] = {
+            "idx": i,
+            "name": p.legal_name,
+            "ateco": p.ateco_code,
+            "ateco_desc": p.ateco_description,
+            "employees": p.employees,
+            "revenue_eur": (
+                p.yearly_revenue_cents // 100
+                if p.yearly_revenue_cents
+                else None
+            ),
+            "province": p.hq_province,
+            "city": p.hq_city,
+            "site_signals": c.enrichment.site_signals,
+            "website": c.enrichment.website,
+        }
+        if target_wizard_groups:
+            item["predicted_sector"] = c.predicted_sector
+            item["sector_confidence"] = c.sector_confidence
+        items.append(item)
+
+    target_sector_block = ""
+    if target_wizard_groups:
+        target_sector_block = (
+            "target_sector context (sector-aware mode active):\n"
+            f"  enabled_wizard_groups: {list(target_wizard_groups)}\n"
+            "  When evaluating each candidate, set sector_match_score "
+            "0-100 based on alignment with their predicted_sector and "
+            "the enabled_wizard_groups list. Add flag wrong_sector "
+            "when the candidate is clearly fuori target.\n\n"
         )
+
     return (
         "Score each company below. Return a JSON object with a single "
         "key `results` whose value is an array of length "
-        f"{len(batch)}, in the same order, each element shaped "
-        '{"score": int, "reasons": [str], "flags": [str]}.\n\n'
+        f"{len(batch)}, in the same order, each element shaped per "
+        "the system prompt schema (score, sector_match_score, reasons, "
+        "flags, predicted_ateco_codes).\n\n"
+        f"{target_sector_block}"
         f"Companies (JSON):\n{json.dumps(items, ensure_ascii=False)}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Sprint B.4 helpers — predicted_ateco validation, sector_match clamping
+# ---------------------------------------------------------------------------
+
+
+_KNOWN_ATECO_CACHE: set[str] | None = None
+
+
+async def _known_ateco_codes() -> set[str]:
+    """Lazy-load all ATECO codes that exist in ateco_google_types.
+
+    Used to filter Haiku's ``predicted_ateco_codes`` so a hallucinated
+    "99.99" never makes it into ``scan_candidates.predicted_ateco_codes``.
+    """
+    global _KNOWN_ATECO_CACHE
+    if _KNOWN_ATECO_CACHE is not None:
+        return _KNOWN_ATECO_CACHE
+
+    sb = get_service_client()
+    try:
+        res = sb.table("ateco_google_types").select("ateco_code").execute()
+        rows = res.data or []
+        _KNOWN_ATECO_CACHE = {r["ateco_code"] for r in rows if r.get("ateco_code")}
+    except Exception as exc:  # noqa: BLE001
+        log.warning("l3_known_ateco_load_failed", extra={"err": str(exc)})
+        _KNOWN_ATECO_CACHE = set()
+    return _KNOWN_ATECO_CACHE
+
+
+def _validate_ateco_codes(raw: Any, *, valid: set[str]) -> list[str]:
+    """Cross-check Haiku's predicted ATECO codes against the seed table.
+
+    Accepts both exact codes ("10.51") and 2-digit prefixes ("10").
+    A prefix is considered valid when ANY full code in ``valid`` starts
+    with it. Output is deduped and capped at 6 entries.
+    """
+    if not isinstance(raw, list):
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for entry in raw:
+        if not isinstance(entry, str):
+            continue
+        e = entry.strip()
+        if not e or e in seen:
+            continue
+        if e in valid:
+            seen.add(e)
+            out.append(e)
+            continue
+        # Treat short entry as prefix.
+        if len(e) <= 2 and any(code.startswith(e) for code in valid):
+            seen.add(e)
+            out.append(e)
+        if len(out) >= 6:
+            break
+    return out
+
+
+def _maybe_clamp_score(value: Any) -> int | None:
+    """Like ``_clamp_score`` but preserves None for nullable fields
+    (``sector_match_score`` is null in legacy mode)."""
+    if value is None:
+        return None
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        return None
+    return max(0, min(100, n))
 
 
 def _parse_batch_response(
@@ -238,6 +377,11 @@ def _fallback_score(c: EnrichedCandidate) -> ScoredCandidate:
     """Rule-based score for when Haiku is unavailable. Coarse but keeps
     the funnel flowing: we still produce a reasonable ranking, just with
     less granularity than the model would.
+
+    When ``predicted_sector`` is set we use it as a coarse
+    ``sector_match_score`` proxy: 70 if the sector exists (predicted)
+    and the confidence is exact, 50 if it was a fuzzy match, None
+    otherwise.
     """
     p = c.profile
     score = 40  # neutral baseline
@@ -266,6 +410,16 @@ def _fallback_score(c: EnrichedCandidate) -> ScoredCandidate:
     if c.enrichment.site_signals:
         score += min(10, len(c.enrichment.site_signals) * 3)
 
+    sector_match: int | None = None
+    if c.predicted_sector:
+        if c.sector_confidence is not None:
+            if c.sector_confidence >= 0.9:
+                sector_match = 75
+            elif c.sector_confidence >= 0.6:
+                sector_match = 55
+            else:
+                sector_match = 40
+
     return ScoredCandidate(
         candidate_id=c.candidate_id,
         profile=p,
@@ -273,6 +427,10 @@ def _fallback_score(c: EnrichedCandidate) -> ScoredCandidate:
         score=_clamp_score(score),
         reasons=["fallback_heuristic"],
         flags=["haiku_unavailable"],
+        predicted_sector=c.predicted_sector,
+        sector_confidence=c.sector_confidence,
+        sector_match_score=sector_match,
+        predicted_ateco_codes=[],
     )
 
 
@@ -300,15 +458,19 @@ def _bulk_persist_l3(scored: list[ScoredCandidate]) -> None:
         return
     sb = get_service_client()
     for s in scored:
+        update: dict[str, Any] = {
+            "score": s.score,
+            "score_reasons": s.reasons,
+            "score_flags": s.flags,
+            "stage": 3,
+            # Sprint B.4 — persist Haiku's validated predicted_ateco_codes
+            # (empty list is fine; the column has NOT NULL DEFAULT '{}').
+            "predicted_ateco_codes": list(s.predicted_ateco_codes or []),
+        }
         try:
-            sb.table("scan_candidates").update(
-                {
-                    "score": s.score,
-                    "score_reasons": s.reasons,
-                    "score_flags": s.flags,
-                    "stage": 3,
-                }
-            ).eq("id", str(s.candidate_id)).execute()
+            sb.table("scan_candidates").update(update).eq(
+                "id", str(s.candidate_id)
+            ).execute()
         except Exception as exc:  # noqa: BLE001
             log.warning(
                 "l3_persist_failed",

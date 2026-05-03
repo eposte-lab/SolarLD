@@ -395,14 +395,117 @@ def _classify_confidence(
     return "none"
 
 
-def vote_on_candidates(candidates: list[BuildingCandidate]) -> BuildingMatch:
+async def _load_sector_signal_hints(
+    predicted_sector: str | None,
+) -> list[Any]:
+    """Load the union of osm_landuse_hints + osm_additional_tags for a
+    wizard_group from the seed table. Returns ``[]`` when no sector,
+    no DB hit, or any failure (best-effort signal — never crashes BIC).
+    """
+    if not predicted_sector:
+        return []
+    try:
+        from . import sector_target_service
+        from ..core.supabase_client import get_service_client as _sc
+
+        sb = _sc()
+        mapping = await sector_target_service.get_sector_config_by_wizard_group(
+            sb, wizard_group=predicted_sector
+        )
+        if mapping is None:
+            return []
+        return list(mapping.osm_landuse_hints) + list(mapping.osm_additional_tags)
+    except Exception as exc:  # noqa: BLE001
+        log.debug(
+            "bic.sector_hints_load_failed",
+            predicted_sector=predicted_sector,
+            err=str(exc),
+        )
+        return []
+
+
+def _apply_sector_signal_bonus(
+    candidates: list[BuildingCandidate], *, hints: list[Any]
+) -> list[BuildingCandidate]:
+    """Return a new candidate list with weight-bonus applied for sector
+    OSM tag matches.
+
+    ``hints`` is duck-typed as objects with ``tag_key``, ``tag_value``,
+    ``weight`` attributes (the ``OsmTagHint`` dataclass from
+    ``sector_target_service``). We do attribute access rather than dict
+    access so callers can pass either dataclasses or namedtuples.
+
+    Bonus is capped at 0.15 per candidate so a building that matches
+    multiple sector hints can't overrule a strong name match. The
+    underlying weight is preserved on a copy — original candidates are
+    not mutated (defensive: the orchestrator may use the same list
+    elsewhere for diagnostics).
+    """
+    if not hints or not candidates:
+        return candidates
+    bonused: list[BuildingCandidate] = []
+    for c in candidates:
+        tags = (c.metadata or {}).get("tags") if isinstance(c.metadata, dict) else None
+        if not tags or not isinstance(tags, dict):
+            bonused.append(c)
+            continue
+        bonus = 0.0
+        for hint in hints:
+            try:
+                k = getattr(hint, "tag_key", None)
+                v = getattr(hint, "tag_value", None)
+                w = float(getattr(hint, "weight", 0.0))
+            except (AttributeError, TypeError, ValueError):
+                continue
+            if not k or not v or w <= 0:
+                continue
+            if tags.get(k) == v:
+                bonus += w * 0.15
+        if bonus <= 0:
+            bonused.append(c)
+            continue
+        bonus = min(bonus, 0.15)
+        # Don't mutate the original — make a shallow copy.
+        bonused.append(
+            BuildingCandidate(
+                lat=c.lat,
+                lng=c.lng,
+                weight=c.weight + bonus,
+                source=c.source,
+                polygon_geojson=c.polygon_geojson,
+                metadata={**c.metadata, "sector_bonus": round(bonus, 3)},
+            )
+        )
+    return bonused
+
+
+def vote_on_candidates(
+    candidates: list[BuildingCandidate],
+    *,
+    sector_signal_hints: list[Any] | None = None,
+) -> BuildingMatch:
     """Cluster candidates by proximity and pick the highest-scoring cluster.
 
     This is the "decision" stage of the cascade. Pure function — no
     network calls — so it's trivially testable in isolation.
+
+    Sprint B.5 — optional sector-aware bonus:
+      ``sector_signal_hints`` is a list of ``OsmTagHint``-shaped objects
+      (typically loaded from ``sector_target_service``). Candidates whose
+      OSM ``tags`` metadata contains any of these (key,value) pairs
+      receive a small additive bonus to their weight (max 0.15) before
+      voting. This nudges the voter to prefer a building inside an
+      ``landuse=industrial`` polygon when the candidate's sector is
+      industry_heavy/food_production/logistics, without overruling a
+      strong name-match candidate.
     """
     if not candidates:
         return BuildingMatch.empty()
+
+    if sector_signal_hints:
+        candidates = _apply_sector_signal_bonus(
+            candidates, hints=sector_signal_hints
+        )
 
     clusters = _cluster_candidates(candidates)
     # Sort by descending total weight; tie-breaker is the cluster's
@@ -476,6 +579,7 @@ async def identify_building(
     http_client: httpx.AsyncClient | None = None,
     enable_vision: bool = True,
     skip_cache: bool = False,
+    predicted_sector: str | None = None,
 ) -> BuildingMatch:
     """Run the full Building Identification Cascade.
 
@@ -483,6 +587,14 @@ async def identify_building(
     ``has_coords=False`` and ``confidence='none'`` so callers (e.g.
     creative agent) can decide to skip the render and force user
     confirmation. Never raises — every stage is wrapped to fail open.
+
+    Sprint B.5 — ``predicted_sector`` (when provided) loads the sector's
+    ``osm_landuse_hints`` + ``osm_additional_tags`` from
+    ``ateco_google_types`` and passes them to ``vote_on_candidates`` as
+    a weighting bonus. Building inside a ``landuse=industrial`` polygon
+    is preferred when the candidate's sector is industry_heavy, etc.
+    Optional and free-cost: the OSM tags are already in each candidate's
+    metadata bag from stage 4 (no extra Overpass query).
     """
 
     # Stage 0 — cache lookup
@@ -724,8 +836,12 @@ async def identify_building(
         )
 
     # ── Stage 6 — Voting ─────────────────────────────────────────────
-    match = vote_on_candidates(candidates)
+    sector_hints = await _load_sector_signal_hints(predicted_sector)
+    match = vote_on_candidates(candidates, sector_signal_hints=sector_hints)
     match.stage_diagnostics = diagnostics
+    if sector_hints:
+        diagnostics["sector_voting_hints"] = len(sector_hints)
+        diagnostics["sector_used"] = predicted_sector
     diagnostics["winning_source"] = match.source
     diagnostics["winning_confidence"] = match.confidence
     diagnostics["total_candidates"] = len(candidates)

@@ -33,23 +33,59 @@ the 0–100 range, don't bunch them.
 - Sede in centro storico grande città — tetti piccoli, vincoli
   paesaggistici.
 
+## Sector-aware mode (Sprint B.4)
+
+When the user message includes a `target_sector` block, the tenant has
+declared specific settori target — you must evaluate **sector match**
+explicitly:
+
+- A candidate that matches the target settore (by ATECO + nome + signals)
+  earns a **high `sector_match_score`** (70–100). Drives `score` up.
+- A candidate clearly **fuori target** (es. studio notarile in zona
+  industriale quando il tenant cerca metalmeccanico) earns
+  `sector_match_score` < 30 and a `wrong_sector` flag. Drives `score`
+  drastically down regardless of solar potential.
+- Ambiguous classification (un brand generico tipo "ABC Srl" senza
+  signals chiari) → `sector_match_score` 30–60, flag
+  `ambiguous_classification`.
+
+Suggested weights when sector mode is active:
+`overall_score = 0.35 × sector_match + 0.25 × icp_fit + 0.25 × solar_potential + 0.15 × intent`
+
+When `target_sector` is NOT in the message, evaluate as before
+(legacy mode) and return `sector_match_score: null`.
+
 ## Output format
 
-Return ONE JSON object:
+Return ONE JSON object whose `results` is an array, in input order:
 
 ```json
 {
-  "score": <integer 0-100>,
-  "reasons": ["short tag 1", "short tag 2", "short tag 3"],
-  "flags": ["optional-negative-tag"]
+  "results": [
+    {
+      "score": <integer 0-100>,
+      "sector_match_score": <integer 0-100> | null,
+      "reasons": ["short tag 1", "short tag 2", "short tag 3"],
+      "flags": ["optional-tag"],
+      "predicted_ateco_codes": ["10.51", "10.71"]
+    }
+  ]
 }
 ```
 
-- `score`: 0 = clearly outside ICP, 100 = textbook ideal (capannone
-  industriale 50–150 dipendenti, provincia produttiva, €10–30M).
-- `reasons`: 2–4 short Italian tags justifying the score (e.g.
-  "manifattura-metallurgica", "50+dipendenti", "capannone-esplicito").
-- `flags`: optional negative tags when something caps the score (e.g.
-  "sede-ufficio-only", "settore-retail").
+Field rules:
+- `score`: 0 = clearly outside ICP, 100 = textbook ideal.
+- `sector_match_score`: only when the user message has a `target_sector` —
+  otherwise `null`.
+- `reasons`: 2–4 short Italian tags justifying the score.
+- `flags`: optional. Recognised values that the system reads:
+  - `wrong_sector` (when sector mode is active and the candidate is fuori target)
+  - `ambiguous_classification`
+  - `very_promising`
+  - `subsidiary_of_chain`
+- `predicted_ateco_codes`: best guess of which ATECO codes really fit
+  this candidate (often the Atoka-returned one is wrong or secondary).
+  Empty array `[]` when uncertain.
 
-Do not include any other keys. Do not wrap in markdown fences.
+Do not include any other keys. Do not wrap in markdown fences. Keep
+arrays short (≤6 items each).

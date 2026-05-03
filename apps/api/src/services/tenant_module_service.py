@@ -106,6 +106,49 @@ class SorgenteConfig(BaseModel):
     regioni: list[str] = Field(default_factory=list)
     cap: list[str] = Field(default_factory=list)
 
+    # --- Sector-aware multi-target (Sprint A) ---
+    # ``target_wizard_groups`` lists the wizard_group palettes from
+    # ``ateco_google_types`` the tenant wants to hunt. Empty list →
+    # legacy behaviour (only ``ateco_codes`` filtering, no sector
+    # awareness in L1/L3). When set, the funnel:
+    #   * derives the union of ATECO prefixes from the seed table,
+    #   * passes ``predicted_sector`` to L1 INSERT and to the L3 prompt,
+    #   * verifies Atoka ATECO compatibility post-discovery.
+    target_wizard_groups: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Wizard group palettes (industry_heavy, logistics, gdo_retail, "
+            "hospitality_large, healthcare_private, agricultural_intensive, "
+            "...). Each group has its own keyword set, OSM landuse hints, "
+            "and typical kWp range in `ateco_google_types`. Empty → legacy "
+            "ATECO-only mode for backward-compat with pre-Sprint-A tenants."
+        ),
+    )
+    sector_priority: dict[str, int] = Field(
+        default_factory=dict,
+        description=(
+            "Map wizard_group → priority (1 = primary, 2 = secondary, ...). "
+            "Used in L3 to break ties when a candidate matches multiple "
+            "settori. Defaults to all primary (1) if not specified."
+        ),
+    )
+
+    @field_validator("target_wizard_groups")
+    @classmethod
+    def _dedupe_wizard_groups(cls, v: list[str]) -> list[str]:
+        """Preserve order, drop duplicates and trim whitespace.
+        Membership in `ateco_google_types.wizard_group` is checked
+        lazily by sector_target_service (DB query) — Pydantic alone
+        can't reach the DB."""
+        seen: set[str] = set()
+        out: list[str] = []
+        for group in v:
+            g = group.strip()
+            if g and g not in seen:
+                seen.add(g)
+                out.append(g)
+        return out
+
     # --- B2C fields (residential) ---
     reddito_min_eur: int = Field(
         default=35_000,

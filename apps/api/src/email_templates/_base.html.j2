@@ -454,35 +454,37 @@
               <p class="roi-section-title">Economia</p>
               <div class="roi-row">
                 <span class="roi-label">Risparmio annuo netto</span>
-                <span class="roi-value">€ {{ (roi.net_self_savings_eur or roi.yearly_savings_eur) | format_money }}</span>
+                {# net_self_savings_eur may be absent on pre-Sprint-1 roi_data
+                   snapshots — fall back to yearly_savings_eur gracefully. #}
+                <span class="roi-value">€ {{ (roi.net_self_savings_eur | default(None) or roi.yearly_savings_eur | default(0)) | format_money }}</span>
               </div>
               <div class="roi-row">
                 <span class="roi-label">Risparmio in 25 anni</span>
-                <span class="roi-value">€ {{ (roi.savings_25y_eur or 0) | format_money }}</span>
+                <span class="roi-value">€ {{ (roi.savings_25y_eur | default(0) or 0) | format_money }}</span>
               </div>
-              {% if roi.payback_years %}
+              {% if roi.payback_years | default(None) %}
               <div class="roi-row">
                 <span class="roi-label">Tempo di rientro</span>
                 <span class="roi-value">~ {{ roi.payback_years }} anni</span>
               </div>
               {% endif %}
-              {% if roi.roi_pct_25y %}
+              {% if roi.roi_pct_25y | default(None) %}
               <div class="roi-row">
                 <span class="roi-label">ROI a 25 anni</span>
-                <span class="roi-value">{{ roi.roi_pct_25y | round(0) | int }} %</span>
+                <span class="roi-value">{{ roi.roi_pct_25y | default(0) | round(0) | int }} %</span>
               </div>
               {% endif %}
 
               <p class="roi-section-title">Ambiente</p>
               <div class="roi-row">
                 <span class="roi-label">Produzione annua</span>
-                <span class="roi-value">{{ roi.yearly_kwh | format_money }} kWh</span>
+                <span class="roi-value">{{ roi.yearly_kwh | default(roi.estimated_yearly_kwh | default(0)) | format_money }} kWh</span>
               </div>
               <div class="roi-row">
                 <span class="roi-label">CO<sub>2</sub> evitata / anno</span>
-                <span class="roi-value">{{ roi.co2_kg_per_year | format_money }} kg</span>
+                <span class="roi-value">{{ roi.co2_kg_per_year | default(0) | format_money }} kg</span>
               </div>
-              {% if roi.trees_equivalent %}
+              {% if roi.trees_equivalent | default(None) %}
               <div class="roi-row">
                 <span class="roi-label">Equivalente alberi piantati</span>
                 <span class="roi-value">{{ roi.trees_equivalent }}</span>

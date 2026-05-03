@@ -44,7 +44,7 @@ import { StatusChip, TierChip } from '@/components/ui/status-chip';
 import { TierLock } from '@/components/ui/tier-lock';
 import { listCampaignsForLead, listEventsForLead } from '@/lib/data/campaigns';
 import { listPortalEventsForLead } from '@/lib/data/engagement';
-import { getLeadById } from '@/lib/data/leads';
+import { getLeadById, getLeadSectorSignal } from '@/lib/data/leads';
 import { getConversationsForLead } from '@/lib/data/conversations';
 import { getLeadReplies } from '@/lib/data/replies';
 import { getCurrentTenantContext } from '@/lib/data/tenant';
@@ -144,7 +144,7 @@ export default async function LeadDetailPage({ params }: PageProps) {
   if (!ctx) redirect('/login');
 
   const { id } = await params;
-  const [lead, campaigns, events, replies, conversations, portalEvents] =
+  const [lead, campaigns, events, replies, conversations, portalEvents, sectorSignal] =
     await Promise.all([
       getLeadById(id),
       listCampaignsForLead(id),
@@ -152,6 +152,7 @@ export default async function LeadDetailPage({ params }: PageProps) {
       getLeadReplies(id),
       getConversationsForLead(id),
       listPortalEventsForLead(id, 50),
+      getLeadSectorSignal(id),
     ]);
   if (!lead) notFound();
 
@@ -792,6 +793,13 @@ export default async function LeadDetailPage({ params }: PageProps) {
             defaultOpen={false}
           >
             <ScoreBreakdownGrid breakdown={lead.score_breakdown as Record<string, unknown>} />
+            {sectorSignal && sectorSignal.predicted_sector ? (
+              <SectorPredictionRow
+                predictedSector={sectorSignal.predicted_sector}
+                confidence={sectorSignal.sector_confidence}
+                predictedAtecoCodes={sectorSignal.predicted_ateco_codes}
+              />
+            ) : null}
           </CollapsibleCard>
         )}
 
@@ -1042,6 +1050,84 @@ function ScoreBreakdownGrid({
       <p className="pt-1 text-[11px] text-on-surface-variant">
         Sub-score 0-100 calcolato da ScoringAgent. Il punteggio finale è la
         media pesata secondo i moduli configurati in /settings.
+      </p>
+    </div>
+  );
+}
+
+
+// ---------------------------------------------------------------------------
+// SectorPredictionRow — Sprint C.3
+// ---------------------------------------------------------------------------
+//
+// Renders the sector-aware tag the hunter funnel stamped on this lead's
+// `scan_candidates` row (predicted_sector, sector_confidence, and the
+// Haiku-validated predicted_ateco_codes from L3). Hidden entirely when
+// the lead pre-dates the sector-aware rollout (no row in scan_candidates
+// or null predicted_sector).
+//
+// The labels mirror the curated `_DISPLAY_NAMES` in the API
+// `/v1/sectors/wizard-groups` endpoint — hardcoded here to keep the
+// dashboard server-side rendering free of the extra fetch.
+
+const SECTOR_LABELS: Record<string, string> = {
+  industry_heavy: 'Manifatturiero pesante',
+  industry_light: 'Manifatturiero leggero',
+  food_production: 'Produzione alimentare',
+  logistics: 'Logistica e magazzinaggio',
+  retail_gdo: 'Grande distribuzione',
+  horeca: 'Ristorazione e bar',
+  hospitality_large: 'Ricettivo grande',
+  hospitality_food_service: 'Ristorazione collettiva',
+  healthcare: 'Sanitario',
+  healthcare_private: 'Sanitario privato',
+  agricultural_intensive: 'Agricolo intensivo',
+  automotive: 'Automotive',
+  education: 'Istruzione',
+  personal_services: 'Servizi alla persona',
+  professional_offices: 'Uffici professionali',
+};
+
+function SectorPredictionRow({
+  predictedSector,
+  confidence,
+  predictedAtecoCodes,
+}: {
+  predictedSector: string;
+  confidence: number | null;
+  predictedAtecoCodes: string[];
+}) {
+  const label = SECTOR_LABELS[predictedSector] ?? predictedSector;
+  const confidencePct =
+    confidence != null && Number.isFinite(confidence)
+      ? Math.round(confidence * 100)
+      : null;
+  return (
+    <div className="mt-3 border-t border-outline-variant pt-3">
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <span className="text-on-surface-variant">Settore predetto:</span>
+        <span className="rounded-full bg-primary-container px-2 py-0.5 font-semibold text-on-primary-container">
+          {label}
+        </span>
+        {confidencePct !== null ? (
+          <span className="text-on-surface-variant">
+            confidence {confidencePct}%
+          </span>
+        ) : null}
+        {predictedAtecoCodes.length > 0 ? (
+          <span
+            className="text-on-surface-variant"
+            title={predictedAtecoCodes.join(', ')}
+          >
+            · ATECO suggeriti: {predictedAtecoCodes.slice(0, 3).join(', ')}
+            {predictedAtecoCodes.length > 3 ? '…' : ''}
+          </span>
+        ) : null}
+      </div>
+      <p className="mt-1 text-[11px] text-on-surface-variant">
+        Stampato da L1 (ATECO + nome) e raffinato da Haiku in L3. Confidence
+        1.0 = match esatto sull&apos;ATECO seedato; 0.7 = match per prefisso
+        2 cifre; 0.4 = match fuzzy sulla ragione sociale.
       </p>
     </div>
   );

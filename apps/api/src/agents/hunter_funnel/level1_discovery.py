@@ -15,15 +15,30 @@ after enriching their ICP, and that's not a dedup case.
 
 No Solar is called at this level. The output rows are persisted with
 `stage = 1` and scored further downstream.
+
+Sector-aware (Sprint A/B/C):
+  * When ``config.ateco_whitelist`` is empty AND ``config.target_wizard_groups``
+    is set, we derive the whitelist from ``ateco_google_types`` so the tenant
+    doesn't have to type ATECO codes by hand for sector palettes.
+  * After Atoka returns, we filter rows whose ATECO 2-digit prefix doesn't
+    match any expected prefix from the whitelist (rejects 84.x = PA when we
+    asked for 25.x metalmeccanico, etc.).
+  * Each persisted row gets stamped with ``predicted_sector`` +
+    ``sector_confidence`` from ``sector_target_service.predict_sector_for_candidate``,
+    so L3 prompt rendering and the dashboard "Settore predetto" badge
+    have data to read.
 """
 
 from __future__ import annotations
 
+import asyncio
+from collections import Counter
 from typing import Any
 from uuid import UUID, uuid4
 
 from ...core.logging import get_logger
 from ...core.supabase_client import get_service_client
+from ...services import sector_target_service
 from ...services.italian_business_service import (
     ATOKA_DISCOVERY_COST_PER_RECORD_CENTS,
     AtokaProfile,
@@ -43,8 +58,28 @@ async def run_level1(ctx: FunnelContext) -> list[L1Candidate]:
     (no Italian companies matched the tenant's ICP).
     """
     config = ctx.config
+    sb = get_service_client()
 
-    if not config.ateco_whitelist:
+    # Resolve the effective ATECO whitelist. When the tenant left
+    # ``ateco_codes`` empty but configured ``target_wizard_groups``, we
+    # union the codes from those wizard_group palettes (Sprint A.4 / B.2).
+    # Falling back to legacy behaviour when both are empty.
+    effective_whitelist: list[str] = list(config.ateco_whitelist or ())
+    if not effective_whitelist and config.target_wizard_groups:
+        effective_whitelist = await sector_target_service.derive_ateco_whitelist(
+            sb, wizard_groups=config.target_wizard_groups
+        )
+        log.info(
+            "funnel_l1_ateco_from_wizard_groups",
+            extra={
+                "tenant_id": ctx.tenant_id,
+                "scan_id": ctx.scan_id,
+                "wizard_groups": list(config.target_wizard_groups),
+                "derived_whitelist": effective_whitelist,
+            },
+        )
+
+    if not effective_whitelist:
         log.warning(
             "funnel_l1_no_ateco",
             extra={"tenant_id": ctx.tenant_id, "scan_id": ctx.scan_id},
@@ -83,7 +118,7 @@ async def run_level1(ctx: FunnelContext) -> list[L1Candidate]:
 
     try:
         profiles = await atoka_search_by_criteria(
-            ateco_codes=list(config.ateco_whitelist),
+            ateco_codes=effective_whitelist,
             province_code=province_code,
             region_code=region_code,
             employees_min=config.min_employees,
@@ -104,8 +139,32 @@ async def run_level1(ctx: FunnelContext) -> list[L1Candidate]:
         return []
 
     # Atoka billing — `len(profiles)` because they bill per returned record.
+    # We bill BEFORE the ATECO compatibility filter because Atoka has
+    # already returned (and charged for) these rows. The filter only
+    # protects downstream costs (L2/L3/L4) and L3 prompt quality.
     cost_cents = len(profiles) * ATOKA_DISCOVERY_COST_PER_RECORD_CENTS
     ctx.costs.add_atoka(records=len(profiles), cost_cents=cost_cents)
+
+    # Sprint C.1 — Filter rows whose Atoka-returned ATECO doesn't match any
+    # expected 2-digit prefix. Atoka occasionally returns secondary or
+    # otherwise miscategorised codes (e.g. 84.x = Pubblica Amministrazione
+    # when we asked for 25.x metalmeccanico). Letting those through pollutes
+    # L3 with obvious wrong-sector candidates.
+    profiles_filtered = _filter_by_ateco_compatibility(
+        profiles=profiles,
+        expected_whitelist=effective_whitelist,
+        scan_id=ctx.scan_id,
+        tenant_id=ctx.tenant_id,
+    )
+
+    # Sprint B.2 — Predict the wizard_group for each surviving profile so
+    # L3 prompts and dashboard surfaces have a sector tag to read. We
+    # gather the predictions in parallel via a single shared cache fetch.
+    predictions = await _predict_sectors_for_profiles(
+        sb=sb,
+        profiles=profiles_filtered,
+        enabled_wizard_groups=config.target_wizard_groups,
+    )
 
     # Persist and emit L1Candidate. Persistence is bulk-upserted so one
     # round-trip covers the whole page. We don't pre-check existing rows
@@ -115,7 +174,8 @@ async def run_level1(ctx: FunnelContext) -> list[L1Candidate]:
         tenant_id=ctx.tenant_id,
         scan_id=ctx.scan_id,
         territory_id=ctx.territory_id,
-        profiles=profiles,
+        profiles=profiles_filtered,
+        predictions=predictions,
     )
 
     log.info(
@@ -215,15 +275,20 @@ def _bulk_persist_l1(
     scan_id: str,
     territory_id: str,
     profiles: list[AtokaProfile],
+    predictions: dict[str, tuple[str, float]] | None = None,
 ) -> list[L1Candidate]:
     """Upsert L1 rows and return the (candidate_id, profile) pairs.
 
     Uses client-side UUID generation so the in-memory candidate has a
     stable ID before the UPSERT returns (lets us skip a round-trip
     read-after-write).
+
+    ``predictions`` (Sprint B.2): ``{vat_number: (wizard_group, confidence)}``
+    written to ``predicted_sector`` + ``sector_confidence`` columns.
     """
     if not profiles:
         return []
+    predictions = predictions or {}
 
     rows: list[dict[str, Any]] = []
     pairs: list[L1Candidate] = []
@@ -235,6 +300,7 @@ def _bulk_persist_l1(
         revenue_eur = (
             p.yearly_revenue_cents // 100 if p.yearly_revenue_cents else None
         )
+        pred = predictions.get(p.vat_number)
         rows.append(
             {
                 "id": str(cand_id),
@@ -254,9 +320,19 @@ def _bulk_persist_l1(
                 "hq_lng": p.hq_lng,
                 "atoka_payload": p.raw,
                 "stage": 1,
+                # Sprint B.2 sector tagging (NULL when no prediction)
+                "predicted_sector": pred[0] if pred else None,
+                "sector_confidence": pred[1] if pred else None,
             }
         )
-        pairs.append(L1Candidate(candidate_id=cand_id, profile=p))
+        pairs.append(
+            L1Candidate(
+                candidate_id=cand_id,
+                profile=p,
+                predicted_sector=pred[0] if pred else None,
+                sector_confidence=pred[1] if pred else None,
+            )
+        )
 
     if not rows:
         return []
@@ -289,3 +365,107 @@ def _bulk_persist_l1(
             cand.candidate_id = real_id
 
     return pairs
+
+
+# ---------------------------------------------------------------------------
+# Sector-aware helpers (Sprint B.2 + C.1)
+# ---------------------------------------------------------------------------
+
+
+def _is_ateco_compatible(
+    atoka_ateco: str | None, expected_prefixes: set[str]
+) -> bool:
+    """Match by 2-digit ATECO prefix (the primary section).
+
+    Atoka returns codes in dotted form (e.g. ``25.11.00``). We compare
+    just the first segment because tenants typically configure 2-digit
+    prefixes and Atoka's secondary classifications can drift to nearby
+    codes without changing the high-level category. ``None``/empty is
+    rejected — without an ATECO we can't verify compatibility.
+    """
+    if not atoka_ateco:
+        return False
+    head = atoka_ateco.split(".")[0]
+    return head in expected_prefixes
+
+
+def _filter_by_ateco_compatibility(
+    *,
+    profiles: list[AtokaProfile],
+    expected_whitelist: list[str],
+    scan_id: str,
+    tenant_id: str,
+) -> list[AtokaProfile]:
+    """Drop Atoka profiles whose ATECO doesn't match the expected prefixes.
+
+    Logs the rejected ATECO histogram so ops can spot Atoka quirks (e.g.
+    a wave of 84.x results when querying 25.x — usually a query-builder
+    bug or a too-broad geographical filter).
+    """
+    if not expected_whitelist:
+        return profiles  # safety: don't filter when we have nothing to compare
+
+    expected = {code.split(".")[0] for code in expected_whitelist if code}
+    if not expected:
+        return profiles
+
+    kept: list[AtokaProfile] = []
+    rejected_atecos: list[str | None] = []
+    for p in profiles:
+        if _is_ateco_compatible(p.ateco_code, expected):
+            kept.append(p)
+        else:
+            rejected_atecos.append(p.ateco_code)
+
+    if rejected_atecos:
+        log.info(
+            "funnel_l1_atoka_ateco_mismatch_filtered",
+            extra={
+                "tenant_id": tenant_id,
+                "scan_id": scan_id,
+                "total_atoka": len(profiles),
+                "kept": len(kept),
+                "rejected": len(rejected_atecos),
+                "rejected_top": Counter(rejected_atecos).most_common(5),
+            },
+        )
+    return kept
+
+
+async def _predict_sectors_for_profiles(
+    *,
+    sb: Any,
+    profiles: list[AtokaProfile],
+    enabled_wizard_groups: tuple[str, ...] | list[str],
+) -> dict[str, tuple[str, float]]:
+    """Predict the wizard_group for each profile in parallel.
+
+    Returns ``{vat_number: (wizard_group, confidence)}`` for profiles
+    where ``predict_sector_for_candidate`` produced a non-None match.
+    Profiles without a prediction simply don't appear in the returned
+    dict (the caller treats missing keys as "unknown sector").
+
+    Empty ``enabled_wizard_groups`` short-circuits to ``{}`` — legacy
+    backward-compat path skips sector tagging entirely.
+    """
+    if not profiles or not enabled_wizard_groups:
+        return {}
+
+    enabled = list(enabled_wizard_groups)
+
+    async def _one(p: AtokaProfile) -> tuple[str, tuple[str, float] | None]:
+        if not p.vat_number:
+            return ("", None)
+        pred = await sector_target_service.predict_sector_for_candidate(
+            sb,
+            ateco_code=p.ateco_code,
+            business_name=p.legal_name,
+            enabled_wizard_groups=enabled,
+        )
+        return (p.vat_number, pred)
+
+    # The sector_target_service caches the seed table on first call, so
+    # subsequent predictions are pure dict lookups. We still gather them
+    # via asyncio.gather to keep the method async-uniform.
+    results = await asyncio.gather(*(_one(p) for p in profiles))
+    return {vat: pred for vat, pred in results if vat and pred is not None}

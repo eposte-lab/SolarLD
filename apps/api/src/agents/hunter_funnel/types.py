@@ -52,10 +52,19 @@ class FunnelContext:
 
 @dataclass(slots=True)
 class L1Candidate:
-    """Output of Level 1 — pure Atoka anagrafica, no enrichment yet."""
+    """Output of Level 1 — pure Atoka anagrafica, no enrichment yet.
+
+    Sprint B.2: ``predicted_sector`` + ``sector_confidence`` carry the
+    sector-aware tag stamped at L1 INSERT, so L2/L3 don't need to
+    re-query ``scan_candidates`` to know which palette of keywords /
+    prompt context to use. Both are ``None`` for legacy tenants
+    without ``target_wizard_groups``.
+    """
 
     candidate_id: UUID  # PK in scan_candidates
     profile: AtokaProfile
+    predicted_sector: str | None = None
+    sector_confidence: float | None = None
 
 
 @dataclass(slots=True)
@@ -94,6 +103,8 @@ class EnrichedCandidate:
     candidate_id: UUID
     profile: AtokaProfile
     enrichment: EnrichmentSignals
+    predicted_sector: str | None = None
+    sector_confidence: float | None = None
 
 
 @dataclass(slots=True)
@@ -106,3 +117,10 @@ class ScoredCandidate:
     score: int
     reasons: list[str]
     flags: list[str]
+    predicted_sector: str | None = None
+    sector_confidence: float | None = None
+    sector_match_score: int | None = None  # Sprint B.4 — L3 sub-score
+    # Sprint B.4 — Haiku's best-guess ATECO codes for this candidate,
+    # validated against ateco_google_types before persistence. Empty
+    # when Haiku didn't populate it or all entries were rejected.
+    predicted_ateco_codes: list[str] = field(default_factory=list)

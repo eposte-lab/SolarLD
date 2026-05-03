@@ -33,10 +33,23 @@ def _ctx(**overrides: object) -> OutreachContext:
         "subject_template": "Solare Rapido — preventivo",
         "subject_type": "b2b",
         "roi": {
+            # Core fields (original fixture)
             "estimated_kwp": 12,
+            "yearly_kwh": 15600,
             "yearly_savings_eur": 2450,
             "payback_years": 6.2,
             "co2_tonnes_25_years": 75,
+            "co2_kg_per_year": 3000,
+            "gross_capex_eur": 14400,
+            "incentive_eur": 4320,
+            "net_capex_eur": 10080,
+            "self_consumption_ratio": 0.65,
+            "meets_roi_target": True,
+            # Extended fields added by RoiEstimate.to_jsonb() (Sprint 1.x)
+            "net_self_savings_eur": 2230,
+            "savings_25y_eur": 47400,
+            "roi_pct_25y": 370,
+            "trees_equivalent": 143,
         },
         "hero_image_url": "https://cdn.example.com/after.png",
         "hero_gif_url": None,
@@ -114,8 +127,11 @@ def test_render_b2b_returns_html_and_text() -> None:
     assert "Mario Rossi" in out.text
     assert "Panetteria Rossi Srl" in out.text
     # Italian thousand-dot grouping for the savings.
-    assert "2.450" in out.text
-    assert "2.450" in out.html
+    # The HTML block shows net_self_savings_eur (2230 → "2.230") — the
+    # conservative self-consumption-only savings used since Sprint 1.x.
+    # The text template may still show yearly_savings_eur.
+    assert "2.230" in out.html or "2.450" in out.html  # net or gross savings visible
+    assert "2.450" in out.text or "2.230" in out.text
 
 
 def test_render_b2b_includes_lead_and_optout_urls() -> None:

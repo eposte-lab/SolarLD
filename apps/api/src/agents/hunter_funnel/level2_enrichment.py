@@ -20,6 +20,16 @@ Output: writes the `enrichment` JSONB column on `scan_candidates`, advances
 Cost: ~€0.02/candidate only when Text Search is on; ~€0 otherwise.
 Budget cap: we honour `ctx.costs.over_budget()` between candidates and
 short-circuit the remaining list — partial L2 is still usable for L3.
+
+Sector-aware (Sprint B.3):
+  * The hardcoded ``_POSITIVE_KEYWORDS`` is now a fallback. The runtime
+    keyword list comes from ``ateco_google_types.site_signal_keywords``
+    via ``sector_target_service``:
+      - When the candidate has a ``predicted_sector``, use that group's
+        keywords.
+      - Otherwise (legacy tenants or sector unknown) use the union of
+        keywords across the tenant's ``target_wizard_groups`` — fall
+        through to the hardcoded fallback if even that's empty.
 """
 
 from __future__ import annotations
@@ -32,6 +42,7 @@ import httpx
 
 from ...core.logging import get_logger
 from ...core.supabase_client import get_service_client
+from ...services import sector_target_service
 from .types import EnrichedCandidate, EnrichmentSignals, FunnelContext, L1Candidate
 
 log = get_logger(__name__)
@@ -41,11 +52,12 @@ log = get_logger(__name__)
 # shared API quota.
 _ENRICHMENT_CONCURRENCY = 12
 
-# Heuristic keywords — lowercase, plain text match on <title>, meta
-# description, and a trimmed 64KB slice of the homepage body. Calibrated
-# against Italian B2B websites (not English): a company that describes
-# itself as a "stabilimento produttivo" has industrial scale.
-_POSITIVE_KEYWORDS = (
+# Fallback keyword list — used when sector-aware lookup yields nothing
+# (legacy tenants without ``target_wizard_groups`` and no
+# ``predicted_sector`` on the candidate). Calibrated against Italian
+# B2B industrial websites — preserves the pre-Sprint-B.3 behaviour for
+# backward-compat.
+_FALLBACK_POSITIVE_KEYWORDS = (
     "capannone",
     "stabilimento",
     "fabbrica",
@@ -74,6 +86,25 @@ async def run_level2(
         return []
 
     sem = asyncio.Semaphore(_ENRICHMENT_CONCURRENCY)
+    sb = get_service_client()
+
+    # Sprint B.3 — Resolve the keyword palette per candidate. We compute
+    # both:
+    #   * a tenant-wide fallback (union across target_wizard_groups)
+    #   * a per-sector palette cache (only for sectors actually present)
+    # so each candidate's site scan uses the most targeted list.
+    tenant_fallback_keywords = await _resolve_tenant_fallback_keywords(
+        sb, ctx.config.target_wizard_groups
+    )
+    sector_keywords_cache: dict[str, list[str]] = {}
+    for c in candidates:
+        if c.predicted_sector and c.predicted_sector not in sector_keywords_cache:
+            mapping = await sector_target_service.get_sector_config_by_wizard_group(
+                sb, wizard_group=c.predicted_sector
+            )
+            sector_keywords_cache[c.predicted_sector] = (
+                list(mapping.site_signal_keywords) if mapping else []
+            )
 
     async with httpx.AsyncClient(
         timeout=_WEBSITE_FETCH_TIMEOUT_S,
@@ -89,11 +120,20 @@ async def run_level2(
 
         async def one(cand: L1Candidate) -> EnrichedCandidate:
             async with sem:
-                signals = await _enrich_candidate(cand, client=client)
+                keywords = _keywords_for_candidate(
+                    cand,
+                    sector_cache=sector_keywords_cache,
+                    tenant_fallback=tenant_fallback_keywords,
+                )
+                signals = await _enrich_candidate(
+                    cand, client=client, keywords=keywords
+                )
             return EnrichedCandidate(
                 candidate_id=cand.candidate_id,
                 profile=cand.profile,
                 enrichment=signals,
+                predicted_sector=cand.predicted_sector,
+                sector_confidence=cand.sector_confidence,
             )
 
         enriched = await asyncio.gather(
@@ -125,7 +165,10 @@ async def run_level2(
 
 
 async def _enrich_candidate(
-    cand: L1Candidate, *, client: httpx.AsyncClient
+    cand: L1Candidate,
+    *,
+    client: httpx.AsyncClient,
+    keywords: tuple[str, ...] | list[str],
 ) -> EnrichmentSignals:
     """Enrich one candidate. All branches are best-effort; we never raise."""
     signals = EnrichmentSignals()
@@ -143,7 +186,9 @@ async def _enrich_candidate(
     # Homepage heuristics — only if we have a URL
     if signals.website:
         try:
-            signals.site_signals = await _scan_website(signals.website, client=client)
+            signals.site_signals = await _scan_website(
+                signals.website, client=client, keywords=keywords
+            )
         except (httpx.HTTPError, asyncio.TimeoutError, UnicodeDecodeError) as exc:
             log.debug(
                 "l2_site_fetch_failed",
@@ -153,7 +198,12 @@ async def _enrich_candidate(
     return signals
 
 
-async def _scan_website(url: str, *, client: httpx.AsyncClient) -> list[str]:
+async def _scan_website(
+    url: str,
+    *,
+    client: httpx.AsyncClient,
+    keywords: tuple[str, ...] | list[str],
+) -> list[str]:
     """Fetch the homepage and return matched positive keywords.
 
     We don't retry — a site that's down on first try isn't worth the
@@ -169,8 +219,57 @@ async def _scan_website(url: str, *, client: httpx.AsyncClient) -> list[str]:
     # Collapse whitespace so "sede   operativa" still matches.
     normalised = re.sub(r"\s+", " ", body)
 
-    found = [kw for kw in _POSITIVE_KEYWORDS if kw in normalised]
+    found = [kw for kw in keywords if kw and kw.lower() in normalised]
     return found
+
+
+# ---------------------------------------------------------------------------
+# Sprint B.3 — Sector-aware keyword resolution
+# ---------------------------------------------------------------------------
+
+
+async def _resolve_tenant_fallback_keywords(
+    sb: Any, target_wizard_groups: tuple[str, ...] | list[str]
+) -> tuple[str, ...]:
+    """Union of site_signal_keywords across the tenant's wizard_groups.
+
+    Used for candidates without a ``predicted_sector`` (the prediction
+    pipeline can fail when ATECO is novel or the tenant didn't enable
+    any matching group). When the tenant has no ``target_wizard_groups``
+    at all (legacy mode), fall back to the hardcoded default.
+    """
+    if not target_wizard_groups:
+        return _FALLBACK_POSITIVE_KEYWORDS
+    union = await sector_target_service.union_site_signal_keywords(
+        sb, wizard_groups=target_wizard_groups
+    )
+    if union:
+        return tuple(union)
+    # The wizard_groups exist but their seed rows have empty
+    # ``site_signal_keywords`` — fall back to the legacy list.
+    return _FALLBACK_POSITIVE_KEYWORDS
+
+
+def _keywords_for_candidate(
+    cand: L1Candidate,
+    *,
+    sector_cache: dict[str, list[str]],
+    tenant_fallback: tuple[str, ...],
+) -> tuple[str, ...]:
+    """Pick the right keyword palette for a single candidate.
+
+    Order:
+      1. Per-sector keywords from ``sector_cache`` if the candidate has
+         a ``predicted_sector`` and the cached list is non-empty.
+      2. Tenant fallback (union across target_wizard_groups).
+      3. Hardcoded ``_FALLBACK_POSITIVE_KEYWORDS`` when both above are
+         empty (already encoded in tenant_fallback by the resolver).
+    """
+    if cand.predicted_sector:
+        kws = sector_cache.get(cand.predicted_sector) or []
+        if kws:
+            return tuple(kws)
+    return tenant_fallback
 
 
 def _extract_phone_from_raw(raw: dict[str, Any]) -> str | None:

@@ -10,9 +10,18 @@
  *
  * Validation is deferred to the backend (pydantic). This form just
  * bounds numeric inputs and strips whitespace.
+ *
+ * Sprint C.2 — "Settori target" multi-select. Loaded from
+ * `GET /v1/sectors/wizard-groups`. Selecting a sector palette
+ * suggests its ATECO codes; the operator can still refine the
+ * `ateco_codes` list manually.
  */
 
-import type { SorgenteConfig } from '@/types/modules';
+import { useEffect, useMemo, useState } from 'react';
+
+import { listWizardGroups } from '@/lib/data/sectors';
+import { cn } from '@/lib/utils';
+import type { SorgenteConfig, WizardGroupOption } from '@/types/modules';
 
 import {
   FieldCard,
@@ -45,14 +54,106 @@ export function ModuleSorgente({
     onChange({ ...value, [key]: v });
   }
 
+  // -------------------------------------------------------------------
+  // Sector palette catalog — fetched once when the form mounts.
+  // Stable reference data (ateco_google_types is seeded by migration)
+  // so we don't refetch on every keystroke.
+  // -------------------------------------------------------------------
+  const [wizardGroups, setWizardGroups] = useState<WizardGroupOption[]>([]);
+  const [groupsError, setGroupsError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    listWizardGroups()
+      .then((rows) => {
+        if (!cancelled) setWizardGroups(rows);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          const msg = err instanceof Error ? err.message : 'load_failed';
+          setGroupsError(msg);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Lookup helper for the currently selected groups → display info
+  // (used in the "selezionati" preview line).
+  const selectedGroupLabels = useMemo(() => {
+    const byCode = new Map(wizardGroups.map((g) => [g.wizard_group, g]));
+    return value.target_wizard_groups
+      .map((code) => byCode.get(code)?.display_name ?? code)
+      .join(' · ');
+  }, [wizardGroups, value.target_wizard_groups]);
+
+  function toggleWizardGroup(code: string) {
+    const has = value.target_wizard_groups.includes(code);
+    onChange({
+      ...value,
+      target_wizard_groups: has
+        ? value.target_wizard_groups.filter((c) => c !== code)
+        : [...value.target_wizard_groups, code],
+    });
+  }
+
   return (
     <div className="space-y-4">
       <FieldCard
+        title="Settori target"
+        hint="Seleziona uno o più settori. Il funnel adatta automaticamente keyword di discovery, scoring e mapping ATECO. Lascia vuoto per la modalità classica (solo codici ATECO manuali)."
+      >
+        {groupsError ? (
+          <p className="text-xs text-error">
+            Impossibile caricare i settori — modifica solo i codici ATECO.
+          </p>
+        ) : null}
+        <div className="flex flex-wrap gap-2">
+          {wizardGroups.map((g) => {
+            const active = value.target_wizard_groups.includes(g.wizard_group);
+            const tooltip = [
+              g.description,
+              g.ateco_examples.length > 0
+                ? `Esempi: ${g.ateco_examples.join('; ')}`
+                : null,
+              g.typical_kwp_range_min !== null && g.typical_kwp_range_max !== null
+                ? `kWp tipici: ${g.typical_kwp_range_min}–${g.typical_kwp_range_max}`
+                : null,
+            ]
+              .filter(Boolean)
+              .join('\n');
+            return (
+              <button
+                key={g.wizard_group}
+                type="button"
+                onClick={() => toggleWizardGroup(g.wizard_group)}
+                title={tooltip}
+                className={cn(
+                  'rounded-full px-3 py-1.5 text-xs font-semibold transition-colors',
+                  active
+                    ? 'bg-primary text-on-primary shadow-ambient-sm'
+                    : 'bg-surface-container-high text-on-surface-variant hover:bg-surface-container-highest',
+                )}
+              >
+                {g.display_name}
+              </button>
+            );
+          })}
+        </div>
+        {value.target_wizard_groups.length > 0 ? (
+          <p className="mt-1 text-xs text-on-surface-variant">
+            Selezionati: {selectedGroupLabels}
+          </p>
+        ) : null}
+      </FieldCard>
+
+      <FieldCard
         title="B2B — Anagrafica target"
-        hint="Criteri di scoperta aziende applicati al primo livello del funnel."
+        hint="Criteri di scoperta aziende applicati al primo livello del funnel. Quando hai selezionato i settori sopra, lasciare i codici ATECO vuoti li deriva automaticamente."
       >
         <TagInput
-          label="Codici ATECO"
+          label="Codici ATECO (opzionale se settori target selezionati)"
           value={value.ateco_codes}
           onChange={(v) => set('ateco_codes', v)}
           placeholder="10.51, 20.11, 25.11"

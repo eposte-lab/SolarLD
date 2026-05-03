@@ -330,6 +330,10 @@ async def _resolve_coords(
             # Tenants that explicitly want maximum accuracy can flip
             # this on per-tenant once we wire the toggle (Sprint TBD).
             enable_vision=False,
+            # Sprint B.5 — pass the L1-stamped sector so BIC voting
+            # can apply a small bonus to OSM candidates inside a
+            # landuse polygon matching the sector.
+            predicted_sector=cand.predicted_sector,
         )
     site = match_to_operating_site(match)
 

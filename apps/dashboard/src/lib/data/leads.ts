@@ -127,6 +127,62 @@ export async function getLeadById(id: string): Promise<LeadDetailRow | null> {
   return (data ?? null) as unknown as LeadDetailRow | null;
 }
 
+/**
+ * Sprint C.3 — Sector signal for a lead.
+ *
+ * The hunter funnel stamps `predicted_sector` + `sector_confidence` on
+ * `scan_candidates` at L1 (and `predicted_ateco_codes` at L3). The lead
+ * is created from the scan_candidate, so we can join on
+ * `subjects.vat_number = scan_candidates.vat_number` (RLS-scoped).
+ *
+ * Returns `null` when the lead's subject has no VAT (B2C path) or the
+ * scan_candidate row is missing (legacy lead created before the
+ * sector-aware columns existed).
+ */
+export interface LeadSectorSignal {
+  predicted_sector: string | null;
+  sector_confidence: number | null;
+  predicted_ateco_codes: string[];
+}
+
+export async function getLeadSectorSignal(
+  leadId: string,
+): Promise<LeadSectorSignal | null> {
+  const supabase = await createSupabaseServerClient();
+  // Two-step lookup: lead → subject vat_number, then scan_candidates by vat.
+  // PostgREST embedded selects don't support cross-table joins on non-FK
+  // columns, so we do it explicitly. Cheap (two indexed lookups by PK/FK).
+  const { data: leadRow } = await supabase
+    .from('leads')
+    .select('subjects:subjects(vat_number)')
+    .eq('id', leadId)
+    .maybeSingle();
+  const vat = (leadRow?.subjects as { vat_number?: string | null } | null)?.vat_number;
+  if (!vat) return null;
+
+  const { data: scan } = await supabase
+    .from('scan_candidates')
+    .select('predicted_sector, sector_confidence, predicted_ateco_codes')
+    .eq('vat_number', vat)
+    .order('stage', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!scan) return null;
+
+  return {
+    predicted_sector: (scan.predicted_sector as string | null) ?? null,
+    sector_confidence:
+      typeof scan.sector_confidence === 'number'
+        ? (scan.sector_confidence as number)
+        : scan.sector_confidence != null
+          ? Number(scan.sector_confidence)
+          : null,
+    predicted_ateco_codes: Array.isArray(scan.predicted_ateco_codes)
+      ? (scan.predicted_ateco_codes as string[])
+      : [],
+  };
+}
+
 /** Top-N hot leads for the overview widget. */
 export async function listTopHotLeads(limit = 10): Promise<LeadListRow[]> {
   const supabase = await createSupabaseServerClient();

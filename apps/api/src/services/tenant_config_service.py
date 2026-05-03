@@ -126,6 +126,18 @@ class TenantConfig:
     # payback_years ≤ this value.
     roi_target_years: int = 6
 
+    # ---- Sector-aware multi-target (Sprint A) ---------------------------
+    # Wizard group palettes the tenant has opted into (see
+    # `ateco_google_types.wizard_group`). Empty tuple → legacy ATECO-only
+    # mode (backward-compat for tenants configured before sector-aware
+    # rollout). The hunter funnel uses these in:
+    #   * L1: derive_ateco_whitelist union when ateco_codes is also empty
+    #   * L1: stamp scan_candidates.predicted_sector
+    #   * L2: pick site_signal_keywords union
+    #   * L3: render the "Target sector" prompt section
+    target_wizard_groups: tuple[str, ...] = ()
+    sector_priority: dict[str, int] | None = None
+
 
 # ---------------------------------------------------------------------------
 # Projection: tenant_modules → TenantConfig
@@ -171,6 +183,8 @@ def _project_from_modules(
         budget_outreach_eur_month=float(economico.get("budget_outreach_eur_month") or 2_000.0),
         ticket_medio_eur=int(economico.get("ticket_medio_eur") or 25_000),
         roi_target_years=int(economico.get("roi_target_years") or 6),
+        target_wizard_groups=tuple(sorgente.get("target_wizard_groups") or ()),
+        sector_priority=dict(sorgente.get("sector_priority") or {}) or None,
     )
 
 

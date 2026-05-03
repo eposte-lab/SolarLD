@@ -49,6 +49,7 @@ from .routes import (
     quarantine,
     quotes,
     sector_news,
+    sectors,
     tenants,
     territories,
     unsubscribe,
@@ -168,6 +169,8 @@ app.include_router(
 # Sprint 9 B.6: cluster-level A/B variant management
 app.include_router(cluster_ab.router, prefix="/v1", tags=["cluster-ab"])
 app.include_router(sector_news.router, prefix="/v1", tags=["sector-news"])
+# Sprint C.2 — sector palette catalogue (read-only, public)
+app.include_router(sectors.router, prefix="/v1/sectors", tags=["sectors"])
 app.include_router(branding.router, prefix="/v1/branding", tags=["branding"])
 app.include_router(inboxes.router, prefix="/v1/inboxes", tags=["inboxes"])
 app.include_router(email_domains.router, prefix="/v1/email-domains", tags=["email-domains"])

@@ -36,6 +36,35 @@ export interface SorgenteConfig {
   cap: string[];
   reddito_min_eur: number;
   case_unifamiliari_pct_min: number;
+  /**
+   * Sector-aware multi-target palettes (Sprint A). Each entry is a
+   * `wizard_group` from `ateco_google_types` (e.g. `industry_heavy`,
+   * `logistics`, `hospitality_large`). Empty array → legacy ATECO-
+   * only mode for backward-compat with pre-Sprint-A tenants. The
+   * onboarding "Settori target" multi-select writes to this field;
+   * `ateco_codes` is auto-populated from the union of ATECO codes
+   * across the selected wizard_groups (still editable to refine).
+   */
+  target_wizard_groups: string[];
+  /**
+   * Priority map (`wizard_group` → 1=primary, 2=secondary, ...).
+   * Used by L3 to break ties when a candidate matches multiple
+   * settori. Empty object → all groups treated as priority 1.
+   */
+  sector_priority: Record<string, number>;
+}
+
+/**
+ * Read-only catalog row from `GET /v1/sectors/wizard-groups`.
+ * Renders the "Settori target" multi-select tooltip / chip label.
+ */
+export interface WizardGroupOption {
+  wizard_group: string;
+  display_name: string;
+  description: string | null;
+  ateco_examples: string[];
+  typical_kwp_range_min: number | null;
+  typical_kwp_range_max: number | null;
 }
 
 export type Orientamento = 'N' | 'NE' | 'E' | 'SE' | 'S' | 'SO' | 'O' | 'NO';
@@ -147,6 +176,8 @@ export const DEFAULT_SORGENTE: SorgenteConfig = {
   cap: [],
   reddito_min_eur: 35_000,
   case_unifamiliari_pct_min: 40,
+  target_wizard_groups: [],
+  sector_priority: {},
 };
 
 export const DEFAULT_TECNICO: TecnicoConfig = {

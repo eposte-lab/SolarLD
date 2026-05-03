@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Response, status
 from pydantic import BaseModel, Field
 
 from ..core.logging import get_logger
@@ -124,7 +124,7 @@ async def update_sector_news(
 
 
 @router.delete("/{news_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def archive_sector_news(news_id: str, user: CurrentUser) -> None:
+async def archive_sector_news(news_id: str, user: CurrentUser) -> Response:
     """Soft-archive a tenant-owned row. Global seeds cannot be deleted."""
     tenant_id = require_tenant(user)
     sb = get_service_client()
@@ -133,3 +133,4 @@ async def archive_sector_news(news_id: str, user: CurrentUser) -> None:
     )
     if not ok:
         raise HTTPException(status_code=404, detail="not_found_or_global")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
