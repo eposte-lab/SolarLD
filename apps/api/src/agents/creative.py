@@ -217,6 +217,43 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
                 "creative.replicate_token_missing", lead_id=payload.lead_id
             )
         else:
+            # Single-source-of-truth gate for the OSM snap retry below.
+            #
+            # The legacy snap behaviour was: on Solar 404, find the
+            # nearest OSM building polygon within 60 m and re-fetch
+            # Solar there. That made sense when the cascade was the
+            # 4-tier legacy resolver and Atoka could be 30-80 m off
+            # from the actual rooftop — the snap was a corrective
+            # nudge.
+            #
+            # With the BIC live, the upstream cascade has already
+            # done OSM snapping internally and (when low confidence)
+            # the operator has manually clicked the right capannone
+            # via the picker. CreativeAgent then re-doing an
+            # autonomous "nearest building within 60 m" snap on
+            # Solar 404 can move the coords away from the
+            # user-confirmed building, producing a render of the
+            # neighbour's roof — exactly the failure mode the
+            # operator just resolved by clicking the picker.
+            #
+            # Rule: only autonomous-snap when the coords source is a
+            # legacy unverified value (mapbox_hq centroid, or no
+            # source recorded at all). For every other source —
+            # user_confirmed, atoka high-confidence, vision,
+            # google_places, osm_snap — trust the upstream resolution
+            # and let Solar 404 propagate to the static-fallback
+            # branch.
+            _trusted_sources = {
+                "user_confirmed",
+                "user_pick",
+                "manual",
+                "atoka",
+                "vision",
+                "google_places",
+                "osm_snap",
+                "website_scrape",
+            }
+            allow_osm_snap = roof_source not in _trusted_sources
             try:
                 # Re-fetch buildingInsights to get the full solarPanels list
                 # (Hunter L4 already called this but didn't persist panel
@@ -226,19 +263,31 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
                 # Solar 404 retry path
                 # ────────────────────
                 # When Solar returns 404 the geocoded coordinate doesn't
-                # sit on a building it knows about. Before giving up, we
-                # snap to the nearest OSM building polygon centroid (free,
-                # via Overpass API) and retry once. This catches the
-                # common "30-50m offset between geocode and rooftop"
-                # pattern that's been showing up in demo runs. We only
-                # accept the snap when the building is < 60m away to
-                # avoid landing on a neighbour's roof.
+                # sit on a building it knows about. For trusted sources
+                # (user-confirmed picker click, BIC high-confidence) we
+                # propagate the 404 instead of snapping — moving the
+                # render away from the operator's confirmed building
+                # would defeat the whole point of the picker UX.
                 async with httpx.AsyncClient(timeout=30.0) as http:
                     try:
                         insight = await fetch_building_insight(
                             lat, lng, client=http
                         )
                     except SolarApiNotFound:
+                        if not allow_osm_snap:
+                            log.info(
+                                "creative.solar_404_no_snap",
+                                lead_id=payload.lead_id,
+                                lat=lat,
+                                lng=lng,
+                                roof_source=roof_source,
+                                note=(
+                                    "Solar has no imagery for the trusted "
+                                    "coords; not snapping to a neighbour. "
+                                    "Render will fall back to static aerial."
+                                ),
+                            )
+                            raise
                         # Bound the OSM snap with an asyncio timeout so a
                         # slow Overpass mirror can't wedge the creative
                         # step. ``find_nearest_building`` already returns
@@ -288,6 +337,46 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
                         insight = await fetch_building_insight(
                             lat, lng, client=http
                         )
+                        # Sync the persisted roof row with the snapped
+                        # building's coords + Solar values. Without
+                        # this the email body would still show the
+                        # ORIGINAL building's kWp/area (or the demo
+                        # route's median fallback) while the rendered
+                        # image shows the snapped neighbour — exactly
+                        # the email-vs-render mismatch the operator
+                        # warned about.
+                        try:
+                            import geohash as _gh
+                            new_geohash = _gh.encode(lat, lng, precision=9)
+                            sb.table("roofs").update({
+                                "lat": lat,
+                                "lng": lng,
+                                "geohash": new_geohash,
+                                "area_sqm": insight.area_sqm,
+                                "estimated_kwp": insight.estimated_kwp,
+                                "estimated_yearly_kwh": insight.estimated_yearly_kwh,
+                                "exposure": insight.dominant_exposure,
+                                "pitch_degrees": insight.pitch_degrees,
+                                "shading_score": insight.shading_score,
+                                "data_source": "google_solar",
+                            }).eq("id", roof.get("id")).execute()
+                            log.info(
+                                "creative.roof_synced_after_snap",
+                                lead_id=payload.lead_id,
+                                roof_id=roof.get("id"),
+                                lat=lat,
+                                lng=lng,
+                                kwp=insight.estimated_kwp,
+                            )
+                        except Exception as exc:  # noqa: BLE001
+                            # A roof-update failure mustn't kill the
+                            # render. The mismatch persists as a
+                            # quality bug but the email still goes out.
+                            log.warning(
+                                "creative.roof_sync_failed",
+                                lead_id=payload.lead_id,
+                                err=str(exc)[:200],
+                            )
 
                 log.info(
                     "creative.solar_insight_fetched",
