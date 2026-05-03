@@ -28,6 +28,8 @@ from ..core.supabase_client import get_service_client
 from ..services.b2c_qualify_service import qualify_b2c_lead
 from ..services.crm_webhook_service import dispatch_event as crm_dispatch
 from ..services.industrial_zones_mapper import map_target_areas_for_tenant
+from ..services.tenant_config_service import get_for_tenant as get_tenant_config
+from ..agents.hunter_funnel.orchestrator_v3 import run_funnel_v3
 from .cron import (
     cluster_ab_evaluation_cron,
     daily_digest_cron,
@@ -36,6 +38,7 @@ from .cron import (
     engagement_followup_cron,
     engagement_rollup_cron,
     follow_up_cron,
+    funnel_v3_cron,
     practice_deadlines_cron,
     reputation_digest_cron,
     retention_cron,
@@ -392,6 +395,30 @@ async def map_target_areas_task(
     }
 
 
+async def hunter_funnel_v3_task(
+    _ctx: dict[str, Any], payload: dict[str, Any]
+) -> dict[str, Any]:
+    """FLUSSO 1 v3 — geocentric, no-Atoka funnel for one tenant.
+
+    Triggered by the daily 05:30 UTC cron for every tenant with at
+    least one row in `tenant_target_areas`. Tenants without zones are
+    skipped (no-op) until they complete L0 onboarding.
+
+    Payload schema:
+      tenant_id: str (UUID)
+      max_l1_candidates: int (optional, default 2000)
+    """
+    tenant_id = payload["tenant_id"]
+    config = await get_tenant_config(tenant_id)
+    summary = await run_funnel_v3(
+        tenant_id=tenant_id,
+        config=config,
+        emitter=None,
+        max_l1_candidates=int(payload.get("max_l1_candidates") or 2000),
+    )
+    return summary
+
+
 async def crm_webhook_task(
     _ctx: dict[str, Any], payload: dict[str, Any]
 ) -> dict[str, Any]:
@@ -433,6 +460,7 @@ class WorkerSettings:
         practice_render_document_task,
         extract_practice_upload_task,
         map_target_areas_task,
+        hunter_funnel_v3_task,
     ]
     # Scheduled jobs (UTC):
     #   :00 every hour   → deliverability_hourly_cron   (bounce/complaint spike check)
@@ -462,6 +490,9 @@ class WorkerSettings:
         # Sprint 11: per-tenant warehouse refill + FIFO pick of today's
         # send batch. Runs after the cleanup sweep + A/B evaluation so
         # each tenant's daily quota is dispatched against fresh assignments.
+        # FLUSSO 1 v3 — fan-out hunter funnel before the warehouse refill
+        # so any v3 recommended leads are picked up by daily_pipeline_cron.
+        cron(funnel_v3_cron, hour=4, minute=30, run_at_startup=False),
         cron(daily_pipeline_cron, hour=5, minute=30, run_at_startup=False),
         cron(send_time_rollup_cron, hour=3, minute=45, run_at_startup=False),
         cron(engagement_rollup_cron, hour=4, minute=0, run_at_startup=False),

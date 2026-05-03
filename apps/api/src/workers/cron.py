@@ -578,6 +578,52 @@ async def daily_pipeline_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, **{k: v for k, v in result.items() if k != "details"}}
 
 
+async def funnel_v3_cron(ctx: dict[str, Any]) -> dict[str, Any]:
+    """FLUSSO 1 v3 daily fan-out (Sprint 4.4).
+
+    For every tenant with at least one active row in
+    ``tenant_target_areas``, enqueue a ``hunter_funnel_v3_task``. Tenants
+    on the legacy v2 (Atoka) path are silently skipped — they will be
+    picked up by the v2 orchestrator until the demolition lands.
+
+    Runs at 04:30 UTC, BEFORE the v2 ``daily_pipeline_cron`` (05:30 UTC)
+    so any L6-recommended leads from v3 are visible to the warehouse
+    refill phase. Idempotent: re-running on the same day re-scans
+    existing candidates rather than duplicating them.
+    """
+    sb = get_service_client()
+    res = (
+        sb.table("tenant_target_areas")
+        .select("tenant_id")
+        .eq("status", "active")
+        .execute()
+    )
+    rows = res.data or []
+    tenant_ids = sorted({r["tenant_id"] for r in rows if r.get("tenant_id")})
+    if not tenant_ids:
+        log.info("cron.funnel_v3.no_tenants_with_zones")
+        return {"ok": True, "tenants_enqueued": 0}
+
+    from ..core.queue import enqueue
+
+    enqueued = 0
+    for tid in tenant_ids:
+        job = await enqueue(
+            "hunter_funnel_v3_task",
+            {"tenant_id": tid},
+            _job_id=f"funnel_v3:{tid}",
+        )
+        if job is not None:
+            enqueued += 1
+
+    log.info(
+        "cron.funnel_v3.enqueued",
+        tenants_total=len(tenant_ids),
+        tenants_enqueued=enqueued,
+    )
+    return {"ok": True, "tenants_total": len(tenant_ids), "tenants_enqueued": enqueued}
+
+
 async def cluster_ab_evaluation_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
     """Daily evaluation of cluster A/B tests — auto-promote winners (Sprint 9 Fase B.5).
 

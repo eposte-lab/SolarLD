@@ -48,6 +48,8 @@ from .routes import (
     public,
     quarantine,
     quotes,
+    gdpr,
+    linkedin_enrich,
     sector_news,
     sectors,
     tenants,
@@ -130,6 +132,11 @@ app.include_router(territories.router, prefix="/v1/territories", tags=["territor
 # /v1/territories (legacy Atoka-based scan endpoints) until v3 reaches
 # production.
 app.include_router(territory.router, prefix="/v1/territory", tags=["territory"])
+# GDPR endpoints (Sprint 4.2): /api/gdpr/{export,erase}
+app.include_router(gdpr.router, prefix="/api/gdpr", tags=["gdpr"])
+# LinkedIn on-demand enrichment via Proxycurl (Sprint 4.3):
+# POST /v1/leads/{id}/enrich/linkedin
+app.include_router(linkedin_enrich.router, prefix="/v1", tags=["enrichment"])
 app.include_router(leads.router, prefix="/v1/leads", tags=["leads"])
 # Lead → Preventivo (formal quote PDF) endpoints. Mounted at /v1 (no
 # prefix) because routes carry their own /leads/{lead_id}/quote path —
