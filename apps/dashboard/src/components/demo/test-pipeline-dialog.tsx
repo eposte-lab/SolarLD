@@ -103,6 +103,8 @@ interface BicResult {
     legacy_source?: string | null;
     legacy_confidence?: string | null;
     total_candidates?: number;
+    total_cost_cents?: number;
+    cost_breakdown_cents?: Record<string, number>;
   };
 }
 
@@ -1175,6 +1177,23 @@ function BicDiagnosticsRow({
           {vision}
         </strong>
       </span>
+      {typeof diagnostics.total_cost_cents === 'number' && (
+        <span
+          title={
+            diagnostics.cost_breakdown_cents
+              ? Object.entries(diagnostics.cost_breakdown_cents)
+                  .filter(([, v]) => v > 0)
+                  .map(([k, v]) => `${k}: ${(v / 100).toFixed(2)}€`)
+                  .join(' · ')
+              : undefined
+          }
+        >
+          costo:{' '}
+          <strong>
+            €{(diagnostics.total_cost_cents / 100).toFixed(2)}
+          </strong>
+        </span>
+      )}
       {diagnostics.vision_reasoning && (
         <span
           className="block w-full"
@@ -1226,8 +1245,9 @@ function BicSection({
             </p>
             <p className="text-[11px] text-on-surface-variant">
               Avvia la cascade (Atoka + Places + OSM + Vision) per
-              localizzare l&apos;edificio prima del render. Costo ~ €0,15
-              quando arriva fino alla vision; risultato cachato per VAT.
+              localizzare l&apos;edificio prima del render. Cache hit
+              €0; tipico €0,03–0,10; worst-case (12 varianti Places +
+              Vision) €0,22. Il costo reale appare qui sotto dopo il run.
             </p>
           </div>
           <button

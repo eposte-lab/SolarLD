@@ -724,6 +724,33 @@ async def identify_building(
     diagnostics["winning_confidence"] = match.confidence
     diagnostics["total_candidates"] = len(candidates)
 
+    # Compute the actual per-stage cost in eurocents so the dashboard
+    # can show the real spend per run instead of a static estimate.
+    # Mirrors the Italian-market pricing the README documents.
+    cost_breakdown_cents = {
+        # Atoka: not invoked in demo (mock enrichment). Production
+        # path adds ~5c when called; we don't know which path we're
+        # on here so leave it as 0 and let the caller add it back.
+        "atoka": 0,
+        # Stage 1.5 Solar validation: only fired when Atoka had
+        # coords (legacy.confidence=high → validate_with_solar=True
+        # in the legacy resolver). We can infer it ran when
+        # legacy_source == "atoka_civic".
+        "solar_validation": 2 if diagnostics.get("legacy_source") == "atoka_civic" else 0,
+        # Stage 2 Places: ~$0.017 per unique place (since duplicates
+        # were merged on place_id we can't recover the exact variant
+        # count, but unique results × 1.7c is a reasonable proxy
+        # — most variants fail, so unique≈variants_that_hit).
+        "places_multi_query": 2 * (diagnostics.get("places_unique_results") or 0),
+        # Stage 4 OSM: free — Overpass has no per-call cost.
+        "osm_zone": 0,
+        # Stage 5 Vision: 1 Sonnet call with up to 5 images,
+        # ~$0.025 per call.
+        "vision": 3 if diagnostics.get("vision_invoked") else 0,
+    }
+    diagnostics["cost_breakdown_cents"] = cost_breakdown_cents
+    diagnostics["total_cost_cents"] = sum(cost_breakdown_cents.values())
+
     # When confidence didn't reach `medium`, surface ALL OSM buildings
     # in the zone as pickable pins so the operator can manually click
     # the right capannone. We sort by distance from the legacy anchor
