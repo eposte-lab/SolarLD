@@ -52,6 +52,7 @@ from .routes import (
     sectors,
     tenants,
     territories,
+    territory,
     unsubscribe,
     usage,
     warehouse,
@@ -125,6 +126,10 @@ app.include_router(tenants.router, prefix="/v1/tenants", tags=["tenants"])
 app.include_router(modules.router, prefix="/v1/modules", tags=["modules"])
 app.include_router(onboarding.router, prefix="/v1/onboarding", tags=["onboarding"])
 app.include_router(territories.router, prefix="/v1/territories", tags=["territories"])
+# FLUSSO 1 v3 — geocentric territory mapping (L0). Co-exists with
+# /v1/territories (legacy Atoka-based scan endpoints) until v3 reaches
+# production.
+app.include_router(territory.router, prefix="/v1/territory", tags=["territory"])
 app.include_router(leads.router, prefix="/v1/leads", tags=["leads"])
 # Lead → Preventivo (formal quote PDF) endpoints. Mounted at /v1 (no
 # prefix) because routes carry their own /leads/{lead_id}/quote path —

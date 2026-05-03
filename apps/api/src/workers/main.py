@@ -24,8 +24,10 @@ from ..agents.scoring import ScoringAgent, ScoringInput
 from ..agents.tracking import TrackingAgent, TrackingInput
 from ..core.config import settings
 from ..core.logging import configure_logging, get_logger
+from ..core.supabase_client import get_service_client
 from ..services.b2c_qualify_service import qualify_b2c_lead
 from ..services.crm_webhook_service import dispatch_event as crm_dispatch
+from ..services.industrial_zones_mapper import map_target_areas_for_tenant
 from .cron import (
     cluster_ab_evaluation_cron,
     daily_digest_cron,
@@ -354,6 +356,42 @@ async def extract_practice_upload_task(
     }
 
 
+async def map_target_areas_task(
+    _ctx: dict[str, Any], payload: dict[str, Any]
+) -> dict[str, Any]:
+    """L0 — One-shot OSM zone mapping for a tenant.
+
+    Triggered via POST /v1/territory/map (or onboarding completion).
+    Slow (5-15 min for 2-3 provinces) so always runs as ARQ background
+    job. Idempotent: re-running upserts existing zones by
+    (tenant_id, osm_type, osm_id), so the operator can re-map after
+    changing wizard_groups or province_codes.
+
+    Payload schema:
+      tenant_id: str (UUID)
+      wizard_groups: list[str]
+      province_codes: list[str]  # Italian ISO 3166-2 suffixes (BS, BG, ...)
+    """
+    sb = get_service_client()
+    result = await map_target_areas_for_tenant(
+        sb,
+        tenant_id=payload["tenant_id"],
+        wizard_groups=list(payload.get("wizard_groups") or []),
+        province_codes=list(payload.get("province_codes") or []),
+    )
+    return {
+        "tenant_id": result.tenant_id,
+        "fetched": result.total_zones_fetched,
+        "matched": result.zones_matched_to_sectors,
+        "persisted": result.zones_persisted,
+        "sectors_covered": result.sectors_covered,
+        "provinces_covered": result.provinces_covered,
+        "elapsed_s": result.elapsed_seconds,
+        "endpoint": result.overpass_endpoint_used,
+        "errors": result.errors,
+    }
+
+
 async def crm_webhook_task(
     _ctx: dict[str, Any], payload: dict[str, Any]
 ) -> dict[str, Any]:
@@ -394,6 +432,7 @@ class WorkerSettings:
         practice_generation_task,
         practice_render_document_task,
         extract_practice_upload_task,
+        map_target_areas_task,
     ]
     # Scheduled jobs (UTC):
     #   :00 every hour   → deliverability_hourly_cron   (bounce/complaint spike check)
