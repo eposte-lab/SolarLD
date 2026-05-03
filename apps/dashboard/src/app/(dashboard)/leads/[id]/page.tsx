@@ -271,56 +271,16 @@ export default async function LeadDetailPage({ params }: PageProps) {
         )}
       </header>
 
-      {/* ─── Rendering impianto ───────────────────────────────────────── */}
-      {lead.rendering_image_url && (
-        <div className="relative overflow-hidden rounded-xl shadow-ambient">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={lead.rendering_image_url}
-            alt={`Rendering impianto ${name}`}
-            className="aspect-[21/9] w-full object-cover"
-          />
-          {address && (
-            <GlassPanel className="absolute bottom-5 left-5 max-w-sm px-5 py-3">
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">
-                Indirizzo
-              </p>
-              <p className="font-headline text-sm font-bold text-on-surface">
-                {address}
-              </p>
-            </GlassPanel>
-          )}
-          {/*
-            Sede operativa provenance badge — surfaces which tier of
-            the cascade produced the rooftop coords. "Centroide HQ"
-            (mapbox_hq) signals to ops that the render likely sits on
-            an industrial-cluster centroid rather than the actual
-            building, and the lead deserves a manual address upgrade
-            before sending.
-          */}
-          {lead.subjects?.sede_operativa_source && (
-            <GlassPanel className="absolute right-5 top-5 px-3 py-1.5">
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">
-                Sede operativa
-              </p>
-              <p className="text-xs font-bold text-on-surface">
-                {{
-                  atoka: 'Atoka',
-                  website_scrape: 'Sito web',
-                  google_places: 'Google Places',
-                  mapbox_hq: 'Centroide HQ',
-                  manual: 'Manuale',
-                }[lead.subjects.sede_operativa_source] ?? '—'}
-              </p>
-            </GlassPanel>
-          )}
-        </div>
-      )}
-
-      {/* ─── Video / GIF ──────────────────────────────────────────────── */}
-      {(lead.rendering_video_url || lead.rendering_gif_url) && (
-        <BentoCard title="Anteprima video" padding="tight" span="full">
-          <div className="flex flex-col gap-4 p-4 sm:flex-row sm:items-start">
+      {/* ─── Hero: video simulazione + descrizione + KPI ───────────────
+          Sostituisce la vecchia foto orizzontale del tetto (rimossa
+          su feedback dell'utente: era solo decorativa, occupava troppo
+          spazio above-the-fold senza aggiungere informazione che il
+          video non già fornisca). Il video parte direttamente come
+          hero, sotto cui troviamo il testo descrittivo e i 4 KPI
+          principali dell'impianto. */}
+      {(lead.rendering_video_url || lead.rendering_gif_url) ? (
+        <section className="space-y-4 rounded-2xl bg-surface-container-low p-4 ring-1 ring-on-surface/5 shadow-ambient">
+          <div className="overflow-hidden rounded-xl bg-black">
             {lead.rendering_video_url ? (
               // eslint-disable-next-line jsx-a11y/media-has-caption
               <video
@@ -330,71 +290,88 @@ export default async function LeadDetailPage({ params }: PageProps) {
                 muted
                 loop
                 playsInline
-                className="w-full rounded-lg sm:max-w-md"
+                className="aspect-video w-full"
               />
             ) : lead.rendering_gif_url ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={lead.rendering_gif_url}
-                alt="GIF rendering fotovoltaico"
-                className="w-full rounded-lg sm:max-w-md"
+                alt="Simulazione fotovoltaico"
+                className="aspect-video w-full object-cover"
               />
             ) : null}
-            <div className="flex flex-col gap-3">
-              <p className="text-sm text-on-surface-variant">
-                Simulazione impianto fotovoltaico generata per questo lead.
-                Il video viene incluso nell&apos;email come hero cliccabile.
-              </p>
-              {lead.portal_video_slug && (
-                <a
-                  href={`${portalUrl}/lead/${lead.portal_video_slug}/video`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-on-primary transition-opacity hover:opacity-90"
-                >
-                  Apri landing video
-                </a>
-              )}
-            </div>
           </div>
-        </BentoCard>
-      )}
-
-      {/* ─── KPI preventivo ───────────────────────────────────────────── */}
-      <BentoGrid cols={4}>
-        <KpiChipCard
-          label="Potenza impianto"
-          value={
-            lead.roi_data?.estimated_kwp != null
-              ? `${formatNumber(lead.roi_data.estimated_kwp)} kWp`
-              : '—'
-          }
-          accent="primary"
-        />
-        <KpiChipCard
-          label="Risparmio annuo"
-          value={formatEurPlain(lead.roi_data?.annual_savings_eur ?? null)}
-          accent="primary"
-        />
-        <KpiChipCard
-          label="Rientro investimento"
-          value={
-            lead.roi_data?.payback_years != null
-              ? `${formatNumber(lead.roi_data.payback_years)} anni`
-              : '—'
-          }
-          accent="tertiary"
-        />
-        <KpiChipCard
-          label="CO₂ evitata"
-          value={
-            lead.roi_data?.co2_saved_kg != null
-              ? `${formatNumber(lead.roi_data.co2_saved_kg)} kg`
-              : '—'
-          }
-          accent="neutral"
-        />
-      </BentoGrid>
+          <div className="flex flex-wrap items-center justify-between gap-3 px-1">
+            <p className="text-sm text-on-surface-variant">
+              Simulazione di impianto fotovoltaico generata per questo lead.
+              Lo stesso video è incluso nell&apos;email come hero cliccabile.
+            </p>
+            {publicLeadLink && (
+              <a
+                href={publicLeadLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 rounded-full bg-primary px-4 py-2 text-xs font-semibold text-on-primary shadow-ambient-sm transition-opacity hover:opacity-90"
+                title={publicLeadLink}
+              >
+                <ExternalLink size={12} strokeWidth={2.5} aria-hidden />
+                Apri pagina personale del lead
+              </a>
+            )}
+          </div>
+          <BentoGrid cols={4}>
+            <KpiChipCard
+              label="Potenza impianto"
+              value={
+                lead.roi_data?.estimated_kwp != null
+                  ? `${formatNumber(lead.roi_data.estimated_kwp)} kWp`
+                  : '—'
+              }
+              accent="primary"
+            />
+            <KpiChipCard
+              label="Risparmio annuo"
+              value={formatEurPlain(lead.roi_data?.annual_savings_eur ?? null)}
+              accent="primary"
+            />
+            <KpiChipCard
+              label="Rientro investimento"
+              value={
+                lead.roi_data?.payback_years != null
+                  ? `${formatNumber(lead.roi_data.payback_years)} anni`
+                  : '—'
+              }
+              accent="tertiary"
+            />
+            <KpiChipCard
+              label="CO₂ evitata"
+              value={
+                lead.roi_data?.co2_saved_kg != null
+                  ? `${formatNumber(lead.roi_data.co2_saved_kg)} kg`
+                  : '—'
+              }
+              accent="neutral"
+            />
+          </BentoGrid>
+          {lead.subjects?.sede_operativa_source && (
+            <p className="px-1 text-[10px] uppercase tracking-widest text-on-surface-variant">
+              Sede operativa ·{' '}
+              <span className="font-semibold text-on-surface">
+                {{
+                  atoka: 'Atoka',
+                  website_scrape: 'Sito web',
+                  google_places: 'Google Places',
+                  mapbox_hq: 'Centroide HQ',
+                  manual: 'Manuale',
+                  user_confirmed: 'Confermata da operatore',
+                  vision: 'Claude Vision',
+                  osm_snap: 'OSM building',
+                }[lead.subjects.sede_operativa_source] ?? lead.subjects.sede_operativa_source}
+              </span>
+            </p>
+          )}
+        </section>
+      ) : null}
 
       {/* ─── Anagrafica + Tetto ───────────────────────────────────────── */}
       <BentoGrid cols={2}>
@@ -575,6 +552,128 @@ export default async function LeadDetailPage({ params }: PageProps) {
         </DataCard>
       </BentoGrid>
 
+      {/* ─── Cosa ha fatto sul portale ────────────────────────────────────
+          Always-visible section (NOT a collapsible) so the operator
+          sees portal engagement at a glance, right after the lead
+          identity / roof block. Replaces the old "Cosa ha fatto sul
+          portale" CollapsibleCard that was buried below the inviati /
+          follow-up sections. The user explicitly asked: "non sia più
+          un'attendina, ma una cosa ben disposta" — high-intent
+          inbound signals deserve top-level real estate. */}
+      <section className="space-y-3 rounded-2xl bg-surface-container-low p-5 ring-1 ring-on-surface/5">
+        <div className="flex flex-wrap items-end justify-between gap-2">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">
+              Portale personale
+            </p>
+            <h2 className="font-headline text-lg font-bold text-on-surface">
+              Cosa ha fatto sul portale
+            </h2>
+          </div>
+          {(() => {
+            // Combined activity count: portal_events (open / scroll /
+            // bolletta upload / WhatsApp click / email click) PLUS
+            // contact-form submissions (lead.appointment_requested in
+            // events table) since those don't go to portal_events but
+            // are the highest-intent inbound signal we have.
+            const inquiryCount = events.filter(
+              (e) => e.event_type === 'lead.appointment_requested',
+            ).length;
+            const total = portalEvents.length + inquiryCount;
+            if (total === 0) return null;
+            return (
+              <span className="rounded-full bg-primary-container px-2.5 py-1 text-[10px] font-semibold uppercase tracking-widest text-on-primary-container">
+                {total} {total === 1 ? 'azione' : 'azioni'}
+              </span>
+            );
+          })()}
+        </div>
+
+        {/* Highlight: contact-form inquiries first — these are the
+            single strongest intent signal in the entire funnel. The
+            timeline below shows everything chronologically; this
+            block surfaces the inquiry contents (name + phone +
+            message) prominently above. */}
+        {(() => {
+          const inquiries = events.filter(
+            (e) => e.event_type === 'lead.appointment_requested',
+          );
+          if (inquiries.length === 0) return null;
+          return (
+            <div className="rounded-xl bg-tertiary-container/40 p-4 ring-1 ring-tertiary/40">
+              <p className="mb-2 inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-on-tertiary-container">
+                🔥 Richiesta di contatto
+              </p>
+              <ul className="space-y-2">
+                {inquiries.map((iq) => {
+                  const p = (iq.payload || {}) as Record<string, unknown>;
+                  const contactName = p.contact_name as string | undefined;
+                  const contactPhone = p.contact_phone as string | undefined;
+                  const contactEmail = p.contact_email as string | undefined;
+                  const message = p.message as string | undefined;
+                  return (
+                    <li
+                      key={String(iq.id)}
+                      className="rounded-lg bg-surface px-3 py-2 text-sm"
+                    >
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                        {contactName && (
+                          <strong className="text-on-surface">
+                            {contactName}
+                          </strong>
+                        )}
+                        {contactPhone && (
+                          <a
+                            href={`tel:${contactPhone}`}
+                            className="text-primary hover:underline"
+                          >
+                            {contactPhone}
+                          </a>
+                        )}
+                        {contactEmail && (
+                          <a
+                            href={`mailto:${contactEmail}`}
+                            className="text-on-surface-variant hover:underline"
+                          >
+                            {contactEmail}
+                          </a>
+                        )}
+                        <span className="text-[11px] text-on-surface-variant">
+                          {relativeTime(iq.occurred_at)}
+                        </span>
+                      </div>
+                      {message && (
+                        <p className="mt-1 text-xs text-on-surface-variant">
+                          {message}
+                        </p>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          );
+        })()}
+
+        {/* Tracciamento azioni — portal_events timeline. Empty state
+            shown when nothing has been recorded; the bolletta upload,
+            scroll-90, WhatsApp/email click, etc. all surface here. */}
+        {!hasPortalActivity ? (
+          <p className="rounded-lg bg-surface px-4 py-3 text-sm text-on-surface-variant">
+            Il lead non ha ancora visitato la pagina personale del portale.
+          </p>
+        ) : (
+          <div className="rounded-lg bg-surface p-3">
+            {lead.last_portal_event_at && (
+              <p className="mb-3 text-[11px] text-on-surface-variant">
+                Ultima attività {relativeTime(lead.last_portal_event_at)}
+              </p>
+            )}
+            <LeadPortalTimeline events={portalEvents} />
+          </div>
+        )}
+      </section>
+
       {/* ─── Email e comunicazioni inviate ────────────────────────────── */}
       <CollapsibleCard
         label="Comunicazioni"
@@ -651,33 +750,6 @@ export default async function LeadDetailPage({ params }: PageProps) {
           </TierLock>
         </CollapsibleCard>
       )}
-
-      {/* ─── Attività sul portale ─────────────────────────────────────── */}
-      <CollapsibleCard
-        label="Portale personale"
-        title="Cosa ha fatto sul portale"
-        badge={
-          hasPortalActivity
-            ? `${portalEvents.length} ${portalEvents.length === 1 ? 'azione' : 'azioni'}`
-            : undefined
-        }
-        defaultOpen={hasPortalActivity}
-      >
-        {!hasPortalActivity ? (
-          <p className="pt-1 text-sm text-on-surface-variant">
-            Il lead non ha ancora visitato la pagina personale.
-          </p>
-        ) : (
-          <>
-            {lead.last_portal_event_at && (
-              <p className="mb-3 text-xs text-on-surface-variant">
-                Ultima attività {relativeTime(lead.last_portal_event_at)}
-              </p>
-            )}
-            <LeadPortalTimeline events={portalEvents} />
-          </>
-        )}
-      </CollapsibleCard>
 
       {/* ─── Storico eventi ───────────────────────────────────────────── */}
       <CollapsibleCard
