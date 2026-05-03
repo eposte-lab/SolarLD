@@ -93,11 +93,13 @@ interface BicResult {
   stage_diagnostics?: {
     stages_run?: string[];
     places_unique_results?: number;
+    places_api_configured?: boolean;
     osm_zone_total?: number;
     osm_name_match?: number;
     vision_invoked?: boolean;
     vision_match?: boolean;
     vision_reasoning?: string | null;
+    vision_api_configured?: boolean;
     legacy_source?: string | null;
     legacy_confidence?: string | null;
     total_candidates?: number;
@@ -1138,13 +1140,17 @@ function BicDiagnosticsRow({
 }) {
   if (!diagnostics || !diagnostics.stages_run?.length) return null;
   const places = diagnostics.places_unique_results ?? 0;
+  const placesConfigured = diagnostics.places_api_configured !== false;
   const osmTotal = diagnostics.osm_zone_total ?? 0;
   const osmNamed = diagnostics.osm_name_match ?? 0;
+  const visionConfigured = diagnostics.vision_api_configured !== false;
   const vision = diagnostics.vision_invoked
     ? diagnostics.vision_match
       ? 'match'
       : 'no match'
-    : 'skip';
+    : visionConfigured
+      ? 'skip'
+      : 'NO API KEY';
   const legacy = diagnostics.legacy_source
     ? `${diagnostics.legacy_source} · ${diagnostics.legacy_confidence ?? '?'}`
     : 'unresolved';
@@ -1155,13 +1161,19 @@ function BicDiagnosticsRow({
         legacy: <strong>{legacy}</strong>
       </span>
       <span title="Stage 2 Places multi-query — # unique place_id returned across all variants">
-        places: <strong>{places}</strong>
+        places:{' '}
+        <strong className={!placesConfigured ? 'text-error' : undefined}>
+          {placesConfigured ? places : 'NO API KEY'}
+        </strong>
       </span>
       <span title="Stage 4 OSM Overpass — total buildings in zone / # whose name fuzzy-matched">
         osm: <strong>{osmNamed}/{osmTotal}</strong>
       </span>
       <span title="Stage 5 Claude Vision">
-        vision: <strong>{vision}</strong>
+        vision:{' '}
+        <strong className={!visionConfigured ? 'text-error' : undefined}>
+          {vision}
+        </strong>
       </span>
       {diagnostics.vision_reasoning && (
         <span

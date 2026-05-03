@@ -68,6 +68,11 @@ const RANK_COLOURS = [
   '#9CA3AF', // 4 — grey
   '#9CA3AF', // 5 — grey
 ];
+// Rank 6+ are OSM-zone buildings surfaced when the cascade can't
+// auto-pick. They're rendered smaller and translucent so the eye is
+// drawn to the ranked candidates first but the user can still click
+// any of the 30 zone buildings if their capannone is among them.
+const ZONE_PIN_COLOUR = '#6B7280'; // slate-500
 
 async function authHeader(): Promise<Record<string, string>> {
   if (typeof window === 'undefined') return {};
@@ -117,19 +122,25 @@ export function BuildingPicker({
       container: containerRef.current,
       style: 'mapbox://styles/mapbox/satellite-streets-v12',
       center: coords[0],
-      zoom: 17,
+      // Zoom 15 fits a typical Italian Z.I. (~1×1 km) in the viewport so
+      // the operator can scan the whole industrial cluster instead of
+      // being dropped on a single rooftop and forced to pan to find
+      // their building.
+      zoom: 15,
       attributionControl: false,
     });
     map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'top-right');
 
     map.on('load', () => {
-      // Fit to bbox if multiple candidates.
+      // Fit to bbox if multiple candidates — covers the case where we
+      // have OSM-zone buildings (rank 6+) in addition to the ranked
+      // candidates, so the bounds cover the whole industrial cluster.
       if (coords.length > 1) {
         const bounds = coords.reduce(
           (b, c) => b.extend(c),
           new mapboxgl.LngLatBounds(coords[0], coords[0]),
         );
-        map.fitBounds(bounds, { padding: 60, maxZoom: 19, duration: 0 });
+        map.fitBounds(bounds, { padding: 60, maxZoom: 17, duration: 0 });
       }
     });
 
@@ -161,21 +172,33 @@ export function BuildingPicker({
     markersRef.current = [];
 
     candidates.forEach((cand) => {
-      const colour = RANK_COLOURS[Math.min(cand.rank - 1, RANK_COLOURS.length - 1)];
+      const isZonePin = cand.rank > 5;
+      const colour = isZonePin
+        ? ZONE_PIN_COLOUR
+        : RANK_COLOURS[Math.min(cand.rank - 1, RANK_COLOURS.length - 1)];
       const el = document.createElement('button');
       el.type = 'button';
-      el.style.width = '32px';
-      el.style.height = '32px';
+      // Zone pins are smaller (18 px vs 32 px) and have no rank label —
+      // they're navigational aids, not ranked candidates.
+      const size = isZonePin ? 18 : 32;
+      el.style.width = `${size}px`;
+      el.style.height = `${size}px`;
       el.style.borderRadius = '50%';
-      el.style.border = `3px solid ${colour}`;
-      el.style.background = 'rgba(255,255,255,0.85)';
+      el.style.border = `${isZonePin ? 2 : 3}px solid ${colour}`;
+      el.style.background = isZonePin
+        ? 'rgba(255,255,255,0.55)'
+        : 'rgba(255,255,255,0.85)';
       el.style.color = '#0f172a';
       el.style.fontWeight = '700';
-      el.style.fontSize = '13px';
+      el.style.fontSize = isZonePin ? '0' : '13px';
       el.style.cursor = 'pointer';
-      el.style.boxShadow = '0 2px 8px rgba(0,0,0,0.4)';
-      el.textContent = String(cand.rank);
-      el.title = `Candidato ${cand.rank} · ${cand.source} · peso ${cand.weight.toFixed(2)}`;
+      el.style.boxShadow = isZonePin
+        ? '0 1px 3px rgba(0,0,0,0.3)'
+        : '0 2px 8px rgba(0,0,0,0.4)';
+      el.textContent = isZonePin ? '' : String(cand.rank);
+      el.title = isZonePin
+        ? `Edificio nella zona · ${cand.source}`
+        : `Candidato ${cand.rank} · ${cand.source} · peso ${cand.weight.toFixed(2)}`;
       el.onclick = (e) => {
         e.stopPropagation();
         setSelected({ lat: cand.lat, lng: cand.lng, rank: cand.rank });

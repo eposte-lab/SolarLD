@@ -1451,28 +1451,30 @@ async def demo_identify_building(
         match.source_chain, key=lambda e: e.get("weight", 0.0), reverse=True
     )
     cands: list[IdentifyBuildingCandidate] = []
+    seen_coords: set[tuple[float, float]] = set()
+
+    def _coord_key(lat: float, lng: float) -> tuple[float, float]:
+        # 5-decimal rounding ≈ 1.1m precision — enough to dedupe the
+        # same building across source_chain + picker_candidates.
+        return (round(lat, 5), round(lng, 5))
+
     for i, entry in enumerate(sorted_chain[:5]):
+        lat = float(entry["lat"])
+        lng = float(entry["lng"])
+        seen_coords.add(_coord_key(lat, lng))
         try:
             preview_url = build_static_satellite_url(
-                float(entry["lat"]),
-                float(entry["lng"]),
-                zoom=18,
-                width=320,
-                height=320,
+                lat, lng, zoom=18, width=320, height=320
             )
         except Exception:  # noqa: BLE001 — preview is optional
             preview_url = None
         cands.append(
             IdentifyBuildingCandidate(
                 rank=i + 1,
-                lat=float(entry["lat"]),
-                lng=float(entry["lng"]),
+                lat=lat,
+                lng=lng,
                 weight=float(entry.get("weight") or 0.0),
                 source=str(entry.get("stage") or "unknown"),
-                # Polygon may be in metadata; the voter doesn't currently
-                # plumb it back to source_chain entries, so this stays
-                # None for now (vision/OSM polygons are still on the
-                # leader's metadata used for the winning match).
                 polygon_geojson=None,
                 metadata={
                     k: v for k, v in entry.items()
@@ -1481,6 +1483,32 @@ async def demo_identify_building(
                 preview_url=preview_url,
             )
         )
+
+    # When confidence is low/none, append the OSM-zone buildings as
+    # additional pickable pins (rank 6+, light-grey). The operator
+    # can click any of the 126 buildings in the Z.I. instead of
+    # being trapped in the freehand-only fallback. Skip preview_url
+    # generation here — N may be 30+ and we'd waste round-trips
+    # building thumbnails for buildings the user won't click.
+    if match.picker_candidates and match.confidence in ("low", "none"):
+        for j, pc in enumerate(match.picker_candidates):
+            lat = float(pc["lat"])
+            lng = float(pc["lng"])
+            if _coord_key(lat, lng) in seen_coords:
+                continue
+            seen_coords.add(_coord_key(lat, lng))
+            cands.append(
+                IdentifyBuildingCandidate(
+                    rank=len(cands) + 1,
+                    lat=lat,
+                    lng=lng,
+                    weight=float(pc.get("weight") or 0.0),
+                    source=str(pc.get("source") or "osm_zone"),
+                    polygon_geojson=pc.get("polygon_geojson"),
+                    metadata=pc.get("metadata") or {},
+                    preview_url=None,
+                )
+            )
 
     # When the cascade returned no candidates (timeout, no API keys,
     # or the geocoded address truly resolves nowhere identifiable),

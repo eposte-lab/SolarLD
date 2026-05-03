@@ -157,6 +157,13 @@ class BuildingMatch:
     source_chain: list[dict]
     needs_user_confirmation: bool
     stage_diagnostics: dict = field(default_factory=dict)
+    # All OSM buildings within the search radius, surfaced for the
+    # picker UI when the cascade can't auto-pick. Each entry is a
+    # zero-weight candidate that doesn't influence the vote (so the
+    # source_chain stays clean) but the operator can click any of
+    # them on the map. Empty list when stage 4 didn't run or when
+    # confidence is high enough that we don't expect manual review.
+    picker_candidates: list[dict] = field(default_factory=list)
 
     @classmethod
     def empty(cls) -> "BuildingMatch":
@@ -173,6 +180,7 @@ class BuildingMatch:
             source_chain=[],
             needs_user_confirmation=True,
             stage_diagnostics={},
+            picker_candidates=[],
         )
 
     @property
@@ -494,16 +502,24 @@ async def identify_building(
     from . import google_places_service
     from .operating_site_resolver import resolve_operating_site
 
+    # Probe API-key availability up-front so diagnostics distinguish
+    # "Places returned 0" (genuine miss) from "Places skipped" (key
+    # not configured) — the user-facing copy under each scenario is
+    # very different.
+    from ..core.config import settings as _settings
+
     candidates: list[BuildingCandidate] = []
     diagnostics: dict[str, Any] = {
         "stages_run": [],
         "places_queries_built": 0,
         "places_unique_results": 0,
+        "places_api_configured": bool(_settings.google_places_api_key),
         "osm_zone_total": 0,
         "osm_name_match": 0,
         "vision_invoked": False,
         "vision_match": False,
         "vision_reasoning": None,
+        "vision_api_configured": bool(_settings.anthropic_api_key),
         "legacy_source": None,
         "legacy_confidence": None,
     }
@@ -707,6 +723,34 @@ async def identify_building(
     diagnostics["winning_source"] = match.source
     diagnostics["winning_confidence"] = match.confidence
     diagnostics["total_candidates"] = len(candidates)
+
+    # When confidence didn't reach `medium`, surface ALL OSM buildings
+    # in the zone as pickable pins so the operator can manually click
+    # the right capannone. We sort by distance from the legacy anchor
+    # and cap at 30 — more than that and the map becomes unreadable;
+    # fewer than 30 and the actual building might be off-frame on
+    # large industrial parks.
+    if match.confidence in ("low", "none") and osm_buildings:
+        ranked_osm = sorted(
+            osm_buildings,
+            key=lambda c: _haversine_m(
+                zone_anchor[0] if zone_anchor else c.lat,
+                zone_anchor[1] if zone_anchor else c.lng,
+                c.lat,
+                c.lng,
+            ),
+        )[:30]
+        match.picker_candidates = [
+            {
+                "lat": c.lat,
+                "lng": c.lng,
+                "polygon_geojson": c.polygon_geojson,
+                "source": c.source,
+                "weight": c.weight,
+                "metadata": c.metadata,
+            }
+            for c in ranked_osm
+        ]
 
     log.info(
         "bic.cascade_decision",
