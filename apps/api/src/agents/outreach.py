@@ -575,6 +575,13 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
         greeting = _greeting_for(subject, subject_type)
         # Use the per-domain tracking host for all public URLs when available.
         lead_url = _public_lead_url(lead.get("public_slug"), tracking_host=tracking_host)
+        log.info(
+            "outreach.lead_url_built",
+            lead_id=payload.lead_id,
+            public_slug=lead.get("public_slug"),
+            tracking_host=tracking_host,
+            lead_url=lead_url,
+        )
         optout_url = _optout_url(
             lead.get("public_slug"),
             tracking_host=tracking_host,
@@ -1776,6 +1783,46 @@ def _build_from_address(tenant_row: dict[str, Any]) -> str:
     return f"{display} <{address}>"
 
 
+def _portal_origin(tracking_host: str | None) -> str:
+    """Origin (scheme://host[:port]) of the lead-portal Next.js app.
+
+    Defensive against operator misconfiguration: the
+    ``NEXT_PUBLIC_LEAD_PORTAL_URL`` env-var has been observed in the wild
+    pointing at e.g. ``https://app.example.com/portal`` (the dashboard's
+    own /portal section), which produced ``/portal/lead/{slug}`` URLs
+    that 404 on the lead-portal Next.js app — its only valid lead path
+    is ``/lead/{slug}``. We strip any trailing path component from the
+    env-var and log a warning so the misconfiguration surfaces in
+    Railway logs and gets fixed on the next deploy.
+    """
+    from urllib.parse import urlparse, urlunparse
+
+    from ..core.config import settings
+    from ..core.logging import get_logger
+
+    if tracking_host:
+        raw_base = f"https://{tracking_host.strip('/')}"
+    else:
+        raw_base = (settings.next_public_lead_portal_url or "").strip()
+
+    parsed = urlparse(raw_base if "://" in raw_base else f"https://{raw_base}")
+    origin = urlunparse((parsed.scheme or "https", parsed.netloc, "", "", "", ""))
+    origin = origin.rstrip("/")
+
+    if parsed.path and parsed.path.strip("/"):
+        get_logger(__name__).warning(
+            "outreach.lead_portal_url_path_stripped",
+            stripped_path=parsed.path,
+            note=(
+                "NEXT_PUBLIC_LEAD_PORTAL_URL contained a path; using origin "
+                "only. The portal lives at /lead/{slug} on the lead-portal "
+                "Next.js app — set the env-var to the root URL only."
+            ),
+        )
+
+    return origin
+
+
 def _public_lead_url(
     public_slug: str | None,
     *,
@@ -1787,23 +1834,14 @@ def _public_lead_url(
     the link uses that host so click-tracking stays on the sender's own
     domain — better deliverability + brand alignment.
 
-    Example:
-        ``"https://go.agendasolar.it/lead/abc123"`` instead of
-        ``"https://portal.solarld.app/lead/abc123"``
-
     Path note:
         The portal page lives at ``/lead/[slug]`` in the Next.js app. A
         legacy ``/l/[slug]`` alias route exists for backwards compatibility
         with already-sent emails (it redirects server-side to ``/lead/...``).
     """
-    from ..core.config import settings
-
-    if tracking_host:
-        base = f"https://{tracking_host.strip('/')}"
-    else:
-        base = (settings.next_public_lead_portal_url or "").rstrip("/")
+    origin = _portal_origin(tracking_host)
     slug = (public_slug or "").strip()
-    return f"{base}/lead/{slug}" if slug else base
+    return f"{origin}/lead/{slug}" if slug else origin
 
 
 def _optout_url(
@@ -1852,10 +1890,7 @@ def _optout_url(
             pass
 
     # Legacy fallback: slug-based URL targeting the lead portal.
-    if tracking_host:
-        base = f"https://{tracking_host.strip('/')}"
-    else:
-        base = (settings.next_public_lead_portal_url or "").rstrip("/")
+    base = _portal_origin(tracking_host)
     slug = (public_slug or "").strip()
     return f"{base}/optout/{slug}" if slug else f"{base}/optout"
 
@@ -1871,11 +1906,7 @@ def _video_landing_url(
     """
     if not portal_video_slug:
         return None
-    from ..core.config import settings
-    if tracking_host:
-        base = f"https://{tracking_host.strip('/')}"
-    else:
-        base = (settings.next_public_lead_portal_url or "").rstrip("/")
+    base = _portal_origin(tracking_host)
     return f"{base}/lead/{portal_video_slug.strip()}/video"
 
 

@@ -759,6 +759,58 @@ async def demo_test_pipeline(
         roof_lng = geo.lng
         roof_address = geo.address or body.hq_address
 
+    # Real Solar API values — same call production hunter funnel makes
+    # in level4_solar_gate._upsert_roof_and_subject. Without this the
+    # demo email / lead portal / preventivo all show synthetic Italian
+    # medians (180 m² / 30 kWp / 36 MWh) which makes the funnel
+    # unverifiable end-to-end against a production lead. Fail-open:
+    # any error here (404 = no Google imagery, timeout, missing API
+    # key) falls back to the median defaults so the demo run still
+    # completes — the email body's "stima preliminare" copy already
+    # covers that downgrade case.
+    from ..services.google_solar_service import (
+        SolarApiError,
+        SolarApiNotFound,
+        fetch_building_insight,
+    )
+
+    solar_insight = None
+    try:
+        async with httpx.AsyncClient(timeout=12.0) as solar_client:
+            solar_insight = await asyncio.wait_for(
+                fetch_building_insight(roof_lat, roof_lng, client=solar_client),
+                timeout=12.0,
+            )
+        log.info(
+            "demo.solar_insight_fetched",
+            vat_number=body.vat_number,
+            area_sqm=solar_insight.area_sqm,
+            estimated_kwp=solar_insight.estimated_kwp,
+            estimated_yearly_kwh=solar_insight.estimated_yearly_kwh,
+        )
+    except SolarApiNotFound:
+        log.warning(
+            "demo.solar_404",
+            vat_number=body.vat_number,
+            lat=roof_lat,
+            lng=roof_lng,
+            note="falling back to median Italian defaults",
+        )
+    except (asyncio.TimeoutError, SolarApiError) as exc:
+        log.warning(
+            "demo.solar_failed",
+            vat_number=body.vat_number,
+            err_type=type(exc).__name__,
+            err=str(exc)[:200],
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning(
+            "demo.solar_unexpected",
+            vat_number=body.vat_number,
+            err_type=type(exc).__name__,
+            err=str(exc)[:200],
+        )
+
     gh = geohash.encode(roof_lat, roof_lng, precision=9)
     roof_payload: dict[str, Any] = {
         "tenant_id": tenant_id,
@@ -769,24 +821,50 @@ async def demo_test_pipeline(
         "cap": geo.cap,
         "comune": geo.comune,
         "provincia": geo.provincia,
-        # Use median Italian rooftop dimensions for the synthetic case
-        # — these match the defaults in `SolarOverride`. The customer
-        # cares about the email landing, not the kWp accuracy.
-        "area_sqm": 180.0,
-        "estimated_kwp": 30.0,
-        "estimated_yearly_kwh": 36000,
-        "exposure": "south",
-        "shading_score": 0.85,
+        # Real Solar API values when available, fall-back to Italian
+        # median defaults when Solar 404'd / timed out / had no key.
+        # Production (level4_solar_gate.py) always has the insight here
+        # because it gates on Solar success — the demo path is the only
+        # one that needs the fall-back branch, since user-supplied VATs
+        # may sit on roofs Google has no imagery for (rural, recently
+        # built, or photo-redacted).
+        "area_sqm": solar_insight.area_sqm if solar_insight else 180.0,
+        "estimated_kwp": solar_insight.estimated_kwp if solar_insight else 30.0,
+        "estimated_yearly_kwh": (
+            solar_insight.estimated_yearly_kwh if solar_insight else 36000
+        ),
+        "exposure": (
+            solar_insight.dominant_exposure if solar_insight else "south"
+        ),
+        "pitch_degrees": (
+            solar_insight.pitch_degrees if solar_insight else None
+        ),
+        "shading_score": (
+            solar_insight.shading_score if solar_insight else 0.85
+        ),
         "has_existing_pv": False,
-        "data_source": RoofDataSource.GOOGLE_SOLAR.value,
+        # Honest data_source: GOOGLE_SOLAR only when we actually got the
+        # insight. Otherwise mark as MAPBOX_AI_FALLBACK so the dashboard
+        # / email template can show the "stima preliminare" copy and
+        # downstream consumers (preventivo, GSE) know the numbers are
+        # geometric estimates, not Google's measurement.
+        "data_source": (
+            RoofDataSource.GOOGLE_SOLAR.value
+            if solar_insight
+            else RoofDataSource.MAPBOX_AI_FALLBACK.value
+        ),
         "classification": SubjectType.B2B.value,
         "status": RoofStatus.DISCOVERED.value,
-        "scan_cost_cents": 0,
+        "scan_cost_cents": 2 if solar_insight else 0,
         "raw_data": {
             "demo_test_pipeline": True,
             "vat_number": body.vat_number,
             "inserted_at": now.isoformat(),
             "supplied_address": body.hq_address,
+            # Persist Solar's raw payload when we got it — the dashboard's
+            # SolarApiInspector reads from raw_data.solar to render the
+            # per-segment breakdown + panel placement preview.
+            **({"solar": solar_insight.raw} if solar_insight else {}),
         },
     }
 
@@ -854,6 +932,17 @@ async def demo_test_pipeline(
     # as a generic "Failed to fetch" because the request was already
     # streaming. Anything we'd want to preserve about the supplied
     # emails is already in the API logs ("demo.test_pipeline_started").
+    # LinkedIn URL HEAD-check — drop the URL entirely when it's not
+    # reachable. The mock enrichment table holds whatever LinkedIn URL
+    # was scraped at some point; many of these are dead links by now.
+    # Surfacing them in the lead-portal page (clickable <a>) and the
+    # prospect-list export to integrations is a quality bug we'd rather
+    # not introduce when re-running the demo a year later. Cached in
+    # Redis 7d so the check is amortised across runs of the same VAT.
+    from ..services.url_verification_service import filter_url_or_none
+
+    verified_linkedin = await filter_url_or_none(mock.get("linkedin_url"))
+
     subject_payload: dict[str, Any] = {
         "tenant_id": tenant_id,
         "roof_id": roof_id,
@@ -866,7 +955,7 @@ async def demo_test_pipeline(
         "ateco_description": mock.get("ateco_description"),
         "yearly_revenue_cents": mock.get("yearly_revenue_cents"),
         "employees": mock.get("employees"),
-        "linkedin_url": mock.get("linkedin_url"),
+        "linkedin_url": verified_linkedin,
         "decision_maker_name": body.decision_maker_name,
         "decision_maker_role": body.decision_maker_role,
         "decision_maker_phone": mock.get("decision_maker_phone"),
