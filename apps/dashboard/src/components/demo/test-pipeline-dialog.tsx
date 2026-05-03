@@ -333,6 +333,7 @@ export function TestPipelineDialog({
     }
     setBicLoading(true);
     setConfirmedBuilding(null);
+    setError(null);
     try {
       const auth = await authHeader();
       const res = await fetch(`${API_URL}/v1/demo/identify-building`, {
@@ -345,19 +346,27 @@ export function TestPipelineDialog({
           ateco_code: form.ateco_code || null,
         }),
       });
-      const data = (await res.json().catch(() => null)) as BicResult | null;
-      if (!res.ok || !data) {
-        setBicResult({
-          confidence: 'none',
-          needs_user_confirmation: true,
-          lat: null,
-          lng: null,
-          address: null,
-          source: 'unresolved',
-          source_chain: [],
-          candidates: [],
-          cached: false,
-        });
+      const data = (await res.json().catch(() => null)) as
+        | BicResult
+        | { detail?: string }
+        | null;
+      if (!res.ok) {
+        // Surface the actual server error instead of silently falling
+        // back to "confidence: none" — the user used to see "non sono
+        // riuscito a identificare il capannone" for ANY backend failure
+        // (TypeError, missing API key, network blip), which made these
+        // bugs invisible.
+        const detail =
+          (data && typeof data === 'object' && 'detail' in data
+            ? data.detail
+            : null) ?? `HTTP ${res.status}`;
+        setError(`Identifica capannone fallita: ${detail}`);
+        setBicResult(null);
+        return;
+      }
+      if (!data || !('confidence' in data)) {
+        setError('Identifica capannone: risposta API malformata.');
+        setBicResult(null);
         return;
       }
       setBicResult(data);
@@ -373,18 +382,13 @@ export function TestPipelineDialog({
       ) {
         setConfirmedBuilding({ lat: data.lat, lng: data.lng });
       }
-    } catch {
-      setBicResult({
-        confidence: 'none',
-        needs_user_confirmation: true,
-        lat: null,
-        lng: null,
-        address: null,
-        source: 'unresolved',
-        source_chain: [],
-        candidates: [],
-        cached: false,
-      });
+    } catch (err) {
+      setError(
+        `Identifica capannone — errore di rete: ${
+          err instanceof Error ? err.message : 'sconosciuto'
+        }`,
+      );
+      setBicResult(null);
     } finally {
       setBicLoading(false);
     }

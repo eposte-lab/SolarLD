@@ -1371,11 +1371,26 @@ async def demo_identify_building(
         log.warning("demo.identify_building.geocode_error", err=str(exc))
         geo = None
 
+    # AtokaProfile is the canonical "company facts" envelope used by
+    # the cascade for tier-1 lookup hints. The dataclass has 7 required
+    # positional fields (ateco_description / yearly_revenue_cents /
+    # employees / website_domain / decision_maker_* / linkedin_url) that
+    # we don't have at preview time — fill them with None so the
+    # constructor accepts the call. The cascade only ever reads
+    # sede_operativa_* / hq_* / vat_number / legal_name from this object,
+    # so the missing fields are inert.
     profile = AtokaProfile(
         vat_number=body.vat_number,
         legal_name=body.legal_name,
         ateco_code=body.ateco_code,
-        hq_address=(geo.address if geo else body.hq_address) if geo else body.hq_address,
+        ateco_description=None,
+        yearly_revenue_cents=None,
+        employees=None,
+        website_domain=None,
+        decision_maker_name=None,
+        decision_maker_role=None,
+        linkedin_url=None,
+        hq_address=geo.address if geo else body.hq_address,
         hq_cap=geo.cap if geo else None,
         hq_city=geo.comune if geo else None,
         hq_province=geo.provincia if geo else None,
