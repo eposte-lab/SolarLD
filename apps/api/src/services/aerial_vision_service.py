@@ -61,9 +61,24 @@ VISION_IDENTIFICATION_COST_CENTS = 3
 # fallback than letting an uncertain vision call decide the demo.
 MIN_VISION_CONFIDENCE = 0.4
 
-# Use a strong model for multi-image reasoning. Sonnet handles the
-# multi-image attention budget far better than Haiku at this scale.
-DEFAULT_MODEL = "claude-sonnet-4-5"
+# Cascade model strategy: try Haiku first (~$1/M input, ~3× cheaper than
+# Sonnet at $3/M), accept if it produces a confident match, fall back to
+# Sonnet only when Haiku abstains or reports low confidence. Net effect:
+# stages where Haiku finds the building (typical for visible signage)
+# cost ~$0.007 instead of $0.025 — a ~70% saving on this stage. When
+# Haiku abstains we pay both calls (~$0.032 worst-case), still cheaper
+# than Sonnet-always thanks to Haiku's cheaper tokens.
+HAIKU_MODEL = "claude-haiku-4-5"
+SONNET_MODEL = "claude-sonnet-4-5"
+
+# Confidence threshold below which Haiku's result is considered
+# unreliable and we promote to Sonnet. Set higher than
+# MIN_VISION_CONFIDENCE so a Haiku "0.4" doesn't sneak through but a
+# Haiku "0.7" does — the operator still gets the picker UI when both
+# models abstain.
+HAIKU_PROMOTE_THRESHOLD = 0.65
+
+DEFAULT_MODEL = SONNET_MODEL  # kept for backwards-compat with legacy callers
 
 
 SYSTEM_PROMPT = (
@@ -151,6 +166,68 @@ def _parse_vision_response(text: str) -> dict[str, Any] | None:
 _VISION_API_TIMEOUT_S = 18.0
 
 
+async def _run_vision_call(
+    *,
+    model: str,
+    image_blocks: list[dict[str, Any]],
+    prompt: str,
+    n_candidates: int,
+) -> dict[str, Any] | None:
+    """Single Anthropic Vision call → parsed dict or None on failure.
+
+    Extracted so the Haiku→Sonnet cascade can reuse it without
+    duplicating the wait_for + parse + error handling.
+    """
+    import asyncio
+
+    try:
+        client = _get_client()
+        msg = await asyncio.wait_for(
+            client.messages.create(
+                model=model,
+                max_tokens=400,
+                temperature=0.0,
+                system=SYSTEM_PROMPT,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            *image_blocks,
+                            {"type": "text", "text": prompt},
+                        ],
+                    }
+                ],
+            ),
+            timeout=_VISION_API_TIMEOUT_S,
+        )
+    except asyncio.TimeoutError:
+        log.warning(
+            "vision.api_timeout",
+            timeout_s=_VISION_API_TIMEOUT_S,
+            model=model,
+            n_candidates=n_candidates,
+        )
+        return None
+    except Exception as exc:  # noqa: BLE001
+        log.warning(
+            "vision.api_error",
+            model=model,
+            err=type(exc).__name__,
+            err_msg=str(exc)[:200],
+        )
+        return None
+
+    text = ""
+    for block in msg.content:
+        if getattr(block, "type", None) == "text":
+            text = block.text  # type: ignore[attr-defined]
+            break
+    parsed = _parse_vision_response(text)
+    if parsed is None:
+        log.warning("vision.parse_failed", model=model, raw=text[:300])
+    return parsed
+
+
 @retry(
     stop=stop_after_attempt(1),  # No retry — too slow under Railway's idle window
     wait=wait_exponential(multiplier=1, min=2, max=10),
@@ -164,16 +241,29 @@ async def identify_company_building_in_zone(
     zone_anchor: tuple[float, float],
     ateco_description: str | None = None,
     city: str | None = None,
-    model: str = DEFAULT_MODEL,
+    model: str = DEFAULT_MODEL,  # legacy kwarg, ignored by the cascade below
 ) -> "BuildingCandidate | None":
-    """Ask Claude Vision which of the candidate buildings is the company's.
+    """Identify the company's building via a Haiku-first → Sonnet cascade.
+
+    Strategy:
+      1. Try Claude Haiku 4.5 (~$1/M input). If it returns a confident
+         match (confidence ≥ HAIKU_PROMOTE_THRESHOLD), accept and stop.
+      2. Otherwise (Haiku abstained, low confidence, or hard failure),
+         fall back to Claude Sonnet 4.5 (~$3/M input) which is more
+         capable on multi-image attention.
+
+    Net cost: ~70% reduction on runs where Haiku finds the building
+    visibly (typical for company names painted on the roof).
+    Worst-case cost when both fire: ~$0.032 vs Sonnet-always ~$0.025
+    — slightly higher in the failure path but rare.
 
     Returns:
         A new ``BuildingCandidate`` with ``source="vision"`` and weight
-        proportional to Claude's reported confidence, or ``None`` when:
+        proportional to the chosen model's reported confidence, or
+        ``None`` when:
           * fewer than 2 candidates were given (vision adds no signal),
-          * Claude reports ``match_index=null`` or ``confidence < MIN_VISION_CONFIDENCE``,
-          * the API call fails after retries.
+          * both models abstain or report ``confidence < MIN_VISION_CONFIDENCE``,
+          * both API calls fail / time out.
     """
     # Local import to avoid the cycle building_identification → here.
     from .building_identification import BuildingCandidate
@@ -216,64 +306,82 @@ async def identify_company_building_in_zone(
     )
 
     log.info(
-        "vision.identify_starting",
+        "vision.cascade_starting",
         legal_name=legal_name,
         vat_number=vat_number,
         n_candidates=len(candidate_buildings),
-        model=model,
     )
 
-    try:
-        client = _get_client()
-        # Hard wall-clock budget so a slow Anthropic response can't
-        # exceed Railway's idle-connection timeout. On TimeoutError we
-        # log + skip — the cascade falls through to whatever textual
-        # signals it has, and the user sees the picker fallback rather
-        # than a "Failed to fetch" black hole.
-        import asyncio
+    # ── Tier 1: Haiku ────────────────────────────────────────────────
+    parsed: dict[str, Any] | None = None
+    chosen_model: str = HAIKU_MODEL
+    haiku_parsed = await _run_vision_call(
+        model=HAIKU_MODEL,
+        image_blocks=image_blocks,
+        prompt=prompt,
+        n_candidates=len(candidate_buildings),
+    )
 
-        msg = await asyncio.wait_for(
-            client.messages.create(
-                model=model,
-                max_tokens=400,
-                temperature=0.0,
-                system=SYSTEM_PROMPT,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            *image_blocks,
-                            {"type": "text", "text": prompt},
-                        ],
-                    }
-                ],
-            ),
-            timeout=_VISION_API_TIMEOUT_S,
+    haiku_match = haiku_parsed.get("match_index") if haiku_parsed else None
+    haiku_conf = (
+        float(haiku_parsed.get("confidence", 0.0) or 0.0)
+        if haiku_parsed
+        else 0.0
+    )
+
+    if (
+        haiku_parsed is not None
+        and haiku_match is not None
+        and haiku_conf >= HAIKU_PROMOTE_THRESHOLD
+    ):
+        # Haiku is confident → accept its result, skip Sonnet entirely.
+        parsed = haiku_parsed
+        chosen_model = HAIKU_MODEL
+        log.info(
+            "vision.haiku_accepted",
+            legal_name=legal_name,
+            confidence=haiku_conf,
+            note=f"≥ {HAIKU_PROMOTE_THRESHOLD} → no Sonnet fallback needed",
         )
-    except asyncio.TimeoutError:
-        log.warning(
-            "vision.api_timeout",
-            timeout_s=_VISION_API_TIMEOUT_S,
+    else:
+        # ── Tier 2: Sonnet fallback ─────────────────────────────────
+        log.info(
+            "vision.haiku_promoted_to_sonnet",
+            legal_name=legal_name,
+            haiku_match=haiku_match,
+            haiku_confidence=haiku_conf,
+            reason=(
+                "haiku_failed" if haiku_parsed is None
+                else "haiku_no_match" if haiku_match is None
+                else "haiku_low_confidence"
+            ),
+        )
+        sonnet_parsed = await _run_vision_call(
+            model=SONNET_MODEL,
+            image_blocks=image_blocks,
+            prompt=prompt,
             n_candidates=len(candidate_buildings),
         )
-        return None
-    except Exception as exc:  # noqa: BLE001
-        log.warning(
-            "vision.api_error",
-            err=type(exc).__name__,
-            err_msg=str(exc)[:200],
-        )
-        return None
+        # Use Sonnet when it produced a result, even if Haiku also did
+        # — Sonnet's multi-image attention is better than Haiku's so we
+        # trust it over the cheaper one when both fired.
+        if sonnet_parsed is not None:
+            parsed = sonnet_parsed
+            chosen_model = SONNET_MODEL
+        elif haiku_parsed is not None:
+            # Sonnet failed entirely (timeout / network) but Haiku gave
+            # us something — use it as a last-resort signal even if
+            # below the promotion threshold.
+            parsed = haiku_parsed
+            chosen_model = HAIKU_MODEL
+            log.info(
+                "vision.haiku_kept_sonnet_failed",
+                legal_name=legal_name,
+                note="Sonnet API call failed; falling back to low-conf Haiku result",
+            )
 
-    text = ""
-    for block in msg.content:
-        if getattr(block, "type", None) == "text":
-            text = block.text  # type: ignore[attr-defined]
-            break
-
-    parsed = _parse_vision_response(text)
     if parsed is None:
-        log.warning("vision.parse_failed", raw=text[:300])
+        # Both models failed.
         return None
 
     match_index = parsed.get("match_index")
@@ -324,6 +432,7 @@ async def identify_company_building_in_zone(
         idx=idx,
         confidence=confidence,
         weight=round(weight, 3),
+        chosen_model=chosen_model,
         reasoning=reasoning,
     )
 
@@ -336,7 +445,7 @@ async def identify_company_building_in_zone(
         metadata={
             "vision_confidence": confidence,
             "vision_reasoning": reasoning,
-            "vision_model": model,
+            "vision_model": chosen_model,
             "matched_osm_id": chosen.metadata.get("osm_id"),
             # Persist the source candidate's lat/lng so the dashboard
             # can show "vision picked OSM building #123" without a

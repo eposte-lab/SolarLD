@@ -697,6 +697,12 @@ async def identify_building(
                 diagnostics["vision_reasoning"] = vision_pick.metadata.get(
                     "vision_reasoning"
                 )
+                # Track which model actually decided so the cost
+                # estimate below reflects whether we saved a Sonnet
+                # call or paid for both models in the cascade.
+                diagnostics["vision_model"] = vision_pick.metadata.get(
+                    "vision_model"
+                )
                 candidates.append(vision_pick)
         except Exception as exc:  # noqa: BLE001
             log.warning(
@@ -744,9 +750,19 @@ async def identify_building(
         "places_multi_query": 2 * (diagnostics.get("places_unique_results") or 0),
         # Stage 4 OSM: free — Overpass has no per-call cost.
         "osm_zone": 0,
-        # Stage 5 Vision: 1 Sonnet call with up to 5 images,
-        # ~$0.025 per call.
-        "vision": 3 if diagnostics.get("vision_invoked") else 0,
+        # Stage 5 Vision: cost depends on which tier of the cascade
+        # actually fired. Haiku alone (confident match): ~$0.007 = 1c.
+        # Sonnet (Haiku promoted or chose Sonnet): ~$0.025. Both
+        # models fired (Haiku abstained then Sonnet): ~$0.032 = 3c.
+        # When vision_invoked but no model recorded → Sonnet-only
+        # legacy path (~3c).
+        "vision": (
+            0
+            if not diagnostics.get("vision_invoked")
+            else 1
+            if diagnostics.get("vision_model") == "claude-haiku-4-5"
+            else 3
+        ),
     }
     diagnostics["cost_breakdown_cents"] = cost_breakdown_cents
     diagnostics["total_cost_cents"] = sum(cost_breakdown_cents.values())
