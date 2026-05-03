@@ -322,7 +322,11 @@ async def _require_demo_tenant(tenant_id: str) -> dict[str, Any]:
         lambda: sb.table("tenants")
         .select(
             "id, is_demo, demo_pipeline_test_remaining, "
-            "email_from_domain, email_from_domain_verified_at, email_from_name"
+            "email_from_domain, email_from_domain_verified_at, email_from_name, "
+            # cost_assumptions per-tenant overrides for the ROI calculator —
+            # threaded into compute_full_derivations() so the demo run
+            # produces tenant-specific numbers when configured.
+            "cost_assumptions"
         )
         .eq("id", tenant_id)
         .limit(1)
@@ -867,6 +871,37 @@ async def demo_test_pipeline(
             **({"solar": solar_insight.raw} if solar_insight else {}),
         },
     }
+
+    # Compute the full derivation snapshot (cost / ROI / monthly curve /
+    # sizing) and attach it to the roof row. Every consumer downstream
+    # (dashboard inspector, email body, preventivo PDF, GSE practice
+    # flow) reads from this column instead of recomputing locally.
+    try:
+        from ..services.roi_service import compute_full_derivations
+
+        derivations = compute_full_derivations(
+            estimated_kwp=roof_payload["estimated_kwp"],
+            estimated_yearly_kwh=roof_payload["estimated_yearly_kwh"],
+            roof_area_sqm=roof_payload["area_sqm"],
+            panel_count=(
+                len(solar_insight.panels)
+                if solar_insight and solar_insight.panels
+                else solar_insight.max_panel_count if solar_insight else None
+            ),
+            panel_capacity_w=solar_insight.panel_capacity_w if solar_insight else None,
+            panel_width_m=solar_insight.panel_width_m if solar_insight else None,
+            panel_height_m=solar_insight.panel_height_m if solar_insight else None,
+            subject_type=SubjectType.B2B.value,
+            tenant_cost_assumptions=tenant_row.get("cost_assumptions"),
+        )
+        if derivations is not None:
+            roof_payload["derivations"] = derivations
+    except Exception as exc:  # noqa: BLE001 — never block the upsert on this
+        log.warning(
+            "demo.derivations_compute_failed",
+            err_type=type(exc).__name__,
+            err=str(exc)[:200],
+        )
 
     try:
         roof_res = await asyncio.to_thread(

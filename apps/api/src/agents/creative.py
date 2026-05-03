@@ -137,7 +137,13 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
 
         tenant_res = (
             sb.table("tenants")
-            .select("id, business_name, brand_primary_color, brand_logo_url")
+            .select(
+                "id, business_name, brand_primary_color, brand_logo_url, "
+                # cost_assumptions threaded into compute_full_derivations
+                # so the OSM-snap re-compute below uses the tenant's
+                # specific €/kWp / grid tariff overrides when configured.
+                "cost_assumptions"
+            )
             .eq("id", payload.tenant_id)
             .single()
             .execute()
@@ -348,7 +354,29 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
                         try:
                             import geohash as _gh
                             new_geohash = _gh.encode(lat, lng, precision=9)
-                            sb.table("roofs").update({
+                            from ..services.roi_service import (
+                                compute_full_derivations,
+                            )
+                            new_derivations = compute_full_derivations(
+                                estimated_kwp=insight.estimated_kwp,
+                                estimated_yearly_kwh=insight.estimated_yearly_kwh,
+                                roof_area_sqm=insight.area_sqm,
+                                panel_count=(
+                                    len(insight.panels)
+                                    if insight.panels
+                                    else insight.max_panel_count
+                                ),
+                                panel_capacity_w=insight.panel_capacity_w,
+                                panel_width_m=insight.panel_width_m,
+                                panel_height_m=insight.panel_height_m,
+                                subject_type=(
+                                    subject.get("type") or "unknown"
+                                ),
+                                tenant_cost_assumptions=tenant_row.get(
+                                    "cost_assumptions"
+                                ),
+                            )
+                            roof_update: dict[str, Any] = {
                                 "lat": lat,
                                 "lng": lng,
                                 "geohash": new_geohash,
@@ -359,7 +387,12 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
                                 "pitch_degrees": insight.pitch_degrees,
                                 "shading_score": insight.shading_score,
                                 "data_source": "google_solar",
-                            }).eq("id", roof.get("id")).execute()
+                            }
+                            if new_derivations is not None:
+                                roof_update["derivations"] = new_derivations
+                            sb.table("roofs").update(roof_update).eq(
+                                "id", roof.get("id")
+                            ).execute()
                             log.info(
                                 "creative.roof_synced_after_snap",
                                 lead_id=payload.lead_id,

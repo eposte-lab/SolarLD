@@ -214,3 +214,179 @@ def _to_float(val: object) -> float | None:
         return float(val)  # type: ignore[arg-type]
     except (TypeError, ValueError):
         return None
+
+
+# ---------------------------------------------------------------------------
+# Full derivations — extends the lightweight `RoiEstimate` (which the
+# email body uses) with sizing recommendations, monthly production,
+# coverage %, specific yield, panel-array geometry. Persisted to the
+# ``roofs.derivations`` JSONB column at roof creation time so the
+# dashboard inspector, preventivo PDF, GSE flow all read the same
+# numbers without recomputing locally.
+# ---------------------------------------------------------------------------
+
+
+# Italy monthly yield distribution (% of annual production by month).
+# PVGIS averages 2010-2020 for typical south-facing 30° tilt array.
+# The relative shape is what matters; the absolute kWh comes from the
+# yearly_kWh estimate Solar API gives us. Mirrors the equivalent
+# constant in apps/dashboard/src/lib/solar-derivations.ts.
+ITALY_MONTHLY_DISTRIBUTION_PCT: tuple[float, ...] = (
+    4.5, 5.5, 8.0, 9.5, 11.5, 12.5, 13.5, 12.0, 9.5, 7.0, 4.0, 2.5,
+)
+
+
+def _resolve_assumptions(
+    tenant_cost_assumptions: dict | None,
+    subject_type: str,
+) -> dict[str, float]:
+    """Merge per-tenant overrides on top of the module defaults.
+
+    The tenant JSONB column can hold any subset of override keys; any
+    missing key falls through to the global default below. We resolve
+    everything to a flat float dict so the caller doesn't need to
+    differentiate between B2B/B2C — that selection happens here.
+    """
+    overrides = tenant_cost_assumptions or {}
+    st = (subject_type or "unknown").lower()
+
+    if st == "b2b":
+        capex_unit = overrides.get("capex_eur_per_kwp_b2b", CAPEX_EUR_PER_KWP_B2B)
+        grid_price = overrides.get(
+            "grid_price_eur_per_kwh_b2b", GRID_PRICE_EUR_PER_KWH_B2B
+        )
+        self_ratio = overrides.get(
+            "self_consumption_ratio_b2b", SELF_CONSUMPTION_RATIO_B2B
+        )
+        incentive_pct = overrides.get("incentive_pct_b2b", INCENTIVE_PCT_B2B)
+    elif st == "b2c":
+        capex_unit = overrides.get("capex_eur_per_kwp_b2c", CAPEX_EUR_PER_KWP_B2C)
+        grid_price = overrides.get(
+            "grid_price_eur_per_kwh_b2c", GRID_PRICE_EUR_PER_KWH_B2C
+        )
+        self_ratio = overrides.get(
+            "self_consumption_ratio_b2c", SELF_CONSUMPTION_RATIO_B2C
+        )
+        incentive_pct = overrides.get("incentive_pct_b2c", INCENTIVE_PCT_B2C)
+    else:
+        capex_unit = overrides.get("capex_eur_per_kwp_b2c", CAPEX_EUR_PER_KWP_B2C)
+        grid_price = overrides.get(
+            "grid_price_eur_per_kwh_b2c", GRID_PRICE_EUR_PER_KWH_B2C
+        )
+        self_ratio = overrides.get(
+            "self_consumption_ratio_b2c", SELF_CONSUMPTION_RATIO_B2C
+        )
+        incentive_pct = overrides.get(
+            "incentive_pct_fallback", INCENTIVE_PCT_FALLBACK
+        )
+
+    return {
+        "capex_unit": float(capex_unit),
+        "grid_price": float(grid_price),
+        "self_ratio": float(self_ratio),
+        "incentive_pct": float(incentive_pct),
+        "export_price": float(
+            overrides.get("export_price_eur_per_kwh", EXPORT_PRICE_EUR_PER_KWH)
+        ),
+        "co2_kg_per_kwh": float(
+            overrides.get("co2_kg_per_kwh", CO2_KG_PER_KWH)
+        ),
+    }
+
+
+def compute_full_derivations(
+    *,
+    estimated_kwp: float | None,
+    estimated_yearly_kwh: float | None,
+    roof_area_sqm: float | None,
+    panel_count: int | None,
+    panel_capacity_w: float | None = None,
+    panel_width_m: float | None = None,
+    panel_height_m: float | None = None,
+    subject_type: str = "unknown",
+    tenant_cost_assumptions: dict | None = None,
+    roi_target_years: int | None = None,
+) -> dict | None:
+    """Compute the full derivation dict for the roofs.derivations column.
+
+    Includes everything `compute_roi` returns (cost / ROI / 25y) plus:
+      * sizing: recommended_inverter_kw, recommended_battery_kwh
+      * geometry: panel_array_area_sqm, roof_coverage_pct,
+        specific_yield_kwh_per_kwp
+      * monthly_production_kwh: list[12] of monthly kWh
+      * monthly_savings_eur: list[12] of monthly € savings
+      * assumptions_resolved: the flat dict actually used (so
+        downstream consumers know exactly what the numbers were
+        computed against; useful when tenant overrides change later
+        and we want to compare snapshot vs current).
+
+    Returns None when the inputs are too sparse for a credible estimate
+    (no kWp AND no kWh) — callers should leave the column null.
+    """
+    base = compute_roi(
+        estimated_kwp=estimated_kwp,
+        estimated_yearly_kwh=estimated_yearly_kwh,
+        subject_type=subject_type,
+        roi_target_years=roi_target_years,
+    )
+    if base is None:
+        return None
+
+    a = _resolve_assumptions(tenant_cost_assumptions, subject_type)
+
+    # Geometry / sizing
+    pw = panel_width_m or 1.05
+    ph = panel_height_m or 1.95
+    panel_area = pw * ph
+    pc = int(panel_count) if panel_count is not None else 0
+    panel_array_area = pc * panel_area if pc > 0 else 0.0
+    roof_coverage = (
+        min(1.0, panel_array_area / float(roof_area_sqm))
+        if roof_area_sqm and roof_area_sqm > 0
+        else 0.0
+    )
+    specific_yield = (
+        base.yearly_kwh / base.estimated_kwp if base.estimated_kwp > 0 else 0.0
+    )
+
+    # Inverter at 90% of DC kWp; round to one decimal.
+    recommended_inverter_kw = round(base.estimated_kwp * 0.9 * 10) / 10
+    # Battery at ~1.2× daily average; round to nearest 0.5 kWh.
+    daily_avg_kwh = base.yearly_kwh / 365.0
+    recommended_battery_kwh = round(daily_avg_kwh * 1.2 * 2) / 2
+
+    # Monthly distribution
+    monthly_production = [
+        base.yearly_kwh * pct / 100.0 for pct in ITALY_MONTHLY_DISTRIBUTION_PCT
+    ]
+    monthly_savings = [
+        kwh * a["self_ratio"] * a["grid_price"]
+        + kwh * (1.0 - a["self_ratio"]) * a["export_price"]
+        for kwh in monthly_production
+    ]
+
+    return {
+        # Lightweight ROI block — same shape compute_roi.to_jsonb()
+        # produces, so consumers used to leads.roi_data find the same
+        # keys here.
+        **base.to_jsonb(),
+        # Sizing
+        "recommended_inverter_kw": recommended_inverter_kw,
+        "recommended_battery_kwh": recommended_battery_kwh,
+        # Geometry
+        "panel_count": pc,
+        "panel_capacity_w": float(panel_capacity_w) if panel_capacity_w else None,
+        "panel_width_m": pw,
+        "panel_height_m": ph,
+        "panel_array_area_sqm": round(panel_array_area, 1),
+        "roof_coverage_pct": round(roof_coverage, 3),
+        "specific_yield_kwh_per_kwp": round(specific_yield, 0),
+        # Monthly curve
+        "monthly_production_kwh": [round(x, 0) for x in monthly_production],
+        "monthly_savings_eur": [round(x, 0) for x in monthly_savings],
+        # Snapshot of the assumptions actually used. Lets the dashboard
+        # inspector show "Calcoli basati su €1500/kWp · 0.27€/kWh" so
+        # the operator knows whether the numbers reflect their
+        # tenant-specific overrides or the public-market defaults.
+        "assumptions_resolved": a,
+    }

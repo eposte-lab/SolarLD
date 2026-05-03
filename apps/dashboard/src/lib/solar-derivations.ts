@@ -118,12 +118,75 @@ export interface Derivations {
   monthlySavingsEur: number[];
 }
 
+/**
+ * Best-effort projection of the persisted ``roofs.derivations`` JSONB
+ * (computed by ``apps/api/src/services/roi_service.py:compute_full_derivations``)
+ * into the frontend ``Derivations`` shape.
+ *
+ * We use the cached snapshot WHEN present so the dashboard inspector,
+ * email body and preventivo PDF show the same numbers — the backend
+ * computation is the single source of truth.  The local TS computation
+ * is a fallback for legacy roofs (no cached column) and a sanity check
+ * during development.
+ */
+function fromCachedDerivations(
+  cached: Record<string, unknown>,
+  fallbackRoofArea: number,
+): Derivations {
+  const num = (k: string, dflt = 0): number =>
+    typeof cached[k] === 'number' ? (cached[k] as number) : dflt;
+  const arr = (k: string): number[] =>
+    Array.isArray(cached[k]) ? (cached[k] as number[]) : [];
+
+  const panelCount = num('panel_count');
+  const panelW = num('panel_width_m', 1.05);
+  const panelH = num('panel_height_m', 1.95);
+  const panelAreaSqm = panelW * panelH;
+  const estimatedKwp = num('estimated_kwp');
+  const estimatedYearlyKwh = num('yearly_kwh');
+
+  return {
+    panelCount,
+    panelCapacityW: num('panel_capacity_w', 410),
+    panelAreaSqm,
+    estimatedKwp,
+    estimatedYearlyKwh,
+    roofAreaSqm: fallbackRoofArea,
+    roofCoveragePct: num('roof_coverage_pct'),
+    specificYieldKwhPerKwp: num('specific_yield_kwh_per_kwp'),
+    estimatedInstallCostEur: num('gross_capex_eur'),
+    estimatedAnnualSavingsEur: num('yearly_savings_eur'),
+    paybackYears: num('payback_years'),
+    co2Tonnes25Years: num('co2_tonnes_25_years'),
+    recommendedInverterKw: num('recommended_inverter_kw'),
+    recommendedBatteryKwh: num('recommended_battery_kwh'),
+    monthlyProductionKwh: arr('monthly_production_kwh'),
+    monthlySavingsEur: arr('monthly_savings_eur'),
+  };
+}
+
 export function deriveSolarMetrics(
   lead: LeadDetailRow,
   assumptions: Partial<CostAssumptions> = {},
 ): Derivations | null {
   const roof = lead.roofs;
   if (!roof) return null;
+
+  // Fast path: read the cached server-side derivations when present.
+  // Bypasses the local TS recomputation and guarantees parity with the
+  // email/preventivo output for the same lead. Migrations 0094+
+  // populate this column on every roof write.
+  const cached = (roof as { derivations?: unknown }).derivations;
+  if (
+    cached &&
+    typeof cached === 'object' &&
+    'monthly_production_kwh' in (cached as Record<string, unknown>)
+  ) {
+    return fromCachedDerivations(
+      cached as Record<string, unknown>,
+      roof.area_sqm ?? 0,
+    );
+  }
 
   // Pull raw Solar API payload — extracted by the same shape
   // SolarApiInspector consumes.

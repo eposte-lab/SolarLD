@@ -420,6 +420,33 @@ def _upsert_roof_and_subject(
         },
     }
 
+    # Snapshot the full derivations (cost / sizing / monthly curve) so
+    # the dashboard inspector, email body and preventivo PDF read from
+    # one source of truth. Best-effort — never blocks the upsert.
+    try:
+        from ...services.roi_service import compute_full_derivations
+
+        derivations = compute_full_derivations(
+            estimated_kwp=insight.estimated_kwp,
+            estimated_yearly_kwh=insight.estimated_yearly_kwh,
+            roof_area_sqm=insight.area_sqm,
+            panel_count=(
+                len(insight.panels) if insight.panels else insight.max_panel_count
+            ),
+            panel_capacity_w=insight.panel_capacity_w,
+            panel_width_m=insight.panel_width_m,
+            panel_height_m=insight.panel_height_m,
+            subject_type=classification,
+            tenant_cost_assumptions=getattr(ctx, "cost_assumptions", None),
+        )
+        if derivations is not None:
+            row["derivations"] = derivations
+    except Exception as exc:  # noqa: BLE001
+        log.warning(
+            "l4_derivations_compute_failed",
+            extra={"vat": cand.profile.vat_number, "err": str(exc)[:200]},
+        )
+
     try:
         up = sb.table("roofs").upsert(row, on_conflict="tenant_id,geohash").execute()
     except Exception as exc:  # noqa: BLE001

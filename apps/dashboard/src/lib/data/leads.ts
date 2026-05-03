@@ -48,7 +48,7 @@ const DETAIL_ROOF_COLUMNS = `
   address, comune, provincia, cap,
   estimated_kwp, estimated_yearly_kwh, area_sqm,
   exposure, pitch_degrees, shading_score, has_existing_pv,
-  lat, lng, status, raw_data
+  lat, lng, status, raw_data, derivations
 `.trim();
 
 const DETAIL_COLUMNS = `

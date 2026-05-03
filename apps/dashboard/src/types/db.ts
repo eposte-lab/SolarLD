@@ -160,6 +160,13 @@ export interface RoofSummary {
   lng?: number | null;
   status?: string | null;
   raw_data?: Record<string, unknown> | null;
+  // Cached full derivations dict (cost / sizing / monthly production
+  // curve / coverage). Computed by roi_service.compute_full_derivations
+  // on every roof write since migration 0094 — single source of truth
+  // for the dashboard inspector + email body + preventivo PDF. Null on
+  // legacy roofs created before 0094; the lib/solar-derivations helper
+  // recomputes locally as a fallback.
+  derivations?: Record<string, unknown> | null;
 }
 
 export interface SubjectSummary {
