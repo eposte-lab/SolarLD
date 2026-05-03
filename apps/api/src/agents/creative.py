@@ -84,6 +84,7 @@ from ..services.remotion_service import (
 from ..services.roi_service import compute_roi
 from ..services.solar_rendering_service import (
     SolarRenderingError,
+    render_before_after,
     render_before_only,
 )
 from ..services.storage_service import upload_bytes
@@ -217,7 +218,14 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
         elif not settings.google_solar_api_key and not settings.google_solar_mock_mode:
             skipped_reason = "solar_api_key_not_configured"
             log.warning("creative.solar_api_key_missing", lead_id=payload.lead_id)
-        elif not settings.replicate_api_token:
+        elif (
+            not settings.replicate_api_token
+            and not settings.creative_skip_replicate
+        ):
+            # No Replicate token AND no opt-in to the offline path
+            # → skip render. (When CREATIVE_SKIP_REPLICATE=true the
+            # offline path drives both the after-image and skips
+            # video render, so the missing token is irrelevant.)
             skipped_reason = "replicate_token_not_configured"
             log.warning(
                 "creative.replicate_token_missing", lead_id=payload.lead_id
@@ -419,10 +427,23 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
                 )
 
                 # 4a) BEFORE — real Google aerial crop, no panels drawn.
-                before_bytes = await render_before_only(
-                    lat, lng, insight,
-                    api_key=settings.google_solar_api_key or None,
-                )
+                # When CREATIVE_SKIP_REPLICATE is on we use
+                # render_before_after which does the same Solar API
+                # fetch + crop AND renders panels deterministically
+                # via PIL polygons in a single call — saving a
+                # round-trip and getting the AFTER image without
+                # touching Replicate.
+                if settings.creative_skip_replicate:
+                    before_bytes, after_bytes_offline = await render_before_after(
+                        lat, lng, insight,
+                        api_key=settings.google_solar_api_key or None,
+                    )
+                else:
+                    before_bytes = await render_before_only(
+                        lat, lng, insight,
+                        api_key=settings.google_solar_api_key or None,
+                    )
+                    after_bytes_offline = None  # filled in by Replicate path below
                 before_url = upload_bytes(
                     bucket=RENDERINGS_BUCKET,
                     path=f"{payload.tenant_id}/{payload.lead_id}/before.png",
@@ -464,31 +485,44 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
                     if insight.panels
                     else None
                 )
-                after_bytes = await paint_panels_on_aerial(
-                    before_image_url=before_url,
-                    panel_count=len(insight.panels),
-                    primary_azimuth_deg=primary_az,
-                    kwp=insight.estimated_kwp,
-                    subject_type=subject.get("type") or "unknown",
-                    roof_area_sqm=insight.area_sqm or None,
-                    roof_segment_count=roof_segment_count,
-                    roof_pitch_deg=insight.pitch_degrees or None,
-                )
+                if settings.creative_skip_replicate and after_bytes_offline is not None:
+                    # Offline path: render_before_after has already
+                    # produced the geometric panel overlay via PIL
+                    # polygons drawn at exact Solar lat/lng. Looks
+                    # less photoreal than nano-banana's instruction-
+                    # edit but is deterministic and zero-cost.
+                    after_bytes = after_bytes_offline
+                    log.info(
+                        "creative.after_image_offline",
+                        lead_id=payload.lead_id,
+                        panels=len(insight.panels),
+                        note="CREATIVE_SKIP_REPLICATE=true — bypassed nano-banana",
+                    )
+                else:
+                    after_bytes = await paint_panels_on_aerial(
+                        before_image_url=before_url,
+                        panel_count=len(insight.panels),
+                        primary_azimuth_deg=primary_az,
+                        kwp=insight.estimated_kwp,
+                        subject_type=subject.get("type") or "unknown",
+                        roof_area_sqm=insight.area_sqm or None,
+                        roof_segment_count=roof_segment_count,
+                        roof_pitch_deg=insight.pitch_degrees or None,
+                    )
+                    _log_api_cost(
+                        sb,
+                        tenant_id=payload.tenant_id,
+                        provider="replicate",
+                        endpoint="google/nano-banana",
+                        cost_cents=4,  # ~$0.039 per nano-banana call
+                        status="success",
+                        metadata={"lead_id": payload.lead_id},
+                    )
                 after_url = upload_bytes(
                     bucket=RENDERINGS_BUCKET,
                     path=f"{payload.tenant_id}/{payload.lead_id}/after.png",
                     data=after_bytes,
                     content_type="image/png",
-                )
-
-                _log_api_cost(
-                    sb,
-                    tenant_id=payload.tenant_id,
-                    provider="replicate",
-                    endpoint="google/nano-banana",
-                    cost_cents=4,  # ~$0.039 per nano-banana call
-                    status="success",
-                    metadata={"lead_id": payload.lead_id},
                 )
 
             except SolarApiNotFound:
@@ -546,7 +580,20 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
         video_url: str | None = None
         gif_url: str | None = None
         gif_fallback_reason: str | None = None
-        if (
+        if settings.creative_skip_replicate:
+            # Operator opted out of every Replicate-billed step. The
+            # Remotion sidecar drives the transition video via Kling
+            # 1.6-Pro on Replicate (~$0.49 per 5 s clip), so we skip
+            # it entirely. The email lands with the static after
+            # image as the hero — same fall-back path used when
+            # remotion fails for any reason.
+            gif_fallback_reason = "creative_skip_replicate"
+            log.info(
+                "creative.video_skipped",
+                lead_id=payload.lead_id,
+                note="CREATIVE_SKIP_REPLICATE=true — bypassed Kling video",
+            )
+        elif (
             before_url is not None
             and after_url is not None
             and roi is not None

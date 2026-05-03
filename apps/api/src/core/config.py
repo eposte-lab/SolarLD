@@ -69,6 +69,18 @@ class Settings(BaseSettings):
     anthropic_haiku_model: str = "claude-haiku-4-5"
     replicate_api_token: str = ""
 
+    # When set, the CreativeAgent skips ALL Replicate-dependent steps
+    # (nano-banana panel paint AND Kling 1.6-Pro video transition) and
+    # falls back to a fully-local rendering: PIL-geometric panel
+    # overlay drawn on the real Google Solar aerial. The "after"
+    # image is still produced — just deterministically rather than
+    # via instruction-edit AI — and the video step is bypassed
+    # entirely (the email shows the static after-image as the hero
+    # instead of a GIF/MP4). Use this when the Replicate account is
+    # out of credits but Solar API + a usable static after-image are
+    # still wanted.
+    creative_skip_replicate: bool = False
+
     # ---- Remotion sidecar (apps/video-renderer) ----
     video_renderer_url: str = "http://localhost:4000"
 
