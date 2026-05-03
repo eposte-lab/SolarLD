@@ -972,10 +972,16 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
             ),
             copy_overrides=copy_overrides,
             # Use CDN GIF if available (Sprint 9 Fase A.1) — fall back to
-            # the Supabase signed URL already in hero_gif_url field.
+            # the Supabase signed URL of the GIF, then to the static
+            # after-image (the panel-painted aerial). Email clients that
+            # render the GIF still get it; the rest see the static
+            # image instead of a broken-image icon when video/GIF
+            # rendering was bypassed via CREATIVE_SKIP_REPLICATE or
+            # the Remotion sidecar failed.
             hero_gif_url=(
                 lead.get("rendering_gif_cdn_url")
                 or lead.get("rendering_gif_url")
+                or lead.get("rendering_image_url")
             ),
             video_landing_url=_video_landing_url(
                 lead.get("portal_video_slug"),
@@ -1250,6 +1256,13 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
             "status": CampaignStatus.SENT.value,
             "rendering_gif_url": lead.get("rendering_gif_url"),
             "rendering_video_url": lead.get("rendering_video_url"),
+            # Snapshot the static after-image too — when video/GIF
+            # rendering was bypassed (CREATIVE_SKIP_REPLICATE) or
+            # failed, this is the artefact the email body actually
+            # showed. The /invii detail page falls back to it as
+            # third-tier hero so the operator sees the same visual
+            # the prospect received.
+            "rendering_image_url": lead.get("rendering_image_url"),
         }
         # Attribute the send to the inbox that was used (for per-inbox
         # deliverability analytics). Null when using legacy single-inbox path.

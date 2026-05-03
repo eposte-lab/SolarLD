@@ -272,20 +272,35 @@ export default async function LeadDetailPage({ params }: PageProps) {
       </header>
 
       {/* ─── Hero: video simulazione + descrizione + KPI ───────────────
-          Sostituisce la vecchia foto orizzontale del tetto (rimossa
-          su feedback dell'utente: era solo decorativa, occupava troppo
-          spazio above-the-fold senza aggiungere informazione che il
-          video non già fornisca). Il video parte direttamente come
-          hero, sotto cui troviamo il testo descrittivo e i 4 KPI
-          principali dell'impianto. */}
-      {(lead.rendering_video_url || lead.rendering_gif_url) ? (
+          Hero media fallback chain (video → GIF → static after image):
+            1. ``rendering_video_url`` (Kling 1.6-Pro MP4) — full
+               transition video, ideal hero.
+            2. ``rendering_gif_url`` — same transition rendered as GIF
+               for clients that can't autoplay video.
+            3. ``rendering_image_url`` — the static "after" PNG with
+               panels (nano-banana on Replicate, OR PIL geometric
+               overlay when ``CREATIVE_SKIP_REPLICATE`` is on). When
+               video + GIF both fail (Replicate quota exhausted,
+               Remotion error, etc.) we still want a visual hero —
+               the after-image is the same artefact the email body
+               would use. Without this fallback the entire hero
+               section was hidden, which made it look like the
+               pipeline produced nothing visual.
+          When ALL three are missing, the section is hidden entirely. */}
+      {(lead.rendering_video_url ||
+        lead.rendering_gif_url ||
+        lead.rendering_image_url) ? (
         <section className="space-y-4 rounded-2xl bg-surface-container-low p-4 ring-1 ring-on-surface/5 shadow-ambient">
           <div className="overflow-hidden rounded-xl bg-black">
             {lead.rendering_video_url ? (
               // eslint-disable-next-line jsx-a11y/media-has-caption
               <video
                 src={lead.rendering_video_url}
-                poster={lead.rendering_gif_url ?? undefined}
+                poster={
+                  lead.rendering_gif_url ??
+                  lead.rendering_image_url ??
+                  undefined
+                }
                 controls
                 muted
                 loop
@@ -297,6 +312,16 @@ export default async function LeadDetailPage({ params }: PageProps) {
               <img
                 src={lead.rendering_gif_url}
                 alt="Simulazione fotovoltaico"
+                className="aspect-video w-full object-cover"
+              />
+            ) : lead.rendering_image_url ? (
+              // Static after-image fallback — Replicate or PIL panel
+              // overlay on the real Solar API aerial. Same image the
+              // email body uses when video render is bypassed.
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={lead.rendering_image_url}
+                alt="Foto del tetto con pannelli (statica)"
                 className="aspect-video w-full object-cover"
               />
             ) : null}

@@ -184,6 +184,10 @@ export interface OutreachSendDetail {
   cost_cents: number;
   rendering_gif_url: string | null;
   rendering_video_url: string | null;
+  // Static after-image snapshot at send time. Used as third-tier
+  // fallback on the /invii detail hero when video + GIF are both
+  // missing (e.g. CREATIVE_SKIP_REPLICATE bypassed Kling).
+  rendering_image_url: string | null;
   inbox_id: string | null;
   experiment_id: string | null;
   experiment_variant: string | null;
@@ -210,7 +214,7 @@ const SEND_DETAIL_COLUMNS = `
   id, lead_id, tenant_id, channel, sequence_step, status,
   template_id, email_subject, email_message_id,
   sent_at, cost_cents, failure_reason,
-  rendering_gif_url, rendering_video_url,
+  rendering_gif_url, rendering_video_url, rendering_image_url,
   inbox_id, experiment_id, experiment_variant,
   leads:leads(
     id, hq_address, pipeline_status,

@@ -35,9 +35,14 @@ export default async function InvioDetailPage({ params }: PageProps) {
     lead?.subjects?.decision_maker_name ||
     '—';
 
-  // Prefer the snapshotted media on the send itself; fall back to lead's current URLs.
+  // Prefer the snapshotted media on the send itself (so this page
+  // shows what the prospect ACTUALLY received, not whatever the lead
+  // has been re-rendered to since); fall back to lead's current URLs.
+  // Three-tier fallback (video → GIF → static after image) so the
+  // operator sees a visual asset whenever ANY render artefact exists.
   const gifUrl = send.rendering_gif_url ?? lead?.rendering_gif_url ?? null;
   const videoUrl = send.rendering_video_url ?? lead?.rendering_video_url ?? null;
+  const imageUrl = send.rendering_image_url ?? lead?.rendering_image_url ?? null;
 
   return (
     <div className="space-y-6">
@@ -83,7 +88,7 @@ export default async function InvioDetailPage({ params }: PageProps) {
               // eslint-disable-next-line jsx-a11y/media-has-caption
               <video
                 src={videoUrl}
-                poster={gifUrl ?? undefined}
+                poster={gifUrl ?? imageUrl ?? undefined}
                 controls
                 muted
                 loop
@@ -95,6 +100,17 @@ export default async function InvioDetailPage({ params }: PageProps) {
               <img
                 src={gifUrl}
                 alt="GIF rendering inviata"
+                className="w-full rounded-xl object-cover"
+              />
+            ) : imageUrl ? (
+              // Static after-image fallback — same artefact the email
+              // body uses when video render is bypassed. Without this
+              // the section was empty whenever Replicate / Kling failed
+              // even if the panel-paint succeeded.
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={imageUrl}
+                alt="Foto del tetto con pannelli (statica)"
                 className="w-full rounded-xl object-cover"
               />
             ) : (
