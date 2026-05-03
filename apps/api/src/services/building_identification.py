@@ -720,12 +720,36 @@ async def identify_building(
         diagnostics=diagnostics,
     )
 
-    # Stage 7 — Cache (only when we actually have coords)
-    if match.has_coords and match.confidence != "none":
+    # Stage 7 — Cache.
+    #
+    # Policy: ONLY cache medium / high / user_confirmed results.
+    #
+    # Caching `low` was a footgun: when the cascade landed on the
+    # mapbox_hq centroid (the worst case — wrong building 90% of the
+    # time in industrial zones) we used to persist that, and every
+    # subsequent attempt for the same VAT short-circuited Stage 0 with
+    # the same garbage. The whole point of "re-run with the new
+    # variants" was defeated by a cache that remembered the old
+    # garbage forever.
+    #
+    # User-confirmed entries are written via the dedicated
+    # POST /v1/demo/confirm-building path (cache_building_match called
+    # with user_id) — those still bypass this gate.
+    if (
+        match.has_coords
+        and match.confidence in ("medium", "high", "user_confirmed")
+    ):
         await cache_building_match(
             vat_number=vat_number,
             tenant_id=None,  # caller knows the tenant; cache is global
             match=match,
+        )
+    elif match.has_coords:
+        log.info(
+            "bic.cache_skip_low_confidence",
+            vat_number=vat_number,
+            confidence=match.confidence,
+            note="not persisting — would prevent next run from improving",
         )
 
     return match

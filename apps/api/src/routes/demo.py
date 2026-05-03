@@ -1302,6 +1302,12 @@ class IdentifyBuildingRequest(BaseModel):
     legal_name: str = Field(min_length=1, max_length=255)
     hq_address: str = Field(min_length=4, max_length=300)
     ateco_code: str | None = Field(default=None, max_length=20)
+    # When true, bypass the per-VAT cache and re-run the full cascade
+    # from scratch. Wired to the dialog's "Re-identifica" button so an
+    # operator can force a refresh after the cascade has been improved
+    # (new variants, new Places key, OSM coverage update). Without this,
+    # any prior medium-confidence cache entry would freeze the result.
+    force_refresh: bool = Field(default=False)
 
 
 class IdentifyBuildingCandidate(BaseModel):
@@ -1423,6 +1429,7 @@ async def demo_identify_building(
                     hq_province=geo.provincia if geo else None,
                     ateco_code=body.ateco_code,
                     http_client=http_client,
+                    skip_cache=body.force_refresh,
                 ),
                 timeout=22.0,
             )

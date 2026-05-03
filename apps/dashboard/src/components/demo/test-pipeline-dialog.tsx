@@ -323,7 +323,7 @@ export function TestPipelineDialog({
     };
   }, [run]);
 
-  async function handleIdentifyBuilding() {
+  async function handleIdentifyBuilding(forceRefresh = false) {
     if (
       !form.vat_number ||
       !form.legal_name ||
@@ -356,6 +356,7 @@ export function TestPipelineDialog({
           legal_name: form.legal_name,
           hq_address: form.hq_address,
           ateco_code: form.ateco_code || null,
+          force_refresh: forceRefresh,
         }),
       });
       const data = (await res.json().catch(() => null)) as
@@ -639,7 +640,8 @@ export function TestPipelineDialog({
                 bicLoading={bicLoading}
                 confirmedBuilding={confirmedBuilding}
                 vatNumber={form.vat_number}
-                onIdentify={handleIdentifyBuilding}
+                onIdentify={() => handleIdentifyBuilding(false)}
+                onForceRefresh={() => handleIdentifyBuilding(true)}
                 onConfirmed={(lat, lng) => {
                   setConfirmedBuilding({ lat, lng });
                   // Bump the result to user_confirmed so the badge
@@ -1190,6 +1192,7 @@ function BicSection({
   confirmedBuilding,
   vatNumber,
   onIdentify,
+  onForceRefresh,
   onConfirmed,
 }: {
   bicResult: BicResult | null;
@@ -1197,6 +1200,7 @@ function BicSection({
   confirmedBuilding: { lat: number; lng: number } | null;
   vatNumber: string;
   onIdentify: () => void;
+  onForceRefresh: () => void;
   onConfirmed: (lat: number, lng: number) => void;
 }) {
   // Idle — show the trigger button only.
@@ -1291,8 +1295,9 @@ function BicSection({
         </div>
         <button
           type="button"
-          onClick={onIdentify}
+          onClick={onForceRefresh}
           className="text-[10px] font-semibold text-on-surface-variant hover:text-on-surface"
+          title="Bypass cache + re-run cascade"
         >
           Re-identifica
         </button>
@@ -1323,6 +1328,14 @@ function BicSection({
               do?" without forcing the operator to dig in Railway logs.
               Renders only when at least one signal stage ran. */}
           <BicDiagnosticsRow diagnostics={bicResult.stage_diagnostics} />
+          <button
+            type="button"
+            onClick={onForceRefresh}
+            className="mt-2 inline-flex items-center gap-1 rounded-full bg-warning/20 px-2.5 py-1 text-[10px] font-semibold text-on-warning-container hover:bg-warning/30"
+            title="Bypass cache + re-run cascade"
+          >
+            ⟳ Re-identifica (bypass cache)
+          </button>
         </div>
       </div>
       <BuildingPicker
