@@ -44,7 +44,8 @@ import { StatusChip, TierChip } from '@/components/ui/status-chip';
 import { TierLock } from '@/components/ui/tier-lock';
 import { listCampaignsForLead, listEventsForLead } from '@/lib/data/campaigns';
 import { listPortalEventsForLead } from '@/lib/data/engagement';
-import { getLeadById, getLeadSectorSignal } from '@/lib/data/leads';
+import { getLeadById, getLeadSectorSignal, getLeadV3Signal } from '@/lib/data/leads';
+import type { LeadV3Signal } from '@/lib/data/leads';
 import { getConversationsForLead } from '@/lib/data/conversations';
 import { getLeadReplies } from '@/lib/data/replies';
 import { getCurrentTenantContext } from '@/lib/data/tenant';
@@ -144,7 +145,7 @@ export default async function LeadDetailPage({ params }: PageProps) {
   if (!ctx) redirect('/login');
 
   const { id } = await params;
-  const [lead, campaigns, events, replies, conversations, portalEvents, sectorSignal] =
+  const [lead, campaigns, events, replies, conversations, portalEvents, sectorSignal, v3Signal] =
     await Promise.all([
       getLeadById(id),
       listCampaignsForLead(id),
@@ -153,6 +154,7 @@ export default async function LeadDetailPage({ params }: PageProps) {
       getConversationsForLead(id),
       listPortalEventsForLead(id, 50),
       getLeadSectorSignal(id),
+      getLeadV3Signal(id).catch(() => null),
     ]);
   if (!lead) notFound();
 
@@ -379,21 +381,34 @@ export default async function LeadDetailPage({ params }: PageProps) {
               accent="neutral"
             />
           </BentoGrid>
-          {lead.subjects?.sede_operativa_source && (
+          {(lead.subjects?.sede_operativa_source || v3Signal?.google_maps_url) && (
             <p className="px-1 text-[10px] uppercase tracking-widest text-on-surface-variant">
               Sede operativa ·{' '}
-              <span className="font-semibold text-on-surface">
-                {{
-                  atoka: 'Atoka',
-                  website_scrape: 'Sito web',
-                  google_places: 'Google Places',
-                  mapbox_hq: 'Centroide HQ',
-                  manual: 'Manuale',
-                  user_confirmed: 'Confermata da operatore',
-                  vision: 'Claude Vision',
-                  osm_snap: 'OSM building',
-                }[lead.subjects.sede_operativa_source] ?? lead.subjects.sede_operativa_source}
-              </span>
+              {lead.subjects?.sede_operativa_source && (
+                <span className="font-semibold text-on-surface">
+                  {{
+                    atoka: 'Atoka',
+                    website_scrape: 'Sito web',
+                    google_places: 'Google Places',
+                    mapbox_hq: 'Centroide HQ',
+                    manual: 'Manuale',
+                    user_confirmed: 'Confermata da operatore',
+                    vision: 'Claude Vision',
+                    osm_snap: 'OSM building',
+                  }[lead.subjects.sede_operativa_source] ?? lead.subjects.sede_operativa_source}
+                </span>
+              )}
+              {v3Signal?.google_maps_url && (
+                <a
+                  href={v3Signal.google_maps_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="ml-2 inline-flex items-center gap-0.5 font-semibold text-primary hover:underline"
+                >
+                  Apri su Maps
+                  <ArrowUpRight size={10} strokeWidth={2.5} aria-hidden />
+                </a>
+              )}
             </p>
           )}
         </section>
@@ -446,11 +461,8 @@ export default async function LeadDetailPage({ params }: PageProps) {
             }
           />
           {/*
-            Telefono — populated by L2 enrichment from Atoka raw payload
-            (`raw.phones`/`raw.contacts`/`raw.base.phone`, free in the
-            includeContacts bundle), with website-scrape fallback when
-            Atoka has nothing. Source badge ("Atoka", "Sito web",
-            "Manuale") so ops can audit data quality at a glance.
+            Telefono — populated by L2 scraping (v3: Places/website) or
+            legacy Atoka bundle. Source badge so ops can audit data quality.
             Wrapped in a <a href="tel:"> for one-tap dial on mobile.
           */}
           <DataRow
@@ -475,12 +487,7 @@ export default async function LeadDetailPage({ params }: PageProps) {
                       className="rounded-full bg-surface-container-low px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-on-surface-variant"
                       title="Sorgente del numero di telefono"
                     >
-                      {lead.subjects.decision_maker_phone_source === 'atoka'
-                        ? 'Atoka'
-                        : lead.subjects.decision_maker_phone_source ===
-                            'website_scrape'
-                          ? 'Sito web'
-                          : 'Manuale'}
+                      {phoneSourceLabel(lead.subjects.decision_maker_phone_source)}
                     </span>
                   ) : null}
                 </span>
@@ -554,6 +561,45 @@ export default async function LeadDetailPage({ params }: PageProps) {
               )
             }
           />
+          {/* Website URL — populated by v3 L2 scraping */}
+          {v3Signal?.website_url && (
+            <DataRow
+              label="Sito web"
+              value={
+                <a
+                  href={
+                    v3Signal.website_url.startsWith('http')
+                      ? v3Signal.website_url
+                      : `https://${v3Signal.website_url}`
+                  }
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 text-primary hover:underline"
+                >
+                  {v3Signal.website_url.replace(/^https?:\/\//, '').replace(/\/$/, '')}
+                  <ExternalLink size={11} strokeWidth={2.25} aria-hidden />
+                </a>
+              }
+            />
+          )}
+          {/* v3 funnel source badge */}
+          {v3Signal && (
+            <DataRow
+              label="Sorgente"
+              value={
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="rounded-full bg-primary-container px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-on-primary-container">
+                    Geocentrico v3
+                  </span>
+                  {v3Signal.google_place_id && (
+                    <span className="rounded bg-surface-container-low px-1.5 py-0.5 font-mono text-[10px] text-on-surface-variant" title={v3Signal.google_place_id}>
+                      {v3Signal.google_place_id.slice(0, 16)}…
+                    </span>
+                  )}
+                </span>
+              }
+            />
+          )}
         </DataCard>
 
         <DataCard title="Tetto e impianto">
@@ -802,6 +848,21 @@ export default async function LeadDetailPage({ params }: PageProps) {
             ) : null}
           </CollapsibleCard>
         )}
+
+      {/* ─── V3 Funnel intelligence ───────────────────────────────────────
+          Shown only for leads generated by FLUSSO 1 v3 (geocentric).
+          Surfaces building quality score, Haiku proxy score breakdown,
+          and Google Maps link — hidden for legacy v2 leads. */}
+      {v3Signal && (
+        <CollapsibleCard
+          label="Flusso geocentrico v3"
+          title="Intelligenza funnel"
+          badge="v3"
+          defaultOpen={false}
+        >
+          <V3FunnelPanel signal={v3Signal} />
+        </CollapsibleCard>
+      )}
 
       {/* ─── Storico eventi ───────────────────────────────────────────── */}
       <CollapsibleCard
@@ -1055,6 +1116,166 @@ function ScoreBreakdownGrid({
   );
 }
 
+
+// ---------------------------------------------------------------------------
+// phoneSourceLabel — normalises phone provenance badge text
+// ---------------------------------------------------------------------------
+
+function phoneSourceLabel(source: string): string {
+  const MAP: Record<string, string> = {
+    atoka: 'Atoka',
+    website_scrape: 'Sito web',
+    scraping_v3: 'Scraping v3',
+    places: 'Google Places',
+    manual: 'Manuale',
+  };
+  return MAP[source] ?? source;
+}
+
+// ---------------------------------------------------------------------------
+// V3FunnelPanel — Sprint 8
+//
+// Shows the v3-specific enrichment signals for a geocentric lead:
+//   * Building quality score bar (L3 heuristics, 0-5)
+//   * Proxy score breakdown (L5 Haiku scores)
+//   * Google Maps link
+//   * google_place_id truncated chip
+// ---------------------------------------------------------------------------
+
+const PROXY_SCORE_LABELS: Record<string, string> = {
+  icp_fit_score: 'ICP fit',
+  building_quality_score: 'Qualità edificio',
+  solar_potential_score: 'Potenziale solare',
+  contact_completeness_score: 'Completezza contatti',
+  overall_score: 'Punteggio totale',
+};
+
+function V3FunnelPanel({ signal }: { signal: LeadV3Signal }) {
+  const proxyEntries = signal.proxy_score_data
+    ? (Object.entries(signal.proxy_score_data) as [string, unknown][])
+        .filter(([k, v]) => typeof v === 'number' && k !== 'overall_score')
+        .sort(([, a], [, b]) => (b as number) - (a as number))
+    : [];
+
+  return (
+    <div className="space-y-5 pt-1">
+      {/* Header row: Google Maps link + place_id chip */}
+      <div className="flex flex-wrap items-center gap-3">
+        {signal.google_maps_url && (
+          <a
+            href={signal.google_maps_url}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1.5 text-xs font-semibold text-primary transition-opacity hover:opacity-80"
+          >
+            <ArrowUpRight size={12} strokeWidth={2.5} aria-hidden />
+            Apri su Google Maps
+          </a>
+        )}
+        {signal.google_place_id && (
+          <span
+            className="rounded bg-surface-container-low px-2 py-1 font-mono text-[10px] text-on-surface-variant"
+            title={`Google Place ID: ${signal.google_place_id}`}
+          >
+            {signal.google_place_id}
+          </span>
+        )}
+      </div>
+
+      {/* Building quality score — L3 heuristics 0-5 */}
+      {signal.building_quality_score != null && (
+        <div>
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">
+            Qualità edificio (L3 euristiche)
+          </p>
+          <div className="flex items-center gap-3">
+            <div className="flex gap-1">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <span
+                  key={i}
+                  className={cn(
+                    'h-3 w-3 rounded-full',
+                    i < (signal.building_quality_score ?? 0)
+                      ? 'bg-primary'
+                      : 'bg-surface-container-low',
+                  )}
+                  aria-hidden
+                />
+              ))}
+            </div>
+            <span className="font-headline text-sm font-bold tabular-nums text-on-surface">
+              {signal.building_quality_score}/5
+            </span>
+          </div>
+          <p className="mt-1 text-[11px] text-on-surface-variant">
+            Basato su: rating Google · sito web rilevato · telefono trovato ·
+            business_status OPERATIONAL
+          </p>
+        </div>
+      )}
+
+      {/* Proxy score breakdown — L5 Haiku */}
+      {proxyEntries.length > 0 && (
+        <div>
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">
+            Proxy score L5 (Haiku)
+          </p>
+          <div className="space-y-2">
+            {proxyEntries.map(([key, raw]) => {
+              const value = Math.round(raw as number);
+              const pct = Math.max(0, Math.min(100, value));
+              return (
+                <div key={key} className="flex items-center gap-3">
+                  <span className="w-40 shrink-0 text-xs text-on-surface-variant">
+                    {PROXY_SCORE_LABELS[key] ?? key}
+                  </span>
+                  <div className="h-2 flex-1 rounded-full bg-surface-container-low">
+                    <div
+                      className="h-full rounded-full bg-primary"
+                      style={{ width: `${pct}%` }}
+                      aria-hidden
+                    />
+                  </div>
+                  <span className="w-8 text-right font-mono text-xs font-semibold text-on-surface">
+                    {value}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Haiku reasoning snippet (if present) */}
+      {signal.proxy_score_data?.reasoning && (
+        <div className="rounded-xl bg-surface-container-low px-4 py-3">
+          <p className="mb-1 text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">
+            Motivazione Haiku
+          </p>
+          <p className="text-xs leading-relaxed text-on-surface-variant">
+            {signal.proxy_score_data.reasoning}
+          </p>
+        </div>
+      )}
+
+      {/* Size category */}
+      {signal.proxy_score_data?.predicted_size_category && (
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-on-surface-variant">Dimensione stimata:</span>
+          <span className="rounded-full bg-surface-container-low px-2.5 py-0.5 text-xs font-semibold text-on-surface capitalize">
+            {signal.proxy_score_data.predicted_size_category}
+          </span>
+        </div>
+      )}
+
+      <p className="text-[11px] text-on-surface-variant">
+        Dati generati da FLUSSO 1 v3 geocentrico (L1 Google Places → L2
+        scraping → L3 qualità → L4 Solar API → L5 Haiku). Nessun utilizzo di
+        Atoka o BIC.
+      </p>
+    </div>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // SectorPredictionRow — Sprint C.3

@@ -131,13 +131,12 @@ export async function getLeadById(id: string): Promise<LeadDetailRow | null> {
  * Sprint C.3 — Sector signal for a lead.
  *
  * The hunter funnel stamps `predicted_sector` + `sector_confidence` on
- * `scan_candidates` at L1 (and `predicted_ateco_codes` at L3). The lead
- * is created from the scan_candidate, so we can join on
- * `subjects.vat_number = scan_candidates.vat_number` (RLS-scoped).
+ * `scan_candidates` at L1 (and `predicted_ateco_codes` at L3).
  *
- * Returns `null` when the lead's subject has no VAT (B2C path) or the
- * scan_candidate row is missing (legacy lead created before the
- * sector-aware columns existed).
+ * For v2 leads: joins via `subjects.vat_number = scan_candidates.vat_number`.
+ * For v3 leads: joins via `subjects.raw_data.scan_candidate_id` (stored by L6).
+ *
+ * Returns `null` when no scan_candidate row can be found.
  */
 export interface LeadSectorSignal {
   predicted_sector: string | null;
@@ -149,26 +148,52 @@ export async function getLeadSectorSignal(
   leadId: string,
 ): Promise<LeadSectorSignal | null> {
   const supabase = await createSupabaseServerClient();
-  // Two-step lookup: lead → subject vat_number, then scan_candidates by vat.
-  // PostgREST embedded selects don't support cross-table joins on non-FK
-  // columns, so we do it explicitly. Cheap (two indexed lookups by PK/FK).
+  // Fetch subject join data: both vat_number (v2) and raw_data (v3 has scan_candidate_id)
   const { data: leadRow } = await supabase
     .from('leads')
-    .select('subjects:subjects(vat_number)')
+    .select('subjects:subjects(vat_number, raw_data)')
     .eq('id', leadId)
     .maybeSingle();
-  const vat = (leadRow?.subjects as { vat_number?: string | null } | null)?.vat_number;
+  const subject = leadRow?.subjects as {
+    vat_number?: string | null;
+    raw_data?: Record<string, unknown> | null;
+  } | null;
+  if (!subject) return null;
+
+  // v3 path: scan_candidate_id stored in subjects.raw_data by L6
+  const scanCandidateId =
+    typeof subject.raw_data?.scan_candidate_id === 'string'
+      ? subject.raw_data.scan_candidate_id
+      : null;
+
+  if (scanCandidateId) {
+    const { data: scanRaw } = await supabase
+      .from('scan_candidates')
+      .select('predicted_sector, sector_confidence, predicted_ateco_codes')
+      .eq('id', scanCandidateId)
+      .maybeSingle();
+    if (!scanRaw) return null;
+    return _parseSectorSignal(scanRaw as unknown as Record<string, unknown>);
+  }
+
+  // v2 path: join via vat_number
+  const vat = subject.vat_number;
   if (!vat) return null;
 
-  const { data: scan } = await supabase
+  const { data: scanRaw } = await supabase
     .from('scan_candidates')
     .select('predicted_sector, sector_confidence, predicted_ateco_codes')
     .eq('vat_number', vat)
     .order('stage', { ascending: false })
     .limit(1)
     .maybeSingle();
-  if (!scan) return null;
+  if (!scanRaw) return null;
+  return _parseSectorSignal(scanRaw as unknown as Record<string, unknown>);
+}
 
+function _parseSectorSignal(
+  scan: Record<string, unknown>,
+): LeadSectorSignal {
   return {
     predicted_sector: (scan.predicted_sector as string | null) ?? null,
     sector_confidence:
@@ -179,6 +204,121 @@ export async function getLeadSectorSignal(
           : null,
     predicted_ateco_codes: Array.isArray(scan.predicted_ateco_codes)
       ? (scan.predicted_ateco_codes as string[])
+      : [],
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Sprint 8 — v3 Geocentric funnel intelligence signal
+//
+// For leads created by FLUSSO 1 v3, fetches the rich signals the funnel
+// stamped on scan_candidates: Google Maps link, building quality score (0-5
+// MVP heuristics), proxy score breakdown (Haiku L5), and scraped website URL.
+//
+// Returns null for legacy (v2) leads — the caller shows a graceful fallback.
+// ---------------------------------------------------------------------------
+
+export interface LeadV3Signal {
+  funnel_version: 3;
+  google_place_id: string | null;
+  google_maps_url: string | null;
+  building_quality_score: number | null;
+  proxy_score_data: {
+    icp_fit_score?: number | null;
+    building_quality_score?: number | null;
+    solar_potential_score?: number | null;
+    contact_completeness_score?: number | null;
+    overall_score?: number | null;
+    predicted_size_category?: string | null;
+    reasoning?: string | null;
+  } | null;
+  website_url: string | null;
+  predicted_sector: string | null;
+  sector_confidence: number | null;
+  predicted_ateco_codes: string[];
+}
+
+export async function getLeadV3Signal(
+  leadId: string,
+): Promise<LeadV3Signal | null> {
+  const supabase = await createSupabaseServerClient();
+
+  // Step 1 — lead → subject.raw_data to locate the scan_candidate_id
+  const { data: leadRow } = await supabase
+    .from('leads')
+    .select('subjects:subjects(raw_data)')
+    .eq('id', leadId)
+    .maybeSingle();
+  const rawData = (
+    leadRow?.subjects as { raw_data?: Record<string, unknown> | null } | null
+  )?.raw_data;
+
+  if (!rawData || rawData.source !== 'funnel_v3') return null;
+  const scanCandidateId =
+    typeof rawData.scan_candidate_id === 'string'
+      ? rawData.scan_candidate_id
+      : null;
+  if (!scanCandidateId) return null;
+
+  // Step 2 — fetch the scan_candidate row with v3 columns.
+  // Cast to Record<string,unknown> because the Supabase generated types were
+  // written before migration 0105 added the v3 columns.
+  const { data: scRaw } = await supabase
+    .from('scan_candidates')
+    .select(
+      'google_place_id, building_quality_score, proxy_score_data, scraped_data, ' +
+      'predicted_sector, sector_confidence, predicted_ateco_codes',
+    )
+    .eq('id', scanCandidateId)
+    .maybeSingle();
+  if (!scRaw) return null;
+  const sc = scRaw as unknown as Record<string, unknown>;
+
+  const placeId = (sc.google_place_id as string | null) ?? null;
+  const googleMapsUrl = placeId
+    ? `https://www.google.com/maps/search/?api=1&query=Google&query_place_id=${placeId}`
+    : null;
+
+  // website_url lives in scraped_data.website or scraped_data.website_url
+  const scraped = (sc.scraped_data as Record<string, unknown> | null) ?? {};
+  const websiteUrl =
+    (scraped.website_url as string | null) ??
+    (scraped.website as string | null) ??
+    null;
+
+  const proxyRaw = (sc.proxy_score_data as Record<string, unknown> | null) ?? null;
+
+  return {
+    funnel_version: 3,
+    google_place_id: placeId,
+    google_maps_url: googleMapsUrl,
+    building_quality_score:
+      typeof sc.building_quality_score === 'number'
+        ? (sc.building_quality_score as number)
+        : sc.building_quality_score != null
+          ? Number(sc.building_quality_score)
+          : null,
+    proxy_score_data: proxyRaw
+      ? {
+          icp_fit_score: proxyRaw.icp_fit_score as number | null,
+          building_quality_score: proxyRaw.building_quality_score as number | null,
+          solar_potential_score: proxyRaw.solar_potential_score as number | null,
+          contact_completeness_score: proxyRaw.contact_completeness_score as number | null,
+          overall_score: proxyRaw.overall_score as number | null,
+          predicted_size_category: proxyRaw.predicted_size_category as string | null,
+          reasoning: proxyRaw.reasoning as string | null,
+        }
+      : null,
+    website_url: websiteUrl,
+    predicted_sector: (sc.predicted_sector as string | null) ?? null,
+    sector_confidence:
+      typeof sc.sector_confidence === 'number'
+        ? (sc.sector_confidence as number)
+        : sc.sector_confidence != null
+          ? Number(sc.sector_confidence)
+          : null,
+    predicted_ateco_codes: Array.isArray(sc.predicted_ateco_codes)
+      ? (sc.predicted_ateco_codes as string[])
       : [],
   };
 }
