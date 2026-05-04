@@ -69,7 +69,7 @@ async def _check_solar_cache(
             sb.table("known_company_buildings")
             .select("solar_building_insights, lat, lng")
             .eq("google_place_id", google_place_id)
-            .maybeSingle()
+            .maybe_single()
             .execute()
         )
         return res.data

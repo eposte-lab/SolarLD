@@ -152,7 +152,7 @@ def _resolve_sorgente_defaults(
         .select("config")
         .eq("tenant_id", tenant_id)
         .eq("module_key", "sorgente")
-        .maybeSingle()
+        .maybe_single()
         .execute()
     )
     cfg = (res.data or {}).get("config") or {}

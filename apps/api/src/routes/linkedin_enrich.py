@@ -100,7 +100,7 @@ async def enrich_linkedin(
             "subjects:subjects(id, business_name, sede_operativa_city)"
         )
         .eq("id", lead_id)
-        .maybeSingle()
+        .maybe_single()
         .execute()
     )
     lead = lead_res.data

@@ -189,7 +189,7 @@ async def lookup_company_cached(
                 sb.table("subjects")
                 .select("linkedin_data")
                 .eq("id", subject_id)
-                .maybeSingle()
+                .maybe_single()
                 .execute()
             )
             cached = (res.data or {}).get("linkedin_data") or {}
