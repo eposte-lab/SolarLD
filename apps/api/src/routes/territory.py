@@ -80,6 +80,24 @@ class TargetZoneOut(BaseModel):
     status: str
 
 
+class RunFunnelRequest(BaseModel):
+    """Optional overrides for a manual funnel run (testing / pilot)."""
+
+    max_l1_candidates: int = Field(
+        default=500,
+        ge=10,
+        le=2000,
+        description="Cap Places candidates to keep costs low during testing.",
+    )
+
+
+class RunFunnelResponse(BaseModel):
+    job_id: str
+    tenant_id: str
+    zone_count: int
+    max_l1_candidates: int
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -181,6 +199,56 @@ async def territory_status(ctx: CurrentUser) -> TerritoryStatusResponse:
         zone_count=len(rows),
         sectors_covered=sectors,
         last_mapped_at=last,
+    )
+
+
+@router.post("/run-funnel", response_model=RunFunnelResponse, status_code=202)
+async def run_funnel_manual(
+    ctx: CurrentUser, body: RunFunnelRequest = RunFunnelRequest()
+) -> RunFunnelResponse:
+    """Manually trigger the L1→L5 funnel for this tenant (testing / pilot).
+
+    Enqueues ``hunter_funnel_v3_task`` immediately — no need to wait
+    for the 04:30 UTC cron. Safe to call multiple times; ARQ deduplicates
+    by job_id (one running job per tenant at a time).
+
+    Prerequisites:
+      * L0 must have run first — ``tenant_target_areas`` must have ≥ 1 zone.
+    """
+    tenant_id = require_tenant(ctx)
+    sb = get_service_client()
+
+    # Safety: abort if L0 hasn't run yet
+    res = (
+        sb.table("tenant_target_areas")
+        .select("id", count="exact")
+        .eq("tenant_id", tenant_id)
+        .eq("status", "active")
+        .execute()
+    )
+    zone_count = res.count or 0
+    if zone_count == 0:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "No active zones found for this tenant. "
+                "Run POST /v1/territory/map first and wait for it to complete."
+            ),
+        )
+
+    job = await enqueue(
+        "hunter_funnel_v3_task",
+        {
+            "tenant_id": tenant_id,
+            "max_l1_candidates": body.max_l1_candidates,
+        },
+        _job_id=f"funnel_v3_manual:{tenant_id}",
+    )
+    return RunFunnelResponse(
+        job_id=job.job_id if job else f"already_running:{tenant_id}",
+        tenant_id=tenant_id,
+        zone_count=zone_count,
+        max_l1_candidates=body.max_l1_candidates,
     )
 
 
