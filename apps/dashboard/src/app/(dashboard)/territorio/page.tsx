@@ -15,6 +15,7 @@ import { redirect } from 'next/navigation';
 
 import { ScanResultsPanel } from '@/components/scan-results-panel';
 import { TerritorioActions } from '@/components/territorio-actions';
+import { TerritorioConfig } from '@/components/territorio-config';
 import { TerritoryZonesTable } from '@/components/territorio-zones-table';
 import { BentoCard, BentoGrid } from '@/components/ui/bento-card';
 import { getCurrentTenantContext } from '@/lib/data/tenant';
@@ -116,6 +117,9 @@ export default async function TerritorioPage() {
           Errore nel caricamento: {loadError}
         </div>
       ) : null}
+
+      {/* ---- Config panel (wizard_groups + province) ---- */}
+      <TerritorioConfig />
 
       {/* ---- BentoGrid: status + actions ---- */}
       <BentoGrid>
