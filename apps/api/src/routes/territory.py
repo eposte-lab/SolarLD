@@ -104,9 +104,16 @@ class ScanStageSummary(BaseModel):
     l3_accepted: int
     l4_solar_accepted: int
     l5_recommended: int
+    # L6 promotion counts (v3 lead pipeline progress) — added Sprint 8 so the
+    # /territorio test panel can show step-by-step status without crawling
+    # /leads itself.
+    l6_leads_created: int = 0
+    leads_with_rendering: int = 0
+    leads_outreach_sent: int = 0
     total_cost_eur: float
     started_at: str | None
     completed_at: str | None
+    is_running: bool = False
 
 
 class ScanCandidateOut(BaseModel):
@@ -375,15 +382,54 @@ async def scan_results(ctx: CurrentUser) -> ScanResultsResponse:
     )
     l5_recommended = sum(1 for r in rows if r.get("recommended_for_rendering"))
 
+    # ---- L6 + downstream (creative + outreach) counts ----
+    # We count leads created from v3 by joining via subjects.raw_data.source
+    # which L6 stamps to 'funnel_v3'. RLS handles tenant scoping.
+    l6_count = 0
+    rendering_count = 0
+    outreach_count = 0
+    try:
+        leads_res = (
+            sb.table("leads")
+            .select(
+                "id, rendering_image_url, rendering_video_url, "
+                "outreach_sent_at, subjects:subjects(raw_data)"
+            )
+            .eq("tenant_id", tenant_id)
+            .execute()
+        )
+        for lr in leads_res.data or []:
+            sub = lr.get("subjects") or {}
+            raw = (sub.get("raw_data") or {}) if isinstance(sub, dict) else {}
+            if raw.get("source") != "funnel_v3":
+                continue
+            l6_count += 1
+            if lr.get("rendering_image_url") or lr.get("rendering_video_url"):
+                rendering_count += 1
+            if lr.get("outreach_sent_at"):
+                outreach_count += 1
+    except Exception:  # noqa: BLE001 — best-effort, panel still renders
+        pass
+
+    is_running = bool(
+        cost_row
+        and cost_row.get("started_at")
+        and not cost_row.get("completed_at")
+    )
+
     summary = ScanStageSummary(
         l1_candidates=l1,
         l2_with_email=l2_with_email,
         l3_accepted=l3_accepted,
         l4_solar_accepted=l4_solar,
         l5_recommended=l5_recommended,
+        l6_leads_created=l6_count,
+        leads_with_rendering=rendering_count,
+        leads_outreach_sent=outreach_count,
         total_cost_eur=(cost_row["total_cost_cents"] or 0) / 100.0 if cost_row else 0.0,
         started_at=cost_row["started_at"] if cost_row else None,
         completed_at=cost_row["completed_at"] if cost_row else None,
+        is_running=is_running,
     )
 
     # ---- Top recommended candidates ----

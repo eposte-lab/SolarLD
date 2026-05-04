@@ -13,6 +13,7 @@
 
 import { redirect } from 'next/navigation';
 
+import { FlussoTestPanel } from '@/components/flusso-test-panel';
 import { ScanResultsPanel } from '@/components/scan-results-panel';
 import { TerritorioActions } from '@/components/territorio-actions';
 import { TerritorioConfig } from '@/components/territorio-config';
@@ -176,21 +177,20 @@ export default async function TerritorioPage() {
         </BentoCard>
       </BentoGrid>
 
-      {/* ---- Scan results waterfall ---- */}
-      {scanResults !== null ? (
+      {/* ---- Pipeline test panel: live step-by-step status ---- */}
+      <FlussoTestPanel
+        initialData={scanResults}
+        zoneCount={status.zone_count}
+        sectorCount={status.sectors_covered.length}
+      />
+
+      {/* ---- Detailed scan waterfall + recommended candidates table ---- */}
+      {scanResults !== null && scanResults.top_candidates.length > 0 ? (
         <section className="space-y-3">
           <h2 className="text-xl font-semibold text-on-surface">
-            Risultati scansione v3
+            Candidati raccomandati
           </h2>
           <ScanResultsPanel data={scanResults} />
-        </section>
-      ) : status.zone_count > 0 ? (
-        <section className="rounded-md border border-outline-variant bg-surface-container/50 p-6">
-          <p className="text-sm text-on-surface-variant">
-            Zone mappate presenti. Premi{' '}
-            <strong>Avvia scansione v3</strong> per lanciare il funnel
-            L1→L5 e vedere i candidati raccomandati.
-          </p>
         </section>
       ) : null}
 

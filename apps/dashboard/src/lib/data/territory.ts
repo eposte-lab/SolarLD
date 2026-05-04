@@ -90,9 +90,15 @@ export interface ScanStageSummary {
   l3_accepted: number;
   l4_solar_accepted: number;
   l5_recommended: number;
+  /** Lead pipeline counts (downstream of L6 promotion). */
+  l6_leads_created: number;
+  leads_with_rendering: number;
+  leads_outreach_sent: number;
   total_cost_eur: number;
   started_at: string | null;
   completed_at: string | null;
+  /** True while the scan is in flight (started, not yet completed). */
+  is_running: boolean;
 }
 
 export interface ScanCandidate {
