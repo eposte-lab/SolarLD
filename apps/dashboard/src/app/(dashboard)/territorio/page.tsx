@@ -23,9 +23,11 @@ import {
   getScanResults,
   getTerritoryStatus,
   listTargetZones,
-  type ScanResultsResponse,
-  type TargetZone,
-  type TerritoryStatus,
+} from '@/lib/data/territory-server';
+import type {
+  ScanResultsResponse,
+  TargetZone,
+  TerritoryStatus,
 } from '@/lib/data/territory';
 
 export const dynamic = 'force-dynamic';

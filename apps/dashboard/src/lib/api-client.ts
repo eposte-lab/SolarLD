@@ -1,6 +1,14 @@
 /**
  * Typed fetch wrapper for the FastAPI backend.
- * Auto-attaches the Supabase JWT from the browser session.
+ *
+ * Auto-attaches the Supabase JWT:
+ *   - in the browser: from `createBrowserClient().auth.getSession()`
+ *   - on the server (RSC / Server Action): from the Supabase SSR cookie
+ *     via `createSupabaseServerClient().auth.getSession()`
+ *
+ * Without the server-side branch any RSC that calls the FastAPI backend
+ * (e.g. `/territorio` calling `/v1/territory/status`) would receive a
+ * 401 "Missing bearer token" because the auth header was empty.
  */
 import { createBrowserClient } from './supabase/client';
 
@@ -17,7 +25,15 @@ export class ApiError extends Error {
 }
 
 async function getAuthHeader(): Promise<Record<string, string>> {
-  if (typeof window === 'undefined') return {};
+  if (typeof window === 'undefined') {
+    // Server context (RSC). We can't import `./supabase/server` here
+    // because webpack would pull `next/headers` into the client bundle
+    // (this module is also imported by 'use client' components).
+    //
+    // Server callers that need auth should use `apiFetchServer` from
+    // `./api-client-server` instead — that file is marked 'server-only'.
+    return {};
+  }
   const supabase = createBrowserClient();
   const { data: { session } } = await supabase.auth.getSession();
   if (!session?.access_token) return {};
