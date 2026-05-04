@@ -226,16 +226,55 @@ async def _refill_warehouse(
 ) -> dict[str, Any]:
     """Trigger a discovery cycle to bring the warehouse back to target.
 
-    The actual L1 → L4 funnel work is delegated to the existing
-    HunterAgent / hunter_funnel orchestrator, which already knows how
-    to enrich, score, and gate on Solar viability. We just enqueue
-    the right job per active territory the tenant configured, with a
-    `target_intake` hint so the funnel knows when to stop early.
+    Routing logic:
+      * v3 path (preferred): if the tenant has at least one row in
+        ``tenant_target_areas``, enqueue ``hunter_funnel_v3_task`` —
+        the geocentric no-Atoka funnel from PRD_FLUSSO_DEFINITIVO.
+      * v2 fallback: if the tenant has no zones yet but has territories
+        (legacy rows), enqueue ``hunter_task`` per territory.
+      * Skip if neither.
+
+    This lets v2 and v3 tenants coexist during the migration without
+    duplicate scan spend.
     """
     sb = get_service_client()
-    # Active scan-eligible territories for this tenant. We refill
-    # against ALL of them rather than only the first one, so a tenant
-    # with multiple ICP territories doesn't starve the smaller ones.
+
+    # ----- v3 path: tenant has OSM zones -----
+    zones_res = (
+        sb.table("tenant_target_areas")
+        .select("id", count="exact")
+        .eq("tenant_id", tenant_id)
+        .eq("status", "active")
+        .limit(1)
+        .execute()
+    )
+    has_zones = (zones_res.count or 0) > 0
+    if has_zones:
+        deficit = max(
+            policy.warehouse_min_size,
+            policy.daily_send_cap * (policy.warehouse_buffer_days + 2),
+        )
+        await enqueue(
+            "hunter_funnel_v3_task",
+            {
+                "tenant_id": tenant_id,
+                "max_l1_candidates": min(2000, max(200, deficit * 5)),
+                "trigger": "warehouse_refill",
+            },
+            _job_id=f"funnel_v3_refill:{tenant_id}",
+        )
+        log.info(
+            "warehouse_refill_v3_enqueued",
+            tenant_id=tenant_id,
+            target_intake=deficit,
+        )
+        return {
+            "status": "enqueued",
+            "path": "v3_geocentric",
+            "target_intake": deficit,
+        }
+
+    # ----- v2 fallback: legacy territories -----
     territories = (
         sb.table("territories")
         .select("id, type, code, metadata")
@@ -247,12 +286,9 @@ async def _refill_warehouse(
     if not rows:
         return {
             "status": "skipped",
-            "reason": "no_active_territories",
+            "reason": "no_zones_no_territories",
         }
 
-    # How many leads short are we from min size? Split that gap
-    # roughly evenly across territories so we don't over-spend
-    # on one of them.
     deficit = max(
         policy.warehouse_min_size,
         policy.daily_send_cap * (policy.warehouse_buffer_days + 2),
@@ -274,13 +310,14 @@ async def _refill_warehouse(
         enqueued += 1
 
     log.info(
-        "warehouse_refill_enqueued",
+        "warehouse_refill_v2_enqueued",
         tenant_id=tenant_id,
         territories=enqueued,
         per_territory=per_territory,
     )
     return {
         "status": "enqueued",
+        "path": "v2_atoka",
         "territories": enqueued,
         "per_territory": per_territory,
     }

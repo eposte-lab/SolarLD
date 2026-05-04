@@ -96,8 +96,8 @@ export async function GeoRadarMap({ className }: GeoRadarMapProps) {
           <div className="flex h-full items-center justify-center rounded-2xl bg-surface-container-low">
             <p className="text-sm text-on-surface-variant">
               Nessun lead con provincia ancora.{' '}
-              <a href="/territories" className="font-semibold text-primary hover:underline">
-                Connetti un territorio →
+              <a href="/territorio" className="font-semibold text-primary hover:underline">
+                Configura il territorio →
               </a>
             </p>
           </div>

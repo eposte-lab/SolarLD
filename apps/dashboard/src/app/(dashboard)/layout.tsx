@@ -39,7 +39,7 @@ const NAV_SECTIONS: NavSection[] = [
       { href: '/leads/follow-up', label: 'Follow-up', icon: 'invii' },
       { href: '/contatti', label: 'Contatti', icon: 'contatti' },
       { href: '/scoperta', label: 'Trova aziende', icon: 'scoperta' },
-      { href: '/territories', label: 'Territori', icon: 'territories' },
+      { href: '/territorio', label: 'Territorio', icon: 'territories' },
     ],
   },
   {

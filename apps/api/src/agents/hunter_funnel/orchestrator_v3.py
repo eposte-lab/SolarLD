@@ -36,6 +36,7 @@ from .level2_scraping import run_level2_scraping
 from .level3_quality import run_level3_quality
 from .level4_solar_qualify import run_level4_solar_qualify
 from .level5_proxy_score import run_level5_proxy_score
+from .level6_promote_to_leads import run_level6_promote_to_leads
 from .types_v3 import FunnelV3Context, ScoredV3Candidate
 
 log = get_logger(__name__)
@@ -172,19 +173,34 @@ async def run_funnel_v3(
     )
     summary["stages"]["l5"] = {"scored": len(l5), "recommended": len(recommended)}
 
-    # Mark recommended ones for L6 (existing FLUSSO 3 picks them up).
-    for r in recommended:
+    # ---- L6 Promote to leads ----
+    # Materialise the recommended scan_candidates into real subjects+leads
+    # so that the existing FLUSSO 3 (creative + outreach agents) can pick
+    # them up with the standard pipeline_status='ready_to_send' filter.
+    leads_inserted = await run_level6_promote_to_leads(ctx, l5)
+    for _ in range(leads_inserted):
         costs.mark_lead_qualified()
+    await _emit(
+        "scan.l6_complete",
+        {
+            "recommended": len(recommended),
+            "leads_inserted": leads_inserted,
+        },
+    )
+    summary["stages"]["l6"] = {
+        "recommended": len(recommended),
+        "leads_inserted": leads_inserted,
+    }
 
     await _emit(
         "scan.completed",
         {
             "total_cost_cents": costs.total_cost_cents(),
-            "lead_count": len(recommended),
+            "lead_count": leads_inserted,
         },
     )
     await costs.flush(completed=True)
 
     summary["total_cost_cents"] = costs.total_cost_cents()
-    summary["lead_count"] = len(recommended)
+    summary["lead_count"] = leads_inserted
     return summary

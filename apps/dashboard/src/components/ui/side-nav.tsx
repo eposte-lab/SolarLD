@@ -194,9 +194,9 @@ export function SideNav({ items, sections, tenant, user_email }: SideNavProps) {
       </div>
 
       {/* Hero CTA */}
-      <GradientButton href="/territories" size="md" className="mb-6 w-full justify-center">
+      <GradientButton href="/territorio" size="md" className="mb-6 w-full justify-center">
         <Plus size={16} strokeWidth={2.25} aria-hidden />
-        Nuovo territorio
+        Configura territorio
       </GradientButton>
 
       {/* Grouped nav */}
