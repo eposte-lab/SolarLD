@@ -228,11 +228,18 @@ async def discover_for_zone(
     """
     key = api_key or settings.google_places_api_key
     if not key:
-        log.debug("places_discovery.skip_no_key")
+        log.error(
+            "places_discovery.skip_no_key — GOOGLE_PLACES_API_KEY is not set; "
+            "L1 will produce 0 candidates. Set the env var in Railway."
+        )
         return [], 0
 
     keywords = sector_config.places_keywords or []
     if not keywords:
+        log.warning(
+            "places_discovery.skip_no_keywords",
+            sector=getattr(sector_config, "wizard_group", "?"),
+        )
         return [], 0
 
     radius = sector_config.search_radius_m or 1500
