@@ -179,6 +179,9 @@ export const buildSupabaseClient = (): SupabaseClient => {
   }
   return createClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },
+    // The video-renderer never subscribes to Realtime channels — disable it
+    // to avoid Node < 22 WebSocket bootstrap errors on startup.
+    realtime: { params: { eventsPerSecond: 0 } },
   });
 };
 

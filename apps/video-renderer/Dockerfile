@@ -16,7 +16,7 @@
 # the X11 / chromium libstack from the runtime surface.
 # ──────────────────────────────────────────────────────────────────────────────
 
-FROM node:20-bookworm-slim
+FROM node:22-bookworm-slim
 
 # Minimal system deps:
 #   ca-certificates: HTTPS to Replicate + Supabase
