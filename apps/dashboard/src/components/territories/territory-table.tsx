@@ -84,8 +84,8 @@ export function TerritoryTable({
   });
 
   return (
-    <div className="overflow-hidden rounded-lg bg-surface-container-low">
-      <table className="w-full text-sm">
+    <div className="overflow-x-auto rounded-lg bg-surface-container-low">
+      <table className="min-w-full text-sm">
         <thead>
           <tr>
             <SortableTh sortKey="name" active={sortKey} dir={sortDir} onSort={requestSort} className="px-5 py-3">Nome</SortableTh>
@@ -166,9 +166,12 @@ function BboxPreview({
   bbox: NonNullable<TerritoryRow['bbox']>;
 }) {
   return (
-    <span className="font-mono text-[10px] text-on-surface-variant">
+    <span
+      className="font-mono text-[10px] text-on-surface-variant"
+      title={`NE ${bbox.ne.lat.toFixed(5)},${bbox.ne.lng.toFixed(5)} · SW ${bbox.sw.lat.toFixed(5)},${bbox.sw.lng.toFixed(5)}`}
+    >
       {bbox.ne.lat.toFixed(3)},{bbox.ne.lng.toFixed(3)}
-      <br />
+      {' · '}
       {bbox.sw.lat.toFixed(3)},{bbox.sw.lng.toFixed(3)}
     </span>
   );
