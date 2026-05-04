@@ -98,6 +98,41 @@ class RunFunnelResponse(BaseModel):
     max_l1_candidates: int
 
 
+class ScanStageSummary(BaseModel):
+    l1_candidates: int
+    l2_with_email: int
+    l3_accepted: int
+    l4_solar_accepted: int
+    l5_recommended: int
+    total_cost_eur: float
+    started_at: str | None
+    completed_at: str | None
+
+
+class ScanCandidateOut(BaseModel):
+    id: str
+    google_place_id: str | None
+    business_name: str | None
+    predicted_sector: str | None
+    stage: int
+    building_quality_score: int | None
+    solar_verdict: str | None
+    overall_score: int | None
+    recommended_for_rendering: bool
+    lat: float | None
+    lng: float | None
+    website: str | None
+    phone: str | None
+    best_email: str | None
+    created_at: str
+
+
+class ScanResultsResponse(BaseModel):
+    summary: ScanStageSummary
+    top_candidates: list[ScanCandidateOut]
+    scan_id: str | None
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -282,3 +317,121 @@ async def list_zones(
         q = q.eq("province_code", province.upper())
     res = q.order("matching_score", desc=True).limit(limit).execute()
     return [TargetZoneOut(**r) for r in (res.data or [])]
+
+
+@router.get("/scan-results", response_model=ScanResultsResponse)
+async def scan_results(ctx: CurrentUser) -> ScanResultsResponse:
+    """Latest v3 funnel scan results for this tenant.
+
+    Returns:
+    * A stage-by-stage funnel summary (L1→L5 counts + cost).
+    * Top recommended candidates (recommended_for_rendering=True),
+      ordered by overall_score DESC, capped at 50.
+
+    The summary is derived from the most recent ``scan_cost_log`` row
+    for this tenant with ``scan_mode='v3_funnel'``, plus a live query
+    of ``scan_candidates`` for per-stage counts.
+    """
+    tenant_id = require_tenant(ctx)
+    sb = get_service_client()
+
+    # ---- Cost log (latest v3 scan) ----
+    cost_res = (
+        sb.table("scan_cost_log")
+        .select(
+            "scan_id, candidates_l1, candidates_l2, candidates_l3, candidates_l4, "
+            "leads_qualified, total_cost_cents, started_at, completed_at"
+        )
+        .eq("tenant_id", tenant_id)
+        .eq("scan_mode", "v3_funnel")
+        .order("started_at", desc=True)
+        .limit(1)
+        .execute()
+    )
+    cost_row = (cost_res.data or [None])[0]
+    latest_scan_id: str | None = cost_row["scan_id"] if cost_row else None
+
+    # ---- Live stage counts from scan_candidates ----
+    cands_res = (
+        sb.table("scan_candidates")
+        .select("stage, building_quality_score, solar_verdict, recommended_for_rendering, contact_extraction")
+        .eq("tenant_id", tenant_id)
+        .eq("funnel_version", 3)
+        .execute()
+    )
+    rows = cands_res.data or []
+
+    l1 = len(rows)
+    l2_with_email = sum(
+        1 for r in rows
+        if (r.get("contact_extraction") or {}).get("best_email")
+    )
+    l3_accepted = sum(
+        1 for r in rows
+        if r.get("building_quality_score") is not None and r["building_quality_score"] >= 3
+    )
+    l4_solar = sum(
+        1 for r in rows if r.get("solar_verdict") == "accepted"
+    )
+    l5_recommended = sum(1 for r in rows if r.get("recommended_for_rendering"))
+
+    summary = ScanStageSummary(
+        l1_candidates=l1,
+        l2_with_email=l2_with_email,
+        l3_accepted=l3_accepted,
+        l4_solar_accepted=l4_solar,
+        l5_recommended=l5_recommended,
+        total_cost_eur=(cost_row["total_cost_cents"] or 0) / 100.0 if cost_row else 0.0,
+        started_at=cost_row["started_at"] if cost_row else None,
+        completed_at=cost_row["completed_at"] if cost_row else None,
+    )
+
+    # ---- Top recommended candidates ----
+    top_res = (
+        sb.table("scan_candidates")
+        .select(
+            "id, google_place_id, business_name, predicted_sector, stage, "
+            "building_quality_score, solar_verdict, proxy_score_data, "
+            "recommended_for_rendering, enrichment, contact_extraction, created_at"
+        )
+        .eq("tenant_id", tenant_id)
+        .eq("funnel_version", 3)
+        .eq("recommended_for_rendering", True)
+        .order("stage", desc=True)
+        .limit(50)
+        .execute()
+    )
+
+    top_candidates: list[ScanCandidateOut] = []
+    for r in (top_res.data or []):
+        place_blob = (r.get("enrichment") or {}).get("places") or {}
+        score_blob = r.get("proxy_score_data") or {}
+        contact_blob = r.get("contact_extraction") or {}
+        top_candidates.append(
+            ScanCandidateOut(
+                id=r["id"],
+                google_place_id=r.get("google_place_id"),
+                business_name=r.get("business_name") or place_blob.get("display_name"),
+                predicted_sector=r.get("predicted_sector"),
+                stage=r.get("stage", 1),
+                building_quality_score=r.get("building_quality_score"),
+                solar_verdict=r.get("solar_verdict"),
+                overall_score=score_blob.get("overall_score"),
+                recommended_for_rendering=bool(r.get("recommended_for_rendering")),
+                lat=place_blob.get("lat"),
+                lng=place_blob.get("lng"),
+                website=place_blob.get("website"),
+                phone=place_blob.get("phone"),
+                best_email=contact_blob.get("best_email"),
+                created_at=r["created_at"],
+            )
+        )
+
+    # Sort by overall_score desc (nulls last)
+    top_candidates.sort(key=lambda c: c.overall_score or 0, reverse=True)
+
+    return ScanResultsResponse(
+        summary=summary,
+        top_candidates=top_candidates,
+        scan_id=latest_scan_id,
+    )

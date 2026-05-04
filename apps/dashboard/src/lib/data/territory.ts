@@ -72,3 +72,65 @@ export async function mapTerritory(opts: {
     body: JSON.stringify(opts),
   });
 }
+
+// ---------------------------------------------------------------------------
+// v3 Funnel manual trigger + scan results
+// ---------------------------------------------------------------------------
+
+export interface RunFunnelResponse {
+  job_id: string;
+  tenant_id: string;
+  zone_count: number;
+  max_l1_candidates: number;
+}
+
+export interface ScanStageSummary {
+  l1_candidates: number;
+  l2_with_email: number;
+  l3_accepted: number;
+  l4_solar_accepted: number;
+  l5_recommended: number;
+  total_cost_eur: number;
+  started_at: string | null;
+  completed_at: string | null;
+}
+
+export interface ScanCandidate {
+  id: string;
+  google_place_id: string | null;
+  business_name: string | null;
+  predicted_sector: string | null;
+  stage: number;
+  building_quality_score: number | null;
+  solar_verdict: string | null;
+  overall_score: number | null;
+  recommended_for_rendering: boolean;
+  lat: number | null;
+  lng: number | null;
+  website: string | null;
+  phone: string | null;
+  best_email: string | null;
+  created_at: string;
+}
+
+export interface ScanResultsResponse {
+  summary: ScanStageSummary;
+  top_candidates: ScanCandidate[];
+  scan_id: string | null;
+}
+
+/** Manually trigger the L1→L5 funnel for the current tenant.
+ *  Requires at least one active zone in tenant_target_areas (L0 done). */
+export async function runFunnelManual(opts: {
+  max_l1_candidates?: number;
+} = {}): Promise<RunFunnelResponse> {
+  return apiFetch<RunFunnelResponse>('/v1/territory/run-funnel', {
+    method: 'POST',
+    body: JSON.stringify({ max_l1_candidates: opts.max_l1_candidates ?? 100 }),
+  });
+}
+
+/** Latest v3 scan results for the current tenant. */
+export async function getScanResults(): Promise<ScanResultsResponse> {
+  return apiFetch<ScanResultsResponse>('/v1/territory/scan-results');
+}

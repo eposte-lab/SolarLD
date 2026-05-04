@@ -1,29 +1,28 @@
 /**
- * Territorio — FLUSSO 1 v3 mapping dashboard.
- *
- * Differs from the legacy `/territories` (plural):
- *   * v2 territories: bbox-based Atoka scan triggers
- *   * v3 territorio: geocentric OSM zone mapping → Places discovery
+ * Territorio — FLUSSO 1 v3 mapping + scan dashboard.
  *
  * Layout:
- *   1. Status banner: "Mappato X zone in Y settori il <data>"
- *   2. Action: "Rimappa il territorio" → POST /v1/territory/map
- *   3. Filtered table: zones with sector + province + score
- *
- * The mapping is async (5-15 min). The page polls /v1/territory/status
- * client-side via a separate component (or simple page-refresh on
- * action button click).
+ *   1. Header + descrizione
+ *   2. BentoGrid:
+ *      a. Zone mappate (count + ultima mappatura)
+ *      b. Settori coperti (badges)
+ *      c. Azioni (Rimappa L0 + Avvia scansione L1→L5)
+ *   3. Zone OSM table
+ *   4. Risultati ultima scansione (waterfall L1→L5 + candidati raccomandati)
  */
 
 import { redirect } from 'next/navigation';
 
+import { ScanResultsPanel } from '@/components/scan-results-panel';
 import { TerritorioActions } from '@/components/territorio-actions';
 import { TerritoryZonesTable } from '@/components/territorio-zones-table';
 import { BentoCard, BentoGrid } from '@/components/ui/bento-card';
 import { getCurrentTenantContext } from '@/lib/data/tenant';
 import {
+  getScanResults,
   getTerritoryStatus,
   listTargetZones,
+  type ScanResultsResponse,
   type TargetZone,
   type TerritoryStatus,
 } from '@/lib/data/territory';
@@ -70,12 +69,24 @@ export default async function TerritorioPage() {
     last_mapped_at: null,
   };
   let zones: TargetZone[] = [];
+  let scanResults: ScanResultsResponse | null = null;
   let loadError: string | null = null;
+
   try {
-    status = await getTerritoryStatus();
-    zones = await listTargetZones({ limit: 500 });
+    [status, zones] = await Promise.all([
+      getTerritoryStatus(),
+      listTargetZones({ limit: 500 }),
+    ]);
   } catch (err) {
     loadError = err instanceof Error ? err.message : 'load_failed';
+  }
+
+  // Scan results are best-effort — don't fail the page if the endpoint
+  // returns an error (e.g. no scan_cost_log rows yet).
+  try {
+    scanResults = await getScanResults();
+  } catch {
+    scanResults = null;
   }
 
   const sectorsLabelled = status.sectors_covered.map(
@@ -83,20 +94,20 @@ export default async function TerritorioPage() {
   );
 
   return (
-    <main className="mx-auto flex w-full max-w-7xl flex-col gap-6 p-6">
+    <main className="mx-auto flex w-full max-w-7xl flex-col gap-8 p-6">
+      {/* ---- Header ---- */}
       <header className="space-y-2">
         <p className="text-xs uppercase tracking-wider text-on-surface-variant">
           FLUSSO 1 — Geocentrico v3
         </p>
         <h1 className="text-3xl font-bold text-on-surface">
-          Territorio mappato
+          Territorio &amp; Scansione
         </h1>
         <p className="max-w-3xl text-sm text-on-surface-variant">
-          La mappatura OSM identifica le zone target del tenant
-          (industriali, commerciali, ricettive, agricole) sulla base dei
-          settori selezionati in onboarding. Le zone sono poi usate dalla
-          discovery Places quotidiana per scoprire candidati con
-          coordinate precise del capannone.
+          <strong>L0</strong>: mappa le zone OSM compatibili con i settori
+          scelti in onboarding. <strong>L1→L5</strong>: scopre aziende
+          target via Google Places, scraping, filtro qualità edificio,
+          Solar API e scoring Haiku — senza Atoka.
         </p>
       </header>
 
@@ -106,11 +117,13 @@ export default async function TerritorioPage() {
         </div>
       ) : null}
 
+      {/* ---- BentoGrid: status + actions ---- */}
       <BentoGrid>
+        {/* Zone count */}
         <BentoCard>
           <div className="flex flex-col gap-3">
             <p className="text-xs uppercase tracking-wider text-on-surface-variant">
-              Zone mappate
+              Zone OSM mappate
             </p>
             <p className="text-4xl font-bold tabular-nums text-on-surface">
               {status.zone_count.toLocaleString('it-IT')}
@@ -120,6 +133,8 @@ export default async function TerritorioPage() {
             </p>
           </div>
         </BentoCard>
+
+        {/* Sectors */}
         <BentoCard>
           <div className="flex flex-col gap-3">
             <p className="text-xs uppercase tracking-wider text-on-surface-variant">
@@ -143,20 +158,37 @@ export default async function TerritorioPage() {
             )}
           </div>
         </BentoCard>
+
+        {/* Actions */}
         <BentoCard>
           <div className="flex flex-col gap-3">
             <p className="text-xs uppercase tracking-wider text-on-surface-variant">
               Azioni
             </p>
             <TerritorioActions />
-            <p className="text-xs text-on-surface-variant">
-              La rimappatura impiega 5-15 minuti per provincia. Non
-              bloccare la pagina: il job continua in background.
-            </p>
           </div>
         </BentoCard>
       </BentoGrid>
 
+      {/* ---- Scan results waterfall ---- */}
+      {scanResults !== null ? (
+        <section className="space-y-3">
+          <h2 className="text-xl font-semibold text-on-surface">
+            Risultati scansione v3
+          </h2>
+          <ScanResultsPanel data={scanResults} />
+        </section>
+      ) : status.zone_count > 0 ? (
+        <section className="rounded-md border border-outline-variant bg-surface-container/50 p-6">
+          <p className="text-sm text-on-surface-variant">
+            Zone mappate presenti. Premi{' '}
+            <strong>Avvia scansione v3</strong> per lanciare il funnel
+            L1→L5 e vedere i candidati raccomandati.
+          </p>
+        </section>
+      ) : null}
+
+      {/* ---- Zone OSM table ---- */}
       <section className="space-y-3">
         <h2 className="text-xl font-semibold text-on-surface">
           Zone OSM ({zones.length})
