@@ -611,9 +611,9 @@ async def funnel_v3_cron(ctx: dict[str, Any]) -> dict[str, Any]:
         job = await enqueue(
             "hunter_funnel_v3_task",
             {"tenant_id": tid},
-            _job_id=f"funnel_v3:{tid}",
+            job_id=f"funnel_v3:{tid}",
         )
-        if job is not None:
+        if job and job.get("status") == "queued":
             enqueued += 1
 
     log.info(

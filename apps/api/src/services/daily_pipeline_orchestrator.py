@@ -261,7 +261,7 @@ async def _refill_warehouse(
                 "max_l1_candidates": min(2000, max(200, deficit * 5)),
                 "trigger": "warehouse_refill",
             },
-            _job_id=f"funnel_v3_refill:{tenant_id}",
+            job_id=f"funnel_v3_refill:{tenant_id}",
         )
         log.info(
             "warehouse_refill_v3_enqueued",

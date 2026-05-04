@@ -203,7 +203,7 @@ async def map_territory(
             "wizard_groups": wgs,
             "province_codes": provs,
         },
-        _job_id=f"map_target_areas:{tenant_id}",
+        job_id=f"map_target_areas:{tenant_id}",
     )
     return MapTerritoryResponse(
         job_id=job.get("job_id", f"already_running:{tenant_id}") if job else f"already_running:{tenant_id}",
@@ -277,7 +277,7 @@ async def run_funnel_manual(
             "tenant_id": tenant_id,
             "max_l1_candidates": body.max_l1_candidates,
         },
-        _job_id=f"funnel_v3_manual:{tenant_id}",
+        job_id=f"funnel_v3_manual:{tenant_id}",
     )
     return RunFunnelResponse(
         job_id=job.get("job_id", f"already_running:{tenant_id}") if job else f"already_running:{tenant_id}",
