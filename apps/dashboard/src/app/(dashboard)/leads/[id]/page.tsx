@@ -260,13 +260,24 @@ export default async function LeadDetailPage({ params }: PageProps) {
     .join(', ');
   const isBlacklisted = lead.pipeline_status === 'blacklisted';
   // NEXT_PUBLIC_LEAD_PORTAL_URL must point at the SEPARATE lead-portal
-  // Vercel project, not the dashboard. Any trailing slash is normalised
-  // here so a sloppy env value still produces a valid URL. We also bail
-  // to '#' when the lead row has no slug yet, instead of building
+  // Vercel project, not the dashboard. We aggressively normalise the env
+  // value:
+  //   * strip any path / query / hash that crept in (e.g. someone pasted
+  //     a `?_vercel_share=…` deployment-protection bypass URL — that
+  //     token would otherwise eat the /lead/<slug> suffix and the portal
+  //     would just show the welcome screen).
+  //   * strip trailing slashes.
+  // Bail to '#' when the lead row has no slug yet, instead of building
   // `/lead/null` which 404s on the portal.
-  const portalUrl = (
-    process.env.NEXT_PUBLIC_LEAD_PORTAL_URL || 'http://localhost:3001'
-  ).replace(/\/+$/, '');
+  const rawPortalEnv =
+    process.env.NEXT_PUBLIC_LEAD_PORTAL_URL || 'http://localhost:3001';
+  let portalUrl: string;
+  try {
+    const u = new URL(rawPortalEnv);
+    portalUrl = `${u.protocol}//${u.host}`;
+  } catch {
+    portalUrl = rawPortalEnv.replace(/\/+$/, '');
+  }
   const publicLeadLink = lead.public_slug
     ? `${portalUrl}/lead/${lead.public_slug}`
     : '#';
