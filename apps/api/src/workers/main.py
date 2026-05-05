@@ -409,12 +409,37 @@ async def hunter_funnel_v3_task(
       max_l1_candidates: int (optional, default 2000)
     """
     tenant_id = payload["tenant_id"]
-    config = await get_tenant_config(tenant_id)
-    summary = await run_funnel_v3(
+    # ENTRY marker: emitted as ERROR severity on purpose so it survives
+    # `severity != info` log filters in Railway. Lets us prove the worker
+    # actually picked the job up before the orchestrator does anything.
+    log.error(
+        "hunter_funnel_v3_task.entry",
         tenant_id=tenant_id,
-        config=config,
-        emitter=None,
-        max_l1_candidates=int(payload.get("max_l1_candidates") or 2000),
+        max_l1_candidates=payload.get("max_l1_candidates"),
+    )
+    try:
+        config = await get_tenant_config(tenant_id)
+        summary = await run_funnel_v3(
+            tenant_id=tenant_id,
+            config=config,
+            emitter=None,
+            max_l1_candidates=int(payload.get("max_l1_candidates") or 2000),
+        )
+    except Exception as exc:
+        # Re-raise so ARQ marks the job failed, but log the type+message
+        # explicitly first — the default ARQ traceback dump can be hard to
+        # spot in a flood of structlog rich tracebacks.
+        log.error(
+            "hunter_funnel_v3_task.crash",
+            tenant_id=tenant_id,
+            err_type=type(exc).__name__,
+            err_msg=str(exc)[:500],
+        )
+        raise
+    log.error(
+        "hunter_funnel_v3_task.done",
+        tenant_id=tenant_id,
+        summary=summary,
     )
     return summary
 

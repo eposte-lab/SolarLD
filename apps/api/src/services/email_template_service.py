@@ -142,7 +142,7 @@ def render_outreach_email(ctx: OutreachContext) -> RenderedEmail:
         "greeting_name": ctx.greeting_name,
         "lead_url": ctx.lead_url,
         "optout_url": ctx.optout_url,
-        "roi": ctx.roi,
+        "roi": _normalize_roi(ctx.roi),
         "hero_image_url": ctx.hero_image_url,
         "hero_gif_url": ctx.hero_gif_url,
         "personalized_opener": ctx.personalized_opener,
@@ -261,7 +261,7 @@ async def render_outreach_email_with_fallback(
                     "lead_url": ctx.lead_url,
                     "optout_url": ctx.optout_url,
                     "unsubscribe_url": ctx.optout_url,   # alias used in GDPR footer
-                    "roi": ctx.roi,
+                    "roi": _normalize_roi(ctx.roi),
                     "hero_image_url": ctx.hero_image_url,
                     "hero_gif_url": ctx.hero_gif_url,
                     "personalized_opener": ctx.personalized_opener,
@@ -457,6 +457,43 @@ def _env() -> Environment:
     return _env_cache
 
 
+def _normalize_roi(roi: dict[str, Any] | None) -> dict[str, Any]:
+    """Coerce a roi dict to the canonical shape templates expect.
+
+    Two shapes coexist in the wild because old demo seeds and the L4 Solar
+    qualifier wrote slightly different keys into ``leads.roi_data``:
+
+      legacy / seed shape:
+        ``system_kwp``, ``annual_savings_eur``, ``annual_production_kwh``,
+        ``system_cost_eur``, ``roi_10y_eur``
+
+      canonical (used by all Jinja templates):
+        ``estimated_kwp``, ``yearly_savings_eur``, ``yearly_production_kwh``,
+        ``co2_tonnes_25_years``, ``payback_years``
+
+    Without normalization a step-2 follow-up to a legacy-shape lead crashes
+    with ``UndefinedError: 'dict object' has no attribute 'estimated_kwp'``.
+
+    The merge is non-destructive: any canonical key already set wins; we
+    only fill in from the legacy alias when the canonical one is missing.
+    """
+    if not roi:
+        return {}
+    merged: dict[str, Any] = dict(roi)
+    aliases = (
+        ("estimated_kwp", "system_kwp"),
+        ("yearly_savings_eur", "annual_savings_eur"),
+        ("yearly_production_kwh", "annual_production_kwh"),
+    )
+    for canonical, legacy in aliases:
+        if merged.get(canonical) in (None, "") and merged.get(legacy) is not None:
+            merged[canonical] = merged[legacy]
+        # Reverse-fill so legacy templates keep working too.
+        if merged.get(legacy) in (None, "") and merged.get(canonical) is not None:
+            merged[legacy] = merged[canonical]
+    return merged
+
+
 def _format_money(value: Any) -> str:
     """Format a numeric as Italian thousand-dot grouping, no decimals."""
     try:
@@ -535,7 +572,7 @@ def render_followup_email(
         "greeting_name": ctx.greeting_name,
         "lead_url": ctx.lead_url,
         "optout_url": ctx.optout_url,
-        "roi": ctx.roi,
+        "roi": _normalize_roi(ctx.roi),
         "hero_image_url": ctx.hero_image_url,
         "hero_gif_url": ctx.hero_gif_url,
         "personalized_opener": ctx.personalized_opener,

@@ -21,6 +21,7 @@ will be deprecated.
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
@@ -278,13 +279,17 @@ async def run_funnel_manual(
             ),
         )
 
+    # NB: job_id MUST be unique per click — ARQ silently rejects duplicates,
+    # so a stale "funnel_v3_manual:<tenant>" entry in Redis would make every
+    # subsequent button press a no-op until the dedup TTL expires. Adding the
+    # epoch second guarantees a fresh id per manual trigger.
     job = await enqueue(
         "hunter_funnel_v3_task",
         {
             "tenant_id": tenant_id,
             "max_l1_candidates": body.max_l1_candidates,
         },
-        job_id=f"funnel_v3_manual:{tenant_id}",
+        job_id=f"funnel_v3_manual:{tenant_id}:{int(time.time())}",
     )
     return RunFunnelResponse(
         job_id=job.get("job_id", f"already_running:{tenant_id}") if job else f"already_running:{tenant_id}",
