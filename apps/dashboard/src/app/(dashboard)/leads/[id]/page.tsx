@@ -652,8 +652,13 @@ export default async function LeadDetailPage({ params }: PageProps) {
               )
             }
           />
-          {/* Website URL — populated by v3 L2 scraping */}
-          {v3Signal?.website_url && (
+          {/* Website URL — populated by v3 L2 scraping (or Places at L1).
+              Defensive type-check: getLeadV3Signal used to mis-type
+              scraped_data.website (an object of contacts) as a string,
+              causing .startsWith to crash the whole page. The fetcher is
+              now strict but we keep this guard so a future regression
+              can't bring down the SSR. */}
+          {typeof v3Signal?.website_url === 'string' && v3Signal.website_url && (
             <DataRow
               label="Sito web"
               value={

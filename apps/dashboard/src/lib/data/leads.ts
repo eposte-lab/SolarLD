@@ -266,7 +266,7 @@ export async function getLeadV3Signal(
   const { data: scRaw } = await supabase
     .from('scan_candidates')
     .select(
-      'google_place_id, building_quality_score, proxy_score_data, scraped_data, ' +
+      'google_place_id, building_quality_score, proxy_score_data, scraped_data, enrichment, ' +
       'predicted_sector, sector_confidence, predicted_ateco_codes',
     )
     .eq('id', scanCandidateId)
@@ -279,12 +279,25 @@ export async function getLeadV3Signal(
     ? `https://www.google.com/maps/search/?api=1&query=Google&query_place_id=${placeId}`
     : null;
 
-  // website_url lives in scraped_data.website or scraped_data.website_url
+  // website_url resolution:
+  //   1. scraped_data.website_url — explicit URL field (rare, set by future
+  //      scraper versions that record the canonical URL).
+  //   2. enrichment.places.website — the URL Google Places returned at L1.
+  //      This is the canonical source for funnel-v3 leads.
+  //   3. scraped_data.website — when set as a STRING (legacy v2 scraper
+  //      that stored the URL directly here). For v3 this slot is an OBJECT
+  //      `{pec, phone, emails, ...}` containing the contacts extracted from
+  //      the page, NOT the URL — we must NOT cast that to a string or the
+  //      page will crash with `.startsWith is not a function` later on.
   const scraped = (sc.scraped_data as Record<string, unknown> | null) ?? {};
-  const websiteUrl =
-    (scraped.website_url as string | null) ??
-    (scraped.website as string | null) ??
+  const enrichment = (sc.enrichment as Record<string, unknown> | null) ?? {};
+  const placesBlob = (enrichment.places as Record<string, unknown> | null) ?? {};
+  const websiteCandidate =
+    (typeof scraped.website_url === 'string' ? scraped.website_url : null) ??
+    (typeof placesBlob.website === 'string' ? placesBlob.website : null) ??
+    (typeof scraped.website === 'string' ? scraped.website : null) ??
     null;
+  const websiteUrl = websiteCandidate;
 
   const proxyRaw = (sc.proxy_score_data as Record<string, unknown> | null) ?? null;
 
