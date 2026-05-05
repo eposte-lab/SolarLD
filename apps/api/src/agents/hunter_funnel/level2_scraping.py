@@ -232,6 +232,7 @@ async def run_level2_scraping(
         bulk_updates.append(
             {
                 "id": str(cand.candidate_id),
+                "tenant_id": ctx.tenant_id,
                 "scraped_data": signals.to_jsonb(),
                 "contact_extraction": contact.to_jsonb(),
                 "stage": 2,

@@ -22,6 +22,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from ...core.config import settings
 from ...core.logging import get_logger
 from ...core.supabase_client import get_service_client
 from ...services.claude_service import get_client
@@ -100,7 +101,7 @@ async def run_level5_proxy_score(
     )
 
     # Persist score breakdown
-    _bulk_persist_v3_scores(scored)
+    _bulk_persist_v3_scores(scored, tenant_id=ctx.tenant_id)
 
     # Sort by overall_score DESC for downstream consumers (L6 takes top N)
     scored.sort(key=lambda s: s.overall_score, reverse=True)
@@ -129,7 +130,7 @@ async def _score_batch(
     client = get_client()
 
     resp = await client.messages.create(
-        model="claude-haiku-4-5-20250929",
+        model=settings.anthropic_haiku_model,
         max_tokens=2000,
         messages=[{"role": "user", "content": prompt}],
     )
@@ -311,7 +312,9 @@ def _fallback_score(c: SolarQualified) -> ScoredV3Candidate:
 # ---------------------------------------------------------------------------
 
 
-def _bulk_persist_v3_scores(scored: list[ScoredV3Candidate]) -> None:
+def _bulk_persist_v3_scores(
+    scored: list[ScoredV3Candidate], *, tenant_id: str
+) -> None:
     if not scored:
         return
     sb = get_service_client()
@@ -320,8 +323,10 @@ def _bulk_persist_v3_scores(scored: list[ScoredV3Candidate]) -> None:
         rows.append(
             {
                 "id": str(s.record.candidate_id),
+                "tenant_id": tenant_id,
                 "stage": 5,
                 "score": s.overall_score,
+                "recommended_for_rendering": s.recommended_for_rendering,
                 "score_reasons": s.reasons,
                 "score_flags": s.flags,
                 "predicted_ateco_codes": s.predicted_ateco_codes,
@@ -338,7 +343,11 @@ def _bulk_persist_v3_scores(scored: list[ScoredV3Candidate]) -> None:
     try:
         sb.table("scan_candidates").upsert(rows, on_conflict="id").execute()
     except Exception as exc:  # noqa: BLE001
-        log.warning("level5_proxy.persist_failed", err=type(exc).__name__)
+        log.warning(
+            "level5_proxy.persist_failed",
+            err=type(exc).__name__,
+            msg=str(exc)[:200],
+        )
 
 
 # ---------------------------------------------------------------------------

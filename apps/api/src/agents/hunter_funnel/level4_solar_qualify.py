@@ -137,6 +137,7 @@ async def _persist_roof_and_link(
             sb.table("scan_candidates").upsert(
                 {
                     "id": str(candidate_id),
+                    "tenant_id": tenant_id,
                     "roof_id": roof_id,
                     "solar_verdict": "accepted",
                     "stage": 4,
@@ -197,7 +198,9 @@ async def run_level4_solar_qualify(
                 api_calls += 1
             except SolarApiNotFound:
                 out.append(_rejected(qc, "no_solar_data"))
-                _mark_verdict(sb, rec.candidate_id, "no_solar_data")
+                _mark_verdict(
+                    sb, rec.candidate_id, "no_solar_data", tenant_id=ctx.tenant_id
+                )
                 continue
             except (SolarApiRateLimited, SolarApiError) as exc:
                 log.warning(
@@ -206,7 +209,9 @@ async def run_level4_solar_qualify(
                     err=type(exc).__name__,
                 )
                 out.append(_rejected(qc, "api_error"))
-                _mark_verdict(sb, rec.candidate_id, "api_error")
+                _mark_verdict(
+                    sb, rec.candidate_id, "api_error", tenant_id=ctx.tenant_id
+                )
                 continue
             else:
                 # Cache for next cycle
@@ -244,7 +249,7 @@ async def run_level4_solar_qualify(
                     solar_sunshine_hours=sunshine,
                 )
             )
-            _mark_verdict(sb, rec.candidate_id, verdict)
+            _mark_verdict(sb, rec.candidate_id, verdict, tenant_id=ctx.tenant_id)
             continue
 
         # 4) Accept — persist roof + link
@@ -301,11 +306,14 @@ def _rejected(qc: QualifiedCandidate, verdict: str) -> SolarQualified:
     )
 
 
-def _mark_verdict(sb: Any, candidate_id: UUID, verdict: str) -> None:
+def _mark_verdict(
+    sb: Any, candidate_id: UUID, verdict: str, *, tenant_id: str
+) -> None:
     try:
         sb.table("scan_candidates").upsert(
             {
                 "id": str(candidate_id),
+                "tenant_id": tenant_id,
                 "solar_verdict": verdict,
                 "stage": 4,
             },

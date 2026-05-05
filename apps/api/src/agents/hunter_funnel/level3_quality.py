@@ -52,6 +52,7 @@ async def run_level3_quality(
         bulk_updates.append(
             {
                 "id": str(rec.candidate_id),
+                "tenant_id": ctx.tenant_id,
                 "building_quality_score": check.score,
                 "stage": 3 if check.passed else 3,  # always advance
                 # Reasons piggyback on the existing score_flags column for now.

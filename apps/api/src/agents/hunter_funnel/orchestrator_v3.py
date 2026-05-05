@@ -105,7 +105,7 @@ async def run_funnel_v3(
     )
     summary["stages"]["l1"] = {"candidates": len(l1)}
     if not l1:
-        await _emit("scan.completed", {"total_cost_cents": costs.total_cost_cents()})
+        await _emit("scan.completed", {"total_cost_cents": costs.total_cost_cents})
         await costs.flush(completed=True)
         return summary
 
@@ -124,7 +124,7 @@ async def run_funnel_v3(
         "with_email": sum(1 for s in l2 if s.contact.best_email),
     }
     if not l2:
-        await _emit("scan.completed", {"total_cost_cents": costs.total_cost_cents()})
+        await _emit("scan.completed", {"total_cost_cents": costs.total_cost_cents})
         await costs.flush(completed=True)
         return summary
 
@@ -137,7 +137,7 @@ async def run_funnel_v3(
     )
     summary["stages"]["l3"] = {"accepted": len(l3), "rejected": len(l2) - len(l3)}
     if not l3:
-        await _emit("scan.completed", {"total_cost_cents": costs.total_cost_cents()})
+        await _emit("scan.completed", {"total_cost_cents": costs.total_cost_cents})
         await costs.flush(completed=True)
         return summary
 
@@ -155,7 +155,7 @@ async def run_funnel_v3(
     )
     summary["stages"]["l4"] = {"scanned": len(l4), "accepted": len(accepted)}
     if not accepted:
-        await _emit("scan.completed", {"total_cost_cents": costs.total_cost_cents()})
+        await _emit("scan.completed", {"total_cost_cents": costs.total_cost_cents})
         await costs.flush(completed=True)
         return summary
 
@@ -195,12 +195,12 @@ async def run_funnel_v3(
     await _emit(
         "scan.completed",
         {
-            "total_cost_cents": costs.total_cost_cents(),
+            "total_cost_cents": costs.total_cost_cents,
             "lead_count": leads_inserted,
         },
     )
     await costs.flush(completed=True)
 
-    summary["total_cost_cents"] = costs.total_cost_cents()
+    summary["total_cost_cents"] = costs.total_cost_cents
     summary["lead_count"] = leads_inserted
     return summary
