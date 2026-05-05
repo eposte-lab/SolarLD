@@ -240,9 +240,10 @@ def _scored_from_payload(
     reasons = _str_list(item.get("reasons"))
 
     # Threshold-based recommended_for_rendering, robust to the LLM
-    # forgetting / lying about it.
-    llm_recommend = bool(item.get("recommended_for_rendering"))
-    recommended = llm_recommend and overall >= 60
+    # forgetting / lying about it. We trust the numeric score: any
+    # candidate with overall_score >= 60 is recommended, regardless of
+    # whether the LLM remembered to set the flag (it often forgets).
+    recommended = overall >= 60
 
     return ScoredV3Candidate(
         record=c.record,

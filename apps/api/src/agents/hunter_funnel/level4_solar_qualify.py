@@ -148,7 +148,11 @@ async def _persist_roof_and_link(
             ).execute()
         return UUID(roof_id) if roof_id else None
     except Exception as exc:  # noqa: BLE001
-        log.warning("level4_solar.persist_failed", err=type(exc).__name__)
+        log.warning(
+            "level4_solar.persist_failed",
+            err=type(exc).__name__,
+            msg=str(exc)[:300],
+        )
         return None
 
 
