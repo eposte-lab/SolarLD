@@ -133,7 +133,7 @@ async def _persist_roof_and_link(
         or None,
         "comune": insight.locality,
         "cap": insight.postal_code,
-        "status": "active",
+        "status": "identified",
     }
     try:
         res = sb.table("roofs").insert(row).execute()
