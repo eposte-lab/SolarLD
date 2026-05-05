@@ -145,17 +145,108 @@ export default async function LeadDetailPage({ params }: PageProps) {
   if (!ctx) redirect('/login');
 
   const { id } = await params;
-  const [lead, campaigns, events, replies, conversations, portalEvents, sectorSignal, v3Signal] =
-    await Promise.all([
-      getLeadById(id),
-      listCampaignsForLead(id),
-      listEventsForLead(id),
-      getLeadReplies(id),
-      getConversationsForLead(id),
-      listPortalEventsForLead(id, 50),
-      getLeadSectorSignal(id),
-      getLeadV3Signal(id).catch(() => null),
-    ]);
+
+  // Each fetcher can fail independently for v3 leads (schema drift, missing
+  // joined column, etc.). Surface the first failure as a render-able error
+  // payload so we don't lose the message to Next.js production digest masking.
+  // Once the v3 funnel ↔ dashboard contract stabilises this can be replaced
+  // by a Promise.all again.
+  type FetchOk<T> = { ok: true; value: T };
+  type FetchErr = { ok: false; source: string; message: string; stack?: string };
+  const wrap = async <T,>(
+    source: string,
+    p: Promise<T>,
+  ): Promise<FetchOk<T> | FetchErr> => {
+    try {
+      return { ok: true, value: await p };
+    } catch (e) {
+      const err = e as Error;
+      return {
+        ok: false,
+        source,
+        message: err?.message ?? String(e),
+        stack: err?.stack,
+      };
+    }
+  };
+
+  const [
+    leadR,
+    campaignsR,
+    eventsR,
+    repliesR,
+    conversationsR,
+    portalEventsR,
+    sectorSignalR,
+    v3SignalR,
+  ] = await Promise.all([
+    wrap('getLeadById', getLeadById(id)),
+    wrap('listCampaignsForLead', listCampaignsForLead(id)),
+    wrap('listEventsForLead', listEventsForLead(id)),
+    wrap('getLeadReplies', getLeadReplies(id)),
+    wrap('getConversationsForLead', getConversationsForLead(id)),
+    wrap('listPortalEventsForLead', listPortalEventsForLead(id, 50)),
+    wrap('getLeadSectorSignal', getLeadSectorSignal(id)),
+    wrap('getLeadV3Signal', getLeadV3Signal(id).catch(() => null)),
+  ]);
+
+  const errors = [
+    leadR, campaignsR, eventsR, repliesR, conversationsR,
+    portalEventsR, sectorSignalR, v3SignalR,
+  ].filter((r): r is FetchErr => !r.ok);
+
+  if (errors.length > 0) {
+    return (
+      <div className="space-y-4 p-6">
+        <h1 className="font-headline text-2xl font-bold tracking-tighter">
+          Errore caricamento lead
+        </h1>
+        <p className="text-sm text-on-surface-variant">
+          La pagina ha incontrato {errors.length} errore/i durante il fetch dei
+          dati. Dettagli sotto.
+        </p>
+        {errors.map((e, i) => (
+          <div
+            key={i}
+            className="space-y-2 rounded-lg bg-error-container/40 p-4 text-sm"
+          >
+            <div>
+              <span className="font-semibold">Source:</span>{' '}
+              <code className="rounded bg-surface-container-low px-1.5 py-0.5 font-mono text-xs">
+                {e.source}
+              </code>
+            </div>
+            <div>
+              <span className="font-semibold">Message:</span>{' '}
+              <code className="rounded bg-surface-container-low px-1.5 py-0.5 font-mono text-xs">
+                {e.message}
+              </code>
+            </div>
+            {e.stack && (
+              <details>
+                <summary className="cursor-pointer font-semibold">
+                  Stack trace
+                </summary>
+                <pre className="mt-2 overflow-x-auto rounded bg-surface-container-low p-3 text-[11px] leading-snug">
+                  {e.stack}
+                </pre>
+              </details>
+            )}
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  const lead = leadR.ok ? leadR.value : null;
+  const campaigns = campaignsR.ok ? campaignsR.value : [];
+  const events = eventsR.ok ? eventsR.value : [];
+  const replies = repliesR.ok ? repliesR.value : [];
+  const conversations = conversationsR.ok ? conversationsR.value : [];
+  const portalEvents = portalEventsR.ok ? portalEventsR.value : [];
+  const sectorSignal = sectorSignalR.ok ? sectorSignalR.value : null;
+  const v3Signal = v3SignalR.ok ? v3SignalR.value : null;
+
   if (!lead) notFound();
 
   const name =
