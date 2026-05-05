@@ -223,7 +223,14 @@ async def run_level6_promote_to_leads(
                     "source": "funnel_v3_haiku",
                 },
                 "pipeline_status": "ready_to_send" if qualified else "new",
-                "source": "funnel_v3",
+                # leads.source CHECK only allows
+                # {cta_click, email_reply, whatsapp_reply, b2c_meta_ads, b2c_post_engagement}
+                # or NULL. Proactively-discovered leads (this funnel) have no
+                # inbound source — they're not from a CTA click or reply, so
+                # leaving NULL is the correct semantic. The funnel version is
+                # already tracked via score_breakdown.source='funnel_v3_haiku'
+                # and via `funnel_version` on scan_candidates.
+                "source": None,
             }
             sb.table("leads").insert(lead_payload).execute()
             inserted += 1

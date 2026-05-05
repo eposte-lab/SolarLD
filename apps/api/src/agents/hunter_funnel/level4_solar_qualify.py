@@ -225,11 +225,13 @@ async def run_level4_solar_qualify(
                 insight = await fetch_building_insight(rec.lat, rec.lng)
                 api_calls += 1
             except SolarApiNotFound:
-                out.append(_rejected(qc, "no_solar_data"))
+                # solar_verdict CHECK only allows
+                # {accepted, rejected_tech, no_building, api_error, skipped_below_gate}.
+                out.append(_rejected(qc, "no_building"))
                 _mark_verdict(
                     sb,
                     rec.candidate_id,
-                    "no_solar_data",
+                    "no_building",
                     tenant_id=ctx.tenant_id,
                     scan_id=ctx.scan_id,
                 )
