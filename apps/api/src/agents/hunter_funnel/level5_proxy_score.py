@@ -269,11 +269,16 @@ def _scored_from_payload(
 
 
 def _fallback_score(c: SolarQualified) -> ScoredV3Candidate:
-    """Conservative fallback when Haiku batch fails entirely.
+    """Heuristic fallback when Haiku batch fails parsing.
 
-    Score derived from the building quality + solar kWp ratio. Always
-    `recommended_for_rendering=False` so we don't burn rendering budget
-    on un-validated candidates.
+    Score derived from building quality + solar kWp + contact completeness.
+    Recommendation follows the same threshold as the LLM path
+    (overall >= 60) — Haiku parse errors happen on 1-2 batches per run,
+    and forcing `recommended=False` on all of them would lose ~50% of
+    qualified candidates (22 out of 25 score>=60 in the May 5 baseline run
+    landed here). Trust the heuristic — it uses signals already validated
+    by L3 (building) and L4 (Solar API), so a high heuristic score is
+    semantically as reliable as a high LLM score.
     """
     bqs_pct = (c.building_quality_score or 0) * 20  # 0-5 → 0-100
     solar_pct = min(100, int((c.solar_kw_installable or 0) / 3))
@@ -303,7 +308,7 @@ def _fallback_score(c: SolarQualified) -> ScoredV3Candidate:
         predicted_size_category=None,
         reasons=["fallback_score"],
         flags=["llm_unavailable"],
-        recommended_for_rendering=False,
+        recommended_for_rendering=overall >= 60,
         predicted_ateco_codes=[],
     )
 
