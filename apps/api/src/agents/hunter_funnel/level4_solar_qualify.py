@@ -136,8 +136,26 @@ async def _persist_roof_and_link(
         "status": "identified",
     }
     try:
-        res = sb.table("roofs").insert(row).execute()
+        # Upsert by (tenant_id, geohash) — same building rediscovered in
+        # subsequent scans returns the existing roof_id rather than 23505.
+        res = (
+            sb.table("roofs")
+            .upsert(row, on_conflict="tenant_id,geohash")
+            .execute()
+        )
         roof_id = res.data[0]["id"] if res.data else None
+        if not roof_id:
+            # PostgREST upsert sometimes returns empty data on UPDATE path;
+            # fall back to a SELECT by geohash to recover the existing id.
+            existing = (
+                sb.table("roofs")
+                .select("id")
+                .eq("tenant_id", tenant_id)
+                .eq("geohash", row["geohash"])
+                .limit(1)
+                .execute()
+            )
+            roof_id = (existing.data or [{}])[0].get("id")
         if roof_id:
             sb.table("scan_candidates").upsert(
                 {

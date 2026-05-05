@@ -146,10 +146,18 @@ async def run_level6_promote_to_leads(
                     "decision_maker_phone": contact.get("phone")
                     or scraped.get("phone")
                     or place_blob.get("phone"),
+                    # subjects.decision_maker_phone_source check constraint
+                    # only allows {atoka, website_scrape, manual, NULL}. Map
+                    # both v3 sources (web scraping + Google Places) to
+                    # website_scrape — the closest semantic equivalent.
                     "decision_maker_phone_source": (
-                        "scraping_v3"
-                        if (contact.get("phone") or scraped.get("phone"))
-                        else ("places" if place_blob.get("phone") else None)
+                        "website_scrape"
+                        if (
+                            contact.get("phone")
+                            or scraped.get("phone")
+                            or place_blob.get("phone")
+                        )
+                        else None
                     ),
                     "linkedin_url": scraped.get("linkedin_url"),
                     "sede_operativa_address": place_blob.get("formatted_address"),
