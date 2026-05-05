@@ -103,6 +103,7 @@ async def _persist_roof_and_link(
     sb: Any,
     *,
     tenant_id: str,
+    scan_id: str,
     candidate_id: UUID,
     insight: Any,  # google_solar_service.RoofInsight
     google_place_id: str,
@@ -138,6 +139,7 @@ async def _persist_roof_and_link(
                 {
                     "id": str(candidate_id),
                     "tenant_id": tenant_id,
+                    "scan_id": scan_id,
                     "roof_id": roof_id,
                     "solar_verdict": "accepted",
                     "stage": 4,
@@ -199,7 +201,11 @@ async def run_level4_solar_qualify(
             except SolarApiNotFound:
                 out.append(_rejected(qc, "no_solar_data"))
                 _mark_verdict(
-                    sb, rec.candidate_id, "no_solar_data", tenant_id=ctx.tenant_id
+                    sb,
+                    rec.candidate_id,
+                    "no_solar_data",
+                    tenant_id=ctx.tenant_id,
+                    scan_id=ctx.scan_id,
                 )
                 continue
             except (SolarApiRateLimited, SolarApiError) as exc:
@@ -210,7 +216,11 @@ async def run_level4_solar_qualify(
                 )
                 out.append(_rejected(qc, "api_error"))
                 _mark_verdict(
-                    sb, rec.candidate_id, "api_error", tenant_id=ctx.tenant_id
+                    sb,
+                    rec.candidate_id,
+                    "api_error",
+                    tenant_id=ctx.tenant_id,
+                    scan_id=ctx.scan_id,
                 )
                 continue
             else:
@@ -249,13 +259,20 @@ async def run_level4_solar_qualify(
                     solar_sunshine_hours=sunshine,
                 )
             )
-            _mark_verdict(sb, rec.candidate_id, verdict, tenant_id=ctx.tenant_id)
+            _mark_verdict(
+                sb,
+                rec.candidate_id,
+                verdict,
+                tenant_id=ctx.tenant_id,
+                scan_id=ctx.scan_id,
+            )
             continue
 
         # 4) Accept — persist roof + link
         roof_id = await _persist_roof_and_link(
             sb,
             tenant_id=ctx.tenant_id,
+            scan_id=ctx.scan_id,
             candidate_id=rec.candidate_id,
             insight=insight,
             google_place_id=place_id,
@@ -307,13 +324,19 @@ def _rejected(qc: QualifiedCandidate, verdict: str) -> SolarQualified:
 
 
 def _mark_verdict(
-    sb: Any, candidate_id: UUID, verdict: str, *, tenant_id: str
+    sb: Any,
+    candidate_id: UUID,
+    verdict: str,
+    *,
+    tenant_id: str,
+    scan_id: str,
 ) -> None:
     try:
         sb.table("scan_candidates").upsert(
             {
                 "id": str(candidate_id),
                 "tenant_id": tenant_id,
+                "scan_id": scan_id,
                 "solar_verdict": verdict,
                 "stage": 4,
             },

@@ -101,7 +101,7 @@ async def run_level5_proxy_score(
     )
 
     # Persist score breakdown
-    _bulk_persist_v3_scores(scored, tenant_id=ctx.tenant_id)
+    _bulk_persist_v3_scores(scored, tenant_id=ctx.tenant_id, scan_id=ctx.scan_id)
 
     # Sort by overall_score DESC for downstream consumers (L6 takes top N)
     scored.sort(key=lambda s: s.overall_score, reverse=True)
@@ -313,7 +313,7 @@ def _fallback_score(c: SolarQualified) -> ScoredV3Candidate:
 
 
 def _bulk_persist_v3_scores(
-    scored: list[ScoredV3Candidate], *, tenant_id: str
+    scored: list[ScoredV3Candidate], *, tenant_id: str, scan_id: str
 ) -> None:
     if not scored:
         return
@@ -324,6 +324,7 @@ def _bulk_persist_v3_scores(
             {
                 "id": str(s.record.candidate_id),
                 "tenant_id": tenant_id,
+                "scan_id": scan_id,
                 "stage": 5,
                 "score": s.overall_score,
                 "recommended_for_rendering": s.recommended_for_rendering,

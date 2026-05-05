@@ -91,7 +91,7 @@ async def run_level6_promote_to_leads(
                     "scraped_data, contact_extraction, enrichment, "
                     "predicted_sector, predicted_ateco_codes, proxy_score_data"
                 )
-                .eq("id", str(cand.candidate_id))
+                .eq("id", str(cand.record.candidate_id))
                 .single()
                 .execute()
             )
@@ -100,7 +100,7 @@ async def run_level6_promote_to_leads(
             if not roof_id:
                 # No solar roof → can't create lead (subjects.roof_id NOT NULL)
                 log.debug(
-                    "level6_promote.skip_no_roof", candidate_id=str(cand.candidate_id)
+                    "level6_promote.skip_no_roof", candidate_id=str(cand.record.candidate_id)
                 )
                 skipped += 1
                 continue
@@ -165,7 +165,7 @@ async def run_level6_promote_to_leads(
                     "legal_basis": "legitimate_interest_b2b",
                     "raw_data": {
                         "source": "funnel_v3",
-                        "scan_candidate_id": str(cand.candidate_id),
+                        "scan_candidate_id": str(cand.record.candidate_id),
                         "predicted_sector": sc.get("predicted_sector"),
                         "proxy_score": score_blob,
                     },
@@ -175,7 +175,7 @@ async def run_level6_promote_to_leads(
                 if not subject_id:
                     log.warning(
                         "level6_promote.subject_insert_failed",
-                        candidate_id=str(cand.candidate_id),
+                        candidate_id=str(cand.record.candidate_id),
                     )
                     failed += 1
                     continue
@@ -222,7 +222,7 @@ async def run_level6_promote_to_leads(
         except Exception as exc:  # noqa: BLE001
             log.warning(
                 "level6_promote.exception",
-                candidate_id=str(cand.candidate_id),
+                candidate_id=str(cand.record.candidate_id),
                 err=type(exc).__name__,
                 msg=str(exc)[:200],
             )

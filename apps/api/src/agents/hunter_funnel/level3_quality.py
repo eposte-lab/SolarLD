@@ -53,6 +53,7 @@ async def run_level3_quality(
             {
                 "id": str(rec.candidate_id),
                 "tenant_id": ctx.tenant_id,
+                "scan_id": ctx.scan_id,
                 "building_quality_score": check.score,
                 "stage": 3 if check.passed else 3,  # always advance
                 # Reasons piggyback on the existing score_flags column for now.
