@@ -23,6 +23,8 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
+import geohash  # type: ignore[import-untyped]
+
 from ...core.logging import get_logger
 from ...core.supabase_client import get_service_client
 from ...services.google_solar_service import (
@@ -116,6 +118,8 @@ async def _persist_roof_and_link(
         "tenant_id": tenant_id,
         "lat": insight.lat,
         "lng": insight.lng,
+        "geohash": geohash.encode(insight.lat, insight.lng, precision=8),
+        "data_source": "google_solar",
         "area_sqm": insight.area_sqm,
         "estimated_kwp": insight.estimated_kwp,
         "estimated_yearly_kwh": insight.estimated_yearly_kwh,
