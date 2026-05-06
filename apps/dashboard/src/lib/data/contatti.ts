@@ -2,51 +2,43 @@
  * Contatti data access — scan_candidates, server-only, RLS-scoped.
  *
  * scan_candidates is the top-of-funnel working set: every company
- * discovered by the B2B Atoka discovery (L1) through Solar qualification
- * (L4). These are NOT yet leads — they become leads only after the
- * ScoringAgent promotes them.
+ * discovered by the v3 funnel (L1 Google Places → L4 Solar API → L5
+ * Haiku scoring). The /contatti page shows only candidates that
+ * survived L4 (`solar_verdict='accepted'`) — those are pre-engagement
+ * "contacts ready for outreach". Engaged ones live in /leads.
  *
- * Terminology:
- *   stage 1 = scoperto da Atoka (L1)
- *   stage 2 = arricchito via Places (L2)
- *   stage 3 = scored da Haiku (L3)
- *   stage 4 = qualificato Solar (L4)
+ * v3 stage semantics:
+ *   stage 1 = scoperto via Google Places (L1)
+ *   stage 2 = arricchito via scraping web (L2)
+ *   stage 3 = filtrato qualità edificio (L3)
+ *   stage 4 = qualificato Solar API (L4)
+ *   stage 5 = scored da Haiku (L5)
  */
 
 import 'server-only';
 
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 
+// Types + display-value resolvers live in a non-server module so client
+// components (e.g. contatti-table.tsx) can import them safely. We
+// re-export here for backward compat with existing imports.
+export {
+  displayCity,
+  displayEmail,
+  displayName,
+  displayOverallScore,
+  displayPhone,
+  displayProvince,
+  displayWebsite,
+  type ContactExtraction,
+  type ContattoRow,
+  type PlacesEnrichment,
+  type ProxyScoreData,
+  type SolarVerdict,
+} from '@/lib/contatti-display';
+import type { ContattoRow, SolarVerdict } from '@/lib/contatti-display';
+
 export const CONTATTI_PAGE_SIZE = 50;
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-export type SolarVerdict =
-  | 'accepted'
-  | 'rejected_tech'
-  | 'no_building'
-  | 'api_error'
-  | 'skipped_below_gate';
-
-export interface ContattoRow {
-  id: string;
-  scan_id: string;
-  territory_id: string;
-  vat_number: string | null;
-  business_name: string | null;
-  ateco_code: string | null;
-  employees: number | null;
-  revenue_eur: number | null;
-  hq_city: string | null;
-  hq_province: string | null;
-  score: number | null; // L3 Haiku score
-  stage: number; // 1-4
-  solar_verdict: SolarVerdict | null;
-  created_at: string;
-  territories: { name: string; type: string; code: string } | null;
-}
 
 export interface ContattoListResult {
   rows: ContattoRow[];
@@ -99,7 +91,9 @@ export interface ScanFunnelData {
 const LIST_COLUMNS = `
   id, scan_id, territory_id, vat_number, business_name,
   ateco_code, employees, revenue_eur, hq_city, hq_province,
-  score, stage, solar_verdict, created_at,
+  score, stage, solar_verdict, created_at, roof_id,
+  predicted_sector, building_quality_score,
+  proxy_score_data, scraped_data, contact_extraction, enrichment,
   territories:territory_id(name, type, code)
 `.trim();
 
@@ -125,7 +119,16 @@ export async function listContatti(opts: {
 
   if (opts.filter?.stage != null) q = q.eq('stage', opts.filter.stage);
   if (opts.filter?.territory_id) q = q.eq('territory_id', opts.filter.territory_id);
-  if (opts.filter?.solar_verdict) q = q.eq('solar_verdict', opts.filter.solar_verdict);
+  if (opts.filter?.solar_verdict) {
+    q = q.eq('solar_verdict', opts.filter.solar_verdict);
+  } else {
+    // Default: only show candidates with a verified suitable roof
+    // (`solar_verdict='accepted'`). The operator should not see rejected
+    // rows (rejected_tech / no_building / api_error / skipped_below_gate)
+    // nor rows still mid-funnel (verdict NULL pre-L4). The full waterfall
+    // (including rejects) stays accessible via the KPI strip + /funnel.
+    q = q.eq('solar_verdict', 'accepted');
+  }
 
   const { data, error, count } = await q
     .order('created_at', { ascending: false })
@@ -273,3 +276,20 @@ export async function getScanFunnel(): Promise<ScanFunnelData> {
     },
   };
 }
+
+/** Count of qualified contacts (`solar_verdict='accepted'`). Used by the
+ *  /leads page to show a "X contatti in attesa di reazione" call-out
+ *  when the engaged-leads list is empty. */
+export async function getQualifiedContattiCount(): Promise<number> {
+  const sb = await createSupabaseServerClient();
+  const { count, error } = await sb
+    .from('scan_candidates')
+    .select('id', { count: 'exact', head: true })
+    .eq('solar_verdict', 'accepted');
+  if (error) return 0;
+  return count ?? 0;
+}
+
+// Display-value resolvers and types live in `lib/contatti-display.ts`
+// and are re-exported at the top of this file (so client components
+// can import them without dragging the Supabase server bundle in).

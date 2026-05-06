@@ -1,13 +1,16 @@
 /**
- * Contatti — raw scan_candidates discovered by the B2B funnel.
+ * Contatti — companies that survived the v3 funnel and are ready for
+ * outreach (`solar_verdict='accepted'`). Show the v3 enrichment data:
+ * Places display name, predicted sector, parsed address, scraped email
+ * and phone, Haiku score, building quality.
  *
- * These are companies sourced by Atoka (L1) and progressively enriched
- * through L2-L4. They are NOT yet in the sales pipeline — only those
- * promoted by the ScoringAgent appear in /leads.
+ * Semantic distinction (v3):
+ *   Contatto = azienda con tetto idoneo, pre-engagement
+ *   Lead     = contatto che ha reagito (CTA click, portale, WhatsApp,
+ *              reply email, appuntamento). Vivono in /leads.
  *
- * Distinction:
- *   Contatto = azienda scoperta durante scan, mai contattata
- *   Lead     = contatto qualificato che ha ricevuto almeno un outreach
+ * Rejected/skipped candidates are intentionally hidden from the table
+ * — their counts are still shown in the sub-strip under the KPI cards.
  */
 
 import Link from 'next/link';
@@ -22,33 +25,16 @@ import {
   getContattiSummary,
   listContatti,
   type ContattiFilter,
-  type SolarVerdict,
 } from '@/lib/data/contatti';
 import { getCurrentTenantContext } from '@/lib/data/tenant';
-import { cn, formatNumber } from '@/lib/utils';
+import { formatNumber } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
 
 type Search = Promise<{
   page?: string;
-  stage?: string;
   territory_id?: string;
 }>;
-
-const STAGE_LABELS: Record<number, string> = {
-  1: 'Scoperto (L1)',
-  2: 'Arricchito (L2)',
-  3: 'Punteggio assegnato (L3)',
-  4: 'Tetto idoneo (L4)',
-};
-
-const STAGE_FILTER_OPTIONS = [
-  { value: '', label: 'Tutti' },
-  { value: '1', label: 'L1 — Scoperto' },
-  { value: '2', label: 'L2 — Arricchito' },
-  { value: '3', label: 'L3 — Punteggio' },
-  { value: '4', label: 'L4 — Tetto idoneo' },
-];
 
 export default async function ContattiPage({
   searchParams,
@@ -57,10 +43,13 @@ export default async function ContattiPage({
 }) {
   const sp = await searchParams;
   const page = Math.max(1, Number(sp.page) || 1);
-  const stageNum = sp.stage ? Number(sp.stage) : undefined;
 
+  // The default filter (in lib/data/contatti.ts) restricts the list to
+  // candidates with `solar_verdict='accepted'`. We don't expose stage or
+  // verdict filter chips — operators care about qualified contacts only;
+  // the L4 breakdown sub-strip below shows the rejected/skipped counts
+  // for context. `territory_id` is still honored if passed via URL.
   const filter: ContattiFilter = {
-    stage: stageNum && stageNum >= 1 && stageNum <= 4 ? stageNum : undefined,
     territory_id: sp.territory_id || undefined,
   };
 
@@ -75,7 +64,6 @@ export default async function ContattiPage({
 
   const queryFor = (overrides: Record<string, string | undefined>) => {
     const params = new URLSearchParams();
-    if (filter.stage) params.set('stage', String(filter.stage));
     if (filter.territory_id) params.set('territory_id', filter.territory_id);
     if (page > 1) params.set('page', String(page));
     for (const [k, v] of Object.entries(overrides)) {
@@ -92,7 +80,7 @@ export default async function ContattiPage({
       <header className="flex items-end justify-between">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
-            Top-of-funnel · {formatNumber(summary.total)} contatti totali
+            Contatti qualificati · {formatNumber(summary.l4_qualified)} con tetto idoneo
           </p>
           <h1 className="font-headline text-4xl font-bold tracking-tighter">
             Contatti
@@ -161,31 +149,6 @@ export default async function ContattiPage({
         </div>
       )}
 
-      {/* Filters */}
-      <BentoCard padding="tight" span="full">
-        <div className="flex flex-wrap items-center gap-6 px-2 py-2">
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">
-              Stadio
-            </span>
-            <div className="flex flex-wrap gap-1.5">
-              {STAGE_FILTER_OPTIONS.map((opt) => (
-                <FilterChip
-                  key={opt.value || 'all'}
-                  active={String(filter.stage ?? '') === opt.value}
-                  href={queryFor({
-                    stage: opt.value || undefined,
-                    page: undefined,
-                  })}
-                >
-                  {opt.label}
-                </FilterChip>
-              ))}
-            </div>
-          </div>
-        </div>
-      </BentoCard>
-
       {/* Table */}
       <BentoCard padding="tight" span="full">
         {rows.length === 0 ? (
@@ -238,30 +201,3 @@ export default async function ContattiPage({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Local helpers
-// ---------------------------------------------------------------------------
-
-function FilterChip({
-  active,
-  href,
-  children,
-}: {
-  active: boolean;
-  href: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <Link
-      href={href}
-      className={cn(
-        'rounded-full px-3 py-1 text-xs font-semibold transition-colors',
-        active
-          ? 'bg-primary text-on-primary shadow-ambient-sm'
-          : 'bg-surface-container-high text-on-surface-variant hover:bg-surface-container-highest hover:text-on-surface',
-      )}
-    >
-      {children}
-    </Link>
-  );
-}

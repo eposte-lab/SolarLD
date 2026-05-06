@@ -49,12 +49,11 @@ const TIERS: { value: '' | LeadScoreTier; label: string }[] = [
   { value: 'cold', label: 'Cold' },
 ];
 
+// Pre-engagement statuses (new / sent / delivered / opened) are
+// intentionally absent: those rows live in /contatti and never appear
+// here because `listLeads()` applies an engagement gate.
 const STATUSES: { value: '' | LeadStatus; label: string }[] = [
   { value: '', label: 'Tutti' },
-  { value: 'new', label: 'Nuovo' },
-  { value: 'sent', label: 'Inviato' },
-  { value: 'delivered', label: 'Consegnato' },
-  { value: 'opened', label: 'Aperto' },
   { value: 'clicked', label: 'Click' },
   { value: 'engaged', label: 'Engaged' },
   { value: 'whatsapp', label: 'WhatsApp' },
@@ -96,13 +95,6 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
     ? 1
     : Math.max(1, Math.ceil(total / LEADS_PAGE_SIZE));
 
-  // Contatti in attesa = quelli arrivati a L4 ma non ancora in pipeline
-  // (l4_qualified > total leads → differenza = ancora da promuovere)
-  const contattiInAttesa = Math.max(
-    0,
-    contattiSummary.l4_qualified - total,
-  );
-
   // Load the tenant's CRM module to get their custom pipeline labels.
   // Runs after ctx (needs tenant id) but is non-blocking for the table.
   const crmModule = await getModuleForTenant(ctx.tenant.id, 'crm');
@@ -131,7 +123,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
           <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
             {isHotMode
               ? `Caldi adesso · ${effectiveTotal.toLocaleString('it-IT')} da chiamare`
-              : `Pipeline attiva · ${effectiveTotal.toLocaleString('it-IT')} lead`}
+              : `Contatti che hanno reagito · ${effectiveTotal.toLocaleString('it-IT')} lead engagati`}
           </p>
           <h1 className="font-headline text-4xl font-bold tracking-tighter">
             {isHotMode ? '🔥 Caldi adesso' : 'Lead Attivi'}
@@ -191,8 +183,10 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
         </div>
       )}
 
-      {/* Contatti in attesa banner ------------------------------------ */}
-      {contattiSummary.l1 > 0 && (
+      {/* Contatti in attesa banner — solo se ci sono qualificati ma
+          nessun lead engagato (o pochi). Aiuta l'operatore a capire
+          dove sono "i lead" quando la lista appare vuota. */}
+      {contattiSummary.l4_qualified > 0 && !isHotMode && (
         <div className="flex items-center justify-between rounded-xl bg-surface-container-low px-5 py-3">
           <div className="flex items-center gap-3">
             <div className="flex h-8 w-8 items-center justify-center rounded-full bg-tertiary-container text-on-tertiary-container">
@@ -202,13 +196,10 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
             </div>
             <div>
               <p className="text-sm font-semibold text-on-surface">
-                {formatNumber(contattiSummary.l1)} contatti scansionati
-                {contattiSummary.l4_qualified > 0 && (
-                  <> · {formatNumber(contattiSummary.l4_qualified)} qualificati Solar</>
-                )}
+                {formatNumber(contattiSummary.l4_qualified)} contatti qualificati in attesa di reazione
               </p>
               <p className="text-xs text-on-surface-variant">
-                I contatti scansionati non sono ancora lead — diventano lead dopo scoring e outreach.
+                Diventano lead quando cliccano CTA, visitano il portale, scrivono via WhatsApp o rispondono all&apos;email.
               </p>
             </div>
           </div>

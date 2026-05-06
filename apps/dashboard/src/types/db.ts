@@ -263,6 +263,13 @@ export interface LeadListRow {
   outreach_channel: OutreachChannel | null;
   outreach_sent_at: string | null;
   outreach_opened_at: string | null;
+  // Engagement timestamps — selected in LIST_COLUMNS so the engagement
+  // filter in `listLeads()` can drive the visibility gate without a
+  // detail-row roundtrip. NULL until the corresponding event fires.
+  outreach_delivered_at: string | null;
+  outreach_clicked_at: string | null;
+  outreach_replied_at: string | null;
+  whatsapp_initiated_at: string | null;
   dashboard_visited_at: string | null;
   created_at: string;
   subjects: SubjectSummary | null;
@@ -288,9 +295,6 @@ export interface LeadDetailRow extends LeadListRow {
   rendering_gif_url: string | null;
   portal_video_slug: string | null;
   roi_data: RoiData;
-  outreach_delivered_at: string | null;
-  outreach_clicked_at: string | null;
-  whatsapp_initiated_at: string | null;
   feedback: string | null;
   feedback_notes: string | null;
   score_breakdown: Record<string, number>;

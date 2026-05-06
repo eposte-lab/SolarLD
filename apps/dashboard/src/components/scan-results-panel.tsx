@@ -11,23 +11,7 @@
  */
 
 import type { ScanResultsResponse, ScanStageSummary } from '@/lib/data/territory';
-
-const SECTOR_LABELS: Record<string, string> = {
-  industry_heavy: 'Manifatturiero pesante',
-  industry_light: 'Manifatturiero leggero',
-  food_production: 'Produzione alimentare',
-  logistics: 'Logistica',
-  retail_gdo: 'Grande distribuzione',
-  hospitality_large: 'Ricettivo grande',
-  hospitality_food_service: 'Ristorazione collettiva',
-  healthcare: 'Sanitario',
-  agricultural_intensive: 'Agricolo intensivo',
-  automotive: 'Automotive',
-  education: 'Istruzione',
-  personal_services: 'Servizi alla persona',
-  professional_offices: 'Studi professionali',
-  horeca: 'HoReCa',
-};
+import { SECTOR_LABELS } from '@/lib/sector-labels';
 
 const SOLAR_VERDICT_LABELS: Record<string, string> = {
   accepted: '✅ Solar OK',

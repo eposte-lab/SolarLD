@@ -24,7 +24,8 @@ export const LEADS_PAGE_SIZE = 25;
 const LIST_COLUMNS = `
   id, public_slug, pipeline_status, score, score_tier,
   outreach_channel, outreach_sent_at, outreach_opened_at,
-  dashboard_visited_at, created_at,
+  outreach_delivered_at, outreach_clicked_at, outreach_replied_at,
+  whatsapp_initiated_at, dashboard_visited_at, created_at,
   engagement_score, engagement_score_updated_at,
   portal_sessions, portal_total_time_sec, deepest_scroll_pct,
   subjects:subjects(type, business_name, owner_first_name, owner_last_name,
@@ -83,7 +84,30 @@ export interface LeadListResult {
   total: number;
 }
 
-/** Paginated, filtered list of leads. Ordered by score DESC. */
+/**
+ * PostgREST `.or()` clauses that flag a lead as "engaged" — i.e. the
+ * prospect has taken at least one concrete action. Email open alone
+ * (`outreach_opened_at`) does NOT count: too passive (firewall pre-fetch
+ * + tracking-pixel false positives). Used by `listLeads()` so that
+ * /leads only shows real prospects, while pre-engagement candidates
+ * stay in /contatti.
+ *
+ * Note on PostgREST quoting: `pipeline_status.in.(...)` uses commas
+ * inside parentheses; the `.or()` parser handles them correctly when
+ * the inner list is wrapped in parens. Tested live before commit.
+ */
+const ENGAGEMENT_OR = [
+  'outreach_clicked_at.not.is.null',
+  'dashboard_visited_at.not.is.null',
+  'whatsapp_initiated_at.not.is.null',
+  'outreach_replied_at.not.is.null',
+  'portal_sessions.gt.0',
+  'pipeline_status.in.(clicked,engaged,whatsapp,appointment,closed_won,closed_lost)',
+].join(',');
+
+/** Paginated, filtered list of ENGAGED leads. Ordered by score DESC.
+ *  Pre-engagement candidates (sent / delivered / opened only) live in
+ *  /contatti and do not appear here. */
 export async function listLeads(opts: {
   page?: number;
   pageSize?: number;
@@ -106,6 +130,9 @@ export async function listLeads(opts: {
   if (opts.filter?.q && opts.filter.q.trim()) {
     q = q.ilike('public_slug', `%${opts.filter.q.trim()}%`);
   }
+
+  // Engagement gate — only leads with at least one concrete action.
+  q = q.or(ENGAGEMENT_OR);
 
   const { data, error, count } = await q
     .order('score', { ascending: false })
