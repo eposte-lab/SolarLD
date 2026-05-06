@@ -48,6 +48,7 @@ from .cron import (
     sla_first_touch_cron,
     smartlead_warmup_sync_cron,
     warehouse_cleanup_cron,
+    weekly_cluster_refresh_cron,
     weekly_digest_cron,
 )
 
@@ -550,6 +551,16 @@ class WorkerSettings:
         cron(retention_cron, hour=3, minute=15, run_at_startup=False),
         # Sprint 9 B.5: cluster A/B chi-square evaluation + auto-promotion.
         cron(cluster_ab_evaluation_cron, hour=3, minute=30, run_at_startup=False),
+        # Phase 4: weekly autonomous refresh of stale low-volume A/B pairs.
+        # Sunday 04:00 UTC — kicks exploration on clusters where the
+        # chi-square never fires because traffic is too thin.
+        cron(
+            weekly_cluster_refresh_cron,
+            weekday=6,  # Sunday
+            hour=4,
+            minute=0,
+            run_at_startup=False,
+        ),
         # Sprint 11: per-tenant warehouse refill + FIFO pick of today's
         # send batch. Runs after the cleanup sweep + A/B evaluation so
         # each tenant's daily quota is dispatched against fresh assignments.

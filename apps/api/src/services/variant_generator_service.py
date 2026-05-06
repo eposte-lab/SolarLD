@@ -265,6 +265,137 @@ async def generate_variant_pair(
         return seed_a, seed_b
 
 
+# ---------------------------------------------------------------------------
+# Template rewrite generator (Phase 4 — generic_outreach AI variants)
+# ---------------------------------------------------------------------------
+
+_TEMPLATE_SYSTEM_PROMPT = (
+    "Sei un esperto copywriter B2B per email outreach commerciali in italiano. "
+    "Ricevi un template HTML esistente e ne generi N varianti riscritte. "
+    "DEVI mantenere TUTTE le variabili Jinja2 originali (`{{ variabile }}`) "
+    "intatte e nello stesso punto logico — non rimuoverle, non rinominarle, "
+    "non aggiungerne di nuove. DEVI mantenere la struttura HTML (tag, "
+    "stili inline, attributi href). Cambia solo il testo visibile e "
+    "l'oggetto. Non usare emoji. Non usare jargon non necessario. "
+    "Rispondi SOLO con JSON valido, nessun testo extra."
+)
+
+_TEMPLATE_USER_PROMPT = """
+Riscrivi il seguente template email producendo {n} varianti alternative.
+Ogni variante deve mantenere lo stesso significato di fondo ma con un
+"angolo" diverso (es. urgenza, autorevolezza, focus risparmio €, focus
+consulenza tecnica, focus case study). Mantieni TUTTE le variabili
+{{ greeting_name }}, {{ business_name }}, {{ unsubscribe_url }}, ecc.
+nello stesso ordine logico — non eliminarle.
+
+TEMPLATE ATTUALE:
+- Nome interno: {name}
+- Oggetto: {subject}
+- HTML body:
+---HTML-START---
+{html}
+---HTML-END---
+
+ISTRUZIONI:
+- Per ogni variante: produci `subject` (max 80 caratteri), `html` (riscritto, stessa struttura), e `angle` (1 frase italiana che descrive l'angolo, es. "Focus su urgenza di sostituzione contatori").
+- Le varianti devono essere distinte fra loro per tono e angolo, non solo per parole sinonime.
+- {gdpr_hint}
+
+Rispondi SOLO con questo JSON (nessun markdown, nessun testo prima/dopo):
+{{
+  "variants": [
+    {{ "subject": "...", "html": "...", "angle": "..." }},
+    {{ "subject": "...", "html": "...", "angle": "..." }}
+  ]
+}}
+""".strip()
+
+
+@dataclass(slots=True)
+class TemplateRewrite:
+    subject: str
+    html: str
+    angle: str
+
+
+async def generate_template_rewrite(
+    *,
+    name: str,
+    subject: str,
+    html: str,
+    n_variants: int = 2,
+    gdpr_required_vars: list[str] | None = None,
+) -> list[TemplateRewrite]:
+    """Ask Haiku to rewrite an existing template into N alternatives.
+
+    Used by `POST /v1/email-templates/{id}/generate-variants` to give the
+    operator AI-suggested rewrites. Variants are NOT persisted — the
+    caller decides which (if any) to save.
+
+    On any failure (no API key, parse error, network issue) returns an
+    empty list. The caller surfaces this to the UI as "Haiku non
+    disponibile, riprova".
+    """
+    if not settings.anthropic_api_key:
+        log.warning("template_rewrite.no_api_key")
+        return []
+
+    n = max(1, min(int(n_variants), 4))  # cap at 4 to control token spend
+    gdpr_hint = ""
+    if gdpr_required_vars:
+        gdpr_hint = (
+            "Le variabili GDPR obbligatorie "
+            f"{', '.join('{{ ' + v + ' }}' for v in gdpr_required_vars)} "
+            "DEVONO comparire in tutte le varianti (di solito nel footer). "
+            "Non rimuoverle per nessun motivo."
+        )
+
+    prompt = _TEMPLATE_USER_PROMPT.format(
+        n=n,
+        name=name,
+        subject=subject,
+        html=html,
+        gdpr_hint=gdpr_hint,
+    )
+
+    try:
+        import anthropic
+
+        client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
+        message = await client.messages.create(
+            model=settings.anthropic_haiku_model,
+            max_tokens=4000,  # HTML can be long
+            system=_TEMPLATE_SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = message.content[0].text if message.content else ""
+        # Strip markdown code-fence wrappers.
+        stripped = re.sub(r"```(?:json)?\s*|\s*```", "", text).strip()
+        data = json.loads(stripped)
+        items = data.get("variants") or []
+
+        out: list[TemplateRewrite] = []
+        for v in items[:n]:
+            sub = str(v.get("subject", "")).strip()
+            body = str(v.get("html", "")).strip()
+            angle = str(v.get("angle", "")).strip()
+            if not sub or not body:
+                continue
+            out.append(TemplateRewrite(subject=sub[:500], html=body, angle=angle[:200]))
+        log.info(
+            "template_rewrite.haiku_ok",
+            requested=n,
+            returned=len(out),
+        )
+        return out
+    except json.JSONDecodeError as exc:
+        log.warning("template_rewrite.parse_failed", err=str(exc)[:200])
+        return []
+    except Exception as exc:  # noqa: BLE001
+        log.error("template_rewrite.haiku_failed", err=str(exc)[:200])
+        return []
+
+
 async def persist_variant_pair(
     supabase: Any,
     tenant_id: str,

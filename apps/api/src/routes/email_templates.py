@@ -346,6 +346,97 @@ async def validate_template(body: ValidateTemplateInput, ctx: CurrentUser) -> di
     }
 
 
+class GenerateVariantsInput(BaseModel):
+    n_variants: int = Field(default=2, ge=1, le=4)
+
+
+@router.post("/{template_id}/generate-variants")
+async def generate_variants(
+    template_id: str,
+    body: GenerateVariantsInput,
+    ctx: CurrentUser,
+) -> dict[str, Any]:
+    """Generate AI alternatives via Claude Haiku — does NOT persist.
+
+    Reads the existing template, asks Haiku for N rewritten variants
+    (different "angle": urgency / authority / savings / consultative /
+    case-study), validates each result preserves the GDPR-required
+    variables, and returns them for operator review. The operator
+    decides whether to save one of them as a new template (or replace
+    the current one) via the existing PATCH/POST endpoints.
+
+    Returns:
+        {
+          "ok": True,
+          "count": 2,
+          "variants": [
+            {"subject": "...", "html": "...", "angle": "...",
+             "missing_required": [], "valid": True},
+            ...
+          ]
+        }
+
+    Errors (502): when Haiku is unavailable / returns unparseable JSON.
+    The UI shows a "riprova" toast.
+    """
+    tenant_id = require_tenant(ctx)
+    sb = get_service_client()
+
+    res = (
+        sb.table("email_templates")
+        .select("id, name, subject, html")
+        .eq("id", template_id)
+        .eq("tenant_id", tenant_id)
+        .limit(1)
+        .execute()
+    )
+    if not res.data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="template_not_found"
+        )
+    tpl = res.data[0]
+
+    from ..services.variant_generator_service import generate_template_rewrite
+
+    rewrites = await generate_template_rewrite(
+        name=tpl["name"],
+        subject=tpl["subject"],
+        html=tpl["html"],
+        n_variants=body.n_variants,
+        gdpr_required_vars=sorted(REQUIRED_VARS),
+    )
+    if not rewrites:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "code": "haiku_unavailable",
+                "message": "Generazione AI temporaneamente non disponibile. Riprova fra qualche secondo.",
+            },
+        )
+
+    # Validate each rewrite: must still contain all GDPR variables.
+    out: list[dict[str, Any]] = []
+    for r in rewrites:
+        missing = _check_required_vars(r.html)
+        out.append({
+            "subject": r.subject,
+            "html": r.html,
+            "angle": r.angle,
+            "missing_required": missing,
+            "valid": len(missing) == 0,
+        })
+
+    log.info(
+        "email_template.generate_variants",
+        template_id=template_id,
+        tenant_id=tenant_id,
+        requested=body.n_variants,
+        returned=len(out),
+        valid=sum(1 for v in out if v["valid"]),
+    )
+    return {"ok": True, "count": len(out), "variants": out}
+
+
 # ---------------------------------------------------------------------------
 # Helper used by OutreachAgent + prospect_list_outreach
 # ---------------------------------------------------------------------------

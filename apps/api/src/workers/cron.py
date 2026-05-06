@@ -670,6 +670,162 @@ async def cluster_ab_evaluation_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, **result}
 
 
+# ---------------------------------------------------------------------------
+# Weekly autonomous refresh — Phase 4
+# ---------------------------------------------------------------------------
+
+# Minimum age (days) of an active pair before we consider it "stuck"
+# and worth refreshing. 30 days = the operator has had a month to
+# accumulate samples; if chi-square didn't fire we assume volume is
+# too thin to ever fire and we force fresh copy.
+STALE_VARIANT_AGE_DAYS = 30
+
+# Below this combined sent_count over the variant's lifetime we treat
+# the cluster as "starved" — Haiku copy is unproven, refresh it. Above
+# it the chi-square evaluator will decide on its own merit.
+LOW_VOLUME_THRESHOLD = 100
+
+# Hard cap per run to control Haiku spend. ~$0.001/cluster at Haiku 3.5
+# pricing → 30 clusters * 4 weeks/month = 120 calls/month ≈ $0.12.
+MAX_REFRESH_PER_RUN = 30
+
+
+async def weekly_cluster_refresh_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
+    """Sunday 04:00 UTC — refresh stale low-volume A/B variant pairs.
+
+    The chi-square evaluator only fires once a cluster has accumulated
+    MIN_SAMPLES=100 sends per variant. For low-volume clusters
+    (e.g. ATECO codes that match a handful of leads per month) the
+    same Haiku output ends up running for months without any feedback
+    loop. This cron breaks the deadlock:
+
+      - Find every (tenant, cluster_signature) pair where the active
+        variants are >= 30 days old AND total sent_count < 100.
+      - For each: archive the existing pair (status → 'archived'),
+        generate a NEW round via Haiku — using the older variant as
+        the previous_winner baseline so the new round still benefits
+        from whatever copy was already there.
+
+    This is purely an "exploration kick" — no statistical decision is
+    made. The next chi-square evaluation will then operate on fresh copy.
+
+    Capped at MAX_REFRESH_PER_RUN clusters to bound spend. If more are
+    eligible they roll over to next Sunday.
+    """
+    sb = get_service_client()
+
+    # Find candidate clusters: active variant rows older than the threshold.
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=STALE_VARIANT_AGE_DAYS)).isoformat()
+    res = (
+        sb.table("cluster_copy_variants")
+        .select(
+            "id, tenant_id, cluster_signature, round_number, variant_label, "
+            "copy_subject, copy_opening_line, copy_proposition_line, "
+            "cta_primary_label, sent_count, generated_at"
+        )
+        .eq("status", "active")
+        .lt("generated_at", cutoff)
+        .order("generated_at")
+        .execute()
+    )
+    rows = res.data or []
+
+    # Group by (tenant, cluster, round) — each pair has 2 rows (A + B).
+    grouped: dict[tuple[str, str, int], list[dict[str, Any]]] = {}
+    for r in rows:
+        key = (r["tenant_id"], r["cluster_signature"], r["round_number"])
+        grouped.setdefault(key, []).append(r)
+
+    refreshed = 0
+    skipped_high_volume = 0
+    failed = 0
+
+    for (tenant_id, cluster_sig, round_number), pair in grouped.items():
+        if refreshed >= MAX_REFRESH_PER_RUN:
+            break
+        if len(pair) < 2:
+            # Orphan row — skip to avoid corrupting the chi-square invariant.
+            continue
+        total_sent = sum(int(p.get("sent_count") or 0) for p in pair)
+        if total_sent >= LOW_VOLUME_THRESHOLD:
+            # The chi-square evaluator can handle this cluster on its own.
+            skipped_high_volume += 1
+            continue
+
+        # Pick the variant with more replies (or just A) as the baseline.
+        baseline = pair[0]
+        previous_winner = {
+            "copy_subject":          baseline.get("copy_subject") or "",
+            "copy_opening_line":     baseline.get("copy_opening_line") or "",
+            "copy_proposition_line": baseline.get("copy_proposition_line") or "",
+            "cta_primary_label":     baseline.get("cta_primary_label") or "",
+        }
+
+        try:
+            # Archive the stale pair so the new round becomes the only
+            # active one (the OutreachAgent picks active by max round_number).
+            ids_to_archive = [p["id"] for p in pair]
+            (
+                sb.table("cluster_copy_variants")
+                .update({"status": "archived"})
+                .in_("id", ids_to_archive)
+                .execute()
+            )
+
+            # Fetch tenant name for prompt personalisation.
+            tn_resp = (
+                sb.table("tenants")
+                .select("business_name")
+                .eq("id", tenant_id)
+                .single()
+                .execute()
+            )
+            tenant_name = (tn_resp.data or {}).get("business_name") or "SolarLead"
+
+            from ..services.variant_generator_service import (
+                generate_variant_pair,
+                persist_variant_pair,
+            )
+
+            va, vb = await generate_variant_pair(
+                tenant_name=tenant_name,
+                cluster_signature=cluster_sig,
+                round_number=round_number + 1,
+                previous_winner=previous_winner,
+            )
+            await persist_variant_pair(
+                sb, tenant_id, cluster_sig, round_number + 1, va, vb
+            )
+            refreshed += 1
+            log.info(
+                "cron.weekly_cluster_refresh.refreshed",
+                tenant_id=tenant_id,
+                cluster=cluster_sig,
+                old_round=round_number,
+                new_round=round_number + 1,
+                old_sent=total_sent,
+            )
+        except Exception as exc:  # noqa: BLE001
+            failed += 1
+            log.warning(
+                "cron.weekly_cluster_refresh.failed",
+                tenant_id=tenant_id,
+                cluster=cluster_sig,
+                err=str(exc)[:200],
+            )
+
+    summary = {
+        "ok": True,
+        "candidates": len(grouped),
+        "refreshed": refreshed,
+        "skipped_high_volume": skipped_high_volume,
+        "failed": failed,
+        "capped": refreshed >= MAX_REFRESH_PER_RUN,
+    }
+    log.info("cron.weekly_cluster_refresh.done", **summary)
+    return summary
+
+
 async def deliverability_hourly_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
     """Task 15 — Hourly deliverability monitor.
 

@@ -109,6 +109,34 @@ export async function listTemplateVariables(): Promise<{
 }
 
 // ---------------------------------------------------------------------------
+// AI variant generation (Phase 4 — autonomous A/B loop)
+// ---------------------------------------------------------------------------
+
+export interface AiVariant {
+  subject: string;
+  html: string;
+  angle: string;
+  /** GDPR variables Haiku may have stripped. Empty array = safe to use. */
+  missing_required: string[];
+  valid: boolean;
+}
+
+export interface GenerateVariantsResponse {
+  ok: boolean;
+  count: number;
+  variants: AiVariant[];
+}
+
+export async function generateTemplateVariants(
+  templateId: string,
+  nVariants = 2,
+): Promise<GenerateVariantsResponse> {
+  return api.post(`/v1/email-templates/${templateId}/generate-variants`, {
+    n_variants: nVariants,
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Assign template to a prospect list
 // ---------------------------------------------------------------------------
 

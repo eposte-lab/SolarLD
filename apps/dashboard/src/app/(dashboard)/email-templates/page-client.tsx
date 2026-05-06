@@ -16,11 +16,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
+  type AiVariant,
   type EmailTemplate,
   type EmailTemplateRow,
   type TemplateVariable,
   createEmailTemplate,
   deleteEmailTemplate,
+  generateTemplateVariants,
   getEmailTemplate,
   listEmailTemplates,
   listTemplateVariables,
@@ -91,6 +93,12 @@ export function EmailTemplatesClient() {
   const [previewHtml, setPreviewHtml] = useState<string>('');
   const [previewLoading, setPreviewLoading] = useState(false);
   const previewDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // AI variant generation
+  const [aiModalOpen, setAiModalOpen] = useState(false);
+  const [aiVariants, setAiVariants] = useState<AiVariant[]>([]);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
 
   // Load list + variables on mount
   useEffect(() => {
@@ -278,24 +286,63 @@ export function EmailTemplatesClient() {
     });
   }
 
+  // ── AI variant generation ─────────────────────────────────────────────
+  // Calls Haiku via the backend, displays N rewrites in a modal, and
+  // lets the operator load one into the editor with one click. The
+  // operator must still hit "Salva" to persist — nothing is auto-saved.
+  async function handleGenerateAiVariants() {
+    if (!editor.id) return; // can't generate variants for an unsaved template
+    setAiError(null);
+    setAiLoading(true);
+    setAiModalOpen(true);
+    setAiVariants([]);
+    try {
+      const res = await generateTemplateVariants(editor.id, 2);
+      setAiVariants(res.variants);
+    } catch (err) {
+      setAiError(extractErrorMessage(err));
+    } finally {
+      setAiLoading(false);
+    }
+  }
+
+  function applyAiVariant(v: AiVariant) {
+    setEditor((s) => ({ ...s, subject: v.subject, html: v.html }));
+    setAiModalOpen(false);
+  }
+
   // ── Render ──────────────────────────────────────────────────────────
 
   if (view === 'editor') {
     return (
-      <EditorView
-        editor={editor}
-        setEditor={setEditor}
-        variables={variables}
-        previewHtml={previewHtml}
-        previewLoading={previewLoading}
-        saving={saving}
-        saveError={saveError}
-        validationErrors={validationErrors}
-        textareaRef={textareaRef}
-        onInsertVariable={insertVariable}
-        onSave={handleSave}
-        onCancel={() => setView('list')}
-      />
+      <>
+        <EditorView
+          editor={editor}
+          setEditor={setEditor}
+          variables={variables}
+          previewHtml={previewHtml}
+          previewLoading={previewLoading}
+          saving={saving}
+          saveError={saveError}
+          validationErrors={validationErrors}
+          textareaRef={textareaRef}
+          onInsertVariable={insertVariable}
+          onSave={handleSave}
+          onCancel={() => setView('list')}
+          onGenerateAi={handleGenerateAiVariants}
+          canGenerateAi={!!editor.id}
+        />
+        {aiModalOpen && (
+          <AiVariantsModal
+            loading={aiLoading}
+            error={aiError}
+            variants={aiVariants}
+            onApply={applyAiVariant}
+            onClose={() => setAiModalOpen(false)}
+            onRetry={handleGenerateAiVariants}
+          />
+        )}
+      </>
     );
   }
 
@@ -467,6 +514,8 @@ function EditorView({
   onInsertVariable,
   onSave,
   onCancel,
+  onGenerateAi,
+  canGenerateAi,
 }: {
   editor: EditorState;
   setEditor: React.Dispatch<React.SetStateAction<EditorState>>;
@@ -480,6 +529,8 @@ function EditorView({
   onInsertVariable: (slug: string) => void;
   onSave: () => void;
   onCancel: () => void;
+  onGenerateAi: () => void;
+  canGenerateAi: boolean;
 }) {
   const isNew = !editor.id;
 
@@ -500,6 +551,21 @@ function EditorView({
           </span>
         </div>
         <div className="flex items-center gap-2">
+          {/* AI rewrite — only available for already-saved templates so
+              Haiku has something concrete to work from. */}
+          <button
+            onClick={onGenerateAi}
+            disabled={!canGenerateAi}
+            title={
+              canGenerateAi
+                ? 'Chiedi a Claude di proporre 2 alternative del template (subject + corpo)'
+                : 'Salva il template almeno una volta per usare la generazione AI'
+            }
+            className="rounded-lg border border-purple-300 bg-purple-50 px-3 py-1.5 text-sm font-semibold
+              text-purple-700 hover:bg-purple-100 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            ✨ Genera con AI
+          </button>
           <button
             onClick={onCancel}
             className="rounded-lg px-3 py-1.5 text-sm text-on-surface-variant hover:bg-on-surface/5"
@@ -655,6 +721,175 @@ function EditorView({
       </div>
     </div>
   );
+}
+
+// ---------------------------------------------------------------------------
+// AiVariantsModal — full-screen overlay shown after the operator clicks
+// "Genera con AI". Renders Claude Haiku's N rewrites side-by-side; the
+// operator picks one (or closes the modal). The chosen variant is loaded
+// into the editor — NOT auto-saved — so the operator still controls
+// the persistence step.
+// ---------------------------------------------------------------------------
+
+function AiVariantsModal({
+  loading,
+  error,
+  variants,
+  onApply,
+  onClose,
+  onRetry,
+}: {
+  loading: boolean;
+  error: string | null;
+  variants: AiVariant[];
+  onApply: (v: AiVariant) => void;
+  onClose: () => void;
+  onRetry: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+    >
+      <div className="relative flex h-[90vh] w-[95vw] max-w-7xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+        {/* Header */}
+        <div className="flex shrink-0 items-center justify-between border-b border-on-surface/10 px-6 py-4">
+          <div>
+            <h2 className="text-lg font-bold text-on-surface">
+              ✨ Varianti AI proposte
+            </h2>
+            <p className="text-xs text-on-surface-variant">
+              Claude Haiku ha riscritto il template con{' '}
+              {variants.length > 0 ? variants.length : 'N'} angoli
+              alternativi. Scegli quello che ti convince di più — verrà
+              caricato nell&apos;editor (non salvato automaticamente).
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="rounded-lg px-3 py-1.5 text-sm text-on-surface-variant hover:bg-on-surface/5"
+          >
+            ✕ Chiudi
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="flex flex-1 overflow-hidden">
+          {loading ? (
+            <div className="flex flex-1 items-center justify-center text-sm text-on-surface-variant">
+              <div className="text-center">
+                <div className="mb-2 text-2xl">⏳</div>
+                Generazione in corso…
+                <p className="mt-1 text-xs text-on-surface/50">
+                  Claude Haiku sta riscrivendo il template (~5-15 secondi)
+                </p>
+              </div>
+            </div>
+          ) : error ? (
+            <div className="flex flex-1 flex-col items-center justify-center gap-3 text-sm text-red-700">
+              <div className="text-2xl">⚠️</div>
+              <p>{error}</p>
+              <button
+                onClick={onRetry}
+                className="rounded-lg bg-purple-600 px-4 py-2 text-xs font-semibold text-white hover:bg-purple-700"
+              >
+                Riprova
+              </button>
+            </div>
+          ) : variants.length === 0 ? (
+            <div className="flex flex-1 items-center justify-center text-sm text-on-surface-variant">
+              Nessuna variante disponibile.
+            </div>
+          ) : (
+            <div className="grid flex-1 grid-cols-2 gap-0 overflow-hidden">
+              {variants.map((v, idx) => (
+                <div
+                  key={idx}
+                  className="flex flex-col overflow-hidden border-r border-on-surface/10 last:border-r-0"
+                >
+                  {/* Variant header */}
+                  <div className="shrink-0 border-b border-on-surface/10 bg-purple-50 px-4 py-3">
+                    <div className="mb-1 flex items-center gap-2">
+                      <span className="rounded-full bg-purple-200 px-2 py-0.5 text-xs font-bold text-purple-800">
+                        Variante {String.fromCharCode(65 + idx)}
+                      </span>
+                      {!v.valid && (
+                        <span
+                          className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700"
+                          title={`Mancano: ${v.missing_required.join(', ')}`}
+                        >
+                          ⚠ GDPR incompleto
+                        </span>
+                      )}
+                    </div>
+                    {v.angle && (
+                      <p className="text-xs italic text-purple-900">{v.angle}</p>
+                    )}
+                    <p className="mt-2 truncate text-sm font-semibold text-on-surface">
+                      {v.subject}
+                    </p>
+                  </div>
+
+                  {/* Preview iframe */}
+                  <div className="flex-1 overflow-hidden bg-gray-50">
+                    <iframe
+                      srcDoc={previewWithSampleData(v.html)}
+                      sandbox="allow-same-origin"
+                      title={`Anteprima variante ${idx + 1}`}
+                      className="h-full w-full bg-white"
+                    />
+                  </div>
+
+                  {/* Action footer */}
+                  <div className="shrink-0 border-t border-on-surface/10 bg-white px-4 py-3">
+                    <button
+                      onClick={() => onApply(v)}
+                      disabled={!v.valid}
+                      title={
+                        v.valid
+                          ? 'Carica questa variante nell\'editor'
+                          : 'GDPR incompleto: la variante non può essere usata'
+                      }
+                      className="w-full rounded-lg bg-purple-600 px-4 py-2 text-sm font-semibold
+                        text-white hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Usa questa variante
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Best-effort sample-data substitution for the modal preview. Same
+ *  spirit as `localPreview` in the editor. Keeps the modal preview
+ *  independent of network state. */
+function previewWithSampleData(html: string): string {
+  const samples: Record<string, string> = {
+    greeting_name:        'Mario Rossi',
+    business_name:        'Studio Rossi',
+    hq_address:           'Via Roma 42',
+    hq_cap:               '80100',
+    hq_city:              'Napoli',
+    hq_province:          'NA',
+    phone:                '+39 081 123 4567',
+    recipient_email:      'mario.rossi@esempio.it',
+    sender_first_name:    'Alfonso',
+    tenant_name:          'SolarTech',
+    brand_logo_url:       '',
+    unsubscribe_url:      '#',
+    tenant_legal_name:    'SolarTech S.r.l.',
+    tenant_vat_number:    'IT12345678901',
+    tenant_legal_address: 'Via Milano 10, 20100 Milano MI',
+    tracking_pixel_url:   '',
+  };
+  return html.replace(/\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}/g, (_, k) => samples[k] ?? '');
 }
 
 // ---------------------------------------------------------------------------
