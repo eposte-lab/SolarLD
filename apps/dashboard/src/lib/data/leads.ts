@@ -92,17 +92,27 @@ export interface LeadListResult {
  * /leads only shows real prospects, while pre-engagement candidates
  * stay in /contatti.
  *
- * Note on PostgREST quoting: `pipeline_status.in.(...)` uses commas
- * inside parentheses; the `.or()` parser handles them correctly when
- * the inner list is wrapped in parens. Tested live before commit.
+ * Implementation note: PostgREST's `.or()` parser treats commas as
+ * clause delimiters, so `status.in.(a,b,c)` with inner commas produces
+ * a parse error at server side. We work around it by emitting one
+ * `eq` clause per engaged status — verbose but unambiguous.
  */
+const ENGAGED_PIPELINE_STATUSES = [
+  'clicked',
+  'engaged',
+  'whatsapp',
+  'appointment',
+  'closed_won',
+  'closed_lost',
+] as const;
+
 const ENGAGEMENT_OR = [
   'outreach_clicked_at.not.is.null',
   'dashboard_visited_at.not.is.null',
   'whatsapp_initiated_at.not.is.null',
   'outreach_replied_at.not.is.null',
   'portal_sessions.gt.0',
-  'pipeline_status.in.(clicked,engaged,whatsapp,appointment,closed_won,closed_lost)',
+  ...ENGAGED_PIPELINE_STATUSES.map((s) => `pipeline_status.eq.${s}`),
 ].join(',');
 
 /** Paginated, filtered list of ENGAGED leads. Ordered by score DESC.
@@ -453,10 +463,16 @@ export async function getOverviewKpis(): Promise<OverviewKpis> {
       .select('id', { count: 'exact', head: true })
       .not('outreach_sent_at', 'is', null)
       .gte('outreach_sent_at', since),
+    // "Hot leads" su Panoramica = lead già engagati con tier hot.
+    // Senza il filtro engagement il counter si "accendeva" da L6
+    // promote-to-leads (lead nuovo + score>=75) — ma a quello stadio
+    // il prospect non ha ancora reagito, quindi non è ancora "hot"
+    // commercialmente. Coerente con la nuova semantica `/leads`.
     supabase
       .from('leads')
       .select('id', { count: 'exact', head: true })
-      .eq('score_tier', 'hot'),
+      .eq('score_tier', 'hot')
+      .or(ENGAGEMENT_OR),
     supabase
       .from('leads')
       .select('id', { count: 'exact', head: true })

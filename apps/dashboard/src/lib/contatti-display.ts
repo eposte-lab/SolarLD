@@ -58,6 +58,9 @@ export interface ContattoRow {
   stage: number; // 1-5
   solar_verdict: SolarVerdict | null;
   roof_id: string | null;
+  /** Resolved by `listContatti` via roof_id → leads join. NULL when
+   *  the candidate hasn't been promoted to a lead yet. */
+  lead_id?: string | null;
   created_at: string;
   // v3 enrichment (NULL on legacy v2 rows)
   predicted_sector: string | null;

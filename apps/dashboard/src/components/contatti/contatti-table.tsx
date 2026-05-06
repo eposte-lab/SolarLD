@@ -12,6 +12,9 @@
  * resolution helpers live in `lib/data/contatti.ts`.
  */
 
+import Link from 'next/link';
+import { ArrowUpRight } from 'lucide-react';
+
 import { SortableTh } from '@/components/ui/sortable-th';
 import { useSortableData } from '@/hooks/use-sortable-data';
 import { sectorLabel } from '@/lib/sector-labels';
@@ -98,6 +101,7 @@ export function ContattiTable({ rows }: { rows: ContattoRow[] }) {
             <SortableTh sortKey="verdict" active={sortKey} dir={sortDir} onSort={requestSort} className="px-5 py-3">Solar</SortableTh>
             <SortableTh sortKey="contact" active={sortKey} dir={sortDir} onSort={requestSort} className="px-5 py-3">Contatto</SortableTh>
             <SortableTh sortKey="created" active={sortKey} dir={sortDir} onSort={requestSort} className="px-5 py-3">Scan</SortableTh>
+            <th className="px-5 py-3" />
           </tr>
         </thead>
         <tbody className="bg-surface-container-lowest">
@@ -212,6 +216,28 @@ export function ContattiTable({ rows }: { rows: ContattoRow[] }) {
                 {/* Scan */}
                 <td className="px-5 py-4 text-xs text-on-surface-variant">
                   {relativeTime(c.created_at)}
+                </td>
+
+                {/* Apri detail (when promoted to a lead) */}
+                <td className="px-5 py-4 text-right">
+                  {c.lead_id ? (
+                    <Link
+                      href={`/leads/${c.lead_id}`}
+                      className="group/link inline-flex items-center gap-1 text-xs font-semibold text-on-surface-variant hover:text-primary hover:underline"
+                    >
+                      apri
+                      <ArrowUpRight
+                        size={11}
+                        strokeWidth={2.5}
+                        className="transition-transform group-hover/link:translate-x-0.5 group-hover/link:-translate-y-0.5"
+                        aria-hidden
+                      />
+                    </Link>
+                  ) : (
+                    <span className="text-[10px] text-on-surface-variant/60">
+                      —
+                    </span>
+                  )}
                 </td>
               </tr>
             );

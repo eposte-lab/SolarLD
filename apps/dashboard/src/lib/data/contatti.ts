@@ -135,10 +135,35 @@ export async function listContatti(opts: {
     .range(from, to);
 
   if (error) throw new Error(`listContatti: ${error.message}`);
-  return {
-    rows: (data ?? []) as unknown as ContattoRow[],
-    total: count ?? 0,
-  };
+
+  const rows = (data ?? []) as unknown as ContattoRow[];
+
+  // Resolve lead_id for each contact via roof_id. Allows the table
+  // to expose an "Apri" link to the lead detail when the candidate
+  // has been promoted to a lead by L6 (subjects+leads created).
+  const roofIds = rows
+    .map((r) => r.roof_id)
+    .filter((v): v is string => typeof v === 'string');
+  let roofToLead = new Map<string, string>();
+  if (roofIds.length > 0) {
+    const { data: leadRows } = await sb
+      .from('leads')
+      .select('id, roof_id')
+      .in('roof_id', roofIds);
+    for (const l of (leadRows ?? []) as { id: string; roof_id: string }[]) {
+      roofToLead.set(l.roof_id, l.id);
+    }
+  }
+  for (const r of rows) {
+    if (r.roof_id && roofToLead.has(r.roof_id)) {
+      (r as ContattoRow & { lead_id?: string | null }).lead_id =
+        roofToLead.get(r.roof_id) ?? null;
+    } else {
+      (r as ContattoRow & { lead_id?: string | null }).lead_id = null;
+    }
+  }
+
+  return { rows, total: count ?? 0 };
 }
 
 /** Stage counts for the header summary strip. */

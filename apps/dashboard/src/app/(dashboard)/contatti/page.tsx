@@ -92,29 +92,37 @@ export default async function ContattiPage({
       </header>
 
       {/* Funnel summary KPI strip */}
+      {/* Funnel waterfall — riassunto sintetico delle fasi della scansione.
+          La tabella sotto mostra solo l'ultimo stadio (Tetto idoneo); i
+          conteggi qui aiutano a capire dove cadono i candidati durante il
+          processo. */}
       <BentoGrid cols={4}>
         <KpiChipCard
-          label="Scoperte (L1)"
+          label="Scansionati"
           value={formatNumber(summary.l1)}
-          hint="Aziende scoperte"
+          hint="Aziende viste su Google Places"
           accent="neutral"
         />
         <KpiChipCard
-          label="Arricchite (L2)"
+          label="Con dati web"
           value={formatNumber(summary.l2)}
           hint={summary.l1 > 0 ? `${Math.round((summary.l2 / summary.l1) * 100)}% pass-through` : '—'}
           accent="primary"
         />
         <KpiChipCard
-          label="Scored (L3)"
+          label="Score AI"
           value={formatNumber(summary.l3)}
           hint={summary.l2 > 0 ? `${Math.round((summary.l3 / summary.l2) * 100)}% pass-through` : '—'}
           accent="tertiary"
         />
         <KpiChipCard
-          label="Qualificate (L4)"
+          label="Tetto idoneo"
           value={formatNumber(summary.l4_qualified)}
-          hint={summary.l3 > 0 ? `${Math.round((summary.l4_qualified / summary.l3) * 100)}% pass-through` : '—'}
+          hint={
+            summary.l3 > 0
+              ? `${Math.round((summary.l4_qualified / summary.l3) * 100)}% · mostrati in tabella`
+              : 'mostrati in tabella'
+          }
           accent="secondary"
         />
       </BentoGrid>
@@ -153,16 +161,24 @@ export default async function ContattiPage({
       <BentoCard padding="tight" span="full">
         {rows.length === 0 ? (
           <div className="rounded-lg bg-surface-container-low p-12 text-center">
-            <p className="text-sm text-on-surface-variant">
-              Nessun contatto trovato.{' '}
-              <Link
-                href="/territories"
-                className="font-semibold text-primary hover:underline"
-              >
-                Avvia una scansione
-              </Link>{' '}
-              per popolare la lista.
-            </p>
+            {summary.l1 > 0 ? (
+              <p className="text-sm text-on-surface-variant">
+                Hai scansionato <strong>{formatNumber(summary.l1)}</strong> aziende
+                ma nessuna ha ancora un tetto idoneo verificato. Aspetta che
+                completi il funnel oppure ridimensiona il territorio.
+              </p>
+            ) : (
+              <p className="text-sm text-on-surface-variant">
+                Nessun contatto ancora.{' '}
+                <Link
+                  href="/territories"
+                  className="font-semibold text-primary hover:underline"
+                >
+                  Avvia una scansione
+                </Link>{' '}
+                per popolare la lista.
+              </p>
+            )}
           </div>
         ) : (
           <ContattiTable rows={rows} />
