@@ -33,6 +33,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 
 from ..core.config import settings
 from ..core.logging import get_logger
+from .places_to_sector import included_types_for_sector
 from .sector_target_service import SectorAreaMapping
 
 log = get_logger(__name__)
@@ -123,7 +124,14 @@ async def _places_nearby_call(
         "regionCode": "IT",
     }
     if included_types:
-        payload["includedTypes"] = included_types
+        # `includedPrimaryTypes` matches only when the place's *primary*
+        # type is in the list — strictly narrower than `includedTypes`,
+        # which would also return places where any secondary type matches.
+        # For our funnel we want strict filtering: a business whose primary
+        # type is `restaurant` should NOT be returned for industry_heavy
+        # even if Google also tagged it with `manufacturer` somewhere down
+        # the type array.
+        payload["includedPrimaryTypes"] = included_types
     if excluded_types:
         payload["excludedTypes"] = excluded_types
 
@@ -216,15 +224,19 @@ async def discover_for_zone(
     api_key: str | None = None,
     max_results_per_keyword: int = 20,
 ) -> tuple[list[PlaceCandidate], int]:
-    """Run Places Nearby for one zone × all sector keywords.
+    """Run Places Nearby for one zone, narrowed by sector primary types.
 
-    Strategy: one Nearby call per keyword in ``sector_config.places_keywords``.
-    Hits are deduplicated by ``place_id`` (the same business showing up
-    under multiple keyword variants). The dedupe preserves the FIRST
-    hit's keyword on the `discovery_keyword` field for audit.
+    Replaces the previous keyword-based logic which Google Places (New)
+    silently ignored — the API only accepts a fixed taxonomy of primary
+    types via ``includedPrimaryTypes``. Without that filter the search
+    returned every POI in a 1500m radius (e.g. the famous "Da Gigione
+    Macelleria" tagged industry_heavy because it sat inside an OSM
+    industrial polygon).
 
-    Returns (candidates, calls_made) so the caller can update the cost
-    accumulator. Each call is `NEARBY_COST_CENTS`.
+    Strategy: ONE Nearby call per zone, with ``includedPrimaryTypes``
+    derived from ``sector_config.wizard_group`` via the static map in
+    ``places_to_sector.py``. Returns (candidates, calls_made) so the
+    caller can update the cost accumulator (``NEARBY_COST_CENTS``).
     """
     key = api_key or settings.google_places_api_key
     if not key:
@@ -234,11 +246,17 @@ async def discover_for_zone(
         )
         return [], 0
 
-    keywords = sector_config.places_keywords or []
-    if not keywords:
+    sector = getattr(sector_config, "wizard_group", None)
+    included_types = included_types_for_sector(sector or "")
+    if not included_types:
+        # No primary-type mapping for this sector — we'd otherwise fall back
+        # to a wide-net Nearby (the old behaviour), which is exactly the
+        # bug we're fixing. Skip with a loud log so the operator can
+        # extend places_to_sector._SECTOR_TO_INCLUDED_TYPES.
         log.warning(
-            "places_discovery.skip_no_keywords",
-            sector=getattr(sector_config, "wizard_group", "?"),
+            "places_discovery.skip_no_included_types",
+            sector=sector,
+            note="sector has no Google primary type mapping; refusing to fall back to wide-net Nearby",
         )
         return [], 0
 
@@ -249,62 +267,53 @@ async def discover_for_zone(
         client = httpx.AsyncClient(timeout=10.0)
 
     try:
+        try:
+            raw = await _places_nearby_call(
+                lat=centroid_lat,
+                lng=centroid_lng,
+                radius_m=radius,
+                included_types=included_types,
+                excluded_types=sector_config.places_excluded_types or None,
+                max_results=max_results_per_keyword,
+                client=client,
+                api_key=key,
+            )
+            calls = 1
+        except (httpx.HTTPError, httpx.TimeoutException) as exc:
+            log.warning(
+                "places_discovery.call_error",
+                sector=sector,
+                err=type(exc).__name__,
+            )
+            return [], 0
+
         deduped: dict[str, PlaceCandidate] = {}
-        calls = 0
-
-        for kw in keywords:
-            # Places (New) Nearby doesn't take a free-text "keyword" the way
-            # legacy Places did. Best-effort: we issue one Nearby call with
-            # the included_types blank but excluded_types from the sector,
-            # then post-filter results by checking the keyword against the
-            # display_name. This still benefits from sector_config and is
-            # cheap; full keyword fan-out via textSearch can be added later.
-            try:
-                raw = await _places_nearby_call(
-                    lat=centroid_lat,
-                    lng=centroid_lng,
-                    radius_m=radius,
-                    excluded_types=sector_config.places_excluded_types or None,
-                    max_results=max_results_per_keyword,
-                    client=client,
-                    api_key=key,
-                )
-            except (httpx.HTTPError, httpx.TimeoutException) as exc:
-                log.warning(
-                    "places_discovery.call_error",
-                    keyword=kw,
-                    err=type(exc).__name__,
-                )
+        for raw_place in raw:
+            cand = _parse_place(raw_place)
+            if cand is None or cand.place_id in deduped:
                 continue
-            calls += 1
-
-            for raw_place in raw:
-                cand = _parse_place(raw_place)
-                if cand is None or cand.place_id in deduped:
-                    continue
-                # Soft keyword match on display_name — keep candidates whose
-                # name contains any of the sector keyword tokens (lowercased).
-                # If the name is missing, accept (nearby type filter already
-                # narrowed things down).
-                cand.discovery_keyword = kw
-                deduped[cand.place_id] = cand
-
-            # One Nearby call already returns up to 20 results, and the
-            # Places (New) API doesn't honour a free-text keyword, so
-            # repeating the call for every kw would be wasteful. Break
-            # after the first successful call — the keyword diversity is
-            # captured in the sector config metadata, not in extra calls.
-            if calls >= 1 and deduped:
-                break
+            # Stamp the included-types we asked for so we can audit which
+            # sector hint produced the hit (also surfaced in the dashboard
+            # /contatti row for triage).
+            cand.discovery_keyword = ",".join(included_types)
+            deduped[cand.place_id] = cand
 
         candidates = list(deduped.values())
-        # Apply the explicit exclusion blocklist as a final sweep
-        # (server-side excludedTypes covers most cases but we double-check
-        # since the field mask doesn't always echo the full type list).
+        # Server-side excludedTypes covers most cases; this final sweep
+        # double-checks because the field mask doesn't always echo the
+        # complete `types` list.
         candidates = filter_candidates(
             candidates, excluded_types=sector_config.places_excluded_types or []
         )
 
+        log.info(
+            "places_discovery.zone_done",
+            sector=sector,
+            included_types=included_types,
+            radius_m=radius,
+            results=len(candidates),
+            calls=calls,
+        )
         return candidates, calls
     finally:
         if owns_client:

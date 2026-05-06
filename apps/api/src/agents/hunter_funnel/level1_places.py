@@ -36,6 +36,7 @@ from ...services.places_discovery import (
     PlaceCandidate,
     discover_for_zone,
 )
+from ...services.places_to_sector import classify_place
 from ...services.sector_target_service import (
     SectorAreaMapping,
     _warm_cache,
@@ -83,6 +84,18 @@ async def run_level1_places(ctx: FunnelV3Context) -> list[PlaceCandidateRecord]:
         if cfg is not None:
             sector_configs[s] = cfg
 
+    # The set of *target* sectors for this tenant — union of every
+    # zone's matched_sectors plus the primary_sectors. Used as a strict
+    # allow-list when classifying candidates by their place.types, so a
+    # restaurant that somehow slipped past the includedPrimaryTypes
+    # filter (Google occasionally tags businesses with unexpected
+    # primary types) won't end up in the leads if horeca isn't a target.
+    target_sectors: set[str] = set(sectors_in_play)
+    for z in zones:
+        for s in (z.get("matched_sectors") or []):
+            if isinstance(s, str):
+                target_sectors.add(s)
+
     # 4) Iterate zones, fan out Places Nearby calls. Cross-zone dedupe by
     #    place_id. We keep the FIRST match (highest-score zone first since
     #    we ordered DESC above), preserving the candidate's "best zone" tag.
@@ -120,8 +133,32 @@ async def run_level1_places(ctx: FunnelV3Context) -> list[PlaceCandidateRecord]:
         for cand in candidates:
             if cand.place_id in all_candidates:
                 continue
+            # Sector classification: prefer the business's actual Google
+            # `place.types` (most reliable signal), fall back to the zone
+            # primary sector only when types are missing or generic. This
+            # is the fix for the "Da Gigione → industry_heavy" mis-tag we
+            # saw in the May 5 baseline run — the butcher shop was inside
+            # an OSM industrial polygon but its primary type is restaurant.
+            type_based = classify_place(cand.types)
+            resolved_sector = type_based or sector
+
+            # Strict allow-list: if the resolved sector isn't one the
+            # tenant targets, drop the candidate. The includedPrimaryTypes
+            # API filter usually catches this server-side, but Google
+            # occasionally returns businesses tagged with unexpected
+            # secondary types — we don't want a horeca slip-through to
+            # reach the (paid) Solar API call at L4.
+            if resolved_sector not in target_sectors:
+                log.debug(
+                    "level1_places.candidate_off_target",
+                    place_id=cand.place_id,
+                    resolved_sector=resolved_sector,
+                    target_sectors=sorted(target_sectors),
+                )
+                continue
+
             cand.discovered_in_zone_id = str(z["id"])
-            cand.discovered_for_sector = sector
+            cand.discovered_for_sector = resolved_sector
             all_candidates[cand.place_id] = (cand, z)
 
     # 5) Cost accounting.
