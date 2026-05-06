@@ -279,6 +279,88 @@ def create_list(
     return list_row
 
 
+def create_places_list(
+    *,
+    tenant_id: str,
+    name: str,
+    description: str | None,
+    search_filter: dict[str, Any],
+    items: list[dict[str, Any]],
+    created_by: str | None = None,
+) -> dict[str, Any]:
+    """Persist a Places-based prospect list.
+
+    `items` are flat dicts shaped like ``ProspectorPlace`` from
+    ``places_prospector_service`` (google_place_id, display_name,
+    formatted_address, lat, lng, types, business_status,
+    user_ratings_total, rating, website, phone, google_maps_uri).
+
+    The persisted rows have ``validation_status='pending'`` so the
+    on-demand convalida task can pick them up.
+    """
+    sb = get_service_client()
+
+    list_payload = {
+        "tenant_id": tenant_id,
+        "name": name,
+        "description": description,
+        "search_filter": search_filter,
+        "item_count": len(items),
+        "created_by": created_by,
+        "source": "places",
+    }
+    inserted = sb.table("prospect_lists").insert(list_payload).execute()
+    if not inserted.data:
+        raise RuntimeError("prospect_lists insert returned no row")
+    list_row = inserted.data[0]
+    list_id = list_row["id"]
+
+    if items:
+        # Dedup within the page on google_place_id (the operator might
+        # double-submit; the unique index also enforces this DB-side).
+        seen: set[str] = set()
+        rows: list[dict[str, Any]] = []
+        for it in items:
+            place_id = it.get("google_place_id")
+            if not place_id or place_id in seen:
+                continue
+            seen.add(place_id)
+            rows.append({
+                "list_id": list_id,
+                "tenant_id": tenant_id,
+                # vat_number is now nullable — Places-based items don't
+                # have a P.IVA until L2 scraping extracts one. legal_name
+                # is still NOT NULL: use display_name as canonical name.
+                "vat_number": None,
+                "legal_name": it.get("display_name") or "(Senza nome)",
+                "hq_address": it.get("formatted_address"),
+                "google_place_id": place_id,
+                "place_lat": it.get("lat"),
+                "place_lng": it.get("lng"),
+                "place_types": it.get("types") or [],
+                "business_status": it.get("business_status"),
+                "user_ratings_total": it.get("user_ratings_total"),
+                "rating": it.get("rating"),
+                "website_domain": it.get("website"),
+                "phone": it.get("phone"),
+                "google_maps_uri": it.get("google_maps_uri"),
+                "validation_status": "pending",
+                "atoka_payload": {},  # NOT NULL with empty default
+            })
+
+        if rows:
+            for chunk_start in range(0, len(rows), 500):
+                chunk = rows[chunk_start:chunk_start + 500]
+                sb.table("prospect_list_items").insert(chunk).execute()
+
+            sb.table("prospect_lists").update(
+                {"item_count": len(rows)}
+            ).eq("id", list_id).execute()
+            list_row["item_count"] = len(rows)
+
+    return list_row
+
+
 def list_lists(*, tenant_id: str, page: int = 1, page_size: int = 50) -> dict[str, Any]:
     """Index of saved lists for a tenant (most recent first)."""
     sb = get_service_client()

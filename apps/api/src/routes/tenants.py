@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, status
+from pydantic import BaseModel
 
 from ..core.logging import get_logger
 from ..core.security import CurrentUser, require_tenant
@@ -56,6 +57,8 @@ async def update_my_tenant(ctx: CurrentUser, payload: dict[str, object]) -> dict
         "responsabile_tecnico_codice_fiscale",
         "responsabile_tecnico_qualifica",
         "responsabile_tecnico_iscrizione_albo",
+        # Auto follow-up cron toggle (migration 0107).
+        "followup_auto_enabled",
     }
     update = {k: v for k, v in payload.items() if k in allowed}
     if not update:
@@ -92,3 +95,31 @@ async def get_usage(ctx: CurrentUser) -> dict[str, object]:
         "postcards_sent_mtd": 0,
         "total_cost_eur": 0.0,
     }
+
+
+class FollowupAutoToggleInput(BaseModel):
+    enabled: bool
+
+
+@router.post("/me/followup-auto-toggle")
+async def followup_auto_toggle(
+    body: FollowupAutoToggleInput, ctx: CurrentUser
+) -> dict[str, object]:
+    """Enable/disable the automatic follow-up cron for the caller's tenant.
+
+    When disabled, both `follow_up_cron` (cold cadence) and
+    `engagement_followup_cron` (engagement-based scenarios) skip every
+    lead belonging to this tenant. Manual sends from /leads/follow-up
+    keep working independently.
+    """
+    tenant_id = require_tenant(ctx)
+    sb = get_service_client()
+    sb.table("tenants").update(
+        {"followup_auto_enabled": body.enabled}
+    ).eq("id", tenant_id).execute()
+    log.info(
+        "tenants.followup_auto_toggled",
+        tenant_id=tenant_id,
+        enabled=body.enabled,
+    )
+    return {"ok": True, "followup_auto_enabled": body.enabled}

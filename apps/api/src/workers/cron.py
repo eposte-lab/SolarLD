@@ -87,12 +87,17 @@ async def follow_up_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
     sb = get_service_client()
     now = datetime.now(timezone.utc)
     cutoff = (now - timedelta(days=STEP_2_DELAY_DAYS)).isoformat()
+    # 24h cooldown — if the operator manually sent a follow-up to a
+    # lead in the last 24 hours, the cron skips that lead to avoid
+    # duplicates. Set by /v1/leads/{id}/send-draft + /v1/followup/bulk-draft
+    # when `is_manual=true`.
+    manual_cooldown = (now - timedelta(hours=24)).isoformat()
 
     leads_res = (
         sb.table("leads")
         .select(
             "id, tenant_id, pipeline_status, outreach_channel, "
-            "outreach_sent_at, best_send_hour"
+            "outreach_sent_at, best_send_hour, last_followup_sent_at"
         )
         .eq("outreach_channel", OutreachChannel.EMAIL.value)
         .in_(
@@ -116,7 +121,7 @@ async def follow_up_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
             return tenant_cache[tid]
         res = (
             sb.table("tenants")
-            .select("id, settings")
+            .select("id, settings, followup_auto_enabled")
             .eq("id", tid)
             .limit(1)
             .execute()
@@ -129,6 +134,24 @@ async def follow_up_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
     deferred = 0
     skipped_reasons: dict[str, int] = {}
     for lead in leads:
+        # 1) Tenant-level toggle — if the operator disabled the auto
+        #    follow-up cron in /leads/follow-up, skip the whole tenant.
+        tenant_row = _get_tenant(lead["tenant_id"])
+        if tenant_row and tenant_row.get("followup_auto_enabled") is False:
+            skipped_reasons["auto_disabled"] = (
+                skipped_reasons.get("auto_disabled", 0) + 1
+            )
+            continue
+
+        # 2) Manual-send cooldown — operator sent a follow-up in the
+        #    last 24h, give it room to land before the cron piles on.
+        last_manual = lead.get("last_followup_sent_at")
+        if last_manual and last_manual > manual_cooldown:
+            skipped_reasons["manual_cooldown_24h"] = (
+                skipped_reasons.get("manual_cooldown_24h", 0) + 1
+            )
+            continue
+
         campaigns = (
             sb.table("outreach_sends")
             .select("sequence_step, status, sent_at, channel")
@@ -149,7 +172,6 @@ async def follow_up_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
         # (falls back to tenant default / 09 UTC). The outreach task
         # is idempotent and Redis holds deferred jobs durably, so this
         # just shifts the fire-time, not the semantics.
-        tenant_row = _get_tenant(lead["tenant_id"])
         send_at = pick_next_send_time(
             lead_row=lead, tenant_row=tenant_row, now=now
         )
@@ -739,6 +761,19 @@ async def engagement_followup_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
     sb = get_service_client()
     now = datetime.now(timezone.utc)
     cold_cutoff = (now - timedelta(days=STEP_4_DELAY_DAYS + 1)).isoformat()
+    manual_cooldown = (now - timedelta(hours=24)).isoformat()
+
+    # Tenants that have disabled the auto follow-up cron — skip every
+    # lead belonging to them. Single SELECT keeps the cron fast.
+    disabled_tenants_res = (
+        sb.table("tenants")
+        .select("id")
+        .eq("followup_auto_enabled", False)
+        .execute()
+    )
+    disabled_tenant_ids = {
+        str(r["id"]) for r in (disabled_tenants_res.data or [])
+    }
 
     # Pull leads worth evaluating: have an initial outreach, not in
     # terminal states, and either currently engaged (score > 0) OR
@@ -770,6 +805,19 @@ async def engagement_followup_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
     skipped: dict[str, int] = {}
 
     for lead in leads:
+        # Skip tenants with auto follow-up disabled.
+        if str(lead.get("tenant_id")) in disabled_tenant_ids:
+            skipped["auto_disabled"] = skipped.get("auto_disabled", 0) + 1
+            continue
+
+        # Skip lead with manual follow-up in the last 24h (cooldown).
+        last_manual = lead.get("last_followup_sent_at")
+        if last_manual and last_manual > manual_cooldown:
+            skipped["manual_cooldown_24h"] = (
+                skipped.get("manual_cooldown_24h", 0) + 1
+            )
+            continue
+
         # Detect cold-cadence completion: step 4 sent, OR initial send
         # is older than the breakup-day cutoff (sequence will never fire
         # step 4 anyway because the lead is silent).

@@ -382,4 +382,12 @@ async def _send_followup(
         "status": "sent",
         "sent_at": now_iso,
         "email_subject": subject,
+        # Bulk drafts triggered by the operator → manual flag + cooldown.
+        "is_manual": True,
     }).execute()
+
+    # Register the manual follow-up so the auto-cron skips this lead
+    # for 24h (see workers/cron.py manual_cooldown).
+    sb.table("leads").update(
+        {"last_followup_sent_at": now_iso}
+    ).eq("id", lead_id).execute()

@@ -28,6 +28,8 @@ from ..core.supabase_client import get_service_client
 from ..services.b2c_qualify_service import qualify_b2c_lead
 from ..services.crm_webhook_service import dispatch_event as crm_dispatch
 from ..services.industrial_zones_mapper import map_target_areas_for_tenant
+from ..services.prospect_list_outreach import launch_outreach_for_list
+from ..services.prospect_list_validation import validate_prospect_list
 from ..services.tenant_config_service import get_for_tenant as get_tenant_config
 from ..agents.hunter_funnel.orchestrator_v3 import run_funnel_v3
 from .cron import (
@@ -85,6 +87,40 @@ async def creative_task(_ctx: dict[str, Any], payload: dict[str, Any]) -> dict[s
 async def outreach_task(_ctx: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
     out = await OutreachAgent().run(OutreachInput(**payload))
     return out.model_dump()
+
+
+async def validate_prospect_list_task(
+    _ctx: dict[str, Any], payload: dict[str, Any]
+) -> dict[str, Any]:
+    """ARQ task: convalida v3 (L2+L3+L4) on a prospect list. Triggered
+    by `POST /v1/prospector/lists/{id}/validate`."""
+    res = await validate_prospect_list(
+        tenant_id=payload["tenant_id"], list_id=payload["list_id"]
+    )
+    return {
+        "list_id": res.list_id,
+        "total": res.total,
+        "processed": res.processed,
+        "by_status": res.by_status,
+    }
+
+
+async def launch_outreach_for_list_task(
+    _ctx: dict[str, Any], payload: dict[str, Any]
+) -> dict[str, Any]:
+    """ARQ task: promote accepted items to leads + queue creative +
+    outreach. Triggered by `POST /v1/prospector/lists/{id}/launch-outreach`."""
+    res = await launch_outreach_for_list(
+        tenant_id=payload["tenant_id"], list_id=payload["list_id"]
+    )
+    return {
+        "list_id": res.list_id,
+        "promoted": res.promoted,
+        "skipped": res.skipped,
+        "failed": res.failed,
+        "creative_queued": res.creative_queued,
+        "outreach_queued": res.outreach_queued,
+    }
 
 
 async def tracking_task(_ctx: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
@@ -486,6 +522,8 @@ class WorkerSettings:
         extract_practice_upload_task,
         map_target_areas_task,
         hunter_funnel_v3_task,
+        validate_prospect_list_task,
+        launch_outreach_for_list_task,
     ]
     # Scheduled jobs (UTC):
     #   :00 every hour   → deliverability_hourly_cron   (bounce/complaint spike check)

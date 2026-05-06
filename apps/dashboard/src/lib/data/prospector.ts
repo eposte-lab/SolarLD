@@ -1,17 +1,9 @@
 /**
  * Prospector — client-side bindings for the FastAPI /v1/prospector surface.
  *
- * Lives in lib/data so feature components can do a one-line import without
- * worrying about auth headers or path prefixes. Pure types + thin wrappers
- * over `apiClient` — no React, no DOM.
- *
- * Why client-side instead of server data-loader (like contatti.ts):
- *   • The Atoka discovery search needs API_KEY rotation/budgeting that
- *     lives in the FastAPI process, not in the dashboard's Supabase JWT.
- *   • Saved-list reads could go via Supabase server client, but keeping
- *     all prospector traffic on one side avoids a split where create()
- *     uses the API and read() uses Supabase, which is a footgun for
- *     subtle RLS/latency mismatches.
+ * v3 (Sprint maggio 2026): la ricerca usa Google Places, non più Atoka.
+ * Le liste salvate possono essere convalidate per il fotovoltaico
+ * (esegue L2-L4 funnel inline) e poi avviare outreach on-demand.
  */
 import { api } from '@/lib/api-client';
 
@@ -19,57 +11,45 @@ import { api } from '@/lib/api-client';
 // Types
 // ---------------------------------------------------------------------------
 
-/** ATECO preset chip surfaced in the search form. */
-export interface AtecoPreset {
-  label: string;
-  ateco_codes: string[];
-  description: string;
+/** A single Places hit returned by /v1/prospector/search. */
+export interface ProspectorPlace {
+  google_place_id: string;
+  display_name: string | null;
+  formatted_address: string | null;
+  lat: number;
+  lng: number;
+  types: string[];
+  business_status: string | null;
+  user_ratings_total: number | null;
+  rating: number | null;
+  website: string | null;
+  phone: string | null;
+  google_maps_uri: string | null;
 }
 
-/** Flat result row — shape mirrors `prospector_service._profile_to_dict`. */
-export interface ProspectorItem {
-  vat_number: string | null;
-  legal_name: string | null;
-  ateco_code: string | null;
-  ateco_description: string | null;
-  employees: number | null;
-  revenue_eur: number | null;
-  hq_address: string | null;
-  hq_cap: string | null;
-  hq_city: string | null;
-  hq_province: string | null;
-  hq_lat: number | null;
-  hq_lng: number | null;
-  website_domain: string | null;
-  decision_maker_name: string | null;
-  decision_maker_role: string | null;
-  decision_maker_email: string | null;
-  linkedin_url: string | null;
-  raw?: Record<string, unknown>;
-}
-
+/** v3 search input. Settore + comune/provincia required at API level. */
 export interface SearchInput {
-  ateco_codes: string[];
+  sector: string;
   province_code?: string;
-  region_code?: string;
-  employees_min?: number;
-  employees_max?: number;
-  revenue_min_eur?: number;
-  revenue_max_eur?: number;
+  comune?: string;
+  radius_km?: number;
   keyword?: string;
   limit?: number;
-  offset?: number;
-  preset_code?: string;
 }
 
 export interface SearchResponse {
-  items: ProspectorItem[];
+  items: ProspectorPlace[];
   count: number;
-  limit: number;
-  offset: number;
-  estimated_cost_eur: number;
-  error?: string;
 }
+
+export type ValidationStatus =
+  | 'pending'
+  | 'validating'
+  | 'accepted'
+  | 'rejected'
+  | 'no_building'
+  | 'api_error'
+  | 'skipped';
 
 export interface ProspectList {
   id: string;
@@ -85,29 +65,34 @@ export interface ProspectList {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+  // v3 lifecycle
+  source: 'atoka' | 'places' | null;
+  validation_started_at: string | null;
+  validation_completed_at: string | null;
+  outreach_started_at: string | null;
+  outreach_completed_at: string | null;
 }
 
 export interface ProspectListItem {
   id: string;
   list_id: string;
   tenant_id: string;
-  vat_number: string;
+  vat_number: string | null;
   legal_name: string;
-  ateco_code: string | null;
-  ateco_description: string | null;
-  employees: number | null;
-  revenue_eur: number | null;
   hq_address: string | null;
-  hq_cap: string | null;
-  hq_city: string | null;
-  hq_province: string | null;
-  hq_lat: number | null;
-  hq_lng: number | null;
+  google_place_id: string | null;
+  place_lat: number | null;
+  place_lng: number | null;
+  place_types: string[] | null;
+  business_status: string | null;
+  user_ratings_total: number | null;
+  rating: number | null;
   website_domain: string | null;
-  decision_maker_name: string | null;
-  decision_maker_role: string | null;
-  decision_maker_email: string | null;
-  linkedin_url: string | null;
+  phone: string | null;
+  google_maps_uri: string | null;
+  validation_status: ValidationStatus;
+  validated_at: string | null;
+  scan_candidate_id: string | null;
   imported_subject_id: string | null;
   imported_at: string | null;
   created_at: string;
@@ -117,30 +102,36 @@ export interface CreateListInput {
   name: string;
   description?: string;
   search_filter: Record<string, unknown>;
-  preset_code?: string;
-  items: ProspectorItem[];
+  items: ProspectorPlace[];
+}
+
+export interface ValidateStatusResponse {
+  list_id: string;
+  started_at: string | null;
+  completed_at: string | null;
+  item_count: number;
+  by_status: Record<string, number>;
+}
+
+export interface OutreachStatusResponse {
+  list_id: string;
+  started_at: string | null;
+  completed_at: string | null;
+  accepted_count: number;
 }
 
 // ---------------------------------------------------------------------------
 // API surface
 // ---------------------------------------------------------------------------
 
-export async function fetchPresets(): Promise<Record<string, AtecoPreset>> {
-  const res = await api.get<{ presets: Record<string, AtecoPreset> }>(
-    '/v1/prospector/presets',
-  );
-  return res.presets;
+/** Available sectors (wizard_groups) for the form dropdown. */
+export async function fetchSectors(): Promise<string[]> {
+  const res = await api.get<{ sectors: string[] }>('/v1/prospector/presets');
+  return res.sectors;
 }
 
 export async function searchProspector(input: SearchInput): Promise<SearchResponse> {
   return api.post<SearchResponse>('/v1/prospector/search', input);
-}
-
-export async function estimateCost(recordCount: number): Promise<number> {
-  const res = await api.get<{ record_count: number; estimated_cost_eur: number }>(
-    `/v1/prospector/cost-estimate?record_count=${recordCount}`,
-  );
-  return res.estimated_cost_eur;
 }
 
 export async function createList(input: CreateListInput): Promise<ProspectList> {
@@ -177,4 +168,32 @@ export async function getProspectList(
 
 export async function deleteProspectList(listId: string): Promise<void> {
   await api.delete(`/v1/prospector/lists/${listId}`);
+}
+
+// ---------------------------------------------------------------------------
+// v3 — Validation + Outreach launch
+// ---------------------------------------------------------------------------
+
+export async function validateProspectList(
+  listId: string,
+): Promise<{ queued: boolean; job_id: string }> {
+  return api.post(`/v1/prospector/lists/${listId}/validate`, {});
+}
+
+export async function getValidateStatus(
+  listId: string,
+): Promise<ValidateStatusResponse> {
+  return api.get(`/v1/prospector/lists/${listId}/validate/status`);
+}
+
+export async function launchOutreachForList(
+  listId: string,
+): Promise<{ queued: boolean; job_id: string }> {
+  return api.post(`/v1/prospector/lists/${listId}/launch-outreach`, {});
+}
+
+export async function getOutreachStatus(
+  listId: string,
+): Promise<OutreachStatusResponse> {
+  return api.get(`/v1/prospector/lists/${listId}/outreach/status`);
 }

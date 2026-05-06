@@ -946,6 +946,9 @@ async def send_draft(
                 "scheduled_for": now_iso,
                 "sent_at": now_iso,
                 "cost_cents": 1,
+                # Mark as manually triggered → cron skips this lead for
+                # 24h (see workers/cron.py manual_cooldown logic).
+                "is_manual": True,
             }
         )
         .select("id")
@@ -953,13 +956,13 @@ async def send_draft(
     )
     campaign_id = (camp_res.data or [{}])[0].get("id") or ""
 
-    # Advance lead timestamps
-    lead_update: dict[str, Any] = {}
+    # Advance lead timestamps + register the manual follow-up so the
+    # cron skip kicks in.
+    lead_update: dict[str, Any] = {"last_followup_sent_at": now_iso}
     if not lead.get("outreach_sent_at"):
         lead_update["outreach_sent_at"] = now_iso
         lead_update["outreach_channel"] = "email"
-    if lead_update:
-        sb.table("leads").update(lead_update).eq("id", lead_id).execute()
+    sb.table("leads").update(lead_update).eq("id", lead_id).execute()
 
     # Audit event
     try:

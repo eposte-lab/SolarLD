@@ -20,6 +20,7 @@ import { BentoCard } from '@/components/ui/bento-card';
 import { getCurrentTenantContext } from '@/lib/data/tenant';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { cn, relativeTime } from '@/lib/utils';
+import { FollowupAutoToggle } from '@/components/follow-up/auto-toggle';
 import { FollowupTrigger } from '@/components/follow-up/followup-trigger';
 import { FollowupBulkPanel } from '@/components/follow-up/followup-bulk-panel';
 
@@ -74,6 +75,17 @@ export default async function FollowupPage() {
     .not('outreach_sent_at', 'is', null)
     .not('pipeline_status', 'in', '(closed_won,closed_lost,blacklisted)');
 
+  // Read the per-tenant auto-cron toggle (migration 0107). Default
+  // ON for tenants on releases prior to the migration.
+  const { data: tenantRow } = await supabase
+    .from('tenants')
+    .select('followup_auto_enabled')
+    .eq('id', ctx.tenant.id)
+    .limit(1)
+    .single();
+  const followupAutoEnabled =
+    tenantRow?.followup_auto_enabled !== false;
+
   return (
     <div className="space-y-6">
       <header>
@@ -89,6 +101,11 @@ export default async function FollowupPage() {
           personalizzato.
         </p>
       </header>
+
+      {/* Toggle on/off del cron automatico --------------------------- */}
+      <BentoCard span="full">
+        <FollowupAutoToggle initialEnabled={followupAutoEnabled} />
+      </BentoCard>
 
       {/* Trigger automatico ------------------------------------------- */}
       <BentoCard span="full">
