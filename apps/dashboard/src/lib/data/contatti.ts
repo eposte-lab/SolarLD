@@ -54,6 +54,14 @@ export interface ContattiSummary {
   l4_no_building: number;
   l4_skipped: number;      // solar_verdict = 'skipped_below_gate'
   total: number;           // = l1 (all stage >= 1)
+  // ─── v3 metrics — qualitative aggregates over `accepted` rows ───
+  // These power the redesigned KPI strip on /contatti. Computed
+  // in-memory after a single SELECT on the qualified candidates,
+  // so cost is bounded by `l4_qualified` (typically <500/tenant).
+  total_kwp_installable: number;     // SUM(solar_kw_installable) on accepted
+  avg_overall_score: number | null;  // AVG(proxy_score_data.overall_score)
+  valid_email_count: number;         // count with best_email AND not flagged
+                                     // disposable/free_email_provider_b2b
 }
 
 export interface ScanFunnelData {
@@ -166,7 +174,7 @@ export async function listContatti(opts: {
   return { rows, total: count ?? 0 };
 }
 
-/** Stage counts for the header summary strip. */
+/** Stage counts + v3 quality aggregates for the header summary strip. */
 export async function getContattiSummary(): Promise<ContattiSummary> {
   const sb = await createSupabaseServerClient();
 
@@ -189,16 +197,92 @@ export async function getContattiSummary(): Promise<ContattiSummary> {
     return count ?? 0;
   };
 
-  const [l1, l2, l3, l4_qualified, l4_rejected, l4_no_building, l4_skipped] =
-    await Promise.all([
-      countGte(1),
-      countGte(2),
-      countGte(3),
-      countVerdict('accepted'),
-      countVerdict('rejected_tech'),
-      countVerdict('no_building'),
-      countVerdict('skipped_below_gate'),
-    ]);
+  // Single-pass aggregate over `accepted` rows — needed for the new
+  // KPI strip (kWp totali, score AI medio, email valida). Bounded by
+  // l4_qualified, which is typically <500 per tenant. We select only
+  // the 3 columns that feed the aggregates.
+  const fetchQualifiedAggregates = async (): Promise<{
+    total_kwp_installable: number;
+    avg_overall_score: number | null;
+    valid_email_count: number;
+  }> => {
+    const { data, error } = await sb
+      .from('scan_candidates')
+      .select('solar_kw_installable, proxy_score_data, contact_extraction')
+      .eq('stage', 4)
+      .eq('solar_verdict', 'accepted');
+    if (error || !data) {
+      return {
+        total_kwp_installable: 0,
+        avg_overall_score: null,
+        valid_email_count: 0,
+      };
+    }
+
+    let kwpSum = 0;
+    let scoreSum = 0;
+    let scoreCount = 0;
+    let validEmail = 0;
+
+    for (const r of data as Array<{
+      solar_kw_installable: number | null;
+      proxy_score_data: Record<string, unknown> | null;
+      contact_extraction: Record<string, unknown> | null;
+    }>) {
+      // kWp totali
+      if (typeof r.solar_kw_installable === 'number') {
+        kwpSum += r.solar_kw_installable;
+      }
+      // Score AI medio
+      const overall = r.proxy_score_data?.overall_score;
+      if (typeof overall === 'number') {
+        scoreSum += overall;
+        scoreCount += 1;
+      }
+      // Email valida = best_email presente AND no flag disposable/free.
+      // Allineato con il validatore anti-spam (services/lead_quality_validator.py):
+      // tutti gli account "consumer" (gmail/yahoo/libero/...) sono
+      // esclusi perché non rappresentano un vero contatto B2B.
+      const email = r.contact_extraction?.best_email;
+      if (typeof email === 'string' && email) {
+        const flags = Array.isArray(r.proxy_score_data?.flags)
+          ? (r.proxy_score_data!.flags as string[])
+          : [];
+        if (
+          !flags.includes('disposable_email') &&
+          !flags.includes('free_email_provider_b2b')
+        ) {
+          validEmail += 1;
+        }
+      }
+    }
+
+    return {
+      total_kwp_installable: Math.round(kwpSum),
+      avg_overall_score: scoreCount > 0 ? Math.round(scoreSum / scoreCount) : null,
+      valid_email_count: validEmail,
+    };
+  };
+
+  const [
+    l1,
+    l2,
+    l3,
+    l4_qualified,
+    l4_rejected,
+    l4_no_building,
+    l4_skipped,
+    aggregates,
+  ] = await Promise.all([
+    countGte(1),
+    countGte(2),
+    countGte(3),
+    countVerdict('accepted'),
+    countVerdict('rejected_tech'),
+    countVerdict('no_building'),
+    countVerdict('skipped_below_gate'),
+    fetchQualifiedAggregates(),
+  ]);
 
   return {
     l1,
@@ -209,6 +293,7 @@ export async function getContattiSummary(): Promise<ContattiSummary> {
     l4_no_building,
     l4_skipped,
     total: l1,
+    ...aggregates,
   };
 }
 

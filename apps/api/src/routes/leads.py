@@ -114,7 +114,20 @@ async def list_leads(
     tier: Literal["hot", "warm", "cold", "rejected"] | None = Query(default=None),
     channel: Literal["email", "postal"] | None = Query(default=None),
     page: int = Query(default=1, ge=1),
-    per_page: int = Query(default=20, ge=1, le=100),
+    per_page: int = Query(default=20, ge=1, le=200),
+    # ─── Follow-up filter slice (used by /leads/follow-up panel) ─────
+    # When the operator picks "Filtri" in the bulk follow-up selector
+    # we want a single endpoint that mirrors the cron's eligibility
+    # logic: score floor, engagement floor, age-of-outreach floor,
+    # multiple pipeline statuses simultaneously.
+    score_min: int | None = Query(default=None, ge=0, le=100),
+    engagement_min: int | None = Query(default=None, ge=0, le=100),
+    days_since_outreach_min: int | None = Query(default=None, ge=0, le=365),
+    pipeline_status_in: str | None = Query(
+        default=None,
+        description="CSV of pipeline_status values (e.g. 'sent,clicked,engaged'). "
+        "Use INSTEAD of `status=` when you need an OR across multiple states.",
+    ),
 ) -> dict[str, object]:
     tenant_id = require_tenant(ctx)
     sb = get_service_client()
@@ -126,6 +139,27 @@ async def list_leads(
         query = query.eq("score_tier", tier)
     if channel:
         query = query.eq("outreach_channel", channel)
+
+    # Follow-up selector filters — applied additively. All optional.
+    if score_min is not None:
+        query = query.gte("score", score_min)
+    if engagement_min is not None:
+        query = query.gte("engagement_score", engagement_min)
+    if days_since_outreach_min is not None:
+        # `outreach_sent_at <= now() - N days` AND outreach_sent_at NOT NULL
+        from datetime import timedelta
+
+        cutoff = (
+            datetime.now(timezone.utc)
+            - timedelta(days=days_since_outreach_min)
+        ).isoformat()
+        query = query.not_.is_("outreach_sent_at", "null").lte(
+            "outreach_sent_at", cutoff
+        )
+    if pipeline_status_in:
+        statuses = [s.strip() for s in pipeline_status_in.split(",") if s.strip()]
+        if statuses:
+            query = query.in_("pipeline_status", statuses)
 
     offset = (page - 1) * per_page
     res = (

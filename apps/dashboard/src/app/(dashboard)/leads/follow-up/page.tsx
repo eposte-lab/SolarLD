@@ -143,7 +143,10 @@ export default async function FollowupPage() {
           di inviare oppure spedirle tutte in una volta.
         </p>
         <div className="mt-5">
-          <FollowupBulkPanel tenantId={ctx.tenant.id} />
+          <FollowupBulkPanel
+            tenantId={ctx.tenant.id}
+            autoCronEnabled={followupAutoEnabled}
+          />
         </div>
       </BentoCard>
 

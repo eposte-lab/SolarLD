@@ -273,6 +273,15 @@ export interface LeadV3Signal {
   predicted_sector: string | null;
   sector_confidence: number | null;
   predicted_ateco_codes: string[];
+  // ─── Display fallbacks for /leads/[id] ──────────────────────────────
+  // These come from the same scan_candidates row but are exposed
+  // separately so the lead detail page can fall back to v3 data when
+  // the legacy `subjects.*` / `roofs.*` columns are NULL (typical for
+  // freshly-promoted v3 leads).
+  display_name: string | null;          // enrichment.places.display_name
+  formatted_address: string | null;     // enrichment.places.formatted_address
+  best_email: string | null;            // contact_extraction.best_email
+  best_phone: string | null;            // contact_extraction.decision_maker_phone ?? best_phone
 }
 
 export async function getLeadV3Signal(
@@ -304,7 +313,7 @@ export async function getLeadV3Signal(
     .from('scan_candidates')
     .select(
       'google_place_id, building_quality_score, proxy_score_data, scraped_data, enrichment, ' +
-      'predicted_sector, sector_confidence, predicted_ateco_codes',
+      'contact_extraction, predicted_sector, sector_confidence, predicted_ateco_codes',
     )
     .eq('id', scanCandidateId)
     .maybeSingle();
@@ -338,6 +347,31 @@ export async function getLeadV3Signal(
 
   const proxyRaw = (sc.proxy_score_data as Record<string, unknown> | null) ?? null;
 
+  // ─── Display fallbacks ───────────────────────────────────────────
+  // Pull what we can from places + contact_extraction so the lead
+  // detail page can fill the Anagrafica/Tetto cards even when the
+  // legacy subjects/roofs columns are NULL (fresh v3 leads).
+  const displayName =
+    typeof placesBlob.display_name === 'string' ? placesBlob.display_name : null;
+  const formattedAddress =
+    typeof placesBlob.formatted_address === 'string'
+      ? placesBlob.formatted_address
+      : null;
+  const contactExtraction =
+    (sc.contact_extraction as Record<string, unknown> | null) ?? {};
+  const bestEmail =
+    typeof contactExtraction.best_email === 'string'
+      ? contactExtraction.best_email
+      : null;
+  // Decision-maker phone preferred over generic best_phone for B2B outreach.
+  const bestPhone =
+    (typeof contactExtraction.decision_maker_phone === 'string'
+      ? contactExtraction.decision_maker_phone
+      : null) ??
+    (typeof contactExtraction.best_phone === 'string'
+      ? contactExtraction.best_phone
+      : null);
+
   return {
     funnel_version: 3,
     google_place_id: placeId,
@@ -370,6 +404,10 @@ export async function getLeadV3Signal(
     predicted_ateco_codes: Array.isArray(sc.predicted_ateco_codes)
       ? (sc.predicted_ateco_codes as string[])
       : [],
+    display_name: displayName,
+    formatted_address: formattedAddress,
+    best_email: bestEmail,
+    best_phone: bestPhone,
   };
 }
 

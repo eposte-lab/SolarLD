@@ -258,6 +258,39 @@ export default async function LeadDetailPage({ params }: PageProps) {
   const address = [lead.roofs?.address, lead.roofs?.cap, lead.roofs?.comune]
     .filter(Boolean)
     .join(', ');
+
+  // ─── Display fallbacks (v3) ──────────────────────────────────────
+  // For freshly-promoted v3 leads the legacy subjects.* / roofs.*
+  // columns are often NULL. The scan_candidates row already has the
+  // data from Google Places + L2 scraping + Haiku — pull it via
+  // v3Signal so the Anagrafica/Tetto cards aren't a wall of "—".
+  // The DataRow component auto-hides when value is null/'' so any
+  // residual unfilled rows simply disappear.
+  const dispRagioneSociale =
+    lead.subjects?.business_name ?? v3Signal?.display_name ?? null;
+  const dispEmail =
+    lead.subjects?.decision_maker_email ?? v3Signal?.best_email ?? null;
+  const dispPhone =
+    lead.subjects?.decision_maker_phone ?? v3Signal?.best_phone ?? null;
+  // ATECO: subjects has both code + description; v3 only has codes
+  // (predicted by Haiku). When falling back, show only the code chip.
+  const dispAtecoCode =
+    lead.subjects?.ateco_code ?? v3Signal?.predicted_ateco_codes?.[0] ?? null;
+  const dispAtecoDescription = lead.subjects?.ateco_description ?? null;
+  // Tetto e impianto fallbacks
+  const dispTettoIndirizzo = address || v3Signal?.formatted_address || null;
+  const dispProvincia = (() => {
+    if (lead.roofs?.provincia) return lead.roofs.provincia;
+    // Parse "PROV" from the tail of formatted_address Google Places returns
+    // (e.g. "Via X 1, 80100 Napoli NA, Italia" → "NA"). Same heuristic as
+    // displayProvince() in lib/contatti-display.ts.
+    const fa = v3Signal?.formatted_address ?? null;
+    if (!fa) return null;
+    const parts = fa.split(',').map((s) => s.trim());
+    const cityCap = parts.length >= 2 ? parts[parts.length - 2] : null;
+    const m = cityCap?.match(/\s([A-Z]{2})$/);
+    return m?.[1] ?? null;
+  })();
   const isBlacklisted = lead.pipeline_status === 'blacklisted';
   // NEXT_PUBLIC_LEAD_PORTAL_URL must point at the SEPARATE lead-portal
   // Vercel project, not the dashboard. We aggressively normalise the env
@@ -525,7 +558,7 @@ export default async function LeadDetailPage({ params }: PageProps) {
           />
           <DataRow
             label="Ragione sociale"
-            value={lead.subjects?.business_name ?? '—'}
+            value={dispRagioneSociale ?? '—'}
           />
           <DataRow
             label="Referente"
@@ -538,24 +571,29 @@ export default async function LeadDetailPage({ params }: PageProps) {
           <DataRow
             label="Email"
             value={
-              lead.subjects?.decision_maker_email ? (
+              dispEmail ? (
                 <span className="inline-flex items-center justify-end gap-1.5">
-                  {lead.subjects.decision_maker_email}
-                  {lead.subjects.decision_maker_email_verified ? (
+                  {dispEmail}
+                  {/* "Verified" icon only when the source is the canonical
+                      subjects.decision_maker_email field — v3 fallback
+                      emails (from contact_extraction) are not verified
+                      until they land in subjects, so we render no badge. */}
+                  {lead.subjects?.decision_maker_email &&
+                  lead.subjects.decision_maker_email_verified ? (
                     <Check
                       size={12}
                       strokeWidth={2.5}
                       className="text-primary"
                       aria-label="Verificata"
                     />
-                  ) : (
+                  ) : lead.subjects?.decision_maker_email ? (
                     <AlertTriangle
                       size={12}
                       strokeWidth={2.25}
                       className="text-warning"
                       aria-label="Non verificata"
                     />
-                  )}
+                  ) : null}
                 </span>
               ) : (
                 '—'
@@ -570,13 +608,13 @@ export default async function LeadDetailPage({ params }: PageProps) {
           <DataRow
             label="Telefono"
             value={
-              lead.subjects?.decision_maker_phone ? (
+              dispPhone ? (
                 <span className="inline-flex items-center justify-end gap-1.5">
                   <a
-                    href={`tel:${lead.subjects.decision_maker_phone}`}
+                    href={`tel:${dispPhone}`}
                     className="hover:underline focus:underline focus:outline-none"
                   >
-                    {lead.subjects.decision_maker_phone}
+                    {dispPhone}
                   </a>
                   <Phone
                     size={12}
@@ -584,7 +622,11 @@ export default async function LeadDetailPage({ params }: PageProps) {
                     className="text-on-surface-variant"
                     aria-hidden
                   />
-                  {lead.subjects.decision_maker_phone_source ? (
+                  {/* Source badge only when populated from the canonical
+                      subjects column. v3 fallback (contact_extraction) is
+                      always "places/scrape" so the badge would be noise. */}
+                  {lead.subjects?.decision_maker_phone &&
+                  lead.subjects.decision_maker_phone_source ? (
                     <span
                       className="rounded-full bg-surface-container-low px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-on-surface-variant"
                       title="Sorgente del numero di telefono"
@@ -611,16 +653,27 @@ export default async function LeadDetailPage({ params }: PageProps) {
           <DataRow
             label="ATECO"
             value={
-              lead.subjects?.ateco_code || lead.subjects?.ateco_description ? (
+              dispAtecoCode || dispAtecoDescription ? (
                 <span className="inline-flex flex-wrap items-center justify-end gap-1.5">
-                  {lead.subjects?.ateco_code && (
+                  {dispAtecoCode && (
                     <span className="rounded bg-surface-container-low px-1.5 py-0.5 font-mono text-[11px]">
-                      {lead.subjects.ateco_code}
+                      {dispAtecoCode}
                     </span>
                   )}
-                  {lead.subjects?.ateco_description && (
+                  {dispAtecoDescription && (
                     <span className="text-on-surface">
-                      {lead.subjects.ateco_description}
+                      {dispAtecoDescription}
+                    </span>
+                  )}
+                  {/* Mark predicted-ATECO (no description, code came from
+                      Haiku) so ops can audit. Subjects-sourced ATECO has
+                      both code + description. */}
+                  {!lead.subjects?.ateco_code && dispAtecoCode && (
+                    <span
+                      className="rounded-full bg-primary-container/40 px-1.5 py-0.5 text-[10px] font-medium text-on-primary-container"
+                      title="ATECO predetto da Haiku — non confermato in CCIAA"
+                    >
+                      predetto
                     </span>
                   )}
                 </span>
@@ -710,8 +763,8 @@ export default async function LeadDetailPage({ params }: PageProps) {
         </DataCard>
 
         <DataCard title="Tetto e impianto">
-          <DataRow label="Indirizzo" value={address || '—'} />
-          <DataRow label="Provincia" value={lead.roofs?.provincia ?? '—'} />
+          <DataRow label="Indirizzo" value={dispTettoIndirizzo ?? '—'} />
+          <DataRow label="Provincia" value={dispProvincia ?? '—'} />
           <DataRow
             label="Superficie tetto"
             value={
@@ -1124,6 +1177,22 @@ function DataRow({
   label: string;
   value: React.ReactNode;
 }) {
+  // Auto-hide: when the caller passes a "missing" sentinel we omit the row
+  // entirely instead of rendering a wall of "—" placeholders. Coverage:
+  //   - null / undefined          (most common)
+  //   - empty string ''            (truthy-coerced empty value)
+  //   - the literal '—'            (call sites do `value={x ?? '—'}`)
+  //   - array []                   (predicted_ateco_codes when empty)
+  // ReactNode wrappers (e.g. <span>...</span>) are always rendered — call
+  // sites already guard those with `cond ? <node/> : '—'`.
+  if (
+    value == null ||
+    value === '' ||
+    value === '—' ||
+    (Array.isArray(value) && value.length === 0)
+  ) {
+    return null;
+  }
   return (
     <div
       className="flex items-center justify-between px-2 py-3 text-sm"

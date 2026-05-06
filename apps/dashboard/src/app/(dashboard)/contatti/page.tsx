@@ -91,39 +91,45 @@ export default async function ContattiPage({
         </GradientButton>
       </header>
 
-      {/* Funnel summary KPI strip */}
-      {/* Funnel waterfall — riassunto sintetico delle fasi della scansione.
-          La tabella sotto mostra solo l'ultimo stadio (Tetto idoneo); i
-          conteggi qui aiutano a capire dove cadono i candidati durante il
-          processo. */}
+      {/* KPI strip — qualitative aggregates over the qualified set.
+          Replaces the old 3-stage waterfall (Scansionati/Con dati web/
+          Score AI) which always read 100/100/100% pass-through under
+          v3 (the gates that filter candidates live at L4 Solar, not at
+          L1-L3). New strip surfaces info that actually moves with the
+          data: total installable capacity, avg AI score, contactable
+          email count. */}
       <BentoGrid cols={4}>
         <KpiChipCard
-          label="Scansionati"
-          value={formatNumber(summary.l1)}
-          hint="Aziende viste su Google Places"
-          accent="neutral"
-        />
-        <KpiChipCard
-          label="Con dati web"
-          value={formatNumber(summary.l2)}
-          hint={summary.l1 > 0 ? `${Math.round((summary.l2 / summary.l1) * 100)}% pass-through` : '—'}
+          label="Convalidati"
+          value={formatNumber(summary.l4_qualified)}
+          hint="tetto idoneo · in tabella"
           accent="primary"
         />
         <KpiChipCard
-          label="Score AI"
-          value={formatNumber(summary.l3)}
-          hint={summary.l2 > 0 ? `${Math.round((summary.l3 / summary.l2) * 100)}% pass-through` : '—'}
+          label="kWp installabili"
+          value={formatNumber(summary.total_kwp_installable)}
+          hint="potenza totale stimata"
           accent="tertiary"
         />
         <KpiChipCard
-          label="Tetto idoneo"
-          value={formatNumber(summary.l4_qualified)}
-          hint={
-            summary.l3 > 0
-              ? `${Math.round((summary.l4_qualified / summary.l3) * 100)}% · mostrati in tabella`
-              : 'mostrati in tabella'
+          label="Score AI medio"
+          value={
+            summary.avg_overall_score != null
+              ? formatNumber(summary.avg_overall_score)
+              : '—'
           }
+          hint="qualità media batch"
           accent="secondary"
+        />
+        <KpiChipCard
+          label="Email valida"
+          value={formatNumber(summary.valid_email_count)}
+          hint={
+            summary.l4_qualified > 0
+              ? `${Math.round((summary.valid_email_count / summary.l4_qualified) * 100)}% sui convalidati`
+              : '—'
+          }
+          accent="neutral"
         />
       </BentoGrid>
 
