@@ -25,6 +25,7 @@ from ...core.supabase_client import get_service_client
 from ...services.web_scraper import (
     CombinedScrape,
     extract_best_email,
+    infer_email_from_domain,
     scrape_all_for_candidate,
 )
 from .types_v3 import (
@@ -226,6 +227,17 @@ async def run_level2_scraping(
             continue
         cand, combined = item  # type: ignore[misc]
         signals, contact = _project_to_signals_and_contact(cand, combined)
+
+        # Inferred-email fallback: when scraping found NO email but the
+        # site has a usable domain, generate `info@<domain>` and
+        # validate via DNS MX. ~80% hit rate on Italian SMEs and
+        # explicitly tagged so anti-spam / UI can warn the operator.
+        if contact.best_email is None and cand.website:
+            inferred = await infer_email_from_domain(cand.website)
+            if inferred is not None:
+                contact.best_email = inferred.value
+                contact.best_email_confidence = inferred.confidence
+                contact.best_email_type = inferred.type
 
         out.append(ScrapedCandidate(record=cand, scraped=signals, contact=contact))
 

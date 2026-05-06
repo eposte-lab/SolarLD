@@ -110,6 +110,38 @@ function AntiSpamBadges({ flags }: { flags?: string[] | null }) {
   );
 }
 
+const EMAIL_TYPE_BADGE: Record<
+  string,
+  { label: string; tone: string; title: string }
+> = {
+  inferred_pattern: {
+    label: 'inferita',
+    tone: 'bg-amber-100 text-amber-700',
+    title:
+      'Email inferita dal pattern info@<dominio> con MX validato. Indirizzo non scrappato esplicitamente — possibile catch-all del provider.',
+  },
+  privacy_dpo: {
+    label: 'DPO',
+    tone: 'bg-violet-100 text-violet-700',
+    title:
+      'Email del DPO/Titolare del Trattamento estratta dalla privacy/cookie page. Inbox reale ma destinata a richieste GDPR.',
+  },
+};
+
+function EmailSourceBadge({ type }: { type?: string | null }) {
+  if (!type) return null;
+  const meta = EMAIL_TYPE_BADGE[type];
+  if (!meta) return null;
+  return (
+    <span
+      className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${meta.tone}`}
+      title={meta.title}
+    >
+      {meta.label}
+    </span>
+  );
+}
+
 type SortKey =
   | 'name'
   | 'sector'
@@ -250,12 +282,17 @@ export function ContattiTable({ rows }: { rows: ContattoRow[] }) {
                 {/* Contatto: email + telefono + anti-spam flags */}
                 <td className="px-5 py-4 text-xs">
                   {email ? (
-                    <a
-                      href={`mailto:${email}`}
-                      className="block text-primary hover:underline"
-                    >
-                      {email}
-                    </a>
+                    <div className="flex items-center gap-1.5">
+                      <a
+                        href={`mailto:${email}`}
+                        className="text-primary hover:underline"
+                      >
+                        {email}
+                      </a>
+                      <EmailSourceBadge
+                        type={c.contact_extraction?.best_email_type}
+                      />
+                    </div>
                   ) : null}
                   {phone ? (
                     <a

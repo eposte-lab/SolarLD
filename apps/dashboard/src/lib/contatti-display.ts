@@ -31,6 +31,14 @@ export interface ProxyScoreData {
 
 export interface ContactExtraction {
   best_email?: string | null;
+  /** Confidence level set by `web_scraper.extract_best_email`:
+   *   "alta"  → named role (direzione@, amministrazione@)
+   *   "media" → first generic email scraped from contact pages
+   *   "bassa" → privacy/DPO fallback OR pattern-inferred (info@<dom>)
+   */
+  best_email_confidence?: 'alta' | 'media' | 'bassa' | null;
+  /** Origin tag: 'named_role' | 'generic' | 'privacy_dpo' | 'inferred_pattern' */
+  best_email_type?: string | null;
   best_phone?: string | null;
   decision_maker_phone?: string | null;
 }

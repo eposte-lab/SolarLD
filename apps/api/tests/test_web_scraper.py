@@ -39,10 +39,31 @@ def test_extract_best_email_first_generic_when_no_priority_match() -> None:
 
 
 def test_extract_best_email_drops_hard_exclusions() -> None:
+    """noreply/newsletter are still hard-rejected; privacy@ falls through
+    to the new privacy_dpo last-resort tier (better than nothing)."""
     out = ws.extract_best_email(
-        ["privacy@acme.it", "noreply@acme.it", "newsletter@acme.it"]
+        ["noreply@acme.it", "newsletter@acme.it", "unsubscribe@acme.it"]
     )
     assert out is None
+
+
+def test_extract_best_email_privacy_used_as_last_resort() -> None:
+    """When ONLY privacy/dpo addresses are present, return them with
+    confidence=bassa and type=privacy_dpo (regulated sites often expose
+    no other public contact)."""
+    out = ws.extract_best_email(["privacy@acme.it"])
+    assert out is not None
+    assert out.value == "privacy@acme.it"
+    assert out.confidence == "bassa"
+    assert out.type == "privacy_dpo"
+
+
+def test_extract_best_email_main_pool_beats_privacy() -> None:
+    """When both a regular email AND a privacy@ exist, the main pool wins."""
+    out = ws.extract_best_email(["privacy@acme.it", "info@acme.it"])
+    assert out is not None
+    assert out.value == "info@acme.it"
+    assert out.type == "named_role"
 
 
 def test_extract_best_email_empty_input() -> None:
@@ -119,3 +140,50 @@ def test_classify_pec_finds_pec_subdomain() -> None:
 def test_classify_pec_returns_none_for_regular_emails() -> None:
     emails = ["info@acme.it", "direzione@acme.it"]
     assert ws._classify_pec(emails) is None
+
+
+# ---------------------------------------------------------------------------
+# Pattern-inferred email (DNS MX validation)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_infer_email_uses_first_pattern_when_mx_exists(monkeypatch) -> None:
+    """When `_has_mx_record` returns True, we generate `info@<domain>`."""
+    monkeypatch.setattr(ws, "_has_mx_record", lambda d, timeout=3.0: True)
+    out = await ws.infer_email_from_domain("acme.it")
+    assert out is not None
+    assert out.value == "info@acme.it"
+    assert out.confidence == "bassa"
+    assert out.type == "inferred_pattern"
+
+
+@pytest.mark.asyncio
+async def test_infer_email_returns_none_without_mx(monkeypatch) -> None:
+    """No MX record on the domain → no inferred email (parked / DNS-only)."""
+    monkeypatch.setattr(ws, "_has_mx_record", lambda d, timeout=3.0: False)
+    out = await ws.infer_email_from_domain("parked-domain.example")
+    assert out is None
+
+
+@pytest.mark.asyncio
+async def test_infer_email_strips_url_prefix(monkeypatch) -> None:
+    """A full URL is normalised to bare domain before MX lookup."""
+    captured: list[str] = []
+
+    def fake_has_mx(d: str, timeout: float = 3.0) -> bool:
+        captured.append(d)
+        return True
+
+    monkeypatch.setattr(ws, "_has_mx_record", fake_has_mx)
+    out = await ws.infer_email_from_domain("https://www.acme.it/contatti")
+    assert out is not None
+    assert out.value == "info@acme.it"
+    assert captured == ["acme.it"]
+
+
+@pytest.mark.asyncio
+async def test_infer_email_returns_none_for_blank_domain(monkeypatch) -> None:
+    monkeypatch.setattr(ws, "_has_mx_record", lambda d, timeout=3.0: True)
+    assert await ws.infer_email_from_domain("") is None
+    assert await ws.infer_email_from_domain("notadomain") is None
