@@ -774,10 +774,53 @@ export default async function LeadDetailPage({ params }: PageProps) {
             }
           />
           <DataRow
+            label="kWp installabili"
+            value={
+              lead.roofs?.estimated_kwp != null
+                ? `${formatNumber(lead.roofs.estimated_kwp)} kWp`
+                : '—'
+            }
+          />
+          {/* Pannelli stimati: derivations.panel_count is the post-funnel
+              authoritative count; raw_data.solar.solarPotential.maxArrayPanelsCount
+              is the Solar API max. We display the former when available. */}
+          <DataRow
+            label="Pannelli stimati"
+            value={(() => {
+              const deriv = (lead.roofs?.derivations ?? null) as
+                | Record<string, unknown>
+                | null;
+              const pc = deriv?.panel_count;
+              return typeof pc === 'number' && pc > 0
+                ? formatNumber(pc)
+                : '—';
+            })()}
+          />
+          <DataRow
             label="Produzione stimata"
             value={
               lead.roofs?.estimated_yearly_kwh
                 ? `${formatNumber(lead.roofs.estimated_yearly_kwh)} kWh/anno`
+                : '—'
+            }
+          />
+          <DataRow
+            label="Esposizione"
+            value={lead.roofs?.exposure ?? '—'}
+          />
+          <DataRow
+            label="Inclinazione"
+            value={
+              lead.roofs?.pitch_degrees != null
+                ? `${Math.round(lead.roofs.pitch_degrees)}°`
+                : '—'
+            }
+          />
+          <DataRow
+            label="Ombreggiamento"
+            value={
+              lead.roofs?.shading_score != null
+                ? `${Math.round((1 - lead.roofs.shading_score) * 100)}%`
                 : '—'
             }
           />

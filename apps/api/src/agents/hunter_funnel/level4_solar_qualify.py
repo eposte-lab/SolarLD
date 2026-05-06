@@ -42,18 +42,12 @@ from .types_v3 import (
 log = get_logger(__name__)
 
 
-# Production thresholds — copied verbatim from PRD §L4.
+# Minimum thresholds — copied verbatim from PRD §L4. Identical for all
+# tenants, demo or production: the funnel must reflect the customer's
+# onboarding criteria and not be silently relaxed for any sub-population.
 MIN_AREA_M2 = 200.0
 MIN_KW_INSTALLABILE = 60.0
 MIN_SUNSHINE_HOURS = 1200.0
-
-# Demo thresholds — relaxed so that small/medium urban businesses
-# (shops, offices, small warehouses) can pass L4 and populate the
-# full downstream pipeline (emails, quotes, ROI doc) for demo purposes.
-# A 50 m² roof × 0.2 kWp/m² ≈ 10 kWp — well within modern micro-impianti.
-DEMO_MIN_AREA_M2 = 30.0
-DEMO_MIN_KW_INSTALLABILE = 10.0
-DEMO_MIN_SUNSHINE_HOURS = 700.0
 
 # Cost in cents per Solar API call. ~$0.02 → 2 cents.
 SOLAR_COST_CENTS = 2
@@ -127,7 +121,7 @@ async def _persist_roof_and_link(
 
     Returns the new roof UUID, or None if the insert failed.
     """
-    row = {
+    row: dict[str, Any] = {
         "tenant_id": tenant_id,
         "lat": insight.lat,
         "lng": insight.lng,
@@ -148,6 +142,39 @@ async def _persist_roof_and_link(
         "cap": insight.postal_code,
         "status": "identified",
     }
+
+    # Snapshot ROI (kWp, savings, payback, capex, monthly curves) so the
+    # dashboard, Creative Agent and preventivo PDF read from one source of
+    # truth. v2 already does this in level4_solar_gate.py:_upsert_roof_and_subject;
+    # v3 used to skip it, leaving roofs.derivations NULL → leads.roi_data {}
+    # → all ROI KPIs blank in the lead detail UI. Best-effort: errors are
+    # logged but do not block the qualify step.
+    try:
+        from ...services.roi_service import compute_full_derivations
+
+        derivations = compute_full_derivations(
+            estimated_kwp=insight.estimated_kwp,
+            estimated_yearly_kwh=insight.estimated_yearly_kwh,
+            roof_area_sqm=insight.area_sqm,
+            panel_count=(
+                len(insight.panels) if getattr(insight, "panels", None)
+                else getattr(insight, "max_panel_count", None)
+            ),
+            panel_capacity_w=getattr(insight, "panel_capacity_w", None),
+            panel_width_m=getattr(insight, "panel_width_m", None),
+            panel_height_m=getattr(insight, "panel_height_m", None),
+            subject_type="b2b",
+            tenant_cost_assumptions=None,
+            roi_target_years=None,
+        )
+        if derivations is not None:
+            row["derivations"] = derivations
+    except Exception as exc:  # noqa: BLE001
+        log.warning(
+            "level4_solar.derivations_compute_failed",
+            err=type(exc).__name__,
+            msg=str(exc)[:200],
+        )
     try:
         # Upsert by (tenant_id, geohash) — same building rediscovered in
         # subsequent scans returns the existing roof_id rather than 23505.
@@ -281,15 +308,12 @@ async def run_level4_solar_qualify(
                     lng=insight.lng,
                 )
 
-        # 3) Threshold filter — relaxed for demo tenants.
+        # 3) Threshold filter — same production gate for every tenant.
         sunshine = insight.estimated_yearly_kwh / max(insight.estimated_kwp, 1.0)
-        min_area = DEMO_MIN_AREA_M2 if ctx.is_demo else MIN_AREA_M2
-        min_kw = DEMO_MIN_KW_INSTALLABILE if ctx.is_demo else MIN_KW_INSTALLABILE
-        min_sun = DEMO_MIN_SUNSHINE_HOURS if ctx.is_demo else MIN_SUNSHINE_HOURS
         if (
-            insight.area_sqm < min_area
-            or insight.estimated_kwp < min_kw
-            or sunshine < min_sun
+            insight.area_sqm < MIN_AREA_M2
+            or insight.estimated_kwp < MIN_KW_INSTALLABILE
+            or sunshine < MIN_SUNSHINE_HOURS
         ):
             out.append(
                 SolarQualified(

@@ -1335,314 +1335,160 @@ async def rescore_all(
     return {"ok": True, "queued": queued, "total_matching": len(res.data or [])}
 
 
-@router.post("/requalify-demo-l4")
-async def requalify_demo_l4(
+@router.post("/backfill-derivations")
+async def backfill_derivations(
     ctx: CurrentUser,
-    dry_run: bool = Query(
+    overwrite: bool = Query(
         default=False,
-        description="If true, compute but do not write any DB changes.",
+        description="If true, recompute even if roofs.derivations is already set.",
     ),
 ) -> dict[str, object]:
-    """Re-evaluate L4 Solar thresholds for this tenant's rejected candidates.
+    """Backfill `roofs.derivations` and the `leads.roi_data` summary.
 
-    Intended for **demo tenants** whose scan produced 0 accepted candidates
-    because all companies failed the production threshold (200 m², 60 kWp,
-    1200 h sunshine). Demo tenants use relaxed thresholds (30 m², 10 kWp,
-    700 h) that are appropriate for small/medium urban businesses.
+    Use this once after upgrading to a release that adds derivations to the
+    v3 funnel (new builds populate them automatically; pre-existing roofs
+    inserted before the change have NULL).
 
-    How it works:
-      1. Read all `scan_candidates` with `solar_verdict='rejected_tech'` that
-         already have `solar_kw_installable` populated (written by L4 ≥ 0110).
-      2. Re-apply either demo or production thresholds (based on `tenants.is_demo`).
-      3. For candidates that now pass: create a `roofs` row, link
-         `scan_candidates.roof_id`, flip `solar_verdict` to `'accepted'`.
-      4. Enqueue `hunter_funnel_v3_task` with `max_l1_candidates=0` so the
-         worker skips L1-L3 and re-enters at L5 (proxy score) for the newly
-         accepted rows.
+    Steps:
+      1. Read this tenant's roofs with `area_sqm IS NOT NULL` and (when
+         `overwrite=False`) `derivations IS NULL`.
+      2. Call `compute_full_derivations()` for each — pure Python, no
+         Solar API call, no Replicate, zero spend.
+      3. UPDATE roofs.derivations with the rich snapshot.
+      4. For each linked lead, UPDATE leads.roi_data with the 4-field
+         summary the dashboard UI consumes (estimated_kwp, annual_savings_eur,
+         payback_years, co2_saved_kg) preserving any existing keys via merge.
 
-    Returns a summary dict with counts of newly accepted candidates.
-    The endpoint is idempotent — re-running on already-accepted rows is a no-op.
+    Idempotent: re-running with overwrite=False is a no-op once all roofs
+    have derivations. The Creative Agent's rendering pipeline is NOT
+    re-triggered — existing rendering URLs are untouched.
     """
-    from uuid import UUID
-
-    from ..agents.hunter_funnel.level4_solar_qualify import (
-        DEMO_MIN_AREA_M2,
-        DEMO_MIN_KW_INSTALLABILE,
-        DEMO_MIN_SUNSHINE_HOURS,
-        MIN_AREA_M2,
-        MIN_KW_INSTALLABILE,
-        MIN_SUNSHINE_HOURS,
-        _persist_roof_and_link,
-    )
+    from ..services.roi_service import compute_full_derivations
 
     tenant_id = require_tenant(ctx)
     sb = get_service_client()
 
-    # Determine whether to use demo thresholds.
-    tenant_row = (
-        sb.table("tenants")
-        .select("is_demo")
-        .eq("id", tenant_id)
-        .limit(1)
-        .maybe_single()
-        .execute()
-    )
-    is_demo = bool((tenant_row.data or {}).get("is_demo", False))
-    min_area = DEMO_MIN_AREA_M2 if is_demo else MIN_AREA_M2
-    min_kw = DEMO_MIN_KW_INSTALLABILE if is_demo else MIN_KW_INSTALLABILE
-    min_sun = DEMO_MIN_SUNSHINE_HOURS if is_demo else MIN_SUNSHINE_HOURS
-
-    # Fetch ALL rejected candidates for this tenant (with or without the
-    # solar_kw_installable column already populated). For pre-migration rows
-    # (column null), we fall back to the `known_company_buildings` cache.
-    rejected = (
-        sb.table("scan_candidates")
+    # 1) Fetch candidate roofs
+    query = (
+        sb.table("roofs")
         .select(
-            "id, google_place_id, scan_id, solar_kw_installable, solar_area_m2,"
-            " solar_sunshine_hours, solar_panels_count"
+            "id, area_sqm, estimated_kwp, estimated_yearly_kwh, raw_data, derivations"
         )
         .eq("tenant_id", tenant_id)
-        .eq("solar_verdict", "rejected_tech")
-        .limit(500)
-        .execute()
+        .not_("area_sqm", "is", None)
     )
-    rows = rejected.data or []
+    if not overwrite:
+        query = query.is_("derivations", None)
+    roofs_res = query.limit(1000).execute()
+    roofs = roofs_res.data or []
 
-    newly_accepted: list[str] = []
-    skipped_no_solar_data: int = 0
+    roofs_updated = 0
+    leads_updated = 0
+    skipped_no_data = 0
 
-    # Pre-load: for rows missing solar metrics, try to pull from cache in batch.
-    # We build a map of place_id → insight for all rows missing solar_kw.
-    try:
-        from ..services.google_solar_service import _parse_building_insight_payload
-    except ImportError:
-        _parse_building_insight_payload = None  # type: ignore[assignment]
+    for roof in roofs:
+        kwp = roof.get("estimated_kwp")
+        kwh = roof.get("estimated_yearly_kwh")
+        area = roof.get("area_sqm")
+        raw = roof.get("raw_data") or {}
+        solar_blob = raw.get("solar") if isinstance(raw, dict) else None
 
-    for row in rows:
-        place_id = row.get("google_place_id")
-        if not place_id:
-            skipped_no_solar_data += 1
-            continue
-
-        # Try to get solar metrics from the row itself first (post-0110),
-        # then fall back to the known_company_buildings cache.
-        area = row.get("solar_area_m2")
-        kw = row.get("solar_kw_installable")
-        sun = row.get("solar_sunshine_hours")
-        insight = None
-
-        if area is None or kw is None:
-            # Metrics not persisted yet — read from Solar cache.
-            cached = (
-                sb.table("known_company_buildings")
-                .select("solar_building_insights, lat, lng")
-                .eq("google_place_id", place_id)
-                .maybe_single()
-                .execute()
+        # Best-effort dig for panel geometry from the cached Solar response
+        # (these fields are present in fresh v3 scans but may be missing on
+        # older roofs whose raw_data shape changed).
+        panel_count = None
+        panel_capacity_w = None
+        panel_w = None
+        panel_h = None
+        try:
+            sp = (
+                (solar_blob or {}).get("solarPotential", {})
+                if isinstance(solar_blob, dict)
+                else {}
             )
-            if not cached.data or not cached.data.get("solar_building_insights"):
-                skipped_no_solar_data += 1
-                continue
-            if _parse_building_insight_payload is None:
-                skipped_no_solar_data += 1
-                continue
-            try:
-                insight = _parse_building_insight_payload(
-                    cached.data["solar_building_insights"]
-                )
-                area = insight.area_sqm
-                kw = insight.estimated_kwp
-                sun = insight.estimated_yearly_kwh / max(insight.estimated_kwp, 1.0)
-            except Exception:  # noqa: BLE001
-                skipped_no_solar_data += 1
-                continue
-
-        area_f = float(area or 0)
-        kw_f = float(kw or 0)
-        sun_f = float(sun or 0)
-
-        # Still fails even with new thresholds.
-        if area_f < min_area or kw_f < min_kw or sun_f < min_sun:
-            continue
-
-        if dry_run:
-            newly_accepted.append(row["id"])
-            continue
-
-        # If we don't yet have the insight object (metrics came from the
-        # denormalised columns), we still need it for `_persist_roof_and_link`.
-        if insight is None:
-            cached2 = (
-                sb.table("known_company_buildings")
-                .select("solar_building_insights")
-                .eq("google_place_id", place_id)
-                .maybe_single()
-                .execute()
+            panel_count = (
+                sp.get("maxArrayPanelsCount") or len(sp.get("solarPanels") or [])
             )
-            if not cached2.data or not cached2.data.get("solar_building_insights"):
-                skipped_no_solar_data += 1
-                continue
-            if _parse_building_insight_payload is None:
-                skipped_no_solar_data += 1
-                continue
-            try:
-                insight = _parse_building_insight_payload(
-                    cached2.data["solar_building_insights"]
-                )
-            except Exception:  # noqa: BLE001
-                skipped_no_solar_data += 1
-                continue
+            panel_capacity_w = sp.get("panelCapacityWatts")
+            panel_w = sp.get("panelWidthMeters")
+            panel_h = sp.get("panelHeightMeters")
+        except Exception:  # noqa: BLE001
+            pass
 
         try:
-            roof_id = await _persist_roof_and_link(
-                sb,
-                tenant_id=tenant_id,
-                scan_id=row.get("scan_id") or "",
-                candidate_id=UUID(row["id"]),
-                insight=insight,
-                google_place_id=place_id,
-                sunshine_hours=sun_f,
+            derivations = compute_full_derivations(
+                estimated_kwp=kwp,
+                estimated_yearly_kwh=kwh,
+                roof_area_sqm=area,
+                panel_count=panel_count,
+                panel_capacity_w=panel_capacity_w,
+                panel_width_m=panel_w,
+                panel_height_m=panel_h,
+                subject_type="b2b",
+                tenant_cost_assumptions=None,
+                roi_target_years=None,
             )
-            if roof_id:
-                newly_accepted.append(row["id"])
         except Exception as exc:  # noqa: BLE001
             log.warning(
-                "requalify_demo_l4.persist_failed",
-                candidate_id=row["id"],
+                "backfill_derivations.compute_failed",
+                roof_id=roof["id"],
+                err=str(exc)[:200],
+            )
+            continue
+
+        if derivations is None:
+            skipped_no_data += 1
+            continue
+
+        # 2) Persist on roofs
+        try:
+            sb.table("roofs").update({"derivations": derivations}).eq(
+                "id", roof["id"]
+            ).execute()
+            roofs_updated += 1
+        except Exception as exc:  # noqa: BLE001
+            log.warning(
+                "backfill_derivations.roof_update_failed",
+                roof_id=roof["id"],
+                err=str(exc)[:200],
+            )
+            continue
+
+        # 3) Update linked leads.roi_data with the UI-consumed 4-field summary
+        # (merging into any existing roi_data keys to avoid clobbering data
+        # the Creative Agent may have already written).
+        roi_summary = {
+            "estimated_kwp": derivations.get("estimated_kwp"),
+            "annual_savings_eur": derivations.get("yearly_savings_eur"),
+            "payback_years": derivations.get("payback_years"),
+            "co2_saved_kg": derivations.get("co2_kg_per_year"),
+        }
+        try:
+            leads_res = (
+                sb.table("leads")
+                .select("id, roi_data")
+                .eq("tenant_id", tenant_id)
+                .eq("roof_id", roof["id"])
+                .execute()
+            )
+            for lead in leads_res.data or []:
+                existing = lead.get("roi_data") or {}
+                merged = {**existing, **roi_summary}
+                sb.table("leads").update({"roi_data": merged}).eq(
+                    "id", lead["id"]
+                ).execute()
+                leads_updated += 1
+        except Exception as exc:  # noqa: BLE001
+            log.warning(
+                "backfill_derivations.lead_update_failed",
+                roof_id=roof["id"],
                 err=str(exc)[:200],
             )
 
-    # --- Step 2: create subjects + enqueue scoring for newly accepted ---
-    # We inline a simplified version of L6 (level6_promote_to_leads.py) so
-    # new contacts immediately appear in /leads after requalification.
-    # The scoring task will compute the full AI score and update the lead row.
-    subjects_created = 0
-    scoring_queued = 0
-
-    if not dry_run and newly_accepted:
-        import hashlib
-        import secrets
-
-        for cand_id in newly_accepted:
-            try:
-                sc_res = (
-                    sb.table("scan_candidates")
-                    .select(
-                        "id, business_name, google_place_id, roof_id, scan_id,"
-                        "scraped_data, contact_extraction, enrichment,"
-                        "predicted_sector, predicted_ateco_codes"
-                    )
-                    .eq("id", cand_id)
-                    .single()
-                    .execute()
-                )
-                sc = sc_res.data or {}
-                roof_id = sc.get("roof_id")
-                if not roof_id:
-                    continue
-
-                place_blob = (sc.get("enrichment") or {}).get("places") or {}
-                scraped = sc.get("scraped_data") or {}
-                contact = sc.get("contact_extraction") or {}
-                place_id = sc.get("google_place_id") or ""
-
-                business_name = (
-                    sc.get("business_name")
-                    or place_blob.get("display_name")
-                    or scraped.get("business_name")
-                    or "Azienda sconosciuta"
-                )
-
-                # Check if subject already exists for this roof.
-                existing = (
-                    sb.table("subjects")
-                    .select("id")
-                    .eq("tenant_id", tenant_id)
-                    .eq("roof_id", roof_id)
-                    .limit(1)
-                    .execute()
-                )
-                if existing.data:
-                    subject_id = existing.data[0]["id"]
-                else:
-                    ateco_codes = sc.get("predicted_ateco_codes") or []
-                    pii_hash = hashlib.sha256(
-                        f"{business_name.lower().strip()}|{place_id.lower().strip()}"
-                        .encode()
-                    ).hexdigest()
-
-                    ins = sb.table("subjects").insert({
-                        "tenant_id": tenant_id,
-                        "roof_id": roof_id,
-                        "type": "b2b",
-                        "business_name": business_name,
-                        "ateco_code": ateco_codes[0] if ateco_codes else None,
-                        "decision_maker_email": (
-                            contact.get("best_email")
-                            or scraped.get("best_email")
-                        ),
-                        "decision_maker_email_verified": False,
-                        "decision_maker_phone": (
-                            contact.get("best_phone")
-                            or contact.get("phone")
-                            or place_blob.get("phone")
-                        ),
-                        "decision_maker_phone_source": (
-                            "website_scrape"
-                            if (
-                                contact.get("best_phone")
-                                or scraped.get("phone")
-                                or place_blob.get("phone")
-                            )
-                            else None
-                        ),
-                        "sede_operativa_address": place_blob.get("formatted_address"),
-                        "sede_operativa_lat": place_blob.get("lat"),
-                        "sede_operativa_lng": place_blob.get("lng"),
-                        "sede_operativa_source": "google_places",
-                        "sede_operativa_confidence": "high",
-                        "pii_hash": pii_hash,
-                        "legal_basis": "legitimate_interest_b2b",
-                        "raw_data": {
-                            "source": "funnel_v3_requalify",
-                            "scan_candidate_id": cand_id,
-                            "predicted_sector": sc.get("predicted_sector"),
-                        },
-                    }).execute()
-                    subject_id = (ins.data or [{}])[0].get("id")
-                    if subject_id:
-                        subjects_created += 1
-
-                if subject_id:
-                    await enqueue(
-                        "scoring_task",
-                        {
-                            "tenant_id": tenant_id,
-                            "roof_id": roof_id,
-                            "subject_id": subject_id,
-                        },
-                        job_id=f"scoring:{tenant_id}:{roof_id}:{subject_id}",
-                    )
-                    scoring_queued += 1
-            except Exception as exc:  # noqa: BLE001
-                log.warning(
-                    "requalify_demo_l4.subject_create_failed",
-                    candidate_id=cand_id,
-                    err=str(exc)[:200],
-                )
-
     return {
         "ok": True,
-        "is_demo": is_demo,
-        "thresholds": {
-            "min_area_m2": min_area,
-            "min_kw_installable": min_kw,
-            "min_sunshine_hours": min_sun,
-        },
-        "total_rejected": len(rows),
-        "newly_accepted": len(newly_accepted),
-        "skipped_no_solar_data": skipped_no_solar_data,
-        "subjects_created": subjects_created,
-        "scoring_queued": scoring_queued,
-        "dry_run": dry_run,
+        "roofs_total": len(roofs),
+        "roofs_updated": roofs_updated,
+        "leads_updated": leads_updated,
+        "skipped_no_data": skipped_no_data,
     }

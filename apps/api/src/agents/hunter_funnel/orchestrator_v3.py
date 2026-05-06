@@ -30,7 +30,6 @@ from typing import Any
 from uuid import uuid4
 
 from ...core.logging import get_logger
-from ...core.supabase_client import get_service_client
 from ...services.scan_cost_tracker import ScanCostAccumulator
 from .level1_places import run_level1_places
 from .level2_scraping import run_level2_scraping
@@ -43,35 +42,12 @@ from .types_v3 import FunnelV3Context, ScoredV3Candidate
 log = get_logger(__name__)
 
 
-def _read_tenant_is_demo(tenant_id: str) -> bool:
-    """Quick synchronous lookup of `tenants.is_demo` for the given tenant.
-
-    Returns False on any DB error so the funnel degrades gracefully rather
-    than crashing when the column is missing or the tenant row doesn't exist.
-    """
-    try:
-        sb = get_service_client()
-        res = (
-            sb.table("tenants")
-            .select("is_demo")
-            .eq("id", tenant_id)
-            .limit(1)
-            .maybe_single()
-            .execute()
-        )
-        return bool((res.data or {}).get("is_demo", False))
-    except Exception as exc:  # noqa: BLE001
-        log.debug("orchestrator_v3.is_demo_lookup_failed", err=type(exc).__name__)
-        return False
-
-
 async def run_funnel_v3(
     *,
     tenant_id: str,
     config: Any,  # TenantConfig — duck-typed; only target_wizard_groups used
     emitter: Any | None = None,  # optional event emitter (HunterAgent._emit_event)
     max_l1_candidates: int = 2000,
-    is_demo: bool | None = None,  # if None, auto-detected from tenants.is_demo
 ) -> dict[str, Any]:
     """Run L1→L5 for one tenant. Returns a summary dict for logging.
 
@@ -84,16 +60,8 @@ async def run_funnel_v3(
     the same day re-scrapes/re-scores existing candidates rather than
     duplicating them (scan_candidates is keyed on
     (tenant_id, google_place_id)).
-
-    ``is_demo`` controls whether L4 uses relaxed Solar thresholds.
-    When ``None`` (default), the value is read from ``tenants.is_demo``.
-    Pass ``True`` or ``False`` explicitly to override.
     """
     scan_id = str(uuid4())
-
-    # Detect demo mode if not explicitly provided by the caller.
-    if is_demo is None:
-        is_demo = _read_tenant_is_demo(tenant_id)
 
     costs = ScanCostAccumulator(
         tenant_id=tenant_id,
@@ -108,7 +76,6 @@ async def run_funnel_v3(
         config=config,
         costs=costs,
         max_l1_candidates=max_l1_candidates,
-        is_demo=is_demo,
     )
 
     summary: dict[str, Any] = {

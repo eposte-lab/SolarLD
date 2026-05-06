@@ -54,12 +54,6 @@ class FunnelV3Context:
     # L5 score threshold to mark a candidate `recommended_for_rendering`.
     rendering_score_threshold: int = 60
 
-    # When True, L4 uses relaxed Solar thresholds so that small/medium urban
-    # businesses (that wouldn't pass the industrial 200 m² / 60 kWp bar) can
-    # still flow through the funnel and populate downstream data for demo
-    # purposes.  Set from `tenants.is_demo` in the orchestrator.
-    is_demo: bool = False
-
 
 # ---------------------------------------------------------------------------
 # L1 — Places discovery output
