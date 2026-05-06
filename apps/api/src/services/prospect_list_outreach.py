@@ -66,12 +66,31 @@ def _pii_hash(business_name: str, place_id: str) -> str:
 async def launch_outreach_for_list(
     *, tenant_id: str, list_id: str, only_accepted: bool = True
 ) -> LaunchResult:
-    """Promote accepted items to leads and queue creative + outreach."""
+    """Promote accepted items to leads and queue creative + outreach.
+
+    For ``generic_outreach`` lists:
+    - The ``creative_task`` is skipped (no Solar rendering needed).
+    - The ``email_template_id`` stored on the list is forwarded in the
+      ``outreach_task`` payload so OutreachAgent can render the DB template.
+    """
     sb = get_service_client()
 
     sb.table("prospect_lists").update(
         {"outreach_started_at": datetime.utcnow().isoformat()}
     ).eq("id", list_id).eq("tenant_id", tenant_id).execute()
+
+    # Load list metadata: campaign_type + email_template_id.
+    list_res = (
+        sb.table("prospect_lists")
+        .select("campaign_type, email_template_id")
+        .eq("id", list_id)
+        .eq("tenant_id", tenant_id)
+        .limit(1)
+        .execute()
+    )
+    list_row = (list_res.data or [{}])[0]
+    is_generic = list_row.get("campaign_type") == "generic_outreach"
+    email_template_id: str | None = list_row.get("email_template_id")
 
     target_status = "accepted" if only_accepted else None
     q = (
@@ -131,30 +150,38 @@ async def launch_outreach_for_list(
 
         # Enqueue creative + outreach. Idempotent job IDs collapse
         # double-clicks. The cap gate is downstream in OutreachAgent.
-        try:
-            await enqueue(
-                "creative_task",
-                {"tenant_id": tenant_id, "lead_id": lead_id, "force": False},
-                job_id=f"creative:{tenant_id}:{lead_id}",
-            )
-            creative_queued += 1
-        except Exception as exc:  # noqa: BLE001
-            log.warning(
-                "prospect_outreach.creative_enqueue_failed",
-                lead_id=lead_id,
-                err=type(exc).__name__,
-            )
+        #
+        # For generic_outreach lists: skip creative_task (no Solar rendering)
+        # and forward email_template_id so OutreachAgent uses the DB template.
+        if not is_generic:
+            try:
+                await enqueue(
+                    "creative_task",
+                    {"tenant_id": tenant_id, "lead_id": lead_id, "force": False},
+                    job_id=f"creative:{tenant_id}:{lead_id}",
+                )
+                creative_queued += 1
+            except Exception as exc:  # noqa: BLE001
+                log.warning(
+                    "prospect_outreach.creative_enqueue_failed",
+                    lead_id=lead_id,
+                    err=type(exc).__name__,
+                )
+
+        outreach_payload: dict[str, Any] = {
+            "tenant_id": tenant_id,
+            "lead_id": lead_id,
+            "channel": "email",
+            "force": False,
+            "sequence_step": 1,
+        }
+        if is_generic and email_template_id:
+            outreach_payload["email_template_id"] = email_template_id
 
         try:
             await enqueue(
                 "outreach_task",
-                {
-                    "tenant_id": tenant_id,
-                    "lead_id": lead_id,
-                    "channel": "email",
-                    "force": False,
-                    "sequence_step": 1,
-                },
+                outreach_payload,
                 job_id=f"outreach:{tenant_id}:{lead_id}:email",
             )
             outreach_queued += 1

@@ -74,6 +74,8 @@ export interface ProspectList {
   /** 'solar_rooftop' (default) goes through L4 Solar gate.
    *  'generic_outreach' bypasses Solar — non-rooftop B2B campaign. */
   campaign_type: CampaignType | null;
+  /** UUID of the email_templates row to use for outreach, or null. */
+  email_template_id: string | null;
 }
 
 export interface ProspectListItem {

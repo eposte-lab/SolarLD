@@ -229,6 +229,34 @@ async def delete_list(list_id: str, ctx: CurrentUser) -> dict[str, Any]:
     return {"deleted": True, "id": list_id}
 
 
+class PatchListInput(BaseModel):
+    """Body of PATCH /v1/prospector/lists/{id} — only writable fields."""
+    email_template_id: str | None = Field(default=..., description="UUID or null to unlink")
+
+
+@router.patch("/lists/{list_id}", status_code=status.HTTP_200_OK)
+async def patch_list(list_id: str, body: PatchListInput, ctx: CurrentUser) -> dict[str, Any]:
+    """Update mutable fields on a prospect_list (currently: email_template_id)."""
+    tenant_id = require_tenant(ctx)
+    if not _list_belongs_to_tenant(list_id, tenant_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="list_not_found")
+
+    sb = get_service_client()
+    res = (
+        sb.table("prospect_lists")
+        .update({"email_template_id": body.email_template_id})
+        .eq("id", list_id)
+        .eq("tenant_id", tenant_id)
+        .execute()
+    )
+    if not res.data:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="patch_failed",
+        )
+    return res.data[0]
+
+
 # ---------------------------------------------------------------------------
 # Validation v3 — enqueue + status
 # ---------------------------------------------------------------------------

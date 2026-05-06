@@ -158,6 +158,18 @@ class OutreachInput(BaseModel):
             "active inboxes for the tenant (default production behaviour)."
         ),
     )
+    # Generic-outreach custom template (Phase 2 campagne custom).
+    # When set, OutreachAgent loads this template from email_templates table,
+    # renders it with lead variables, and bypasses the standard Solar template
+    # family entirely. Set by prospect_list_outreach when campaign_type='generic_outreach'.
+    email_template_id: str | None = Field(
+        default=None,
+        description=(
+            "UUID of an email_templates row. When provided, the OutreachAgent "
+            "renders the stored HTML template instead of the built-in Solar "
+            "template family (no creative rendering needed)."
+        ),
+    )
 
 
 class OutreachOutput(BaseModel):
@@ -988,12 +1000,65 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
                 tracking_host=tracking_host,
             ),
         )
+        # ── Phase 2 campagne custom: DB-stored HTML template ──────────────
+        # When email_template_id is set (generic_outreach lists), load the
+        # stored HTML template from email_templates table and render it with
+        # Jinja2 variable substitution. Bypasses the Solar template family
+        # entirely — no ROI cards, no rendering images needed.
+        if payload.email_template_id:
+            from ..routes.email_templates import render_template_for_lead
+
+            tpl_res = (
+                sb.table("email_templates")
+                .select("id, name, subject, html, plain_text")
+                .eq("id", payload.email_template_id)
+                .eq("tenant_id", payload.tenant_id)
+                .limit(1)
+                .execute()
+            )
+            tpl_row = (tpl_res.data or [None])[0]
+            if tpl_row:
+                custom_rendered = render_template_for_lead(
+                    tpl_row,
+                    lead=lead,
+                    subject_row=subject,
+                    roof=roof,
+                    tenant_row=tenant_row,
+                    optout_url=optout_url,
+                    tracking_pixel_url=_tracking_pixel_url(
+                        lead.get("public_slug"),
+                        tracking_host=tracking_host,
+                    ),
+                )
+                from ..services.email_template_service import RenderedEmail
+                rendered = RenderedEmail(
+                    subject=custom_rendered["subject"],
+                    html=custom_rendered["html"],
+                    text=custom_rendered["text"],
+                )
+                log.info(
+                    "outreach.custom_template_used",
+                    lead_id=payload.lead_id,
+                    template_id=payload.email_template_id,
+                )
+            else:
+                # Template was deleted after outreach was enqueued — fall back.
+                log.warning(
+                    "outreach.custom_template_not_found",
+                    lead_id=payload.lead_id,
+                    template_id=payload.email_template_id,
+                )
+                rendered = await render_outreach_email_with_fallback(
+                    ctx,
+                    supabase=sb,
+                    tenant_row=tenant_row,
+                )
         # Sprint 10 — engagement-based follow-up scenario branch.
         # When the cron decided this is a scenario fire (cold/lukewarm/...),
         # render the dedicated followup_{scenario}.j2 template instead of
         # the standard sequence_step chain. Sector news + scenario flags
         # are populated in copy_overrides by the cron.
-        if payload.engagement_scenario:
+        elif payload.engagement_scenario:
             from ..services.email_template_service import render_followup_email
             from ..services import sector_news_service
 

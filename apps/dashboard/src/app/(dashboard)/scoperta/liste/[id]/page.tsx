@@ -19,7 +19,9 @@ import {
   Building2,
   CheckCircle2,
   Clock,
+  ExternalLink,
   Loader2,
+  Mail,
   MapPin,
   Send,
   ShieldCheck,
@@ -32,6 +34,11 @@ import { use, useCallback, useEffect, useMemo, useState } from 'react';
 import { BentoCard } from '@/components/ui/bento-card';
 import { GradientButton } from '@/components/ui/gradient-button';
 import { SectionEyebrow } from '@/components/ui/section-eyebrow';
+import {
+  type EmailTemplateRow,
+  listEmailTemplates,
+  assignTemplateToList,
+} from '@/lib/data/email-templates';
 import {
   type ProspectList,
   type ProspectListItem,
@@ -87,6 +94,11 @@ export default function ListDetailPage({
   const [launching, setLaunching] = useState(false);
   const [launchMsg, setLaunchMsg] = useState<string | null>(null);
 
+  // Template selector state (generic_outreach only)
+  const [emailTemplates, setEmailTemplates] = useState<EmailTemplateRow[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
+  const [assigningTemplate, setAssigningTemplate] = useState(false);
+
   const refresh = useCallback(async () => {
     try {
       const res = await getProspectList(id, { page, page_size: PAGE_SIZE });
@@ -94,6 +106,10 @@ export default function ListDetailPage({
       setItems(res.items);
       setItemsTotal(res.items_total);
       setError(null);
+      // Pre-populate template selector with the saved value.
+      if (res.list.email_template_id) {
+        setSelectedTemplateId(res.list.email_template_id);
+      }
       try {
         const vs = await getValidateStatus(id);
         setValidateStatus(vs);
@@ -106,6 +122,27 @@ export default function ListDetailPage({
       setLoading(false);
     }
   }, [id, page]);
+
+  // Load email templates for the picker (generic_outreach lists only).
+  useEffect(() => {
+    if (!list || list.campaign_type !== 'generic_outreach') return;
+    listEmailTemplates()
+      .then((res) => setEmailTemplates(res.items))
+      .catch(() => {/* non-critical */});
+  }, [list?.campaign_type]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function onAssignTemplate(templateId: string) {
+    setAssigningTemplate(true);
+    try {
+      await assignTemplateToList(id, templateId || null);
+      setSelectedTemplateId(templateId);
+      await refresh();
+    } catch {
+      // show inline — TODO
+    } finally {
+      setAssigningTemplate(false);
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -334,14 +371,64 @@ export default function ListDetailPage({
               <div className="flex items-center gap-2">
                 <Send size={16} className="text-primary" />
                 <p className="text-sm font-semibold text-on-surface">
-                  2. Lancia rendering + outreach
+                  {isGenericOutreach ? '2. Lancia outreach custom' : '2. Lancia rendering + outreach'}
                 </p>
               </div>
               <p className="mt-2 text-xs text-on-surface-variant">
-                Promuove i candidati con tetto idoneo a lead. Mette in coda
-                rendering tetto + email outreach. Il cap giornaliero
-                schedula automaticamente le eccedenze.
+                {isGenericOutreach
+                  ? 'Promuove i contatti estratti a lead e invia l\'email custom. Il cap giornaliero schedula le eccedenze al giorno successivo.'
+                  : 'Promuove i candidati con tetto idoneo a lead. Mette in coda rendering tetto + email outreach. Il cap giornaliero schedula automaticamente le eccedenze.'}
               </p>
+
+              {/* Template picker — generic_outreach only */}
+              {isGenericOutreach && (
+                <div className="mt-3 rounded-md border border-on-surface/10 bg-surface p-3">
+                  <div className="flex items-center gap-1.5 text-xs font-semibold text-on-surface-variant mb-2">
+                    <Mail size={12} />
+                    Template email
+                  </div>
+                  {emailTemplates.length === 0 ? (
+                    <div className="text-xs text-on-surface-variant">
+                      Nessun template disponibile.{' '}
+                      <Link
+                        href="/email-templates"
+                        className="inline-flex items-center gap-0.5 font-semibold text-primary hover:underline"
+                      >
+                        Crea un template <ExternalLink size={10} />
+                      </Link>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <select
+                        value={selectedTemplateId}
+                        onChange={(e) => onAssignTemplate(e.target.value)}
+                        disabled={assigningTemplate}
+                        className="flex-1 rounded-md border border-on-surface/20 bg-surface px-2 py-1.5 text-xs text-on-surface focus:border-primary focus:outline-none disabled:opacity-50"
+                      >
+                        <option value="">— nessun template —</option>
+                        {emailTemplates.map((t) => (
+                          <option key={t.id} value={t.id}>
+                            {t.name}
+                          </option>
+                        ))}
+                      </select>
+                      <Link
+                        href="/email-templates"
+                        className="shrink-0 text-xs text-primary hover:underline"
+                        title="Gestisci template"
+                      >
+                        Gestisci
+                      </Link>
+                    </div>
+                  )}
+                  {selectedTemplateId && (
+                    <p className="mt-1 text-[10px] text-success">
+                      ✓ Template selezionato
+                    </p>
+                  )}
+                </div>
+              )}
+
               <div className="mt-3 flex items-center justify-between">
                 <div className="text-[11px] text-on-surface-variant">
                   {acceptedCount > 0 ? (
@@ -358,13 +445,19 @@ export default function ListDetailPage({
                   disabled={
                     launching ||
                     acceptedCount === 0 ||
-                    validationInFlight
+                    validationInFlight ||
+                    (isGenericOutreach && !selectedTemplateId)
                   }
                   className="inline-flex items-center gap-2 rounded-full bg-primary px-4 py-2 text-sm font-semibold text-on-primary transition-opacity hover:opacity-95 disabled:opacity-40"
                 >
                   {launching ? 'Avvio…' : 'Lancia outreach'}
                 </button>
               </div>
+              {isGenericOutreach && !selectedTemplateId && acceptedCount > 0 && (
+                <p className="mt-1 text-[10px] text-amber-600">
+                  Seleziona un template email prima di lanciare l&apos;outreach.
+                </p>
+              )}
               {launchMsg && (
                 <p className="mt-2 text-[11px] text-on-surface-variant">
                   {launchMsg}

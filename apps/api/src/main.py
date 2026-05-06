@@ -33,6 +33,7 @@ from .routes import (
     crm_webhooks,
     demo,
     email_domains,
+    email_templates,
     events,
     experiments,
     followup,
@@ -160,6 +161,7 @@ app.include_router(
 )
 app.include_router(contatti.router, prefix="/v1/contatti", tags=["contatti"])
 app.include_router(prospector.router, prefix="/v1/prospector", tags=["prospector"])
+app.include_router(email_templates.router, prefix="/v1/email-templates", tags=["email-templates"])
 app.include_router(events.router, prefix="/v1/events", tags=["events"])
 app.include_router(webhooks.router, prefix="/v1/webhooks", tags=["webhooks"])
 app.include_router(public.router, prefix="/v1/public", tags=["public"])

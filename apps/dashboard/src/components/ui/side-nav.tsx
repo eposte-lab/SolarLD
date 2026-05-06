@@ -60,7 +60,8 @@ export type NavIconKey =
   | 'scoperta'
   | 'pratiche'
   | 'scadenze'
-  | 'admin';
+  | 'admin'
+  | 'email-templates';
 
 const ICON_MAP: Record<NavIconKey, LucideIcon> = {
   dashboard: Home,
@@ -83,6 +84,8 @@ const ICON_MAP: Record<NavIconKey, LucideIcon> = {
   scadenze: CalendarClock,
   // Super-admin internal tooling — terminal icon signals dev/ops surface.
   admin: Terminal,
+  // Custom email templates for generic_outreach campaigns.
+  'email-templates': Mail,
 };
 
 export interface NavItem {
