@@ -56,7 +56,6 @@ const NAV_SECTIONS: NavSection[] = [
   {
     label: 'Setup',
     items: [
-      { href: '/analytics', label: 'Analytics', icon: 'analytics' },
       { href: '/settings', label: 'Impostazioni', icon: 'settings' },
     ],
   },
@@ -118,21 +117,10 @@ export default async function DashboardLayout({
       })).filter((s) => s.items.length > 0)
     : NAV_SECTIONS;
 
-  // Super-admin only section — never shown to regular tenant users or
-  // demo tenants. Injected at the bottom of the nav rail.
-  const adminSection: NavSection | null =
-    ctx.role === 'super_admin'
-      ? {
-          label: 'Admin',
-          items: [
-            { href: '/admin/demo-runs', label: 'Demo Runs', icon: 'admin' },
-          ],
-        }
-      : null;
-
-  const visibleSections: NavSection[] = adminSection
-    ? [...baseSections, adminSection]
-    : baseSections;
+  // The previous super-admin "Demo Runs" section was tied to the old
+  // execution system. Now that v3 runs through the standard funnel
+  // pipeline, no separate admin surface is needed in the nav rail.
+  const visibleSections: NavSection[] = baseSections;
 
   return (
     <div className="flex min-h-screen bg-surface">

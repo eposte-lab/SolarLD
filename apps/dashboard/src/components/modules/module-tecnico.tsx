@@ -87,7 +87,7 @@ export function ModuleTecnico({ value, onChange }: ModuleTecnicoProps) {
 
       <FieldCard
         title="Soglia analisi satellitare (L4)"
-        hint="Percentuale di candidati L3 che vengono analizzati via satellite. Più alto = più costo per scoperta."
+        hint="Percentuale di candidati L3 che vengono analizzati via satellite. Più alto = più copertura, meno selettività."
       >
         <SliderField
           label="Soglia analisi %"

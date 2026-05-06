@@ -7,7 +7,7 @@
  *
  * Top-level paths (no back button):
  *   / · /leads · /invii · /contatti · /scoperta · /territories
- *   /funnel · /analytics · /deliverability · /settings · /experiments
+ *   /funnel · /deliverability · /settings · /experiments
  *   /campaigns · /funnel
  *
  * Everything else (sub-pages, detail pages, settings sub-sections)
@@ -27,7 +27,6 @@ const TOP_LEVEL = new Set([
   '/scoperta',
   '/territories',
   '/funnel',
-  '/analytics',
   '/deliverability',
   '/settings',
   '/experiments',

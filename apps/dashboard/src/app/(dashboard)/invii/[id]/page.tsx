@@ -198,14 +198,6 @@ export default async function InvioDetailPage({ params }: PageProps) {
                   }
                 />
               )}
-              <InfoRow
-                label="Costo"
-                value={
-                  send.cost_cents > 0
-                    ? `€ ${(send.cost_cents / 100).toFixed(2)}`
-                    : '—'
-                }
-              />
               {send.experiment_variant && (
                 <InfoRow
                   label="A/B variante"

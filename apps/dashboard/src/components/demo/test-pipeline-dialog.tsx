@@ -601,7 +601,7 @@ export function TestPipelineDialog({
               <p className="mt-1 text-xs text-on-surface-variant">
                 Lead pronto in ~5 secondi · rendering tetto + invio email
                 continuano in background (2-10 min, visibili live nella scheda
-                del lead e in <code>/admin/demo-runs</code>).
+                del lead).
               </p>
             </div>
             <div className="flex shrink-0 items-center gap-2">
@@ -1029,7 +1029,7 @@ function ProgressPanel({ run }: { run: RunSnapshot }) {
         Lead creato. Rendering tetto 2-5 min · video Kling fino a 5 min
         aggiuntivi nei picchi di coda Replicate · invio email ~5s. Puoi
         chiudere questa finestra: il pipeline continua in background, lo
-        stato live è su <code>/admin/demo-runs</code> e nella scheda del lead.
+        stato live è visibile nella scheda del lead.
       </p>
       <ul className="space-y-2">
         {steps.map((step, idx) => {
@@ -1262,23 +1262,6 @@ function BicDiagnosticsRow({
           {vision}
         </strong>
       </span>
-      {typeof diagnostics.total_cost_cents === 'number' && (
-        <span
-          title={
-            diagnostics.cost_breakdown_cents
-              ? Object.entries(diagnostics.cost_breakdown_cents)
-                  .filter(([, v]) => v > 0)
-                  .map(([k, v]) => `${k}: ${(v / 100).toFixed(2)}€`)
-                  .join(' · ')
-              : undefined
-          }
-        >
-          costo:{' '}
-          <strong>
-            €{(diagnostics.total_cost_cents / 100).toFixed(2)}
-          </strong>
-        </span>
-      )}
       {diagnostics.vision_reasoning && (
         <span
           className="block w-full"
@@ -1329,10 +1312,8 @@ function BicSection({
               Identifica capannone
             </p>
             <p className="text-[11px] text-on-surface-variant">
-              Avvia la cascade (Atoka + Places + OSM + Vision) per
-              localizzare l&apos;edificio prima del render. Cache hit
-              €0; tipico €0,03–0,10; worst-case (12 varianti Places +
-              Vision) €0,22. Il costo reale appare qui sotto dopo il run.
+              Avvia la cascade (Places + OSM + Vision) per localizzare
+              l&apos;edificio prima del render.
             </p>
           </div>
           <button

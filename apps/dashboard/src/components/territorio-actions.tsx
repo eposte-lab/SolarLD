@@ -111,11 +111,11 @@ export function TerritorioActions() {
               disabled={funnelState === 'busy'}
               className="rounded-md border border-outline-variant bg-surface-container px-2 py-1 text-xs text-on-surface disabled:opacity-50"
             >
-              <option value={50}>50 (test rapido, ~€0.15)</option>
-              <option value={100}>100 (pilota, ~€0.30)</option>
-              <option value={250}>250 (provinc. piccola, ~€0.75)</option>
-              <option value={500}>500 (standard, ~€1.50)</option>
-              <option value={1000}>1000 (completo, ~€3.00)</option>
+              <option value={50}>50 (test rapido)</option>
+              <option value={100}>100 (pilota)</option>
+              <option value={250}>250 (provincia piccola)</option>
+              <option value={500}>500 (standard)</option>
+              <option value={1000}>1000 (completo)</option>
             </select>
           </div>
         </div>

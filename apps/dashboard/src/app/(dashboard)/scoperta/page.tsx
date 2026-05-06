@@ -93,7 +93,6 @@ export default function ScopertaPage() {
   const [items, setItems] = useState<ProspectorItem[]>([]);
   const [searchMeta, setSearchMeta] = useState<{
     count: number;
-    estimated_cost_eur: number;
   } | null>(null);
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -178,7 +177,6 @@ export default function ScopertaPage() {
       setItems(res.items);
       setSearchMeta({
         count: res.count,
-        estimated_cost_eur: res.estimated_cost_eur,
       });
       if (res.error) setError(`Errore ricerca: ${res.error}`);
     } catch (err) {
@@ -467,7 +465,7 @@ export default function ScopertaPage() {
               <SectionEyebrow tone="dim">Risultati</SectionEyebrow>
               <p className="mt-1 text-sm text-on-surface-variant">
                 {searchMeta
-                  ? `${formatNumber(searchMeta.count)} aziende · costo stimato €${searchMeta.estimated_cost_eur.toFixed(2)}`
+                  ? `${formatNumber(searchMeta.count)} aziende trovate`
                   : 'Avvia una ricerca per popolare la tabella.'}
               </p>
             </div>

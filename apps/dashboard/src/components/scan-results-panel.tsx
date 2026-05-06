@@ -3,7 +3,7 @@
  *
  * Shows:
  *   1. Funnel waterfall (L1→L5 stage counts with drop-off %)
- *   2. Cost badge (total EUR for the last scan)
+ *   2. Run summary (timing + recommended count)
  *   3. Top recommended candidates table (recommended_for_rendering=true)
  *
  * Server component — rendered on page load/refresh after the funnel job
@@ -122,7 +122,7 @@ export function ScanResultsPanel({ data }: Props) {
 
   return (
     <div className="space-y-6">
-      {/* ---- Waterfall + cost ---- */}
+      {/* ---- Waterfall + summary ---- */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
         {/* Funnel waterfall */}
         <div className="col-span-2 rounded-md border border-outline-variant bg-surface-container p-4">
@@ -146,24 +146,21 @@ export function ScanResultsPanel({ data }: Props) {
           )}
         </div>
 
-        {/* Cost + timing */}
+        {/* Run summary (no cost) */}
         <div className="flex flex-col gap-3 rounded-md border border-outline-variant bg-surface-container p-4">
           <p className="text-xs font-semibold uppercase tracking-wider text-on-surface-variant">
-            Costi ultima scansione
+            Riepilogo scansione
           </p>
           <p className="text-3xl font-bold tabular-nums text-on-surface">
-            €{s.total_cost_eur.toFixed(2)}
+            {s.l5_recommended}
           </p>
-          <div className="space-y-1 text-xs text-on-surface-variant">
+          <p className="-mt-2 text-xs text-on-surface-variant">
+            candidati raccomandati per rendering
+          </p>
+          <div className="space-y-1 border-t border-outline-variant/40 pt-3 text-xs text-on-surface-variant">
             <p>Avvio: {fmtDate(s.started_at)}</p>
             <p>Fine: {fmtDate(s.completed_at)}</p>
           </div>
-          {s.l5_recommended > 0 ? (
-            <div className="rounded-md bg-tertiary/10 px-3 py-2 text-xs text-tertiary">
-              <span className="font-bold">{s.l5_recommended}</span> candidati
-              raccomandati per rendering
-            </div>
-          ) : null}
         </div>
       </div>
 

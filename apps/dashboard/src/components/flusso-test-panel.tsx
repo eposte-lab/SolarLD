@@ -480,14 +480,6 @@ function SubWaterfall({
           </div>
         );
       })}
-      {summary.total_cost_eur > 0 && (
-        <p className="pt-1 text-[10px] uppercase tracking-widest text-on-surface-variant">
-          Costo totale ·{' '}
-          <span className="font-semibold text-on-surface">
-            €{summary.total_cost_eur.toFixed(2)}
-          </span>
-        </p>
-      )}
     </div>
   );
 }

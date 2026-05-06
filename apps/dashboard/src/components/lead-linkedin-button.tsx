@@ -58,7 +58,7 @@ export function LeadLinkedInButton({ leadId, initial }: Props) {
               onClick={() => handleClick(true)}
               disabled={busy}
               className="rounded-full border border-outline-variant px-3 py-1.5 text-xs text-on-surface-variant transition-colors hover:bg-surface-container-high disabled:opacity-50"
-              title="Forza nuova chiamata Proxycurl (~$0.01)"
+              title="Forza nuovo aggiornamento del profilo"
             >
               Force refresh
             </button>
@@ -74,13 +74,9 @@ export function LeadLinkedInButton({ leadId, initial }: Props) {
         <div className="space-y-2 text-sm">
           {data.cache_hit ? (
             <p className="text-xs text-success">
-              ✓ Da cache (no costi)
+              ✓ Profilo aggiornato
             </p>
-          ) : (
-            <p className="text-xs text-warning">
-              Nuova chiamata Proxycurl (~$0.01)
-            </p>
-          )}
+          ) : null}
 
           <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
             <dt className="text-on-surface-variant">Nome</dt>
@@ -121,13 +117,11 @@ export function LeadLinkedInButton({ leadId, initial }: Props) {
         </div>
       ) : data && !data.found ? (
         <p className="text-xs text-on-surface-variant">
-          Nessuna corrispondenza su LinkedIn.{' '}
-          {data.cache_hit ? '(cache)' : '(chiamata Proxycurl)'}
+          Nessuna corrispondenza su LinkedIn.
         </p>
       ) : (
         <p className="text-xs text-on-surface-variant">
-          Clicca per cercare il profilo aziendale su LinkedIn (~$0.01 per
-          chiamata, cached 60 giorni).
+          Clicca per cercare il profilo aziendale su LinkedIn.
         </p>
       )}
     </div>

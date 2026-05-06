@@ -55,8 +55,7 @@ type SortKey =
   | 'status'
   | 'delivered'
   | 'opened'
-  | 'clicked'
-  | 'cost';
+  | 'clicked';
 
 export function InviiTable({ rows }: { rows: CampaignWithLeadEngagement[] }) {
   const { sorted, sortKey, sortDir, requestSort } = useSortableData<
@@ -80,8 +79,6 @@ export function InviiTable({ rows }: { rows: CampaignWithLeadEngagement[] }) {
         return c.leads?.outreach_opened_at ? 1 : 0;
       case 'clicked':
         return c.leads?.outreach_clicked_at ? 1 : 0;
-      case 'cost':
-        return c.cost_cents ?? 0;
     }
   });
 
@@ -98,7 +95,6 @@ export function InviiTable({ rows }: { rows: CampaignWithLeadEngagement[] }) {
             <SortableTh sortKey="delivered" active={sortKey} dir={sortDir} onSort={requestSort} className="px-5 py-3">Consegnato</SortableTh>
             <SortableTh sortKey="opened" active={sortKey} dir={sortDir} onSort={requestSort} className="px-5 py-3">Aperto</SortableTh>
             <SortableTh sortKey="clicked" active={sortKey} dir={sortDir} onSort={requestSort} className="px-5 py-3">Click</SortableTh>
-            <SortableTh sortKey="cost" active={sortKey} dir={sortDir} onSort={requestSort} className="px-5 py-3" align="right">Costo</SortableTh>
             <th className="px-5 py-3" />
           </tr>
         </thead>
@@ -164,11 +160,6 @@ export function InviiTable({ rows }: { rows: CampaignWithLeadEngagement[] }) {
                 ) : (
                   <span className="text-on-surface-variant">—</span>
                 )}
-              </td>
-              <td className="px-5 py-3 text-right tabular-nums text-xs text-on-surface-variant">
-                {c.cost_cents > 0
-                  ? `€ ${(c.cost_cents / 100).toFixed(2)}`
-                  : '—'}
               </td>
               <td className="px-5 py-3 text-right">
                 <div className="flex items-center justify-end gap-3">

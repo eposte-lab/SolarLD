@@ -46,7 +46,6 @@ export async function updateSession(request: NextRequest) {
     pathname.startsWith('/leads') ||
     pathname.startsWith('/territories') ||
     pathname.startsWith('/campaigns') ||
-    pathname.startsWith('/analytics') ||
     pathname.startsWith('/settings');
 
   // Unauthenticated → protect dashboard routes.
