@@ -78,7 +78,7 @@ export default async function DevicesSettingsPage() {
 
   const cfg = (tenantRes.data ?? {
     demo_device_limit_enabled: false,
-    demo_device_max_total: 3,
+    demo_device_max_total: 2,
     demo_device_idle_timeout_minutes: 30,
   }) as TenantConfig;
 

@@ -9,7 +9,6 @@
 
 import { NextResponse } from 'next/server';
 
-import { DEVICE_COOKIE_NAME } from '@/lib/auth/device-gate';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 
 export async function GET(request: Request) {
@@ -19,16 +18,14 @@ export async function GET(request: Request) {
   const url = new URL('/login', request.url);
   const res = NextResponse.redirect(url);
 
-  // Best-effort: clear the device cookie too. The Supabase client already
-  // wiped its own session cookies via signOut().
-  res.cookies.set(DEVICE_COOKIE_NAME, '', {
-    httpOnly: true,
-    secure: true,
-    sameSite: 'lax',
-    maxAge: 0,
-    path: '/',
-  });
-
+  // IMPORTANT: we intentionally do NOT clear the sld-dev device cookie here.
+  // The device slot in tenant_authorized_devices must remain occupied even
+  // after logout — the intent is that once a physical device has been
+  // registered it keeps its slot permanently (until an admin explicitly
+  // revokes it from /settings/devices). Clearing the cookie would force
+  // fingerprint-only recognition on the next login, which fails when the
+  // user's IP has changed (e.g. office → home), causing them to be counted
+  // as a new device and potentially blocked or double-registered.
   return res;
 }
 

@@ -15,8 +15,9 @@
  *   need to plumb refs through every page.
  * - Timer is debounced — every interaction resets a single setTimeout
  *   instead of tracking timestamps. Cheap and good enough.
- * - On timeout we redirect to `/signout` (which clears device cookie +
- *   Supabase session + bounces to /login). We use a hard navigation
+ * - On timeout we redirect to `/signout` (clears Supabase session,
+ *   bounces to /login; sld-dev device cookie is intentionally preserved
+ *   so the device slot remains occupied). We use a hard navigation
  *   `window.location.assign` instead of `router.push` because the
  *   route handler returns a redirect that the SPA router would not
  *   follow as expected.

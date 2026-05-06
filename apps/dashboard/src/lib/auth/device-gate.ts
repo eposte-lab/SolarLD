@@ -210,7 +210,7 @@ async function getTenantDeviceConfig(
   };
   return {
     enabled: Boolean(row.demo_device_limit_enabled),
-    max_total: row.demo_device_max_total ?? 3,
+    max_total: row.demo_device_max_total ?? 2,
   };
 }
 
