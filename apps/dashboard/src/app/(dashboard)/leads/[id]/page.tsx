@@ -960,27 +960,38 @@ export default async function LeadDetailPage({ params }: PageProps) {
         )}
       </CollapsibleCard>
 
-      {/* ─── Scrivi follow-up con AI ──────────────────────────────────── */}
+      {/* ─── Scrivi follow-up ────────────────────────────────────────────
+          CTA prominente che apre un dialog modale con due modalità:
+          template precompilati con variabili oppure generazione AI live.
+          La UX a tendina precedente nascondeva una funzione critica;
+          ora è una azione di prim'ordine sulla scheda lead. */}
       {!isBlacklisted && (
-        <CollapsibleCard
-          label="Follow-up assistito"
-          title="Scrivi con AI"
-          defaultOpen={false}
-        >
-          <p className="mb-4 text-sm text-on-surface-variant">
-            L&apos;AI analizza il preventivo, il comportamento sul portale e le
-            comunicazioni precedenti, e scrive una bozza su misura.
-            Puoi modificarla prima di inviarla.
-          </p>
+        <BentoCard span="full">
           <TierLock
             feature="advanced_analytics"
             tenant={ctx.tenant}
             featureLabel="Follow-up con AI"
             inline
           >
-            <FollowUpDrafter leadId={lead.id} />
+            <FollowUpDrafter
+              leadId={lead.id}
+              leadName={
+                lead.subjects?.business_name ||
+                [lead.subjects?.owner_first_name, lead.subjects?.owner_last_name]
+                  .filter(Boolean)
+                  .join(' ') ||
+                'questo lead'
+              }
+              recipientEmail={lead.subjects?.decision_maker_email ?? null}
+              senderEmail={ctx.tenant.followup_from_email ?? null}
+              senderName={
+                ctx.tenant.email_from_name ||
+                ctx.tenant.business_name ||
+                'SolarLead'
+              }
+            />
           </TierLock>
-        </CollapsibleCard>
+        </BentoCard>
       )}
 
       {/* ─── Breakdown punteggio ──────────────────────────────────────────

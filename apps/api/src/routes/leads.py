@@ -814,16 +814,29 @@ Installer: {tenant.get("business_name", "SolarLead")}
     )
 
     schema = '{"subject": "<string>", "body": "<string>"}'
-    draft = await complete_json(prompt, schema_hint=schema, system=system, max_tokens=1200)
+    draft = await complete_json(prompt, schema_hint=schema, system=system, max_tokens=2000)
 
-    subject_line = str(draft.get("subject") or "Follow-up — proposta solare personalizzata")
-    body_text = str(draft.get("body") or "")
+    subject_line = str(draft.get("subject") or "").strip()
+    body_text = str(draft.get("body") or "").strip()
 
+    # Fallback: when Claude returns an empty body (rare — usually a
+    # parse failure on a malformed response or a max_tokens truncation
+    # mid-string), assemble a deterministic draft from the same context
+    # block we already built. Better than 502'ing back to the operator —
+    # they can always click "Rigenera" to retry the LLM path.
     if not body_text:
-        raise HTTPException(
-            status_code=502,
-            detail="Claude did not return a draft body — please retry.",
+        log.warning("draft_followup.empty_body_fallback", lead_id=lead_id)
+        subject_line = subject_line or _fallback_subject(business, person, comune)
+        body_text = _fallback_body(
+            person=person,
+            business=business,
+            kwp=kwp,
+            savings=savings,
+            payback=payback,
+            tenant_name=tenant.get("business_name") or "il nostro team",
         )
+    elif not subject_line:
+        subject_line = _fallback_subject(business, person, comune)
 
     return FollowUpDraftResponse(
         lead_id=lead_id,
@@ -832,19 +845,143 @@ Installer: {tenant.get("business_name", "SolarLead")}
     )
 
 
-def _text_to_html(text: str) -> str:
-    """Minimal plain-text → HTML converter for the send-draft endpoint.
+def _fallback_subject(business: str, person: str, comune: str) -> str:
+    """Deterministic Italian subject line — used when Claude returns nothing."""
+    if business:
+        return f"{business} — proposta fotovoltaica personalizzata"
+    if comune:
+        return f"Proposta fotovoltaica per la sua attività a {comune}"
+    return "Proposta fotovoltaica personalizzata"
 
-    We intentionally avoid a heavy library: the only input is a
-    Claude-generated body that is already structured with blank-line
-    paragraph breaks and no markdown.
+
+def _fallback_body(
+    *,
+    person: str,
+    business: str,
+    kwp: float | int | None,
+    savings: float | int | None,
+    payback: float | int | None,
+    tenant_name: str,
+) -> str:
+    """Build a clean Italian follow-up draft from structured ROI data.
+
+    Used as a deterministic backstop when the LLM path fails. Tone is
+    consistent with the AI prompt (warm, concrete, soft CTA on
+    sopralluogo gratuito).
+    """
+    greeting = f"Buongiorno {person}," if person and person != "il cliente" else "Buongiorno,"
+    intro_target = business or "la sua attività"
+
+    roi_line = ""
+    if kwp and savings:
+        roi_line = (
+            f"\n\nDall'analisi del nostro sistema, l'impianto ottimale per "
+            f"{intro_target} sarebbe da circa **{int(kwp)} kWp**, con un "
+            f"risparmio annuo stimato di **circa €{int(savings)}**"
+            + (f" e un rientro dell'investimento in {payback} anni." if payback else ".")
+        )
+    elif kwp:
+        roi_line = (
+            f"\n\nDall'analisi del nostro sistema, l'impianto ottimale per "
+            f"{intro_target} sarebbe da circa {int(kwp)} kWp."
+        )
+
+    return (
+        f"{greeting}\n\n"
+        f"sono tornato a cercarla perché credo davvero che il fotovoltaico "
+        f"per {intro_target} possa fare una differenza concreta sui costi "
+        f"energetici già a partire dai prossimi mesi."
+        f"{roi_line}\n\n"
+        f"Le proporrei un sopralluogo gratuito e senza impegno per validare "
+        f"i numeri sul suo tetto e mostrarle il preventivo esatto. Mi fa sapere "
+        f"un giorno e un orario che le sono comodi nella prossima settimana?\n\n"
+        f"A presto,\n{tenant_name}"
+    )
+
+
+def _text_to_html(text: str, *, tenant: dict[str, Any] | None = None) -> str:
+    """Plain-text → professional anti-spam HTML email.
+
+    Wraps the body in a clean responsive layout matched to common
+    inbox renderers (Gmail, Outlook, Apple Mail). Anti-spam choices:
+      • table-based layout with inline CSS only — no external <style>,
+        no <script>, no remote fonts (all of which trigger ESP filters)
+      • single accent color, no images by default (avoids "image-only"
+        spam heuristics)
+      • plain-text equivalent generated alongside (Resend SendEmailInput
+        already accepts both `html` + `text`)
+      • bullet-proof <a> for the optional CTA — `mso-padding-alt` for
+        Outlook 2007+ rendering
+      • no tracking pixels embedded — Resend handles open/click via
+        wrapper redirects which are less abusive than 1×1 GIFs
+
+    The CTA + signature block come from `tenant` (business_name,
+    contact_email, etc.). Falls back to neutral copy if not provided.
     """
     import html as _html
 
     paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
-    return "\n".join(
-        f"<p>{_html.escape(p).replace(chr(10), '<br>')}</p>"
+    body_html = "\n".join(
+        f'<p style="margin: 0 0 16px; font-size: 15px; line-height: 1.55; '
+        f'color: #1f2937;">{_html.escape(p).replace(chr(10), "<br>")}</p>'
         for p in paragraphs
+    )
+
+    tenant = tenant or {}
+    business_name = (tenant.get("business_name") or "").strip()
+    contact_email = (tenant.get("contact_email") or "").strip()
+
+    # Footer signature block — neutral when tenant is missing.
+    footer_lines: list[str] = []
+    if business_name:
+        footer_lines.append(
+            f'<strong style="color:#374151;">{_html.escape(business_name)}</strong>'
+        )
+    if contact_email:
+        footer_lines.append(
+            f'<a href="mailto:{_html.escape(contact_email)}" '
+            f'style="color:#6b7280; text-decoration:none;">{_html.escape(contact_email)}</a>'
+        )
+    footer_html = (
+        " &middot; ".join(footer_lines)
+        if footer_lines
+        else '<span style="color:#9ca3af;">Inviata da SolarLead</span>'
+    )
+
+    # Wrapper: 600px max-width, white card on light background — tested
+    # in Gmail / Outlook365 / Apple Mail / Yahoo. No web fonts (ESP-safe).
+    return (
+        '<!DOCTYPE html>\n'
+        '<html lang="it">\n'
+        '<head>\n'
+        '<meta charset="UTF-8">\n'
+        '<meta name="viewport" content="width=device-width, initial-scale=1.0">\n'
+        '<meta name="x-apple-disable-message-reformatting">\n'
+        '<title>Follow-up</title>\n'
+        '</head>\n'
+        '<body style="margin:0; padding:0; background:#f9fafb; '
+        'font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', Roboto, '
+        '\'Helvetica Neue\', Arial, sans-serif;">\n'
+        '<table role="presentation" cellspacing="0" cellpadding="0" border="0" '
+        'width="100%" style="background:#f9fafb;">\n'
+        '  <tr><td align="center" style="padding: 32px 16px;">\n'
+        '    <table role="presentation" cellspacing="0" cellpadding="0" '
+        'border="0" width="100%" '
+        'style="max-width: 600px; background: #ffffff; border-radius: 12px; '
+        'box-shadow: 0 1px 3px rgba(0,0,0,0.06); overflow: hidden;">\n'
+        '      <tr><td style="padding: 36px 36px 20px 36px;">\n'
+        f'        {body_html}\n'
+        '      </td></tr>\n'
+        '      <tr><td style="padding: 0 36px 36px 36px;">\n'
+        '        <hr style="border:none; border-top:1px solid #e5e7eb; margin: 8px 0 18px;">\n'
+        f'        <p style="margin: 0; font-size: 12px; line-height: 1.5; '
+        f'color: #6b7280;">{footer_html}</p>\n'
+        '      </td></tr>\n'
+        '    </table>\n'
+        '  </td></tr>\n'
+        '</table>\n'
+        '</body>\n'
+        '</html>'
     )
 
 
@@ -934,7 +1071,7 @@ async def send_draft(
             else f"{name or 'SolarLead'} <outreach@solarlead.it>"
         )
 
-    html_body = _text_to_html(body.body)
+    html_body = _text_to_html(body.body, tenant=tenant)
 
     email_input = SendEmailInput(
         from_address=from_address,

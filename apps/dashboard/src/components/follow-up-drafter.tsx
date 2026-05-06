@@ -1,35 +1,36 @@
 'use client';
 
 /**
- * Follow-up drafter — Part B.9.
+ * FollowUpDrafter — CTA + Dialog modal for composing a follow-up.
  *
- * Three-state UI:
- *   idle      → "Genera follow-up AI" button
- *   drafting  → spinner + "Generazione in corso…"
- *   drafted   → editable subject + textarea with "Invia" / "Scarta"
- *   sending   → spinner on Invia button
- *   sent      → success banner
- *   error     → red flash banner, back to idle/drafted state
+ * Replaces the old collapsible card with a prominent CTA on the lead
+ * detail page. Click → modal opens with two modes:
  *
- * Design:
- *   - The generate call hits POST /v1/leads/{id}/draft-followup.
- *   - The send call hits POST /v1/leads/{id}/send-draft.
- *   - Both use `api` from lib/api-client.ts which auto-attaches the JWT.
- *   - After send the parent page refreshes via router.refresh() so the
- *     campaign sequence section picks up the new row.
- *   - Tier-gated server-side (Pro+). The component is mounted only when
- *     the tier allows it — no client-side gate needed.
+ *   Template  — pre-built Italian copy with variable substitution
+ *               ({{nome}}, {{azienda}}, {{kwp}}, {{risparmio}}, etc.)
+ *               Three categories: caldo / tiepido / freddo lead.
+ *
+ *   AI Live   — real-time Claude generation using the lead's full
+ *               context (ROI, engagement, campaign history).
+ *
+ * Both flows produce an editable {subject, body} pair that is then sent
+ * via POST /v1/leads/{id}/send-draft. The HTML email is built server
+ * side (`_text_to_html(text, tenant=...)`) — operator works on plain
+ * text, the API wraps it in the anti-spam HTML shell.
+ *
+ * The sender (followup_from_email) is shown so the operator knows
+ * which inbox the email leaves from. Click-to-edit goes to /settings.
  */
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, Mail, Send, Sparkles, X } from 'lucide-react';
 
 import { api, ApiError } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 
 // ---------------------------------------------------------------------------
-// Types (mirror the FastAPI response shapes)
+// Types
 // ---------------------------------------------------------------------------
 
 interface DraftResponse {
@@ -44,24 +45,245 @@ interface SendResponse {
   message_id: string | null;
 }
 
+type Mode = 'template' | 'ai';
+type Phase = 'compose' | 'sending' | 'sent' | 'error';
+
+interface Props {
+  leadId: string;
+  leadName: string;
+  /** Recipient email (subjects.decision_maker_email). null = no email on file. */
+  recipientEmail: string | null;
+  /** Configured sender inbox (tenants.followup_from_email). */
+  senderEmail: string | null;
+  /** Display name for the sender (tenants.email_from_name / business_name). */
+  senderName: string;
+}
+
+// ---------------------------------------------------------------------------
+// Pre-built templates with variable placeholders
+// ---------------------------------------------------------------------------
+
+interface Template {
+  id: string;
+  label: string;
+  description: string;
+  subject: string;
+  body: string;
+}
+
+const TEMPLATES: Template[] = [
+  {
+    id: 'recap_roi',
+    label: 'Recap ROI',
+    description:
+      'Per lead che hanno aperto il portale o cliccato la CTA. Riassume i numeri concreti e propone un sopralluogo.',
+    subject: '{{azienda}} — i suoi numeri sul fotovoltaico',
+    body: `Buongiorno {{nome}},
+
+ho rivisto i dati che il sistema ha calcolato per {{azienda}} e volevo condividere i tre numeri che pensavamo di portarle al sopralluogo:
+
+• Potenza ottimale: circa {{kwp}} kWp
+• Risparmio annuo stimato: {{risparmio}}
+• Rientro investimento: {{payback}}
+
+Sono numeri pensati sul tetto della sua sede a {{comune}} — non un preventivo generico. Le proporrei un sopralluogo gratuito (40 minuti circa) per validare i dati direttamente sul posto e poi metterle in mano un preventivo definitivo.
+
+Mi farebbe sapere se la prossima settimana ha una mezz'oretta libera tra mercoledì e venerdì?
+
+A presto,
+{{firma}}`,
+  },
+  {
+    id: 'reattivazione_fredda',
+    label: 'Riattivazione lead freddo',
+    description:
+      "Lead che ha aperto la prima email ma non ha cliccato. Tono leggero, niente pressione, una sola domanda chiara.",
+    subject: 'Una domanda veloce per {{azienda}}',
+    body: `Buongiorno {{nome}},
+
+mi rendo conto che il fotovoltaico non è in cima alla lista delle priorità di chi gestisce {{azienda}} — capita.
+
+Le faccio solo una domanda secca: oggi quanto le costa l'energia in un anno medio? Se fosse anche solo {{risparmio_annuo_minimo}} all'anno, varrebbe la pena guardarci dentro per 30 minuti.
+
+Le mando in allegato lo studio personalizzato sul suo tetto a {{comune}}. Se le interessa parlarne, basta che mi risponda anche solo "sì".
+
+Cordialmente,
+{{firma}}`,
+  },
+  {
+    id: 'sopralluogo_invite',
+    label: 'Invito al sopralluogo',
+    description:
+      'Diretta — quando il lead ha già mostrato interesse (portale ≥30s, scroll ≥60%) e va portato in agenda.',
+    subject: 'Sopralluogo gratuito su {{azienda}} — disponibilità prossima settimana?',
+    body: `Buongiorno {{nome}},
+
+vedo che ha avuto modo di guardare la proposta che le abbiamo inviato per {{azienda}}.
+
+Il passo logico ora è il sopralluogo: 40 minuti sul posto, gratuito e senza impegno. Misuriamo tetto e ombre, validiamo i {{kwp}} kWp che il sistema ha stimato, e le portiamo via un preventivo esatto entro 48h.
+
+Le va bene se la chiamo nei prossimi giorni per fissarlo? In alternativa, può scegliere lei un orario rispondendo a questa email.
+
+Cordialmente,
+{{firma}}`,
+  },
+  {
+    id: 'recap_post_visita',
+    label: 'Dopo il sopralluogo',
+    description:
+      'Lead che ha già fatto il sopralluogo. Riassume i passi successivi senza chiedere ancora una decisione.',
+    subject: 'Riepilogo sopralluogo — {{azienda}}',
+    body: `Buongiorno {{nome}},
+
+la ringrazio per il tempo dedicato al sopralluogo. Ricapitolo brevemente per sua comodità:
+
+• Misurazione tetto: completata
+• Verifica esposizione: ok per {{kwp}} kWp
+• Stima produttiva annuale: confermata
+
+Sto preparando il preventivo esatto e glielo invio entro 48 ore lavorative. Se nel frattempo le viene un dubbio o una domanda, mi risponda pure direttamente qui.
+
+A presto,
+{{firma}}`,
+  },
+];
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
-export function FollowUpDrafter({ leadId }: { leadId: string }) {
-  const router = useRouter();
+export function FollowUpDrafter({
+  leadId,
+  leadName,
+  recipientEmail,
+  senderEmail,
+  senderName,
+}: Props) {
+  const [open, setOpen] = useState(false);
 
-  const [phase, setPhase] = useState<
-    'idle' | 'drafting' | 'drafted' | 'sending' | 'sent' | 'error'
-  >('idle');
-  const [subject, setSubject] = useState('');
-  const [body, setBody] = useState('');
+  return (
+    <>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="max-w-xl">
+          <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
+            Follow-up
+          </p>
+          <h3 className="mt-1 font-headline text-2xl font-bold tracking-tighter">
+            Scrivi al cliente
+          </h3>
+          <p className="mt-2 text-sm text-on-surface-variant">
+            Usa un template precompilato con i dati di {leadName} oppure
+            genera una bozza personalizzata con l&apos;AI partendo da ROI,
+            engagement e cronologia.
+          </p>
+          <p className="mt-2 flex flex-wrap items-center gap-2 text-xs text-on-surface-variant">
+            <Mail size={12} aria-hidden />
+            Mittente:{' '}
+            {senderEmail ? (
+              <span className="font-mono text-on-surface">
+                {senderName} &lt;{senderEmail}&gt;
+              </span>
+            ) : (
+              <span className="text-warning">
+                non configurato — vai in /settings
+              </span>
+            )}
+          </p>
+        </div>
+        <button
+          onClick={() => setOpen(true)}
+          disabled={!recipientEmail}
+          className={cn(
+            'inline-flex items-center gap-2 rounded-lg px-5 py-3 text-sm font-semibold shadow-ambient-sm transition-colors',
+            'bg-primary text-on-primary hover:bg-primary/90',
+            'disabled:cursor-not-allowed disabled:opacity-50',
+          )}
+          title={
+            recipientEmail
+              ? 'Apri il modulo follow-up'
+              : 'Nessuna email destinatario su questo lead'
+          }
+        >
+          <Send size={14} strokeWidth={2.5} />
+          Scrivi follow-up
+        </button>
+      </div>
+
+      {open && recipientEmail && (
+        <FollowUpDialog
+          leadId={leadId}
+          recipientEmail={recipientEmail}
+          senderEmail={senderEmail}
+          senderName={senderName}
+          onClose={() => setOpen(false)}
+        />
+      )}
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Dialog
+// ---------------------------------------------------------------------------
+
+function FollowUpDialog({
+  leadId,
+  recipientEmail,
+  senderEmail,
+  senderName,
+  onClose,
+}: {
+  leadId: string;
+  recipientEmail: string;
+  senderEmail: string | null;
+  senderName: string;
+  onClose: () => void;
+}) {
+  const router = useRouter();
+  const [mode, setMode] = useState<Mode>('template');
+  const [phase, setPhase] = useState<Phase>('compose');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // -------------------------------------------------------------------------
+  // Non-null assertion: TEMPLATES is a const literal with at least one entry.
+  const defaultTemplate = TEMPLATES[0]!;
+  const [activeTemplateId, setActiveTemplateId] = useState<string>(defaultTemplate.id);
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiAttempted, setAiAttempted] = useState(false);
 
-  async function generateDraft() {
-    setPhase('drafting');
+  const [subject, setSubject] = useState(defaultTemplate.subject);
+  const [body, setBody] = useState(defaultTemplate.body);
+
+  const [showHtmlPreview, setShowHtmlPreview] = useState(false);
+
+  // ESC closes the dialog.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [onClose]);
+
+  // Lock body scroll while open.
+  useEffect(() => {
+    const original = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = original;
+    };
+  }, []);
+
+  function applyTemplate(id: string) {
+    const tpl = TEMPLATES.find((t) => t.id === id);
+    if (!tpl) return;
+    setActiveTemplateId(id);
+    setSubject(tpl.subject);
+    setBody(tpl.body);
+  }
+
+  async function generateAI() {
+    setAiBusy(true);
+    setAiAttempted(true);
     setErrorMsg(null);
     try {
       const draft = await api.post<DraftResponse>(
@@ -70,19 +292,19 @@ export function FollowUpDrafter({ leadId }: { leadId: string }) {
       );
       setSubject(draft.subject);
       setBody(draft.body);
-      setPhase('drafted');
+      setMode('ai');
     } catch (err) {
-      // ApiError.message is already sanitized Italian copy.
       setErrorMsg(
         err instanceof ApiError
-          ? `Generazione fallita: ${err.message}`
-          : 'Errore inatteso durante la generazione. Riprova tra qualche minuto.',
+          ? `Generazione AI fallita: ${err.message}`
+          : 'Errore inatteso. Puoi sempre partire da un template precompilato.',
       );
-      setPhase('error');
+    } finally {
+      setAiBusy(false);
     }
   }
 
-  async function sendDraft() {
+  async function send() {
     if (!subject.trim() || !body.trim()) return;
     setPhase('sending');
     setErrorMsg(null);
@@ -92,213 +314,347 @@ export function FollowUpDrafter({ leadId }: { leadId: string }) {
         body: body.trim(),
       });
       setPhase('sent');
-      // Refresh server data so the campaign sequence updates
       router.refresh();
+      // Auto-close after success notice.
+      setTimeout(onClose, 1800);
     } catch (err) {
-      // ApiError.message is already sanitized Italian copy.
       setErrorMsg(
         err instanceof ApiError
           ? `Invio fallito: ${err.message}`
-          : "Errore inatteso durante l\u2019invio. Riprova tra qualche minuto.",
+          : 'Errore inatteso durante l’invio. Riprova tra qualche minuto.',
       );
-      setPhase('drafted'); // go back to editable state, not to idle
+      setPhase('error');
     }
   }
 
-  function discard() {
-    setPhase('idle');
-    setSubject('');
-    setBody('');
-    setErrorMsg(null);
-  }
-
-  // -------------------------------------------------------------------------
-  // Render
-
-  if (phase === 'sent') {
-    return (
-      <div className="flex items-start gap-3 rounded-lg bg-primary-container/40 px-4 py-3 text-sm text-on-primary-container">
-        <span aria-hidden className="mt-0.5 text-lg leading-none">✓</span>
-        <div>
-          <p className="font-semibold">Follow-up inviato</p>
-          <p className="mt-0.5 text-on-primary-container/80">
-            La mail è in viaggio. Trovi il record nella sequenza campagne qui sopra.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="space-y-4">
-      {/* Error banner */}
-      {errorMsg && phase === 'error' && (
-        <div className="flex items-start gap-3 rounded-lg bg-error-container/40 px-4 py-3 text-sm text-on-error-container">
-          <AlertTriangle size={14} strokeWidth={2.25} aria-hidden className="mt-0.5 shrink-0" />
-          <p>{errorMsg}</p>
-          <button
-            onClick={() => { setPhase('idle'); setErrorMsg(null); }}
-            className="ml-auto shrink-0 font-semibold underline hover:no-underline"
-          >
-            Riprova
-          </button>
-        </div>
-      )}
-
-      {/* Inline send error (stays on drafted state) */}
-      {errorMsg && phase === 'drafted' && (
-        <div className="flex items-start gap-3 rounded-lg bg-error-container/40 px-4 py-3 text-sm text-on-error-container">
-          <AlertTriangle size={14} strokeWidth={2.25} aria-hidden className="mt-0.5 shrink-0" />
-          <p>{errorMsg}</p>
-        </div>
-      )}
-
-      {/* Idle state */}
-      {phase === 'idle' && (
-        <button
-          onClick={generateDraft}
-          className="inline-flex items-center gap-2 rounded-lg bg-surface-container px-4 py-2.5 text-sm font-semibold text-on-surface shadow-ambient-sm transition-colors hover:bg-surface-container-high"
-        >
-          <SparkleIcon />
-          Genera follow-up AI
-        </button>
-      )}
-
-      {/* Generating */}
-      {phase === 'drafting' && (
-        <div className="flex items-center gap-3 rounded-lg bg-surface-container-low px-4 py-3 text-sm text-on-surface-variant">
-          <SpinnerIcon />
-          Il sistema sta analizzando il contesto del lead e scrivendo la bozza…
-        </div>
-      )}
-
-      {/* Draft editor */}
-      {(phase === 'drafted' || phase === 'sending') && (
-        <div className="space-y-3">
-          {/* Context notice */}
-          <p className="text-xs text-on-surface-variant">
-            Bozza generata automaticamente sulla base di ROI, engagement e cronologia delle email inviate.
-            Modifica liberamente prima di inviare.
-          </p>
-
-          {/* Subject */}
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="followup-dialog-title"
+    >
+      <div className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-surface-container-lowest shadow-ambient-lg">
+        {/* Header */}
+        <div className="flex items-start justify-between gap-4 border-b border-outline-variant/30 px-6 py-4">
           <div>
-            <label className="mb-1 block text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">
-              Oggetto
-            </label>
-            <input
-              type="text"
-              value={subject}
-              onChange={(e) => setSubject(e.target.value)}
-              disabled={phase === 'sending'}
-              maxLength={300}
-              className={cn(
-                'w-full rounded-lg border border-outline-variant/40 bg-surface-container-lowest',
-                'px-3 py-2 text-sm text-on-surface placeholder-on-surface-variant/60',
-                'focus:border-primary/60 focus:outline-none',
-                'disabled:opacity-60',
-              )}
-            />
-          </div>
-
-          {/* Body */}
-          <div>
-            <label className="mb-1 block text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">
-              Corpo email (testo)
-            </label>
-            <textarea
-              value={body}
-              onChange={(e) => setBody(e.target.value)}
-              disabled={phase === 'sending'}
-              rows={12}
-              maxLength={8000}
-              className={cn(
-                'w-full resize-y rounded-lg border border-outline-variant/40 bg-surface-container-lowest',
-                'px-3 py-2 font-mono text-sm text-on-surface placeholder-on-surface-variant/60',
-                'focus:border-primary/60 focus:outline-none',
-                'disabled:opacity-60',
-              )}
-            />
-            <p className="mt-1 text-right text-[10px] text-on-surface-variant">
-              {body.length} / 8000 caratteri
+            <h2
+              id="followup-dialog-title"
+              className="font-headline text-xl font-bold tracking-tight text-on-surface"
+            >
+              Scrivi follow-up
+            </h2>
+            <p className="mt-0.5 text-xs text-on-surface-variant">
+              Da{' '}
+              <span className="font-mono">
+                {senderName} &lt;{senderEmail ?? 'non configurato'}&gt;
+              </span>{' '}
+              · A <span className="font-mono">{recipientEmail}</span>
             </p>
           </div>
-
-          {/* Actions */}
-          <div className="flex items-center gap-3">
-            <button
-              onClick={sendDraft}
-              disabled={phase === 'sending' || !subject.trim() || !body.trim()}
-              className={cn(
-                'inline-flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold text-on-primary shadow-ambient-sm transition-colors',
-                'bg-primary hover:bg-primary/90',
-                'disabled:cursor-not-allowed disabled:opacity-50',
-              )}
-            >
-              {phase === 'sending' ? (
-                <>
-                  <SpinnerIcon className="text-on-primary" />
-                  Invio in corso…
-                </>
-              ) : (
-                'Invia follow-up'
-              )}
-            </button>
-
-            <button
-              onClick={generateDraft}
-              disabled={phase === 'sending'}
-              className="inline-flex items-center gap-2 rounded-lg bg-surface-container px-4 py-2.5 text-sm font-semibold text-on-surface transition-colors hover:bg-surface-container-high disabled:opacity-50"
-            >
-              <SparkleIcon />
-              Rigenera
-            </button>
-
-            <button
-              onClick={discard}
-              disabled={phase === 'sending'}
-              className="ml-auto text-sm text-on-surface-variant hover:text-on-surface hover:underline disabled:opacity-50"
-            >
-              Scarta
-            </button>
-          </div>
+          <button
+            onClick={onClose}
+            className="-m-2 rounded-md p-2 text-on-surface-variant hover:bg-surface-container hover:text-on-surface"
+            aria-label="Chiudi"
+          >
+            <X size={16} strokeWidth={2.25} aria-hidden />
+          </button>
         </div>
-      )}
+
+        {/* Mode tabs */}
+        <div className="flex gap-1.5 border-b border-outline-variant/30 px-6 py-2">
+          <ModeTab
+            active={mode === 'template'}
+            onClick={() => setMode('template')}
+            icon={<Mail size={12} />}
+            label="Template"
+          />
+          <ModeTab
+            active={mode === 'ai'}
+            onClick={() => {
+              setMode('ai');
+              if (!aiAttempted) void generateAI();
+            }}
+            icon={<Sparkles size={12} />}
+            label={aiBusy ? 'Generazione…' : 'AI Live'}
+          />
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto px-6 py-4">
+          {phase === 'sent' ? (
+            <div className="flex items-start gap-3 rounded-lg bg-primary-container/40 px-4 py-4 text-sm text-on-primary-container">
+              <span aria-hidden className="mt-0.5 text-lg leading-none">
+                ✓
+              </span>
+              <div>
+                <p className="font-semibold">Email inviata</p>
+                <p className="mt-0.5 text-on-primary-container/80">
+                  La trovi nella sequenza campagne. La finestra si chiude tra
+                  un istante.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <>
+              {errorMsg && (
+                <div className="mb-3 flex items-start gap-3 rounded-lg bg-error-container/40 px-4 py-3 text-sm text-on-error-container">
+                  <AlertTriangle
+                    size={14}
+                    strokeWidth={2.25}
+                    className="mt-0.5 shrink-0"
+                  />
+                  <p>{errorMsg}</p>
+                </div>
+              )}
+
+              {mode === 'template' && (
+                <TemplatePicker
+                  active={activeTemplateId}
+                  onSelect={applyTemplate}
+                />
+              )}
+
+              {mode === 'ai' && aiBusy && (
+                <div className="mb-3 flex items-center gap-3 rounded-lg bg-surface-container-low px-4 py-3 text-sm text-on-surface-variant">
+                  <Spinner />
+                  L&apos;AI sta analizzando ROI, engagement e cronologia
+                  email…
+                </div>
+              )}
+
+              {mode === 'ai' && !aiBusy && aiAttempted && (
+                <div className="mb-3 flex items-center justify-between rounded-lg bg-surface-container-low px-4 py-3 text-xs text-on-surface-variant">
+                  <span>Bozza generata sulla base del contesto del lead.</span>
+                  <button
+                    onClick={generateAI}
+                    className="font-semibold text-primary hover:underline"
+                  >
+                    Rigenera
+                  </button>
+                </div>
+              )}
+
+              {/* Subject + body editor */}
+              <div className="space-y-3">
+                <div>
+                  <label className="mb-1 block text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">
+                    Oggetto
+                  </label>
+                  <input
+                    type="text"
+                    value={subject}
+                    onChange={(e) => setSubject(e.target.value)}
+                    disabled={phase === 'sending'}
+                    maxLength={300}
+                    className={cn(
+                      'w-full rounded-lg border border-outline-variant/40 bg-surface-container-lowest',
+                      'px-3 py-2 text-sm text-on-surface placeholder-on-surface-variant/60',
+                      'focus:border-primary/60 focus:outline-none',
+                      'disabled:opacity-60',
+                    )}
+                  />
+                </div>
+                <div>
+                  <div className="mb-1 flex items-center justify-between">
+                    <label className="text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">
+                      Corpo email
+                    </label>
+                    <button
+                      onClick={() => setShowHtmlPreview((v) => !v)}
+                      type="button"
+                      className="text-[10px] font-semibold text-primary hover:underline"
+                    >
+                      {showHtmlPreview ? 'Nascondi anteprima' : 'Anteprima HTML'}
+                    </button>
+                  </div>
+                  <textarea
+                    value={body}
+                    onChange={(e) => setBody(e.target.value)}
+                    disabled={phase === 'sending'}
+                    rows={12}
+                    maxLength={8000}
+                    className={cn(
+                      'w-full resize-y rounded-lg border border-outline-variant/40 bg-surface-container-lowest',
+                      'px-3 py-2 font-mono text-xs text-on-surface placeholder-on-surface-variant/60',
+                      'focus:border-primary/60 focus:outline-none',
+                      'disabled:opacity-60',
+                    )}
+                  />
+                  <p className="mt-1 text-right text-[10px] text-on-surface-variant">
+                    {body.length} / 8000
+                    {mode === 'template' && ' · sostituzioni {{...}} risolte all’invio'}
+                  </p>
+                </div>
+
+                {showHtmlPreview && (
+                  <HtmlPreview
+                    body={body}
+                    senderName={senderName}
+                    recipientEmail={recipientEmail}
+                  />
+                )}
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Footer */}
+        {phase !== 'sent' && (
+          <div className="flex items-center justify-between gap-3 border-t border-outline-variant/30 bg-surface-container-low px-6 py-4">
+            <p className="text-[11px] text-on-surface-variant">
+              Email inviata in HTML professionale anti-spam con fallback in
+              testo semplice.
+            </p>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={onClose}
+                disabled={phase === 'sending'}
+                className="text-sm text-on-surface-variant hover:text-on-surface hover:underline disabled:opacity-50"
+              >
+                Annulla
+              </button>
+              <button
+                onClick={send}
+                disabled={
+                  phase === 'sending' ||
+                  !subject.trim() ||
+                  !body.trim() ||
+                  !senderEmail
+                }
+                className={cn(
+                  'inline-flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold text-on-primary shadow-ambient-sm transition-colors',
+                  'bg-primary hover:bg-primary/90',
+                  'disabled:cursor-not-allowed disabled:opacity-50',
+                )}
+              >
+                {phase === 'sending' ? (
+                  <>
+                    <Spinner className="text-on-primary" />
+                    Invio…
+                  </>
+                ) : (
+                  <>
+                    <Send size={14} strokeWidth={2.5} />
+                    Invia ora
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Micro icons — inline SVGs, no library dep
+// Sub-components
 // ---------------------------------------------------------------------------
 
-function SparkleIcon({ className }: { className?: string }) {
+function ModeTab({
+  active,
+  onClick,
+  icon,
+  label,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  label: string;
+}) {
   return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      width="16"
-      height="16"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      className={className}
+    <button
+      onClick={onClick}
+      className={cn(
+        'inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-colors',
+        active
+          ? 'bg-primary-container text-on-primary-container'
+          : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface',
+      )}
     >
-      <path d="M12 3l1.9 5.6L19 10.7l-5.1.9L12 17l-1.9-5.4L5 10.7l5.1-.9z" />
-      <path d="M5 3v4M19 17v4M3 5h4M17 19h4" />
-    </svg>
+      {icon}
+      {label}
+    </button>
   );
 }
 
-function SpinnerIcon({ className }: { className?: string }) {
+function TemplatePicker({
+  active,
+  onSelect,
+}: {
+  active: string;
+  onSelect: (id: string) => void;
+}) {
+  return (
+    <div className="mb-4 grid gap-2 sm:grid-cols-2">
+      {TEMPLATES.map((tpl) => (
+        <button
+          key={tpl.id}
+          onClick={() => onSelect(tpl.id)}
+          className={cn(
+            'rounded-lg border px-3 py-2.5 text-left text-xs transition-colors',
+            active === tpl.id
+              ? 'border-primary bg-primary-container/30 text-on-surface'
+              : 'border-outline-variant/40 bg-surface-container-lowest text-on-surface-variant hover:border-primary/40 hover:bg-surface-container',
+          )}
+        >
+          <div className="font-semibold text-on-surface">{tpl.label}</div>
+          <p className="mt-0.5 leading-snug">{tpl.description}</p>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * HTML preview — replicates server-side `_text_to_html()` so what the
+ * operator sees here matches what lands in the recipient inbox.
+ */
+function HtmlPreview({
+  body,
+  senderName,
+  recipientEmail: _recipientEmail,
+}: {
+  body: string;
+  senderName: string;
+  recipientEmail: string;
+}) {
+  // Simple paragraph rendering — NOT identical to the server but close
+  // enough to give the operator an idea of the layout. The server still
+  // owns the source of truth.
+  const paragraphs = body
+    .split(/\n\n+/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+
+  return (
+    <div className="rounded-xl border border-outline-variant/40 bg-[#f9fafb] p-6">
+      <p className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">
+        Anteprima
+      </p>
+      <div className="mx-auto max-w-[600px] rounded-xl bg-white p-7 text-sm leading-relaxed text-[#1f2937] shadow-ambient-sm">
+        {paragraphs.map((p, idx) => (
+          <p key={idx} className="mb-3 last:mb-0 whitespace-pre-line">
+            {p}
+          </p>
+        ))}
+        <hr className="my-4 border-t border-[#e5e7eb]" />
+        <p className="text-[12px] leading-snug text-[#6b7280]">
+          <strong className="text-[#374151]">{senderName}</strong>
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function Spinner({ className }: { className?: string }) {
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
-      width="16"
-      height="16"
+      width="14"
+      height="14"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
