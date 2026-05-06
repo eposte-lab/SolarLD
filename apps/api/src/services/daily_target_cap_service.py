@@ -190,6 +190,93 @@ async def check_and_reserve(
 
 
 # ---------------------------------------------------------------------------
+# Per-campaign fair-share cap (Phase 3a — generic_outreach round-robin)
+# ---------------------------------------------------------------------------
+
+
+def campaign_redis_key_for(
+    tenant_id: str,
+    list_id: str,
+    *,
+    now_utc: datetime | None = None,
+) -> str:
+    """Build the Redis sub-cap key for one campaign + Rome calendar date."""
+    if now_utc is None:
+        now_utc = datetime.now(timezone.utc)
+    rome_date = now_utc.astimezone(TZ_ROME).strftime("%Y-%m-%d")
+    return f"daily_campaign_cap:{tenant_id}:{list_id}:{rome_date}"
+
+
+async def check_and_reserve_campaign(
+    tenant_row: dict[str, Any],
+    *,
+    list_id: str,
+    n_active_campaigns: int,
+) -> DailyTargetCapDecision:
+    """Reserve one slot from a per-campaign fair-share sub-quota.
+
+    When multiple generic_outreach campaigns compete for the same global
+    cap the sub-quota for each campaign is:
+
+        sub_cap = floor(global_cap / n_active_campaigns)
+
+    This prevents one campaign from draining the entire global cap while
+    others wait. Blocked → caller defers to tomorrow (same as the global cap).
+
+    ``n_active_campaigns`` must be ≥ 1 and is computed by the caller
+    (OutreachAgent) from a live DB count so the budget shrinks / grows as
+    campaigns are added / completed.
+
+    Redis-down behaviour: fail-open (log + allow) — same policy as the
+    global ``check_and_reserve``.
+    """
+    tenant_id = str(tenant_row.get("id") or "")
+    global_cap = cap_for_tenant(tenant_row)
+    n = max(1, n_active_campaigns)
+    sub_cap = max(1, global_cap // n)
+
+    key = campaign_redis_key_for(tenant_id, list_id)
+
+    try:
+        r = get_redis()
+        new_count = await r.incr(key)
+        if new_count == 1:
+            await r.expire(key, COUNTER_TTL_S)
+
+        if new_count > sub_cap:
+            await r.decr(key)
+            log.info(
+                "daily_target_cap.campaign_cap_reached",
+                tenant_id=tenant_id,
+                list_id=list_id,
+                used=sub_cap,
+                limit=sub_cap,
+                n_campaigns=n,
+            )
+            return DailyTargetCapDecision(
+                verdict="cap_reached",
+                used=sub_cap,
+                limit=sub_cap,
+                tenant_id=tenant_id,
+            )
+
+        return DailyTargetCapDecision(
+            verdict="allowed",
+            used=int(new_count),
+            limit=sub_cap,
+            tenant_id=tenant_id,
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning(
+            "daily_target_cap.campaign_redis_error_fail_open",
+            tenant_id=tenant_id,
+            list_id=list_id,
+            err=str(exc),
+        )
+        return DailyTargetCapDecision("allowed", 0, sub_cap, tenant_id)
+
+
+# ---------------------------------------------------------------------------
 # Read-only peek for the dashboard widget
 # ---------------------------------------------------------------------------
 

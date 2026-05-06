@@ -170,6 +170,15 @@ class OutreachInput(BaseModel):
             "template family (no creative rendering needed)."
         ),
     )
+    # list_id of the prospect_list that sourced this lead. Used for the
+    # per-campaign fair-share daily cap (Phase 3a round-robin).
+    list_id: str | None = Field(
+        default=None,
+        description=(
+            "UUID of the prospect_list that generated this lead. Used alongside "
+            "email_template_id for per-campaign send-rate fairness."
+        ),
+    )
 
 
 class OutreachOutput(BaseModel):
@@ -194,6 +203,16 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
         lead = _load_single(sb, "leads", payload.lead_id, payload.tenant_id)
         if not lead:
             raise ValueError(f"lead {payload.lead_id} not found")
+
+        # ── Generic-outreach template recovery ──────────────────────────────
+        # When a lead is re-enqueued by the warehouse cron (which doesn't
+        # know about email_template_id), restore the template from the
+        # lead's raw_data (stored there at promotion time by
+        # prospect_list_outreach._promote_to_lead).
+        lead_raw = (lead.get("raw_data") or {}) if isinstance(lead.get("raw_data"), dict) else {}
+        effective_template_id = payload.email_template_id or lead_raw.get("email_template_id")
+        effective_list_id = payload.list_id or lead_raw.get("prospect_list_id")
+        # ────────────────────────────────────────────────────────────────────
 
         subject = _load_single(sb, "subjects", lead["subject_id"], payload.tenant_id)
         roof = _load_single(sb, "roofs", lead["roof_id"], payload.tenant_id)
@@ -507,6 +526,67 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
                     "used": cap_decision.used,
                 },
             )
+
+        # ------------------------------------------------------------------
+        # 7b) Per-campaign fair-share sub-cap (generic_outreach only)
+        #
+        # When multiple generic_outreach lists compete for the same tenant
+        # daily cap, each campaign gets an equal share of the budget so
+        # one active campaign can't starve the others.
+        #
+        # sub_cap = floor(global_cap / N_active_generic_campaigns)
+        #
+        # We query the DB once here to count active campaigns (cheap
+        # COUNT query on a small table). The global cap was already
+        # consumed above — if the sub-cap is also blocked we roll the
+        # global back by recording a skip (the global DECR is done
+        # implicitly; the slot was reserved optimistically and must be
+        # rolled back). Actually we DON'T reverse the global slot here
+        # because it was already claimed above. We just defer this
+        # specific campaign to tomorrow — the slot is lost. This is
+        # intentional: the excess capacity can still be used by other
+        # campaigns or by the standard Solar pipeline later.
+        # ------------------------------------------------------------------
+        if effective_list_id:
+            try:
+                active_res = (
+                    sb.table("prospect_lists")
+                    .select("id", count="exact")
+                    .eq("tenant_id", payload.tenant_id)
+                    .eq("campaign_type", "generic_outreach")
+                    .is_("outreach_completed_at", "null")
+                    .execute()
+                )
+                n_active = (active_res.count or 0) or 1
+            except Exception as _exc:  # noqa: BLE001
+                n_active = 1
+
+            campaign_decision = await daily_target_cap_service.check_and_reserve_campaign(
+                tenant_row,
+                list_id=effective_list_id,
+                n_active_campaigns=n_active,
+            )
+            if not campaign_decision.allowed:
+                log.info(
+                    "outreach.campaign_sub_cap_reached",
+                    lead_id=payload.lead_id,
+                    tenant_id=payload.tenant_id,
+                    list_id=effective_list_id,
+                    used=campaign_decision.used,
+                    limit=campaign_decision.limit,
+                    n_active=n_active,
+                )
+                return await self._record_skip(
+                    payload=payload,
+                    lead=lead,
+                    reason="campaign_sub_cap_reached",
+                    event_type="lead.outreach_ratelimited",
+                    event_extra={
+                        "cap": campaign_decision.limit,
+                        "used": campaign_decision.used,
+                        "list_id": effective_list_id,
+                    },
+                )
 
         # ------------------------------------------------------------------
         # 8) Deliverability rate-limit — domain-level hourly cap
@@ -1001,17 +1081,19 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
             ),
         )
         # ── Phase 2 campagne custom: DB-stored HTML template ──────────────
-        # When email_template_id is set (generic_outreach lists), load the
+        # When effective_template_id is set (generic_outreach lists), load the
         # stored HTML template from email_templates table and render it with
         # Jinja2 variable substitution. Bypasses the Solar template family
         # entirely — no ROI cards, no rendering images needed.
-        if payload.email_template_id:
+        # effective_template_id already incorporates the fallback from
+        # lead.raw_data so warehouse-cron re-enqueues work transparently.
+        if effective_template_id:
             from ..routes.email_templates import render_template_for_lead
 
             tpl_res = (
                 sb.table("email_templates")
                 .select("id, name, subject, html, plain_text")
-                .eq("id", payload.email_template_id)
+                .eq("id", effective_template_id)
                 .eq("tenant_id", payload.tenant_id)
                 .limit(1)
                 .execute()
@@ -1039,14 +1121,16 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
                 log.info(
                     "outreach.custom_template_used",
                     lead_id=payload.lead_id,
-                    template_id=payload.email_template_id,
+                    template_id=effective_template_id,
+                    list_id=effective_list_id,
+                    recovered=effective_template_id != payload.email_template_id,
                 )
             else:
                 # Template was deleted after outreach was enqueued — fall back.
                 log.warning(
                     "outreach.custom_template_not_found",
                     lead_id=payload.lead_id,
-                    template_id=payload.email_template_id,
+                    template_id=effective_template_id,
                 )
                 rendered = await render_outreach_email_with_fallback(
                     ctx,

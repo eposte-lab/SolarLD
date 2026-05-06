@@ -130,7 +130,11 @@ async def launch_outreach_for_list(
 
         try:
             lead_id = await _promote_to_lead(
-                sb, tenant_id=tenant_id, candidate_id=candidate_id
+                sb,
+                tenant_id=tenant_id,
+                candidate_id=candidate_id,
+                list_id=list_id,
+                email_template_id=email_template_id if is_generic else None,
             )
         except Exception as exc:  # noqa: BLE001
             log.warning(
@@ -177,6 +181,7 @@ async def launch_outreach_for_list(
         }
         if is_generic and email_template_id:
             outreach_payload["email_template_id"] = email_template_id
+            outreach_payload["list_id"] = list_id
 
         try:
             await enqueue(
@@ -217,12 +222,22 @@ async def launch_outreach_for_list(
 
 
 async def _promote_to_lead(
-    sb: Any, *, tenant_id: str, candidate_id: str
+    sb: Any,
+    *,
+    tenant_id: str,
+    candidate_id: str,
+    list_id: str | None = None,
+    email_template_id: str | None = None,
 ) -> str | None:
     """Promote one scan_candidate to subjects + leads. Idempotent.
 
     Returns the lead_id (existing or newly created), or None when the
     candidate cannot be promoted (e.g. missing roof_id).
+
+    ``list_id`` and ``email_template_id`` are stored in ``leads.raw_data``
+    so the OutreachAgent can recover the custom template even when the
+    task was re-enqueued by the warehouse orchestrator (which doesn't know
+    about templates).
 
     Mirrors the schema choices of `level6_promote_to_leads.py` but
     works on a single row and doesn't need a `FunnelV3Context`.
@@ -303,6 +318,10 @@ async def _promote_to_lead(
                 "scan_candidate_id": candidate_id,
                 "predicted_sector": sc.get("predicted_sector"),
                 "proxy_score": score_blob,
+                # Generic-outreach metadata — lets the OutreachAgent recover
+                # the template even when re-enqueued by the warehouse cron.
+                **({"prospect_list_id": list_id} if list_id else {}),
+                **({"email_template_id": email_template_id} if email_template_id else {}),
             },
         }
         ins = sb.table("subjects").insert(subject_payload).execute()

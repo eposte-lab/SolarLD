@@ -167,6 +167,15 @@ export interface RoofSummary {
   // legacy roofs created before 0094; the lib/solar-derivations helper
   // recomputes locally as a fallback.
   derivations?: Record<string, unknown> | null;
+  /**
+   * Provenance of the roof geometry:
+   *  'solar_api'    — full Solar API call (kWp, panels, exposure…)
+   *  'places_only'  — placeholder from Google Places only (generic_outreach
+   *                   leads that never go through the Solar pipeline)
+   *  'manual'       — operator-created
+   * NULL on legacy rows pre-dating the column.
+   */
+  data_source?: string | null;
 }
 
 export interface SubjectSummary {

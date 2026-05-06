@@ -24,6 +24,7 @@ import {
   ExternalLink,
   FileText,
   FolderOpen,
+  Mail,
   Phone,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -292,6 +293,10 @@ export default async function LeadDetailPage({ params }: PageProps) {
     return m?.[1] ?? null;
   })();
   const isBlacklisted = lead.pipeline_status === 'blacklisted';
+  // Generic-outreach leads were promoted from a custom campaign list
+  // (no Solar API call). They have a placeholder roof with data_source
+  // 'places_only' — no rendering, no kWp/ROI data, no preventivo.
+  const isGenericOutreach = lead.roofs?.data_source === 'places_only';
   // NEXT_PUBLIC_LEAD_PORTAL_URL must point at the SEPARATE lead-portal
   // Vercel project, not the dashboard. We aggressively normalise the env
   // value:
@@ -363,30 +368,32 @@ export default async function LeadDetailPage({ params }: PageProps) {
               Pagina personale
               <ExternalLink size={11} strokeWidth={2.25} aria-hidden />
             </a>
-            {/* Preventivo entry-point. Disabled when the lead lacks the
-                two prerequisites the AUTO bag needs (sized roof + ROI),
-                so the editor never opens with a half-empty sidebar. */}
-            <Link
-              href={
-                lead.roi_data && lead.roofs?.estimated_kwp
-                  ? `/leads/${lead.id}/quote`
-                  : '#'
-              }
-              aria-disabled={!lead.roi_data || !lead.roofs?.estimated_kwp}
-              title={
-                lead.roi_data && lead.roofs?.estimated_kwp
-                  ? 'Genera un preventivo formale (PDF) per questo lead'
-                  : 'Disponibile solo per lead con ROI e dimensionamento completati'
-              }
-              className={
-                lead.roi_data && lead.roofs?.estimated_kwp
-                  ? 'inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline'
-                  : 'inline-flex cursor-not-allowed items-center gap-1 text-xs font-semibold text-on-surface-variant opacity-50'
-              }
-            >
-              <FileText size={11} strokeWidth={2.25} aria-hidden />
-              Genera preventivo completo
-            </Link>
+            {/* Preventivo entry-point. Hidden for generic_outreach leads
+                (no Solar data — preventivo would be empty/meaningless).
+                Disabled for Solar leads that lack the two prerequisites. */}
+            {!isGenericOutreach && (
+              <Link
+                href={
+                  lead.roi_data && lead.roofs?.estimated_kwp
+                    ? `/leads/${lead.id}/quote`
+                    : '#'
+                }
+                aria-disabled={!lead.roi_data || !lead.roofs?.estimated_kwp}
+                title={
+                  lead.roi_data && lead.roofs?.estimated_kwp
+                    ? 'Genera un preventivo formale (PDF) per questo lead'
+                    : 'Disponibile solo per lead con ROI e dimensionamento completati'
+                }
+                className={
+                  lead.roi_data && lead.roofs?.estimated_kwp
+                    ? 'inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline'
+                    : 'inline-flex cursor-not-allowed items-center gap-1 text-xs font-semibold text-on-surface-variant opacity-50'
+                }
+              >
+                <FileText size={11} strokeWidth={2.25} aria-hidden />
+                Genera preventivo completo
+              </Link>
+            )}
             {/* GSE practice entry-point. Sprint 1: visibile solo a contratto
                 firmato (post-firma). La pagina /leads/{id}/practice/new
                 fa il fetch del draft e gestisce sia "crea nuova" sia
@@ -409,23 +416,35 @@ export default async function LeadDetailPage({ params }: PageProps) {
         )}
       </header>
 
-      {/* ─── Hero: video simulazione + descrizione + KPI ───────────────
-          Hero media fallback chain (video → GIF → static after image):
-            1. ``rendering_video_url`` (Kling 1.6-Pro MP4) — full
-               transition video, ideal hero.
-            2. ``rendering_gif_url`` — same transition rendered as GIF
-               for clients that can't autoplay video.
-            3. ``rendering_image_url`` — the static "after" PNG with
-               panels (nano-banana on Replicate, OR PIL geometric
-               overlay when ``CREATIVE_SKIP_REPLICATE`` is on). When
-               video + GIF both fail (Replicate quota exhausted,
-               Remotion error, etc.) we still want a visual hero —
-               the after-image is the same artefact the email body
-               would use. Without this fallback the entire hero
-               section was hidden, which made it look like the
-               pipeline produced nothing visual.
-          When ALL three are missing, the section is hidden entirely. */}
-      {(lead.rendering_video_url ||
+      {/* ─── Hero: video simulazione (Solar) — oppure info campagna custom ──
+          For Solar leads: fallback chain video → GIF → static after image.
+          For generic_outreach leads: show a "Campagna personalizzata" info
+          panel instead — no rendering, no KPI cards.
+          When ALL three Solar assets are missing AND it's not generic, hide. */}
+      {isGenericOutreach ? (
+        <section className="flex items-start gap-4 rounded-2xl bg-surface-container-low p-5 ring-1 ring-on-surface/5 shadow-ambient">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+            <Mail size={20} strokeWidth={1.75} aria-hidden />
+          </div>
+          <div className="min-w-0 space-y-1">
+            <p className="text-sm font-semibold text-on-surface">
+              Campagna personalizzata
+            </p>
+            <p className="text-xs text-on-surface-variant leading-relaxed">
+              Questo lead è stato generato tramite una campagna di outreach
+              personalizzata. L&apos;email inviata usa il template configurato
+              per la campagna — non è previsto un preventivo fotovoltaico
+              parametrico né un rendering dell&apos;impianto.
+            </p>
+            {dispEmail && (
+              <p className="mt-2 text-xs text-on-surface-variant">
+                Destinatario:{' '}
+                <span className="font-medium text-on-surface">{dispEmail}</span>
+              </p>
+            )}
+          </div>
+        </section>
+      ) : (lead.rendering_video_url ||
         lead.rendering_gif_url ||
         lead.rendering_image_url) ? (
         <section className="space-y-4 rounded-2xl bg-surface-container-low p-4 ring-1 ring-on-surface/5 shadow-ambient">
@@ -762,69 +781,72 @@ export default async function LeadDetailPage({ params }: PageProps) {
           )}
         </DataCard>
 
-        <DataCard title="Tetto e impianto">
-          <DataRow label="Indirizzo" value={dispTettoIndirizzo ?? '—'} />
-          <DataRow label="Provincia" value={dispProvincia ?? '—'} />
-          <DataRow
-            label="Superficie tetto"
-            value={
-              lead.roofs?.area_sqm
-                ? `${formatNumber(lead.roofs.area_sqm)} m²`
-                : '—'
-            }
-          />
-          <DataRow
-            label="kWp installabili"
-            value={
-              lead.roofs?.estimated_kwp != null
-                ? `${formatNumber(lead.roofs.estimated_kwp)} kWp`
-                : '—'
-            }
-          />
-          {/* Pannelli stimati: derivations.panel_count is the post-funnel
-              authoritative count; raw_data.solar.solarPotential.maxArrayPanelsCount
-              is the Solar API max. We display the former when available. */}
-          <DataRow
-            label="Pannelli stimati"
-            value={(() => {
-              const deriv = (lead.roofs?.derivations ?? null) as
-                | Record<string, unknown>
-                | null;
-              const pc = deriv?.panel_count;
-              return typeof pc === 'number' && pc > 0
-                ? formatNumber(pc)
-                : '—';
-            })()}
-          />
-          <DataRow
-            label="Produzione stimata"
-            value={
-              lead.roofs?.estimated_yearly_kwh
-                ? `${formatNumber(lead.roofs.estimated_yearly_kwh)} kWh/anno`
-                : '—'
-            }
-          />
-          <DataRow
-            label="Esposizione"
-            value={lead.roofs?.exposure ?? '—'}
-          />
-          <DataRow
-            label="Inclinazione"
-            value={
-              lead.roofs?.pitch_degrees != null
-                ? `${Math.round(lead.roofs.pitch_degrees)}°`
-                : '—'
-            }
-          />
-          <DataRow
-            label="Ombreggiamento"
-            value={
-              lead.roofs?.shading_score != null
-                ? `${Math.round((1 - lead.roofs.shading_score) * 100)}%`
-                : '—'
-            }
-          />
-        </DataCard>
+        {/* Tetto e impianto — hidden for generic_outreach (no Solar data). */}
+        {!isGenericOutreach && (
+          <DataCard title="Tetto e impianto">
+            <DataRow label="Indirizzo" value={dispTettoIndirizzo ?? '—'} />
+            <DataRow label="Provincia" value={dispProvincia ?? '—'} />
+            <DataRow
+              label="Superficie tetto"
+              value={
+                lead.roofs?.area_sqm
+                  ? `${formatNumber(lead.roofs.area_sqm)} m²`
+                  : '—'
+              }
+            />
+            <DataRow
+              label="kWp installabili"
+              value={
+                lead.roofs?.estimated_kwp != null
+                  ? `${formatNumber(lead.roofs.estimated_kwp)} kWp`
+                  : '—'
+              }
+            />
+            {/* Pannelli stimati: derivations.panel_count is the post-funnel
+                authoritative count; raw_data.solar.solarPotential.maxArrayPanelsCount
+                is the Solar API max. We display the former when available. */}
+            <DataRow
+              label="Pannelli stimati"
+              value={(() => {
+                const deriv = (lead.roofs?.derivations ?? null) as
+                  | Record<string, unknown>
+                  | null;
+                const pc = deriv?.panel_count;
+                return typeof pc === 'number' && pc > 0
+                  ? formatNumber(pc)
+                  : '—';
+              })()}
+            />
+            <DataRow
+              label="Produzione stimata"
+              value={
+                lead.roofs?.estimated_yearly_kwh
+                  ? `${formatNumber(lead.roofs.estimated_yearly_kwh)} kWh/anno`
+                  : '—'
+              }
+            />
+            <DataRow
+              label="Esposizione"
+              value={lead.roofs?.exposure ?? '—'}
+            />
+            <DataRow
+              label="Inclinazione"
+              value={
+                lead.roofs?.pitch_degrees != null
+                  ? `${Math.round(lead.roofs.pitch_degrees)}°`
+                  : '—'
+              }
+            />
+            <DataRow
+              label="Ombreggiamento"
+              value={
+                lead.roofs?.shading_score != null
+                  ? `${Math.round((1 - lead.roofs.shading_score) * 100)}%`
+                  : '—'
+              }
+            />
+          </DataCard>
+        )}
       </BentoGrid>
 
       {/* ─── Cosa ha fatto sul portale ────────────────────────────────────
