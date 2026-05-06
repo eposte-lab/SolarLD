@@ -37,6 +37,8 @@ export type UploadKind =
   | 'visura_catastale'
   | 'documento_identita'
   | 'bolletta_pod'
+  | 'durc'
+  | 'ccnl'
   | 'altro';
 
 export type ExtractionStatus =
@@ -73,6 +75,8 @@ const KIND_LABEL: Record<UploadKind, string> = {
   visura_catastale: 'Visura catastale',
   documento_identita: "Documento d'identità",
   bolletta_pod: 'Bolletta elettrica (POD)',
+  durc: 'DURC',
+  ccnl: 'CCNL',
   altro: 'Altro documento',
 };
 
@@ -85,6 +89,10 @@ const KIND_HINT: Record<UploadKind, string> = {
     'Estrae nome, cognome, codice fiscale, residenza, data nascita.',
   bolletta_pod:
     'Estrae codice POD, distributore, potenza disponibile/impegnata, indirizzo fornitura.',
+  durc:
+    'Estrae numero protocollo, data emissione/scadenza, esito (regolare/non regolare), posizioni INPS/INAIL.',
+  ccnl:
+    'Estrae tipo contratto, categoria settoriale, data stipula/scadenza, numero dipendenti dichiarato.',
   altro:
     'Documento generico — i campi non vengono applicati automaticamente.',
 };
@@ -157,6 +165,26 @@ const FIELD_LABEL: Record<string, string> = {
   indirizzo_fornitura_cap: 'CAP fornitura',
   indirizzo_fornitura_citta: 'Città fornitura',
   indirizzo_fornitura_provincia: 'Provincia fornitura',
+  // DURC
+  numero_protocollo: 'N° Protocollo',
+  data_emissione: 'Data emissione',
+  // data_scadenza already defined in documento_identita block above
+  esito: 'Esito',
+  denominazione_impresa: 'Denominazione impresa',
+  codice_fiscale_impresa: 'CF impresa',
+  partita_iva_impresa: 'P. IVA impresa',
+  sede_impresa: 'Sede impresa',
+  inps_posizione: 'Posizione INPS',
+  inail_posizione: 'Posizione INAIL',
+  cnce_posizione: 'Posizione CNCE',
+  tipo_richiesta: 'Tipo richiesta',
+  // CCNL
+  tipo_contratto: 'Tipo contratto',
+  categoria_settoriale: 'Categoria settoriale',
+  data_stipula: 'Data stipula',
+  denominazione_datore_lavoro: 'Datore di lavoro',
+  codice_fiscale_datore_lavoro: 'CF datore di lavoro',
+  numero_dipendenti_dichiarato: 'N° dipendenti dichiarato',
 };
 
 // ---------------------------------------------------------------------------
@@ -355,6 +383,8 @@ export function PracticeUploadsPanel({
                 'visura_catastale',
                 'documento_identita',
                 'bolletta_pod',
+                'durc',
+                'ccnl',
                 'altro',
               ] as UploadKind[]
             ).map((k) => (
@@ -504,6 +534,72 @@ function UploadCard({
           Confidenza bassa — verifica i valori prima di applicarli.
         </p>
       )}
+
+      {/* DURC key-field badges */}
+      {upload.upload_kind === 'durc' &&
+        upload.extraction_status !== 'pending' &&
+        (() => {
+          const d = upload.extracted_data ?? {};
+          const esito = d['esito'] != null ? String(d['esito']) : null;
+          const scadenza = d['data_scadenza'] != null ? String(d['data_scadenza']) : null;
+          const prot = d['numero_protocollo'] != null ? String(d['numero_protocollo']) : null;
+          if (!esito && !scadenza && !prot) return null;
+          return (
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {esito && (
+                <span
+                  className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${
+                    esito.toLowerCase() === 'regolare'
+                      ? 'bg-emerald-100 text-emerald-700'
+                      : 'bg-rose-100 text-rose-700'
+                  }`}
+                >
+                  Esito: {esito}
+                </span>
+              )}
+              {scadenza && (
+                <span className="rounded-full bg-blue-50 px-2.5 py-0.5 text-[11px] font-medium text-blue-700">
+                  Scadenza: {scadenza}
+                </span>
+              )}
+              {prot && (
+                <span className="rounded-full bg-surface-container-low px-2.5 py-0.5 text-[11px] font-medium text-on-surface-variant">
+                  Prot. {prot}
+                </span>
+              )}
+            </div>
+          );
+        })()}
+
+      {/* CCNL key-field badges */}
+      {upload.upload_kind === 'ccnl' &&
+        upload.extraction_status !== 'pending' &&
+        (() => {
+          const d = upload.extracted_data ?? {};
+          const categoria = d['categoria_settoriale'] != null ? String(d['categoria_settoriale']) : null;
+          const stipula = d['data_stipula'] != null ? String(d['data_stipula']) : null;
+          const scadenza = d['data_scadenza'] != null ? String(d['data_scadenza']) : null;
+          if (!categoria && !stipula && !scadenza) return null;
+          return (
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {categoria && (
+                <span className="rounded-full bg-violet-100 px-2.5 py-0.5 text-[11px] font-medium text-violet-700">
+                  {categoria.replace(/_/g, ' ')}
+                </span>
+              )}
+              {stipula && (
+                <span className="rounded-full bg-blue-50 px-2.5 py-0.5 text-[11px] font-medium text-blue-700">
+                  Stipula: {stipula}
+                </span>
+              )}
+              {scadenza && (
+                <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-[11px] font-medium text-amber-700">
+                  Scadenza: {scadenza}
+                </span>
+              )}
+            </div>
+          );
+        })()}
 
       {/* Extracted fields */}
       {fields.length > 0 && (

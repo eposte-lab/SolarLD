@@ -25,6 +25,8 @@ export interface ProxyScoreData {
   contact_completeness_score?: number | null;
   predicted_size_category?: string | null;
   recommended_for_rendering?: boolean | null;
+  /** Anti-spam audit flags from lead_quality_validator (post-L5). */
+  flags?: string[] | null;
 }
 
 export interface ContactExtraction {

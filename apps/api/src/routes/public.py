@@ -410,26 +410,20 @@ async def upload_bolletta(
             detail="Upload non riuscito — riprova",
         ) from exc
 
-    # ---- 5. OCR (sync, soft-fail). PDFs are not directly supported by
-    #         Claude Vision — for now we record the upload with an
-    #         error and let the user enter values manually. A future
-    #         worker can rasterise the first page and re-run OCR.
+    # ---- 5. OCR (sync, soft-fail). PDFs are now natively supported —
+    #         `extract_from_image` rasterises page 1 via pdfium before
+    #         calling Claude Vision (Sprint 0108). Any failure (corrupt
+    #         PDF, image too small, low confidence) falls back to the
+    #         manual-entry form on the lead portal.
     ocr: OcrResult | None = None
-    if mime == "application/pdf":
+    try:
+        ocr = await extract_from_image(body, mime_type=mime)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("bolletta.ocr_failed", slug=slug, err=str(exc))
         ocr = OcrResult(
             success=False,
-            error="pdf_ocr_not_implemented",
-            raw_response={"reason": "pdf_pending_rasterise"},
+            error=f"ocr_exception:{type(exc).__name__}",
         )
-    else:
-        try:
-            ocr = await extract_from_image(body, mime_type=mime)
-        except Exception as exc:  # noqa: BLE001
-            log.warning("bolletta.ocr_failed", slug=slug, err=str(exc))
-            ocr = OcrResult(
-                success=False,
-                error=f"ocr_exception:{type(exc).__name__}",
-            )
 
     # ---- 6. Insert row
     source = (

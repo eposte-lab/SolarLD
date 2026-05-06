@@ -158,11 +158,30 @@ async def extract_from_image(
             error=f"image_too_large_{len(image_bytes)}b",
         )
 
-    # Anthropic Vision accepts: image/png|jpeg|gif|webp. PDFs are not
-    # accepted by the messages API directly — the upload endpoint is
-    # responsible for rasterising PDF pages to PNG before calling us.
+    # Anthropic Vision accepts: image/png|jpeg|gif|webp. PDFs require
+    # rasterisation first — we render page 1 at 200 DPI via pdfium.
+    # Italian utility bills (Enel, ENI, A2A, Hera, Iren) put the annual
+    # totals in either page 1 (cover) or page 2 (consumption table); the
+    # OCR prompt is tolerant of either, and confidence < 0.6 will fall
+    # back to manual entry on the lead portal.
     accepted = {"image/jpeg", "image/png", "image/webp", "image/gif"}
-    if mime_type not in accepted:
+    if mime_type == "application/pdf":
+        from .pdf_rasterize import rasterise_pdf_first_page
+
+        rendered = rasterise_pdf_first_page(image_bytes)
+        if rendered is None:
+            return OcrResult(success=False, error="pdf_unreadable")
+        image_bytes = rendered
+        mime_type = "image/png"
+        # A 200-DPI A4 PNG of an Enel/ENI bill is typically 3-7 MB; if
+        # it exceeds the Vision API limit (5 MB) we'd silently fail at
+        # the API call. Re-check post-rasterize.
+        if len(image_bytes) > _MAX_IMAGE_BYTES:
+            return OcrResult(
+                success=False,
+                error=f"rasterized_pdf_too_large_{len(image_bytes)}b",
+            )
+    elif mime_type not in accepted:
         return OcrResult(
             success=False,
             error=f"unsupported_mime_{mime_type}",

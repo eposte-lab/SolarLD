@@ -26,6 +26,7 @@ from ...core.config import settings
 from ...core.logging import get_logger
 from ...core.supabase_client import get_service_client
 from ...services.claude_service import get_client
+from ...services.lead_quality_validator import validate as validate_quality
 from ...services.sector_target_service import (
     _warm_cache,
 )
@@ -100,6 +101,12 @@ async def run_level5_proxy_score(
         scored=len(scored), cost_cents=len(scored) * _COST_PER_CANDIDATE_CENTS
     )
 
+    # Anti-spam post-processing — runs deterministic checks on every
+    # scored candidate, applies score penalties or hard-rejects (zero
+    # score + force `recommended_for_rendering=False`). See module docs
+    # for the full rule list. Pure Python, ~5ms per batch of 10.
+    _apply_quality_validator(scored)
+
     # Persist score breakdown
     _bulk_persist_v3_scores(scored, tenant_id=ctx.tenant_id, scan_id=ctx.scan_id)
 
@@ -116,6 +123,56 @@ async def run_level5_proxy_score(
         ),
     )
     return scored
+
+
+# ---------------------------------------------------------------------------
+# Anti-spam post-processing
+# ---------------------------------------------------------------------------
+
+
+def _apply_quality_validator(scored: list[ScoredV3Candidate]) -> None:
+    """Run the deterministic anti-spam validator on every scored candidate.
+
+    Mutates each `ScoredV3Candidate` in place: applies score deltas,
+    flips `recommended_for_rendering=False` on hard rejects, appends
+    flags so /contatti can render the audit badges. No DB I/O.
+    """
+    n_hard_rejected = 0
+    n_penalised = 0
+    for cand in scored:
+        verdict = validate_quality(
+            email=cand.contact.best_email,
+            vat_number=cand.scraped.opencorporates_vat,
+            phone=cand.contact.best_phone,
+            business_name=cand.record.display_name,
+        )
+        if not verdict.flags:
+            continue
+
+        if verdict.hard_reject:
+            cand.recommended_for_rendering = False
+            cand.overall_score = 0
+            n_hard_rejected += 1
+        else:
+            cand.overall_score = max(0, cand.overall_score + verdict.score_delta)
+            # Re-evaluate the recommendation gate since the score moved.
+            cand.recommended_for_rendering = (
+                cand.recommended_for_rendering and cand.overall_score >= 60
+            )
+            n_penalised += 1
+
+        # Dedup-merge flags so a re-run doesn't append duplicates.
+        existing = set(cand.flags or [])
+        existing.update(verdict.flags)
+        cand.flags = sorted(existing)
+
+    if n_hard_rejected or n_penalised:
+        log.info(
+            "level5_proxy.quality_validator",
+            hard_rejected=n_hard_rejected,
+            penalised=n_penalised,
+            total=len(scored),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -344,6 +401,10 @@ def _bulk_persist_v3_scores(
                     "overall_score": s.overall_score,
                     "predicted_size_category": s.predicted_size_category,
                     "recommended_for_rendering": s.recommended_for_rendering,
+                    # Anti-spam flags from `lead_quality_validator` are
+                    # already in `score_flags`; mirror them here so the
+                    # dashboard can read everything from a single blob.
+                    "flags": s.flags,
                 },
             }
         )

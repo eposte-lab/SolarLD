@@ -197,6 +197,70 @@ GSE (NON i consumi — quelli si leggono da un altro flusso):
     + _ENVELOPE_FOOTER
 )
 
+_PROMPT_DURC = (
+    """\
+Documento Unico di Regolarità Contributiva (DURC). Estrai i seguenti
+campi anagrafici e di esito. Restituisci null per quelli non trovati.
+
+  - numero_protocollo: stringa, identificativo univoco DURC (es.
+    "INPS_19483921 INAIL_8273")
+  - data_emissione: YYYY-MM-DD
+  - data_scadenza: YYYY-MM-DD (CRITICO — è il dato chiave; il DURC è
+    valido 120 giorni dalla data di emissione)
+  - esito: "regolare" oppure "non_regolare". Non inventare un valore;
+    se il documento non lo indica chiaramente lascia null.
+  - denominazione_impresa: ragione sociale dell'impresa intestataria
+  - codice_fiscale_impresa: 11 o 16 caratteri
+  - partita_iva_impresa: 11 cifre se presente separatamente dal CF
+  - sede_impresa: indirizzo completo della sede legale
+  - inps_posizione: matricola INPS (es. "1234567890")
+  - inail_posizione: codice ditta INAIL
+  - cnce_posizione: codice CNCE per le imprese edili (può essere null)
+  - tipo_richiesta: motivo emissione (es. "Iscrizione albo gestori
+    ambientali", "Per gara appalto"); spesso null sui DURC online
+
+Note:
+  - "esito" deve essere lowercased: solo "regolare" o "non_regolare".
+  - Se la data scadenza manca, l'estrazione è inutilizzabile —
+    abbassa la confidence sotto 0.6 per attivare il manual fallback.
+  - confidence < 0.6 = manual_required.
+
+"""
+    + _ENVELOPE_FOOTER
+)
+
+_PROMPT_CCNL = (
+    """\
+Contratto Collettivo Nazionale del Lavoro (CCNL) o dichiarazione del
+datore di lavoro sull'applicazione del CCNL. Estrai:
+
+  - tipo_contratto: descrizione testuale del CCNL applicato (es.
+    "CCNL Metalmeccanici Industria", "CCNL Edili Industria")
+  - categoria_settoriale: una delle seguenti, o null se non chiaro
+      • metalmeccanici_industria
+      • metalmeccanici_artigianato
+      • edilizia_industria
+      • edilizia_artigianato
+      • terziario
+      • altro
+  - data_stipula: YYYY-MM-DD del CCNL
+  - data_scadenza: YYYY-MM-DD (se indicata; spesso il CCNL ha durata
+    triennale)
+  - denominazione_datore_lavoro: ragione sociale del datore di lavoro
+  - codice_fiscale_datore_lavoro: 11/16 caratteri
+  - numero_dipendenti_dichiarato: integer
+
+Note:
+  - Il CCNL è il documento più variabile (formati diversi tra sindacati
+    e dichiarazioni autocertificate). Se il documento è una semplice
+    dichiarazione del datore di lavoro estrai comunque tipo_contratto e
+    denominazione_datore_lavoro; lascia tutti gli altri null.
+  - confidence < 0.55 = manual_required.
+
+"""
+    + _ENVELOPE_FOOTER
+)
+
 _PROMPT_ALTRO = (
     """\
 Documento generico: identifica il tipo se possibile, e estrai i dati
@@ -218,6 +282,8 @@ PROMPTS: dict[str, str] = {
     "visura_catastale": _PROMPT_VISURA_CATASTALE,
     "documento_identita": _PROMPT_DOCUMENTO_IDENTITA,
     "bolletta_pod": _PROMPT_BOLLETTA_POD,
+    "durc": _PROMPT_DURC,
+    "ccnl": _PROMPT_CCNL,
     "altro": _PROMPT_ALTRO,
 }
 
@@ -616,6 +682,20 @@ def build_apply_payload(
     elif upload_kind == "bolletta_pod":
         _copy(BOLLETTA_POD_PRACTICE_TARGETS, practice)
         _copy(BOLLETTA_POD_EXTRAS_TARGETS, extras)
+    elif upload_kind == "durc":
+        # DURC data lives entirely in extras["durc"] — no dedicated columns.
+        extras["durc"] = {
+            k: v
+            for k, v in fields.items()
+            if v is not None and v != "" and k != "confidence"
+        }
+    elif upload_kind == "ccnl":
+        # CCNL data lives entirely in extras["ccnl"] — no dedicated columns.
+        extras["ccnl"] = {
+            k: v
+            for k, v in fields.items()
+            if v is not None and v != "" and k != "confidence"
+        }
     # 'altro' has no automatic targets — operator must transcribe.
 
     out: dict[str, dict[str, Any]] = {}

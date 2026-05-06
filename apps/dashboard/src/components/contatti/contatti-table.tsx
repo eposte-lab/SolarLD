@@ -53,6 +53,63 @@ const VERDICT_ORDER: Record<string, number> = {
   skipped_below_gate: 4,
 };
 
+// ---------------------------------------------------------------------------
+// Anti-spam flags mini-component
+// ---------------------------------------------------------------------------
+
+const ANTISPAM_FLAG_META: Record<
+  string,
+  { label: string; tone: string; title: string }
+> = {
+  disposable_email: {
+    label: '🚫 Email usa e getta',
+    tone: 'bg-rose-100 text-rose-700',
+    title: 'Indirizzo email usa e getta — lead scartato automaticamente',
+  },
+  free_email_provider_b2b: {
+    label: '⚠ Email consumer',
+    tone: 'bg-amber-100 text-amber-700',
+    title: 'Email su dominio consumer (Gmail/Yahoo/Libero) — score ridotto',
+  },
+  role_account_email: {
+    label: '⚠ Account generico',
+    tone: 'bg-amber-100 text-amber-700',
+    title: 'Email di ruolo (info@/admin@/...) — score ridotto',
+  },
+  invalid_vat_checksum: {
+    label: '🚫 P.IVA non valida',
+    tone: 'bg-rose-100 text-rose-700',
+    title: 'La Partita IVA non supera il checksum italiano — lead scartato',
+  },
+  phone_country_mismatch: {
+    label: '⚠ Telefono estero',
+    tone: 'bg-amber-100 text-amber-700',
+    title: 'Numero di telefono non italiano (+39) — score ridotto',
+  },
+};
+
+function AntiSpamBadges({ flags }: { flags?: string[] | null }) {
+  if (!flags || flags.length === 0) return null;
+  const known = flags.filter((f) => f in ANTISPAM_FLAG_META);
+  if (known.length === 0) return null;
+  return (
+    <div className="mt-1.5 flex flex-wrap gap-1">
+      {known.map((f) => {
+        const meta = ANTISPAM_FLAG_META[f]!;
+        return (
+          <span
+            key={f}
+            className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${meta.tone}`}
+            title={meta.title}
+          >
+            {meta.label}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
 type SortKey =
   | 'name'
   | 'sector'
@@ -190,7 +247,7 @@ export function ContattiTable({ rows }: { rows: ContattoRow[] }) {
                   )}
                 </td>
 
-                {/* Contatto: email + telefono */}
+                {/* Contatto: email + telefono + anti-spam flags */}
                 <td className="px-5 py-4 text-xs">
                   {email ? (
                     <a
@@ -211,6 +268,7 @@ export function ContattiTable({ rows }: { rows: ContattoRow[] }) {
                   {!email && !phone ? (
                     <span className="text-on-surface-variant">—</span>
                   ) : null}
+                  <AntiSpamBadges flags={c.proxy_score_data?.flags} />
                 </td>
 
                 {/* Scan */}
