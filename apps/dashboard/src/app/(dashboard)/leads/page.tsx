@@ -18,7 +18,6 @@ import { BentoCard } from '@/components/ui/bento-card';
 import { GradientButton } from '@/components/ui/gradient-button';
 import { HotLeadsNow } from '@/components/hot-leads-now';
 import { LeadsTable } from '@/components/leads/leads-table';
-import { TestPipelineBanner } from '@/components/demo/test-pipeline-banner';
 import {
   LEADS_PAGE_SIZE,
   listHotLeadsAwaitingResponse,
@@ -126,7 +125,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
               : `Contatti che hanno reagito · ${effectiveTotal.toLocaleString('it-IT')} lead engagati`}
           </p>
           <h1 className="font-headline text-4xl font-bold tracking-tighter">
-            {isHotMode ? '🔥 Caldi adesso' : 'Lead Attivi'}
+            {isHotMode ? 'Caldi adesso' : 'Lead Attivi'}
           </h1>
         </div>
         <GradientButton href="/territories" size="sm" variant="secondary">
@@ -134,20 +133,6 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
         </GradientButton>
       </header>
 
-      {/*
-        Demo "Avvia test pipeline" banner — only rendered for demo
-        tenants (`is_demo=true`). The counter (`demo_pipeline_test_remaining`)
-        is decremented atomically on every successful pipeline run by
-        the API endpoint `POST /v1/demo/test-pipeline`.
-
-        Production tenants never see this surface; the conditional
-        guard is the single source of truth for visibility.
-      */}
-      {ctx.tenant.is_demo && (
-        <TestPipelineBanner
-          attemptsRemaining={ctx.tenant.demo_pipeline_test_remaining ?? 0}
-        />
-      )}
 
       {/* Mode tabs ---------------------------------------------------- */}
       <div className="flex gap-2">
@@ -171,7 +156,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
               : 'bg-surface-container-high text-on-surface-variant hover:bg-surface-container-highest hover:text-on-surface',
           )}
         >
-          🔥 Caldi adesso
+          Caldi adesso
         </Link>
       </div>
 
