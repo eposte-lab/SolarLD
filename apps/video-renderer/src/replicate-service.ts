@@ -39,15 +39,20 @@ const DEFAULT_MODEL = 'kwaivgi/kling-v1.6-pro';
  * needs to describe HOW the model gets from one to the other. The
  * "where" is already pinned by `end_image`.
  *
- * Animation style: pannello-per-pannello in posizione.
- * Tenant feedback (Apr 2026): the previous "one row at a time, edge
- * to edge" wording produced a conveyor-belt look — entire rows
- * dropping in from above the frame, sliding sideways, etc. We want
- * panels to MATERIALISE directly in their final position (no descent,
- * no slide, no rotation) at a rapid cadence so the build-up reads as
- * "the array assembles itself" rather than "panels are being trucked
- * in from off-screen". This is closer to a stop-motion pop-in than a
- * physical install animation.
+ * Animation style (May 2026 — tenant feedback): "i pannelli non devono
+ * cadere dal cielo, ma comparire gradualmente sul tetto dal tetto
+ * stesso, come se fossero già posizionati". Translation: panels are
+ * already there — they're just initially invisible and they reveal
+ * themselves on the roof surface via a smooth opacity fade-in. NO
+ * physical entrance from any direction (sky, sides, behind, below).
+ * The intended look is "an architectural rendering being progressively
+ * unveiled by sunlight", NOT a construction/install animation.
+ *
+ * Iteration history:
+ *   - "drop from above" → looked like Tetris falling
+ *   - "slide in row by row" → conveyor-belt look, cheap-ad feel
+ *   - "stop-motion pop-in" → still triggered occasional descent motion
+ *   - **current**: "fade-in from the roof surface itself, as if pre-installed"
  *
  * Things deliberately NOT in the prompt:
  *   - panel geometry, count, position (covered by end_image)
@@ -55,10 +60,10 @@ const DEFAULT_MODEL = 'kwaivgi/kling-v1.6-pro';
  *     control typography)
  */
 const DEFAULT_PROMPT =
-  'Photo-realistic aerial timelapse showing solar panels appearing one at a time directly on the visible rooftop, each panel materialising in place at its final position with a brief shimmer or fade-in. The panels do NOT fall from above, do NOT slide in from the sides, do NOT descend or translate — each individual panel simply becomes visible in the exact spot where it belongs, in rapid sequence (multiple panels per second), so the array fills in pixel by pixel until the rooftop is complete. The order is non-linear — panels light up across different parts of the roof, not row by row. Subtle ambient motion enriches the rest of the scene: any visible cars on nearby streets drift forward smoothly, tree foliage rustles gently in the breeze, and soft cloud shadows drift across the ground over the duration of the clip. The rest of the static scene (ground, vegetation, neighbouring buildings, vehicles parked) remains stable — panels appear ONLY on the building rooftop, never on the ground, lawn, driveway or surroundings. Fixed top-down camera, no zoom, no pan, no rotation, no tilt. Soft natural daylight, realistic shadows, photorealistic, sharp focus, professional aerial cinematography.';
+  'Photo-realistic aerial view of an Italian rooftop where solar panels are already installed but initially invisible, and they gradually reveal themselves on the roof surface itself via a smooth opacity fade-in — as if a soft sweep of sunlight is progressively unveiling panels that were always there. Each panel emerges IN PLACE on the roof: it starts fully transparent, then smoothly fades up to its final fully-opaque appearance at its exact final position, perfectly flush with the roof plane. The panels do NOT enter the scene from anywhere — not from above, not from the sky, not from the sides, not from below, not from off-screen. There is ZERO translation, ZERO descent, ZERO rotation, ZERO sliding, ZERO dropping. The reveal is a pure opacity transition happening on the roof surface itself, panel by panel, at a calm professional cadence (a few panels per second) in a non-linear order across the array, so the rooftop array fills in gradually until complete. Each panel sits flat against the roof tiles, with realistic contact shadows underneath consistent with already-installed hardware — the panels are part of the roof, never floating above it. Subtle ambient motion enriches the rest of the scene: soft cloud shadows drift gently across the ground, distant tree foliage rustles softly in the breeze, any visible cars on nearby streets drift forward smoothly. The static scene (ground, vegetation, neighbouring buildings, parked vehicles) remains stable. Panels appear ONLY on the target building rooftop, never on the ground, lawn, driveway, surroundings. Fixed top-down camera, no zoom, no pan, no rotation, no tilt. Soft natural daylight with realistic shadows, photorealistic, sharp focus, calm and elegant professional architectural cinematography — the tone of a high-end real-estate render, not a construction timelapse.';
 
 const NEGATIVE_PROMPT =
-  'panels falling from above, panels descending, panels dropping, panels sliding in, panels translating into position, panels rotating into place, conveyor belt motion, rows of panels appearing simultaneously, rows being installed one at a time, edge-to-edge sweeping reveal, panels arriving from off-screen, panels carried by hands or machines, construction workers, cranes, drones, water, liquid, pool, flood, wet surface, reflection of water, panels on ground, panels on grass, panels on pavement, panels floating, panels on cars, panels on trees, panels on neighbouring buildings, low quality, blurry, distorted geometry, warped roof, melting, morphing, dissolving, fade between two whole frames, cross-fade, opacity blending of full image, ghosting, double exposure, text, captions, logos, watermarks, cartoon, illustration, neon colors, weird lighting, camera motion, zoom, pan, rotation, dolly, tilt';
+  'panels falling from sky, panels falling from above, panels descending from the air, panels dropping from above, panels arriving from above the roof, panels appearing in the air above the building, panels visible in the sky before landing, gravity drop animation, panels with motion trails, panels with vertical translation, panels with horizontal translation, panels sliding in from the sides, panels rotating into position, panels tilting before landing, panels hovering above the roof, panels floating above the roof, panels with a gap between panel and roof surface, panels disconnected from the roof plane, panels not flush with the roof, conveyor belt motion, rows of panels appearing simultaneously, rows being installed one at a time, edge-to-edge sweeping wipe, panels arriving from off-screen, panels carried by hands, panels carried by machines, construction workers, cranes, drones, scaffolding, installation animation, building under construction, water, liquid, pool, flood, wet surface, reflection of water, panels on ground, panels on grass, panels on pavement, panels on driveway, panels on cars, panels on trees, panels on neighbouring buildings, panels outside the target building footprint, low quality, blurry, distorted geometry, warped roof, melting, morphing, dissolving, fade between two whole frames, cross-fade of full image, ghosting, double exposure, text, captions, logos, watermarks, cartoon, illustration, neon colors, weird lighting, camera motion, zoom, pan, rotation, dolly, tilt, jump cut, abrupt change';
 
 export interface VideoGenerationResult {
   /** Public, time-limited Replicate URL of the produced MP4. */
