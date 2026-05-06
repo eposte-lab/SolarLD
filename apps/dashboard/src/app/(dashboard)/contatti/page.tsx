@@ -20,6 +20,7 @@ import { BentoCard, BentoGrid } from '@/components/ui/bento-card';
 import { GradientButton } from '@/components/ui/gradient-button';
 import { KpiChipCard } from '@/components/ui/kpi-chip-card';
 import { ContattiTable } from '@/components/contatti/contatti-table';
+import { RequalifyDemoButton } from '@/components/contatti/requalify-demo-button';
 import {
   CONTATTI_PAGE_SIZE,
   getContattiSummary,
@@ -132,6 +133,21 @@ export default async function ContattiPage({
           accent="neutral"
         />
       </BentoGrid>
+
+      {/* Demo requalify CTA — visible only when demo tenant has no accepted
+          candidates but has rejected ones (all failed strict L4 thresholds). */}
+      {ctx.tenant.is_demo && summary.l4_qualified === 0 && summary.l4_rejected > 0 && (
+        <div className="rounded-xl border border-tertiary/30 bg-tertiary-container/20 px-5 py-4">
+          <p className="mb-3 text-sm text-on-surface-variant">
+            <strong className="text-on-surface">Ambiente demo:</strong>{' '}
+            {formatNumber(summary.l4_rejected)} aziende scansionate non superano la
+            soglia produzione standard (200 m², 60 kWp). Usa le <strong>soglie demo
+            ridotte</strong> per popolare la tabella e testare email, preventivi e
+            documenti con dati reali.
+          </p>
+          <RequalifyDemoButton />
+        </div>
+      )}
 
       {/* L4 breakdown sub-strip */}
       {(summary.l4_rejected > 0 || summary.l4_skipped > 0) && (

@@ -42,10 +42,18 @@ from .types_v3 import (
 log = get_logger(__name__)
 
 
-# Minimum thresholds — copied verbatim from PRD §L4.
+# Production thresholds — copied verbatim from PRD §L4.
 MIN_AREA_M2 = 200.0
 MIN_KW_INSTALLABILE = 60.0
 MIN_SUNSHINE_HOURS = 1200.0
+
+# Demo thresholds — relaxed so that small/medium urban businesses
+# (shops, offices, small warehouses) can pass L4 and populate the
+# full downstream pipeline (emails, quotes, ROI doc) for demo purposes.
+# A 50 m² roof × 0.2 kWp/m² ≈ 10 kWp — well within modern micro-impianti.
+DEMO_MIN_AREA_M2 = 30.0
+DEMO_MIN_KW_INSTALLABILE = 10.0
+DEMO_MIN_SUNSHINE_HOURS = 700.0
 
 # Cost in cents per Solar API call. ~$0.02 → 2 cents.
 SOLAR_COST_CENTS = 2
@@ -109,8 +117,13 @@ async def _persist_roof_and_link(
     candidate_id: UUID,
     insight: Any,  # google_solar_service.RoofInsight
     google_place_id: str,
+    sunshine_hours: float | None = None,
 ) -> UUID | None:
     """Insert a row into ``roofs`` and link from scan_candidates.roof_id.
+
+    Also writes the solar metric columns (solar_kw_installable, solar_area_m2,
+    solar_sunshine_hours, solar_panels_count) to scan_candidates so the
+    /contatti KPI can aggregate them without joining roofs.
 
     Returns the new roof UUID, or None if the insert failed.
     """
@@ -157,15 +170,22 @@ async def _persist_roof_and_link(
             )
             roof_id = (existing.data or [{}])[0].get("id")
         if roof_id:
+            sc_update: dict[str, Any] = {
+                "id": str(candidate_id),
+                "tenant_id": tenant_id,
+                "scan_id": scan_id,
+                "roof_id": roof_id,
+                "solar_verdict": "accepted",
+                "stage": 4,
+                # Denormalise solar metrics so /contatti KPI avoids a join.
+                "solar_kw_installable": insight.estimated_kwp,
+                "solar_area_m2": insight.area_sqm,
+                "solar_panels_count": insight.max_panel_count,
+            }
+            if sunshine_hours is not None:
+                sc_update["solar_sunshine_hours"] = round(sunshine_hours, 1)
             sb.table("scan_candidates").upsert(
-                {
-                    "id": str(candidate_id),
-                    "tenant_id": tenant_id,
-                    "scan_id": scan_id,
-                    "roof_id": roof_id,
-                    "solar_verdict": "accepted",
-                    "stage": 4,
-                },
+                sc_update,
                 on_conflict="id",
             ).execute()
         return UUID(roof_id) if roof_id else None
@@ -261,18 +281,16 @@ async def run_level4_solar_qualify(
                     lng=insight.lng,
                 )
 
-        # 3) Threshold filter
+        # 3) Threshold filter — relaxed for demo tenants.
         sunshine = insight.estimated_yearly_kwh / max(insight.estimated_kwp, 1.0)
+        min_area = DEMO_MIN_AREA_M2 if ctx.is_demo else MIN_AREA_M2
+        min_kw = DEMO_MIN_KW_INSTALLABILE if ctx.is_demo else MIN_KW_INSTALLABILE
+        min_sun = DEMO_MIN_SUNSHINE_HOURS if ctx.is_demo else MIN_SUNSHINE_HOURS
         if (
-            insight.area_sqm < MIN_AREA_M2
-            or insight.estimated_kwp < MIN_KW_INSTALLABILE
-            or sunshine < MIN_SUNSHINE_HOURS
+            insight.area_sqm < min_area
+            or insight.estimated_kwp < min_kw
+            or sunshine < min_sun
         ):
-            verdict = (
-                "rejected_tech"
-                if insight.area_sqm < MIN_AREA_M2 or insight.estimated_kwp < MIN_KW_INSTALLABILE
-                else "rejected_tech"
-            )
             out.append(
                 SolarQualified(
                     record=qc.record,
@@ -280,23 +298,30 @@ async def run_level4_solar_qualify(
                     contact=qc.contact,
                     building_quality_score=qc.building_quality_score,
                     roof_id=None,
-                    solar_verdict=verdict,
+                    solar_verdict="rejected_tech",
                     solar_area_m2=insight.area_sqm,
                     solar_kw_installable=insight.estimated_kwp,
                     solar_panels_count=insight.max_panel_count,
                     solar_sunshine_hours=sunshine,
                 )
             )
+            # Persist the solar metrics on the candidate row even on rejection
+            # so that the /contatti KPI and the requalify endpoint can read
+            # them back without re-calling the Solar API.
             _mark_verdict(
                 sb,
                 rec.candidate_id,
-                verdict,
+                "rejected_tech",
                 tenant_id=ctx.tenant_id,
                 scan_id=ctx.scan_id,
+                solar_area_m2=insight.area_sqm,
+                solar_kw_installable=insight.estimated_kwp,
+                solar_panels_count=insight.max_panel_count,
+                solar_sunshine_hours=sunshine,
             )
             continue
 
-        # 4) Accept — persist roof + link
+        # 4) Accept — persist roof + link + solar columns on scan_candidates
         roof_id = await _persist_roof_and_link(
             sb,
             tenant_id=ctx.tenant_id,
@@ -304,6 +329,7 @@ async def run_level4_solar_qualify(
             candidate_id=rec.candidate_id,
             insight=insight,
             google_place_id=place_id,
+            sunshine_hours=sunshine,
         )
         out.append(
             SolarQualified(
@@ -358,17 +384,33 @@ def _mark_verdict(
     *,
     tenant_id: str,
     scan_id: str,
+    solar_kw_installable: float | None = None,
+    solar_area_m2: float | None = None,
+    solar_panels_count: int | None = None,
+    solar_sunshine_hours: float | None = None,
 ) -> None:
+    """Write the L4 verdict (and optionally solar metrics) to scan_candidates.
+
+    Solar metrics are persisted even for rejected candidates so that:
+      * The requalify endpoint can re-evaluate without re-calling the API.
+      * Future "why rejected?" UI can show the actual values.
+    """
+    update: dict[str, Any] = {
+        "id": str(candidate_id),
+        "tenant_id": tenant_id,
+        "scan_id": scan_id,
+        "solar_verdict": verdict,
+        "stage": 4,
+    }
+    if solar_kw_installable is not None:
+        update["solar_kw_installable"] = round(solar_kw_installable, 2)
+    if solar_area_m2 is not None:
+        update["solar_area_m2"] = round(solar_area_m2, 2)
+    if solar_panels_count is not None:
+        update["solar_panels_count"] = solar_panels_count
+    if solar_sunshine_hours is not None:
+        update["solar_sunshine_hours"] = round(solar_sunshine_hours, 1)
     try:
-        sb.table("scan_candidates").upsert(
-            {
-                "id": str(candidate_id),
-                "tenant_id": tenant_id,
-                "scan_id": scan_id,
-                "solar_verdict": verdict,
-                "stage": 4,
-            },
-            on_conflict="id",
-        ).execute()
+        sb.table("scan_candidates").upsert(update, on_conflict="id").execute()
     except Exception as exc:  # noqa: BLE001
         log.debug("level4_solar.mark_verdict_failed", err=type(exc).__name__)
