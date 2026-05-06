@@ -71,6 +71,9 @@ export interface ProspectList {
   validation_completed_at: string | null;
   outreach_started_at: string | null;
   outreach_completed_at: string | null;
+  /** 'solar_rooftop' (default) goes through L4 Solar gate.
+   *  'generic_outreach' bypasses Solar — non-rooftop B2B campaign. */
+  campaign_type: CampaignType | null;
 }
 
 export interface ProspectListItem {
@@ -98,11 +101,17 @@ export interface ProspectListItem {
   created_at: string;
 }
 
+export type CampaignType = 'solar_rooftop' | 'generic_outreach';
+
 export interface CreateListInput {
   name: string;
   description?: string;
   search_filter: Record<string, unknown>;
   items: ProspectorPlace[];
+  /** Default 'solar_rooftop' goes through the L4 Solar gate as before.
+   *  'generic_outreach' bypasses Solar — for non-rooftop campaigns
+   *  (e.g. amministratori condominio service offerings). */
+  campaign_type?: CampaignType;
 }
 
 export interface ValidateStatusResponse {

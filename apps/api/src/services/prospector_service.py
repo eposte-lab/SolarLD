@@ -287,6 +287,7 @@ def create_places_list(
     search_filter: dict[str, Any],
     items: list[dict[str, Any]],
     created_by: str | None = None,
+    campaign_type: str = "solar_rooftop",
 ) -> dict[str, Any]:
     """Persist a Places-based prospect list.
 
@@ -308,6 +309,7 @@ def create_places_list(
         "item_count": len(items),
         "created_by": created_by,
         "source": "places",
+        "campaign_type": campaign_type,
     }
     inserted = sb.table("prospect_lists").insert(list_payload).execute()
     if not inserted.data:

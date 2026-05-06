@@ -232,6 +232,8 @@ export default function ListDetailPage({
 
   const filter = (list.search_filter ?? {}) as Record<string, unknown>;
   const isPlacesList = list.source === 'places';
+  // Default 'solar_rooftop' for legacy lists where the column is null.
+  const isGenericOutreach = list.campaign_type === 'generic_outreach';
 
   return (
     <div className="space-y-6">
@@ -258,6 +260,14 @@ export default function ListDetailPage({
                 </span>
               </>
             )}
+            {isGenericOutreach && (
+              <>
+                {' · '}
+                <span className="rounded-full bg-tertiary-container/50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest text-on-tertiary-container">
+                  Campagna custom
+                </span>
+              </>
+            )}
           </p>
           {list.description && (
             <p className="mt-1 max-w-2xl text-sm text-on-surface-variant">
@@ -277,13 +287,15 @@ export default function ListDetailPage({
               <div className="flex items-center gap-2">
                 <ShieldCheck size={16} className="text-tertiary" />
                 <p className="text-sm font-semibold text-on-surface">
-                  1. Convalida per fotovoltaico
+                  {isGenericOutreach
+                    ? '1. Estrai contatti'
+                    : '1. Convalida per fotovoltaico'}
                 </p>
               </div>
               <p className="mt-2 text-xs text-on-surface-variant">
-                Esegue scraping web + Google Solar API + filtro qualità su
-                ogni candidato. Restituisce un verdetto «tetto idoneo» o
-                rifiuto motivato.
+                {isGenericOutreach
+                  ? 'Esegue solo scraping web (email, telefono, dati contatto) — niente Google Solar. Tutte le aziende diventano lead pronti per l’outreach custom.'
+                  : 'Esegue scraping web + Google Solar API + filtro qualità su ogni candidato. Restituisce un verdetto «tetto idoneo» o rifiuto motivato.'}
               </p>
               <div className="mt-3 flex items-center justify-between">
                 <div className="text-[11px] text-on-surface-variant">

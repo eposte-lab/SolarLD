@@ -73,6 +73,11 @@ class CreateListInput(BaseModel):
     description: str | None = Field(default=None, max_length=2000)
     search_filter: dict[str, Any] = Field(default_factory=dict)
     items: list[dict[str, Any]] = Field(default_factory=list, max_length=5000)
+    # Default 'solar_rooftop' keeps the existing /scoperta flow unchanged.
+    # 'generic_outreach' bypasses the L4 Solar gate so non-rooftop
+    # campaigns (amministratori condominio, dental clinics, …) become
+    # ready-to-send leads after L2 scraping alone.
+    campaign_type: str = Field(default="solar_rooftop")
 
 
 # ---------------------------------------------------------------------------
@@ -146,6 +151,11 @@ async def create_list(body: CreateListInput, ctx: CurrentUser) -> dict[str, Any]
     promoted via POST /v1/prospector/lists/{id}/validate.
     """
     tenant_id = require_tenant(ctx)
+    if body.campaign_type not in ("solar_rooftop", "generic_outreach"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="campaign_type must be 'solar_rooftop' or 'generic_outreach'",
+        )
     try:
         row = prospector_service.create_places_list(
             tenant_id=tenant_id,
@@ -154,6 +164,7 @@ async def create_list(body: CreateListInput, ctx: CurrentUser) -> dict[str, Any]
             search_filter=body.search_filter,
             items=body.items,
             created_by=ctx.user_id,
+            campaign_type=body.campaign_type,
         )
     except RuntimeError as exc:
         log.error("prospector.create_list_failed", tenant_id=tenant_id, err=str(exc))

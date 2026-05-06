@@ -59,6 +59,9 @@ VERDICT_TO_STATUS: dict[str, str] = {
     "no_building": "no_building",
     "api_error": "api_error",
     "skipped_below_gate": "skipped",
+    # generic_outreach campaigns bypass the Solar gate entirely; the
+    # candidate is "accepted" for outreach without rooftop qualification.
+    "skipped_non_solar": "accepted",
 }
 
 
@@ -73,8 +76,27 @@ class ValidationResult:
 async def validate_prospect_list(
     *, tenant_id: str, list_id: str
 ) -> ValidationResult:
-    """Run v3 convalida (L2+L3+L4) on every pending item of a list."""
+    """Run v3 convalida (L2+L3+L4) on every pending item of a list.
+
+    When ``prospect_lists.campaign_type='generic_outreach'`` the L4 Solar
+    gate is bypassed (and a placeholder roof is created so that the
+    downstream subjects/leads creation in ``prospect_list_outreach.py``
+    keeps working without schema changes). All other stages run normally
+    so emails/phones still get scraped from each company's website.
+    """
     sb = get_service_client()
+
+    # ── Read campaign_type to know whether to run L4 ─────────────────────
+    list_meta = (
+        sb.table("prospect_lists")
+        .select("campaign_type")
+        .eq("id", list_id)
+        .eq("tenant_id", tenant_id)
+        .limit(1)
+        .maybe_single()
+        .execute()
+    )
+    campaign_type: str = (list_meta.data or {}).get("campaign_type") or "solar_rooftop"
 
     # ── Mark list as validating ──────────────────────────────────────────
     sb.table("prospect_lists").update(
@@ -128,6 +150,7 @@ async def validate_prospect_list(
                 tenant_id=tenant_id,
                 scan_id=scan_id,
                 item=row,
+                campaign_type=campaign_type,
             )
             by_status[verdict] = by_status.get(verdict, 0) + 1
 
@@ -158,10 +181,18 @@ async def _validate_one(
     tenant_id: str,
     scan_id: str,
     item: dict[str, Any],
+    campaign_type: str = "solar_rooftop",
 ) -> str:
     """Process a single prospect_list_items row end-to-end.
 
     Returns the final `validation_status` for telemetry.
+
+    When ``campaign_type='generic_outreach'`` the L4 Solar gate is
+    skipped and a placeholder roof is created so the existing
+    subjects/leads creation path stays unchanged. The candidate is
+    flagged with ``solar_verdict='skipped_non_solar'`` to keep the
+    /contatti page (which filters on ``solar_verdict='accepted'``)
+    free of non-rooftop entries.
     """
     item_id = item["id"]
     place_id = item.get("google_place_id")
@@ -293,6 +324,40 @@ async def _validate_one(
         }
     ).eq("id", candidate_id).execute()
 
+    # ── Bypass L4 for generic_outreach campaigns ─────────────────────────
+    # Non-Solar campaigns (e.g. amministratori condominio) skip the
+    # Google Solar gate. Create a placeholder roof so the unchanged
+    # downstream `prospect_list_outreach._promote_to_lead` path still
+    # finds a roof_id to attach the subject to.
+    if campaign_type == "generic_outreach":
+        roof_id = _persist_placeholder_roof(
+            sb,
+            tenant_id=tenant_id,
+            lat=float(lat),
+            lng=float(lng),
+            address=address,
+        )
+        if roof_id is None:
+            return _mark_verdict(sb, item_id, candidate_id, "api_error")
+
+        sb.table("scan_candidates").update(
+            {
+                "tenant_id": tenant_id,
+                "scan_id": scan_id,
+                "stage": 4,
+                "solar_verdict": "skipped_non_solar",
+                "roof_id": roof_id,
+            }
+        ).eq("id", candidate_id).execute()
+
+        sb.table("prospect_list_items").update(
+            {
+                "validation_status": "accepted",
+                "validated_at": datetime.utcnow().isoformat(),
+            }
+        ).eq("id", item_id).execute()
+        return "accepted"
+
     # ── L4 — Solar API ───────────────────────────────────────────────────
     try:
         insight = await fetch_building_insight(float(lat), float(lng), client=client)
@@ -394,3 +459,64 @@ def _mark_verdict(sb: Any, item_id: str, candidate_id: str, verdict: str) -> str
         }
     ).eq("id", item_id).execute()
     return status_value
+
+
+def _persist_placeholder_roof(
+    sb: Any,
+    *,
+    tenant_id: str,
+    lat: float,
+    lng: float,
+    address: str | None,
+) -> str | None:
+    """Insert (or look up) a placeholder ``roofs`` row for non-Solar campaigns.
+
+    Generic_outreach campaigns (amministratori condominio, dental clinics,
+    etc.) don't need rooftop validation but the schema requires every
+    ``subjects`` row to have a non-NULL ``roof_id``. Rather than make
+    ``subjects.roof_id`` nullable (which would touch every JOIN in the
+    codebase) we attach a minimal roof carrying only the lat/lng + Places
+    address. Solar metric columns (area_sqm, estimated_kwp, …) stay NULL,
+    and the existing DataRow auto-hide on the lead detail page makes the
+    "Tetto e impianto" card collapse gracefully.
+
+    Idempotent: same ``(tenant_id, geohash)`` returns the existing row
+    rather than 23505. This means two prospect_list_items at the same
+    physical address share a roof — fine for our purposes (it'd be the
+    same roof anyway) and matches the production solar path's behaviour.
+    """
+    gh = geohash.encode(lat, lng, precision=8)
+    row = {
+        "tenant_id": tenant_id,
+        "lat": lat,
+        "lng": lng,
+        "geohash": gh,
+        "data_source": "places_only",
+        "address": address,
+        "status": "non_solar",
+    }
+    try:
+        res = (
+            sb.table("roofs")
+            .upsert(row, on_conflict="tenant_id,geohash")
+            .execute()
+        )
+        roof_id = res.data[0]["id"] if res.data else None
+        if not roof_id:
+            existing = (
+                sb.table("roofs")
+                .select("id")
+                .eq("tenant_id", tenant_id)
+                .eq("geohash", gh)
+                .limit(1)
+                .execute()
+            )
+            roof_id = (existing.data or [{}])[0].get("id")
+        return roof_id
+    except Exception as exc:  # noqa: BLE001
+        log.warning(
+            "prospect_validate.placeholder_roof_failed",
+            err=type(exc).__name__,
+            msg=str(exc)[:300],
+        )
+        return None

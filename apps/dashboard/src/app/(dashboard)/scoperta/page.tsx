@@ -74,6 +74,13 @@ export default function ScopertaPage() {
 
   const [saving, setSaving] = useState(false);
   const [savedListId, setSavedListId] = useState<string | null>(null);
+  // Campaign type drives whether the saved list goes through the
+  // L4 Solar gate ('solar_rooftop' = standard rooftop validation) or
+  // bypasses it ('generic_outreach' = non-rooftop B2B campaign with
+  // a custom HTML email template, e.g. amministratori condominio).
+  const [campaignType, setCampaignType] = useState<
+    'solar_rooftop' | 'generic_outreach'
+  >('solar_rooftop');
 
   useEffect(() => {
     fetchSectors()
@@ -141,11 +148,13 @@ export default function ScopertaPage() {
     if (items.length === 0) return;
     setSaving(true);
     try {
+      const typeSuffix = campaignType === 'generic_outreach' ? ' · custom' : '';
       const res = await createList({
-        name: `${sectorLabel(form.sector)} · ${form.comune || form.province_code || 'IT'} (${items.length})`,
+        name: `${sectorLabel(form.sector)} · ${form.comune || form.province_code || 'IT'} (${items.length})${typeSuffix}`,
         description: `Ricerca v3: settore=${form.sector}, raggio=${form.radius_km}km${form.keyword ? `, keyword="${form.keyword}"` : ''}`,
-        search_filter: { ...form },
+        search_filter: { ...form, campaign_type: campaignType },
         items,
+        campaign_type: campaignType,
       });
       setSavedListId(res.id);
     } catch (err) {
@@ -325,6 +334,69 @@ export default function ScopertaPage() {
               </div>
             )}
           </div>
+
+          {/* Campaign-type selector — visible only when there are items
+              ready to save. The choice changes the validation flow:
+              'solar_rooftop' goes through L4 Solar gate (default),
+              'generic_outreach' bypasses Solar for non-rooftop campaigns. */}
+          {items.length > 0 && !savedListId && (
+            <fieldset className="mt-4 rounded-lg bg-surface-container-low p-3">
+              <legend className="px-2 text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">
+                Tipo campagna
+              </legend>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <label
+                  className={`flex cursor-pointer items-start gap-2 rounded-md border p-2 text-xs transition-colors ${
+                    campaignType === 'solar_rooftop'
+                      ? 'border-primary bg-primary/10 text-on-surface'
+                      : 'border-outline-variant/30 text-on-surface-variant hover:border-primary/40'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="campaign-type"
+                    value="solar_rooftop"
+                    checked={campaignType === 'solar_rooftop'}
+                    onChange={() => setCampaignType('solar_rooftop')}
+                    className="mt-0.5 accent-primary"
+                  />
+                  <div>
+                    <div className="text-sm font-semibold">Tetto fotovoltaico</div>
+                    <div className="opacity-80">
+                      Convalida con Google Solar (area ≥ 200 m², kWp ≥ 60).
+                      Email + render impianto auto-generati.
+                    </div>
+                  </div>
+                </label>
+                <label
+                  className={`flex cursor-pointer items-start gap-2 rounded-md border p-2 text-xs transition-colors ${
+                    campaignType === 'generic_outreach'
+                      ? 'border-primary bg-primary/10 text-on-surface'
+                      : 'border-outline-variant/30 text-on-surface-variant hover:border-primary/40'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="campaign-type"
+                    value="generic_outreach"
+                    checked={campaignType === 'generic_outreach'}
+                    onChange={() => setCampaignType('generic_outreach')}
+                    className="mt-0.5 accent-primary"
+                  />
+                  <div>
+                    <div className="text-sm font-semibold">
+                      Servizio personalizzato
+                    </div>
+                    <div className="opacity-80">
+                      Niente convalida Solar. Tutte le aziende trovate diventano
+                      lead con email custom HTML (amministratori condominio,
+                      cliniche, ecc.).
+                    </div>
+                  </div>
+                </label>
+              </div>
+            </fieldset>
+          )}
 
           {items.length === 0 ? (
             <div className="mt-6 rounded-lg bg-surface-container-low p-12 text-center text-sm text-on-surface-variant">
