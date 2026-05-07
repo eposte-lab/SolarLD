@@ -207,11 +207,18 @@ export async function getContattiSummary(): Promise<ContattiSummary> {
     return count ?? 0;
   };
 
+  // Stage semantics in production:
+  //   stage 4 = just-after L4 (Solar verdict written, before L5 scoring)
+  //   stage 5 = after L5 Haiku scoring (typical terminal stage for accepted)
+  // Rows that survived L4 are advanced to stage=5 by L5, so the verdict
+  // counts must match `stage >= 4` not `stage = 4` — otherwise accepted
+  // rows are visible in the table (which filters by solar_verdict only)
+  // while the KPI strip claims "0 rifiutati / 0 skippati".
   const countVerdict = async (verdict: SolarVerdict): Promise<number> => {
     const { count, error } = await sb
       .from('scan_candidates')
       .select('id', { count: 'exact', head: true })
-      .eq('stage', 4)
+      .gte('stage', 4)
       .eq('solar_verdict', verdict);
     if (error) return 0;
     return count ?? 0;
@@ -236,10 +243,12 @@ export async function getContattiSummary(): Promise<ContattiSummary> {
       .filter((v): v is string => typeof v === 'string');
     if (promotedRoofIds.length === 0) return [];
 
+    // Same `gte('stage', 4)` rationale as countVerdict above — accepted
+    // candidates live at stage=5 once L5 scoring runs.
     const { data, error } = await sb
       .from('scan_candidates')
       .select('solar_kw_installable, proxy_score_data, contact_extraction')
-      .eq('stage', 4)
+      .gte('stage', 4)
       .eq('solar_verdict', 'accepted')
       .in('roof_id', promotedRoofIds);
     if (error || !data) return [];
@@ -414,9 +423,12 @@ export async function getScanFunnel(): Promise<ScanFunnelData> {
     countSc({ gteStage: 1 }),
     countSc({ gteStage: 2 }),
     countSc({ gteStage: 3 }),
-    countSc({ stage: 4, solar_verdict: 'accepted' }),
-    countSc({ stage: 4, solar_verdict: 'rejected_tech' }),
-    countSc({ stage: 4, solar_verdict: 'skipped_below_gate' }),
+    // L4 verdict counts must use gteStage: 4 — once L5 scoring runs an
+    // accepted candidate is advanced to stage=5, so a strict `stage=4`
+    // filter would drop everything that completed the funnel.
+    countSc({ gteStage: 4, solar_verdict: 'accepted' }),
+    countSc({ gteStage: 4, solar_verdict: 'rejected_tech' }),
+    countSc({ gteStage: 4, solar_verdict: 'skipped_below_gate' }),
     countLead(),
     countLeadNotNull('outreach_sent_at'),
     countLeadNotNull('outreach_delivered_at'),

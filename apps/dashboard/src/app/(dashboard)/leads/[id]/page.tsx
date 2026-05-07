@@ -59,6 +59,7 @@ import {
 } from '@/lib/utils';
 import { cn } from '@/lib/utils';
 
+import { RegenerateRenderingButton } from './RegenerateRenderingButton';
 import { SendOutreachButton } from './SendOutreachButton';
 import { SolarApiInspector } from './SolarApiInspector';
 
@@ -488,18 +489,21 @@ export default async function LeadDetailPage({ params }: PageProps) {
               Simulazione di impianto fotovoltaico generata per questo lead.
               Lo stesso video è incluso nell&apos;email come hero cliccabile.
             </p>
-            {publicLeadLink && (
-              <a
-                href={publicLeadLink}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 rounded-full bg-primary px-4 py-2 text-xs font-semibold text-on-primary shadow-ambient-sm transition-opacity hover:opacity-90"
-                title={publicLeadLink}
-              >
-                <ExternalLink size={12} strokeWidth={2.5} aria-hidden />
-                Apri pagina personale del lead
-              </a>
-            )}
+            <div className="flex flex-wrap items-center gap-3">
+              <RegenerateRenderingButton leadId={lead.id} />
+              {publicLeadLink && (
+                <a
+                  href={publicLeadLink}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 rounded-full bg-primary px-4 py-2 text-xs font-semibold text-on-primary shadow-ambient-sm transition-opacity hover:opacity-90"
+                  title={publicLeadLink}
+                >
+                  <ExternalLink size={12} strokeWidth={2.5} aria-hidden />
+                  Apri pagina personale del lead
+                </a>
+              )}
+            </div>
           </div>
           <BentoGrid cols={4}>
             <KpiChipCard
@@ -566,7 +570,23 @@ export default async function LeadDetailPage({ params }: PageProps) {
             </p>
           )}
         </section>
-      ) : null}
+      ) : (
+        // No rendering yet AND not a generic_outreach campaign — show a
+        // placeholder card with the on-demand "Genera rendering" button so
+        // the operator can kick off the Creative agent without waiting for
+        // the daily cron.
+        <section className="space-y-3 rounded-2xl bg-surface-container-low p-5 ring-1 ring-on-surface/5 shadow-ambient">
+          <p className="text-sm font-semibold text-on-surface">
+            Rendering non ancora generato
+          </p>
+          <p className="text-xs text-on-surface-variant leading-relaxed">
+            La simulazione fotovoltaica per questo tetto non è ancora stata
+            prodotta. Generala adesso per popolare la pagina personale del
+            lead, l&apos;email di outreach e i KPI di ROI.
+          </p>
+          <RegenerateRenderingButton leadId={lead.id} />
+        </section>
+      )}
 
       {/* ─── Anagrafica + Tetto ───────────────────────────────────────── */}
       <BentoGrid cols={2}>
