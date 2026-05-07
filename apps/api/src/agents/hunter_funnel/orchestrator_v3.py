@@ -48,18 +48,13 @@ async def run_funnel_v3(
     config: Any,  # TenantConfig — duck-typed; only target_wizard_groups used
     emitter: Any | None = None,  # optional event emitter (HunterAgent._emit_event)
     max_l1_candidates: int = 2000,
-    max_phase: int = 6,
 ) -> dict[str, Any]:
-    """Run L1→L<max_phase> for one tenant. Returns a summary dict for logging.
+    """Run L1→L6 for one tenant. Returns a summary dict for logging.
 
-    `max_phase` lets the caller stop the funnel before the paid stages.
-    The geocentric flow uses two checkpoints:
-      * `max_phase=3` — auto/background prepare: only L1+L2+L3 (Places +
-        scraping + heuristic quality, all free or near-free). Output is a
-        pool of candidates the operator inspects in /territorio.
-      * `max_phase=6` (default) — full funnel including L4 Solar API,
-        L5 Haiku scoring, L6 lead promotion. Used by the legacy cron and
-        by the per-candidate on-demand qualify endpoint.
+    Caller responsibilities:
+      * Verify the tenant has rows in tenant_target_areas (otherwise
+        L1 returns empty and we short-circuit).
+      * Enqueue this task only for tenants that opted into v3.
     """
     scan_id = str(uuid4())
 
@@ -139,16 +134,6 @@ async def run_funnel_v3(
     if not l3:
         await _emit("scan.completed", {"total_cost_cents": costs.total_cost_cents})
         await costs.flush(completed=True)
-        return summary
-
-    # Geocentric checkpoint: stop here for the auto-prepare flow so the
-    # operator can hand-pick which L3 candidates deserve the paid Solar +
-    # Haiku stages (run on demand via /v1/territory/candidates/{id}/qualify).
-    if max_phase < 4:
-        await _emit("scan.completed", {"total_cost_cents": costs.total_cost_cents})
-        await costs.flush(completed=True)
-        summary["total_cost_cents"] = costs.total_cost_cents
-        summary["stopped_after_phase"] = 3
         return summary
 
     # ---- L4 Solar Qualify ----

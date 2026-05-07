@@ -2,20 +2,18 @@
  * Territorio — FLUSSO 1 v3 (geocentric autopilot UX).
  *
  * The page is intentionally minimal: configuration, OSM L0 mapping, and the
- * L1→L3 scan all run automatically on first visit (see TerritorioAutopilot
- * client component). The operator only interacts with the candidate pool
- * and qualifies a handful of leads on demand.
- *
- * Settings (settori + province) remain editable from /settings; we no
- * longer surface the editor on this page to keep the autopilot UX clean.
+ * full L1→L6 funnel all run automatically on first visit (see
+ * TerritorioAutopilot client component). The operator only interacts with
+ * the resulting funnel-v3 leads, manually triggering GIF rendering and
+ * outreach send per row.
  */
 
 import { redirect } from 'next/navigation';
 
 import { TerritorioAutopilot } from '@/components/territorio-autopilot';
 import { getCurrentTenantContext } from '@/lib/data/tenant';
-import { getScanResults } from '@/lib/data/territory-server';
-import type { ScanResultsResponse } from '@/lib/data/territory';
+import { getTerritoryLeads } from '@/lib/data/territory-server';
+import type { TerritoryLeadsResponse } from '@/lib/data/territory';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,10 +21,9 @@ export default async function TerritorioPage() {
   const ctx = await getCurrentTenantContext();
   if (!ctx) redirect('/login');
 
-  // Best-effort SSR snapshot so the panel renders without an empty flash.
-  let initialData: ScanResultsResponse | null = null;
+  let initialData: TerritoryLeadsResponse | null = null;
   try {
-    initialData = await getScanResults();
+    initialData = await getTerritoryLeads();
   } catch {
     initialData = null;
   }
@@ -39,11 +36,10 @@ export default async function TerritorioPage() {
         </p>
         <h1 className="text-3xl font-bold text-on-surface">Contatti target</h1>
         <p className="max-w-3xl text-sm text-on-surface-variant">
-          La preparazione (mappatura territorio + scoperta candidati) gira da
-          sola in background senza costi API. Tu approvi singolarmente i
-          candidati che vuoi qualificare con Solar API + scoring AI: il
-          sistema crea i lead corrispondenti, fino a un massimo di 10
-          contatti finali per evitare sprechi.
+          La pipeline completa (L0 mappatura zone, L1→L6 discovery + scraping +
+          qualità + Solar API + scoring AI + creazione lead) gira sola in
+          background, fino a 10 lead. Tu approvi singolarmente la generazione
+          GIF e l’invio email per ogni contatto.
         </p>
       </header>
 

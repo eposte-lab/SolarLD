@@ -142,7 +142,7 @@ export async function getScanResults(): Promise<ScanResultsResponse> {
 }
 
 // ---------------------------------------------------------------------------
-// Geocentric autopilot (auto-prepare + per-candidate qualify + reset)
+// Geocentric autopilot (auto-prepare + leads listing + render/send + reset)
 // ---------------------------------------------------------------------------
 
 export interface AutoPrepareResponse {
@@ -155,17 +155,28 @@ export interface AutoPrepareResponse {
   note: string;
 }
 
-export interface QualifyCandidateResponse {
-  candidate_id: string;
+export interface TerritoryLead {
+  id: string;
+  business_name: string | null;
+  decision_maker_email: string | null;
+  decision_maker_phone: string | null;
+  sede_operativa_address: string | null;
+  score: number | null;
+  score_tier: string | null;
+  pipeline_status: string | null;
+  rendering_gif_url: string | null;
+  rendering_image_url: string | null;
+  outreach_sent_at: string | null;
+  public_slug: string | null;
+  created_at: string | null;
+}
+
+export interface TerritoryLeadsResponse {
   tenant_id: string;
-  solar_verdict: string | null;
-  overall_score: number | null;
-  recommended_for_rendering: boolean;
-  lead_id: string | null;
-  qualified_count: number;
   target_total: number;
+  lead_count: number;
   cap_reached: boolean;
-  message: string;
+  leads: TerritoryLead[];
 }
 
 export interface ResetPipelineResponse {
@@ -175,7 +186,7 @@ export interface ResetPipelineResponse {
   cost_logs_deleted: number;
 }
 
-/** Idempotently kick off L0 (if needed) + L1+L2+L3 in the background. */
+/** Idempotently kick off L0 (if needed) + the full L1→L6 funnel. */
 export async function autoPrepareTerritory(): Promise<AutoPrepareResponse> {
   return apiFetch<AutoPrepareResponse>('/v1/territory/auto-prepare', {
     method: 'POST',
@@ -183,14 +194,29 @@ export async function autoPrepareTerritory(): Promise<AutoPrepareResponse> {
   });
 }
 
-/** On-demand qualify (Solar + Haiku + lead creation) for one candidate. */
-export async function qualifyCandidate(
-  candidateId: string,
-): Promise<QualifyCandidateResponse> {
-  return apiFetch<QualifyCandidateResponse>(
-    `/v1/territory/candidates/${candidateId}/qualify`,
-    { method: 'POST', body: JSON.stringify({}) },
-  );
+/** Funnel-v3 leads (capped at the geocentric target) for the autopilot UI. */
+export async function getTerritoryLeads(): Promise<TerritoryLeadsResponse> {
+  return apiFetch<TerritoryLeadsResponse>('/v1/territory/leads');
+}
+
+/** Trigger Creative Agent rendering (GIF/video) for a single lead. */
+export async function regenerateLeadRendering(
+  leadId: string,
+): Promise<{ ok: boolean; lead_id: string }> {
+  return apiFetch(`/v1/leads/${leadId}/regenerate-rendering`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
+}
+
+/** Trigger Outreach Agent send for a single lead. */
+export async function sendLeadOutreach(
+  leadId: string,
+): Promise<{ ok: boolean; lead_id: string }> {
+  return apiFetch(`/v1/leads/${leadId}/send-outreach`, {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
 }
 
 /** Wipe v3 pipeline state for the current tenant (zones survive). */
