@@ -473,7 +473,7 @@ async def _persist_zones(
     # mapping, we update primary_sector / matched_sectors in place so
     # historic L1 candidates still point at a valid zone row.
     resp = (
-        await supabase.table("tenant_target_areas")
+        supabase.table("tenant_target_areas")
         .upsert(rows, on_conflict="tenant_id,osm_type,osm_id")
         .execute()
     )
