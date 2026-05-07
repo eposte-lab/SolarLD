@@ -34,6 +34,7 @@ export const dynamic = 'force-dynamic';
 type Search = Promise<{
   page?: string;
   territory_id?: string;
+  scartati?: string;
 }>;
 
 export default async function ContattiPage({
@@ -43,14 +44,15 @@ export default async function ContattiPage({
 }) {
   const sp = await searchParams;
   const page = Math.max(1, Number(sp.page) || 1);
+  const includeScartati = sp.scartati === '1';
 
-  // The default filter (in lib/data/contatti.ts) restricts the list to
-  // candidates with `solar_verdict='accepted'`. We don't expose stage or
-  // verdict filter chips — operators care about qualified contacts only;
-  // the L4 breakdown sub-strip below shows the rejected/skipped counts
-  // for context. `territory_id` is still honored if passed via URL.
+  // Default filter: only candidates that passed Solar API AND were promoted
+  // to a `leads` row (the post-L6 "perfect" contacts). When the operator
+  // toggles `?scartati=1`, the table also shows pre-promotion scan_candidates
+  // (mid-funnel rows + Solar-rejected) for debug.
   const filter: ContattiFilter = {
     territory_id: sp.territory_id || undefined,
+    include_unpromoted: includeScartati,
   };
 
   const [ctx, summary, { rows, total }] = await Promise.all([
@@ -66,6 +68,7 @@ export default async function ContattiPage({
     const params = new URLSearchParams();
     if (filter.territory_id) params.set('territory_id', filter.territory_id);
     if (page > 1) params.set('page', String(page));
+    if (includeScartati) params.set('scartati', '1');
     for (const [k, v] of Object.entries(overrides)) {
       if (v === undefined || v === '') params.delete(k);
       else params.set(k, v);
@@ -132,6 +135,16 @@ export default async function ContattiPage({
           accent="neutral"
         />
       </BentoGrid>
+
+      {/* Toggle "mostra anche scartati" — debug-only, off by default. */}
+      <div className="flex items-center justify-end">
+        <Link
+          href={queryFor({ scartati: includeScartati ? undefined : '1', page: undefined })}
+          className="text-xs font-semibold uppercase tracking-widest text-on-surface-variant hover:text-on-surface"
+        >
+          {includeScartati ? '◉ Mostra solo convalidati' : '○ Mostra anche scartati'}
+        </Link>
+      </div>
 
       {/* L4 breakdown sub-strip */}
       {(summary.l4_rejected > 0 || summary.l4_skipped > 0) && (
