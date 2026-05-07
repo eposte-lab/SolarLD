@@ -17,15 +17,12 @@
  */
 
 import {
-  AlertTriangle,
   ArrowLeft,
   ArrowUpRight,
-  Check,
   ExternalLink,
   FileText,
   FolderOpen,
   Mail,
-  Phone,
 } from 'lucide-react';
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
@@ -629,29 +626,12 @@ export default async function LeadDetailPage({ params }: PageProps) {
             label="Email"
             value={
               dispEmail ? (
-                <span className="inline-flex items-center justify-end gap-1.5">
+                <a
+                  href={`mailto:${dispEmail}`}
+                  className="hover:underline focus:underline focus:outline-none"
+                >
                   {dispEmail}
-                  {/* "Verified" icon only when the source is the canonical
-                      subjects.decision_maker_email field — v3 fallback
-                      emails (from contact_extraction) are not verified
-                      until they land in subjects, so we render no badge. */}
-                  {lead.subjects?.decision_maker_email &&
-                  lead.subjects.decision_maker_email_verified ? (
-                    <Check
-                      size={12}
-                      strokeWidth={2.5}
-                      className="text-primary"
-                      aria-label="Verificata"
-                    />
-                  ) : lead.subjects?.decision_maker_email ? (
-                    <AlertTriangle
-                      size={12}
-                      strokeWidth={2.25}
-                      className="text-warning"
-                      aria-label="Non verificata"
-                    />
-                  ) : null}
-                </span>
+                </a>
               ) : (
                 '—'
               )
@@ -666,32 +646,12 @@ export default async function LeadDetailPage({ params }: PageProps) {
             label="Telefono"
             value={
               dispPhone ? (
-                <span className="inline-flex items-center justify-end gap-1.5">
-                  <a
-                    href={`tel:${dispPhone}`}
-                    className="hover:underline focus:underline focus:outline-none"
-                  >
-                    {dispPhone}
-                  </a>
-                  <Phone
-                    size={12}
-                    strokeWidth={2.25}
-                    className="text-on-surface-variant"
-                    aria-hidden
-                  />
-                  {/* Source badge only when populated from the canonical
-                      subjects column. v3 fallback (contact_extraction) is
-                      always "places/scrape" so the badge would be noise. */}
-                  {lead.subjects?.decision_maker_phone &&
-                  lead.subjects.decision_maker_phone_source ? (
-                    <span
-                      className="rounded-full bg-surface-container-low px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-on-surface-variant"
-                      title="Sorgente del numero di telefono"
-                    >
-                      {phoneSourceLabel(lead.subjects.decision_maker_phone_source)}
-                    </span>
-                  ) : null}
-                </span>
+                <a
+                  href={`tel:${dispPhone}`}
+                  className="hover:underline focus:underline focus:outline-none"
+                >
+                  {dispPhone}
+                </a>
               ) : (
                 '—'
               )
@@ -1434,21 +1394,6 @@ function ScoreBreakdownGrid({
   );
 }
 
-
-// ---------------------------------------------------------------------------
-// phoneSourceLabel — normalises phone provenance badge text
-// ---------------------------------------------------------------------------
-
-function phoneSourceLabel(source: string): string {
-  const MAP: Record<string, string> = {
-    atoka: 'Atoka',
-    website_scrape: 'Sito web',
-    scraping_v3: 'Scraping v3',
-    places: 'Google Places',
-    manual: 'Manuale',
-  };
-  return MAP[source] ?? source;
-}
 
 // ---------------------------------------------------------------------------
 // V3FunnelPanel — Sprint 8
