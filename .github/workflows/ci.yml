@@ -169,6 +169,10 @@ jobs:
           PGPASSWORD: postgres
         run: |
           psql -h localhost -U postgres -d solarlead_mig <<'SQL'
+            -- Required PostgreSQL extensions used by migrations
+            CREATE EXTENSION IF NOT EXISTS moddatetime;
+            CREATE EXTENSION IF NOT EXISTS pgcrypto;
+            CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
             -- Supabase roles
             DO $$ BEGIN
               CREATE ROLE anon NOLOGIN;
