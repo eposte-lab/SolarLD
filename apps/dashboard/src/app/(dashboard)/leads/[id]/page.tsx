@@ -804,7 +804,35 @@ export default async function LeadDetailPage({ params }: PageProps) {
         {/* Tetto e impianto — hidden for generic_outreach (no Solar data). */}
         {!isGenericOutreach && (
           <DataCard title="Tetto e impianto">
-            <DataRow label="Indirizzo" value={dispTettoIndirizzo ?? '—'} />
+            <DataRow
+              label="Indirizzo"
+              value={
+                dispTettoIndirizzo ? (
+                  <span className="inline-flex items-center gap-1.5">
+                    <span className="font-medium text-on-surface">
+                      {dispTettoIndirizzo}
+                    </span>
+                    <a
+                      href={
+                        v3Signal?.google_maps_url ??
+                        (lead.subjects?.sede_operativa_lat &&
+                        lead.subjects?.sede_operativa_lng
+                          ? `https://www.google.com/maps/search/?api=1&query=${lead.subjects.sede_operativa_lat},${lead.subjects.sede_operativa_lng}`
+                          : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(dispTettoIndirizzo)}`)
+                      }
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-0.5 text-xs font-semibold text-primary hover:underline"
+                    >
+                      Apri Maps
+                      <ArrowUpRight size={10} strokeWidth={2.5} aria-hidden />
+                    </a>
+                  </span>
+                ) : (
+                  '—'
+                )
+              }
+            />
             <DataRow label="Provincia" value={dispProvincia ?? '—'} />
             <DataRow
               label="Superficie tetto"
