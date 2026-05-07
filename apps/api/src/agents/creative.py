@@ -642,6 +642,14 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
         # always update roi_data; we only overwrite rendering_*_url when
         # we have a fresh value, so a failed sidecar call doesn't nuke
         # a previously-good video from an earlier run.
+        #
+        # creative_skipped_reason mirrors what we logged via structlog so
+        # the dashboard lead-detail page can surface a diagnostic chip
+        # without grepping Railway logs. Precedence: gif_fallback_reason
+        # (post-image diagnostics: remotion / roi / etc.) wins over the
+        # earlier skipped_reason (pre-image: missing_coords, solar key,
+        # roof confidence). When everything succeeded both video_url and
+        # gif_url are set and the column is cleared.
         update: dict[str, Any] = {"roi_data": roi_jsonb}
         if after_url is not None:
             update["rendering_image_url"] = after_url
@@ -649,6 +657,12 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
             update["rendering_video_url"] = video_url
         if gif_url is not None:
             update["rendering_gif_url"] = gif_url
+        if video_url is not None and gif_url is not None:
+            update["creative_skipped_reason"] = None
+        else:
+            reason_to_persist = gif_fallback_reason or skipped_reason
+            if reason_to_persist:
+                update["creative_skipped_reason"] = reason_to_persist
         sb.table("leads").update(update).eq("id", payload.lead_id).execute()
 
         # 8) Roof status progression — only once we have the full

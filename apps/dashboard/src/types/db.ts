@@ -312,6 +312,13 @@ export interface LeadDetailRow extends LeadListRow {
   rendering_video_url: string | null;
   rendering_gif_url: string | null;
   portal_video_slug: string | null;
+  /**
+   * Last gif_fallback_reason / skipped_reason from CreativeAgent.
+   * Populated when the render produced only the static image (or
+   * nothing). Surfaces sidecar / data-quality issues to ops without
+   * needing log access. Cleared when both video and gif succeed.
+   */
+  creative_skipped_reason: string | null;
   roi_data: RoiData;
   feedback: string | null;
   feedback_notes: string | null;

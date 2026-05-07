@@ -518,6 +518,22 @@ export default async function LeadDetailPage({ params }: PageProps) {
                   Apri pagina personale del lead
                 </a>
               )}
+              {/* Diagnostic chip: visible when only the static after-image
+                  made it but the operator clicked Rigenera expecting a
+                  video. The reason comes from the CreativeAgent fallback
+                  path (sidecar unreachable, Solar 404, ROI missing, ...).
+                  Without this chip the operator has to grep Railway logs. */}
+              {!lead.rendering_video_url &&
+                !lead.rendering_gif_url &&
+                lead.creative_skipped_reason && (
+                  <span
+                    className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1.5 text-[11px] font-semibold text-amber-900 ring-1 ring-amber-200"
+                    title={lead.creative_skipped_reason}
+                  >
+                    <span aria-hidden>⚠</span>
+                    Video non generato · {humanReadableSkipReason(lead.creative_skipped_reason)}
+                  </span>
+                )}
             </div>
           </div>
           <BentoGrid cols={4}>
@@ -599,6 +615,17 @@ export default async function LeadDetailPage({ params }: PageProps) {
             prodotta. Generala adesso per popolare la pagina personale del
             lead, l&apos;email di outreach e i KPI di ROI.
           </p>
+          {/* When a previous run failed, surface why so the operator can
+              act (config / data fix) before clicking Rigenera again. */}
+          {lead.creative_skipped_reason && (
+            <p
+              className="inline-flex items-center gap-1.5 rounded-lg bg-amber-50 px-3 py-1.5 text-[11px] font-semibold text-amber-900 ring-1 ring-amber-200"
+              title={lead.creative_skipped_reason}
+            >
+              <span aria-hidden>⚠</span>
+              Ultimo tentativo: {humanReadableSkipReason(lead.creative_skipped_reason)}
+            </p>
+          )}
           <RegenerateRenderingButton leadId={lead.id} />
         </section>
       )}
@@ -1320,6 +1347,34 @@ function isLatestSent(
     (best.sent_at ?? '') > (curr.sent_at ?? '') ? best : curr,
   );
   return latest.id === c.id;
+}
+
+// ---------------------------------------------------------------------------
+// humanReadableSkipReason — translate creative_skipped_reason into Italian
+//
+// CreativeAgent writes raw enum-style strings to leads.creative_skipped_reason
+// (`remotion_failed`, `before_url_missing`, `roof_confidence_too_low:mapbox_hq`,
+// `ai_paint_error:Replicate timed out`). Operators don't read English enums —
+// translate to short, actionable Italian. Anything we don't recognise falls
+// through to the raw string so the chip never renders empty.
+// ---------------------------------------------------------------------------
+function humanReadableSkipReason(reason: string): string {
+  // Strip the trailing `:detail` so colon-prefixed reasons match the base key.
+  const base = reason.split(':')[0] ?? reason;
+  const MAP: Record<string, string> = {
+    remotion_failed: 'sidecar non raggiungibile (controlla VIDEO_RENDERER_URL)',
+    before_url_missing: 'Solar API non ha trovato il tetto',
+    after_url_missing: 'AI panel-paint fallito',
+    roi_missing: 'numeri ROI non disponibili',
+    missing_coords: 'coordinate del tetto mancanti',
+    solar_api_key_not_configured: 'GOOGLE_SOLAR_API_KEY non configurata',
+    replicate_token_not_configured: 'REPLICATE_API_TOKEN non configurato',
+    roof_confidence_too_low: 'sede non confermata — apri il picker',
+    solar_no_building: 'Solar API non riconosce un edificio in queste coordinate',
+    ai_paint_error: 'errore generazione AI panel-paint',
+    solar_render_error: 'errore Solar API durante il render',
+  };
+  return MAP[base] ?? reason;
 }
 
 // ---------------------------------------------------------------------------

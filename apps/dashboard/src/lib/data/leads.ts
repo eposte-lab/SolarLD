@@ -69,6 +69,7 @@ const DETAIL_COLUMNS = `
                     sede_operativa_source),
   roofs:roofs(${DETAIL_ROOF_COLUMNS}),
   rendering_image_url, rendering_video_url, rendering_gif_url, portal_video_slug,
+  creative_skipped_reason,
   roi_data, outreach_delivered_at, outreach_clicked_at,
   whatsapp_initiated_at, feedback, feedback_notes, score_breakdown
 `.trim();

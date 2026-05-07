@@ -771,8 +771,15 @@ _BEACON_KEY_TTL = 90  # seconds
 #
 # Per-event score deltas applied via the ``bump_engagement_score``
 # Postgres function (migration 0066). Anything not listed contributes
-# 0 (heartbeat, leave, view) — those are signals for the nightly
-# rollup but not strong enough to deserve a real-time bump.
+# 0 (heartbeat, leave) — those are signals for the nightly rollup but
+# not strong enough to deserve a real-time bump.
+#
+# ``portal.view`` is a small (+5) bump rather than zero: landing on
+# the portal IS an action (the lead clicked the email CTA) and the
+# operator wants to see the score move immediately, not wait for the
+# nightly rollup. The nightly rollup still adds +20 per distinct
+# session on top, so a single visit ends up worth ~25 once both
+# layers reconcile.
 #
 # Keep these in lockstep with the ground-truth weights in
 # ``apps/api/src/services/engagement_service.py`` — they intentionally
@@ -784,6 +791,8 @@ _BEACON_KEY_TTL = 90  # seconds
 # bounded by the nightly rollup's idempotent recompute.
 
 _EVENT_DELTA: dict[str, int] = {
+    # Landing
+    "portal.view": 5,
     # Curiosity signals
     "portal.scroll_50": 3,
     "portal.scroll_90": 7,
