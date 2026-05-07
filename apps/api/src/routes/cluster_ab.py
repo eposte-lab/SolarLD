@@ -92,7 +92,15 @@ def _variant_row_to_dict(v: dict[str, Any]) -> dict[str, Any]:
 
 @router.get("/active")
 async def list_active_clusters(user: CurrentUser) -> dict[str, Any]:
-    """List all cluster pairs with active A+B variants for this tenant."""
+    """List all cluster pairs for this tenant — both active A+B tests
+    AND converged "stable winner" clusters.
+
+    Converged clusters carry a single champion variant (the one currently
+    receiving 100% of the traffic) and are flagged via the ``converged_at``
+    timestamp on the response. The dashboard renders them with a different
+    card UI (single champion + "Sfida il vincitore" button instead of
+    A vs B side-by-side).
+    """
     tenant_id = require_tenant(user)
     sb = get_service_client()
 
@@ -121,11 +129,12 @@ async def list_active_clusters(user: CurrentUser) -> dict[str, Any]:
                 "cluster_signature": sig,
                 "round_number": row["round_number"],
                 "variants": [],
+                "converged_at": None,
+                "champion_variant_id": None,
             }
         clusters[sig]["variants"].append(_variant_row_to_dict(row))
 
     # Add Bayesian P(A wins) for each cluster.
-    result = []
     for cluster in clusters.values():
         va = next((v for v in cluster["variants"] if v["variant_label"] == "A"), None)
         vb = next((v for v in cluster["variants"] if v["variant_label"] == "B"), None)
@@ -136,9 +145,48 @@ async def list_active_clusters(user: CurrentUser) -> dict[str, Any]:
                 vb["replied_count"],
                 vb["sent_count"],
             )
-        result.append(cluster)
 
-    return {"clusters": result, "total": len(result)}
+    # Pull converged clusters from cluster_state. These don't have
+    # status='active' rows so the query above missed them.
+    state_resp = (
+        sb.table("cluster_state")
+        .select("cluster_signature, converged_at, champion_variant_id, consecutive_wins")
+        .eq("tenant_id", tenant_id)
+        .not_.is_("converged_at", None)
+        .execute()
+    )
+    for state_row in state_resp.data or []:
+        sig = state_row["cluster_signature"]
+        champ_id = state_row.get("champion_variant_id")
+        if not champ_id:
+            continue
+        champ_resp = (
+            sb.table("cluster_copy_variants")
+            .select(
+                "id, tenant_id, cluster_signature, round_number, variant_label, "
+                "copy_subject, copy_opening_line, copy_proposition_line, cta_primary_label, "
+                "status, generated_by, sent_count, replied_count, generated_at, promoted_at"
+            )
+            .eq("id", champ_id)
+            .maybe_single()
+            .execute()
+        )
+        champ = champ_resp.data if champ_resp else None
+        if not champ:
+            continue
+        clusters[sig] = {
+            "cluster_signature": sig,
+            "round_number": champ["round_number"],
+            "variants": [_variant_row_to_dict(champ)],
+            "converged_at": state_row["converged_at"],
+            "champion_variant_id": champ_id,
+            "prob_a_wins": None,
+        }
+
+    return {
+        "clusters": list(clusters.values()),
+        "total": len(clusters),
+    }
 
 
 @router.get("/{cluster_signature:path}")
@@ -289,4 +337,101 @@ async def regenerate_cluster(cluster_signature: str, user: CurrentUser) -> dict[
         "cluster_signature": cluster_signature,
         "archived_count": len(ids),
         "new_round": new_round,
+    }
+
+
+@router.post("/{cluster_signature:path}/unlock")
+async def unlock_converged_cluster(
+    cluster_signature: str,
+    user: CurrentUser,
+) -> dict[str, Any]:
+    """Manually challenge a converged cluster's champion.
+
+    Operator clicks "Sfida il vincitore" on the dashboard. We:
+      1. Reset cluster_state (clear converged_at + champion + streak,
+         stamp unlocked_at so the drift cron knows this was manual).
+      2. Generate a new A+B pair using the previous champion as baseline.
+
+    The OutreachAgent then resumes the 50/50 hash split; the chi-square
+    evaluator runs the new round normally and can re-converge after
+    another 2 consecutive wins.
+    """
+    from datetime import datetime as _dt
+
+    tenant_id = require_tenant(user)
+    sb = get_service_client()
+
+    state_resp = (
+        sb.table("cluster_state")
+        .select("converged_at, champion_variant_id")
+        .eq("tenant_id", tenant_id)
+        .eq("cluster_signature", cluster_signature)
+        .maybe_single()
+        .execute()
+    )
+    state = state_resp.data if state_resp else None
+    if not state or not state.get("converged_at"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cluster non in stato convergente — niente da sfidare.",
+        )
+
+    # Pull champion copy as baseline so the new sfidante starts from the
+    # proven winner (Haiku should produce a meaningfully different B).
+    previous_winner: dict[str, str] | None = None
+    next_round = 1
+    champ_id = state.get("champion_variant_id")
+    if champ_id:
+        champ_resp = (
+            sb.table("cluster_copy_variants")
+            .select(
+                "round_number, copy_subject, copy_opening_line, "
+                "copy_proposition_line, cta_primary_label"
+            )
+            .eq("id", champ_id)
+            .maybe_single()
+            .execute()
+        )
+        champ = champ_resp.data if champ_resp else None
+        if champ:
+            previous_winner = {
+                "copy_subject": champ.get("copy_subject") or "",
+                "copy_opening_line": champ.get("copy_opening_line") or "",
+                "copy_proposition_line": champ.get("copy_proposition_line") or "",
+                "cta_primary_label": champ.get("cta_primary_label") or "",
+            }
+            next_round = int(champ.get("round_number") or 1) + 1
+
+    now_iso = _dt.now(UTC).isoformat()
+    (
+        sb.table("cluster_state")
+        .upsert(
+            {
+                "tenant_id": tenant_id,
+                "cluster_signature": cluster_signature,
+                "consecutive_wins": 0,
+                "last_winner_label": None,
+                "converged_at": None,
+                "champion_variant_id": None,
+                "unlocked_at": now_iso,
+                "updated_at": now_iso,
+            }
+        )
+        .execute()
+    )
+
+    from ..services.cluster_ab_evaluator_service import _generate_new_round
+
+    await _generate_new_round(sb, tenant_id, cluster_signature, next_round, previous_winner)
+
+    log.info(
+        "cluster_ab.manually_unlocked",
+        tenant_id=tenant_id,
+        cluster_signature=cluster_signature,
+        new_round=next_round,
+    )
+    return {
+        "cluster_signature": cluster_signature,
+        "new_round": next_round,
+        "unlocked_at": now_iso,
     }

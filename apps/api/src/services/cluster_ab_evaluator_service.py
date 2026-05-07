@@ -43,6 +43,15 @@ MIN_SAMPLES: int = 20  # minimum sends per variant before deciding
 MAX_SAMPLES: int = 500  # total sends after which no_difference is forced
 ALPHA: float = 0.05  # significance level for chi-square
 
+# Convergence: after N consecutive rounds where the same variant_label
+# wins, the cluster is locked — 100% of traffic goes to the champion
+# and no new rounds are generated. The weekly drift cron unlocks
+# converged clusters after 90 days. The operator can also unlock
+# manually via POST /v1/cluster-ab/{sig}/unlock. Without this the
+# system tests forever and the operator never enjoys the winner at
+# 100% traffic.
+CONSECUTIVE_WINS_FOR_CONVERGENCE: int = 2
+
 
 # ── Chi-square 2x2 (Pearson, Yates correction) — no scipy ─────────────
 
@@ -270,14 +279,36 @@ async def _evaluate_one_cluster(
             .execute()
         )
 
-        # Generate next round with winner as baseline.
-        previous_winner = {
-            "copy_subject": winner_var.get("copy_subject", ""),
-            "copy_opening_line": winner_var.get("copy_opening_line", ""),
-            "copy_proposition_line": winner_var.get("copy_proposition_line", ""),
-            "cta_primary_label": winner_var.get("cta_primary_label", ""),
-        }
-        await _generate_new_round(sb, tenant_id, cluster_sig, round_number + 1, previous_winner)
+        # Update convergence state for this cluster. Two consecutive
+        # wins by the same variant_label → lock the cluster, skip
+        # generation, serve 100% champion traffic.
+        converged = _update_convergence_state(
+            sb=sb,
+            tenant_id=tenant_id,
+            cluster_sig=cluster_sig,
+            new_winner_label=winner_label,
+            winner_variant_id=str(winner_var["id"]),
+        )
+
+        if converged:
+            stats["clusters_converged"] = stats.get("clusters_converged", 0) + 1
+            log.info(
+                "cluster_ab.converged",
+                cluster=cluster_sig,
+                tenant=tenant_id,
+                champion=winner_label,
+                champion_variant_id=str(winner_var["id"]),
+                consecutive_wins=CONSECUTIVE_WINS_FOR_CONVERGENCE,
+            )
+        else:
+            # Generate next round with winner as baseline.
+            previous_winner = {
+                "copy_subject": winner_var.get("copy_subject", ""),
+                "copy_opening_line": winner_var.get("copy_opening_line", ""),
+                "copy_proposition_line": winner_var.get("copy_proposition_line", ""),
+                "cta_primary_label": winner_var.get("cta_primary_label", ""),
+            }
+            await _generate_new_round(sb, tenant_id, cluster_sig, round_number + 1, previous_winner)
 
         stats["clusters_promoted"] += 1
         log.info(
@@ -288,6 +319,7 @@ async def _evaluate_one_cluster(
             p_value=p,
             reply_rate_a=rate_a,
             reply_rate_b=rate_b,
+            converged=converged,
         )
 
     elif total_sent >= MAX_SAMPLES:
@@ -300,6 +332,11 @@ async def _evaluate_one_cluster(
                 .eq("id", v["id"])
                 .execute()
             )
+
+        # A tie breaks the consecutive-wins streak — reset cluster_state.
+        # Without this a sequence "win A, no_diff, win A" would converge
+        # at the second A win even though the test wasn't unanimous.
+        _reset_consecutive_wins(sb, tenant_id, cluster_sig)
 
         # Generate a new round from scratch (no previous winner).
         await _generate_new_round(
@@ -341,6 +378,73 @@ async def _aggregate_variant(sb: Any, variant_id: str) -> tuple[int, int]:
         1 for r in rows if r.get("pipeline_status") in {"engaged", "appointment", "closed_won"}
     )
     return sent, replied
+
+
+def _update_convergence_state(
+    sb: Any,
+    *,
+    tenant_id: str,
+    cluster_sig: str,
+    new_winner_label: str,
+    winner_variant_id: str,
+) -> bool:
+    """Bump cluster_state after a winner declaration.
+
+    Returns True iff the cluster has just converged (consecutive_wins
+    crossed CONSECUTIVE_WINS_FOR_CONVERGENCE). The caller uses that
+    flag to skip generate_variant_pair for this round.
+
+    Behaviour:
+      * Same winner_label as last round → consecutive_wins += 1
+      * Different label → consecutive_wins = 1, last_winner_label = new
+      * On reaching the threshold → set converged_at + champion_variant_id
+    """
+    state_resp = (
+        sb.table("cluster_state")
+        .select("consecutive_wins, last_winner_label, converged_at")
+        .eq("tenant_id", tenant_id)
+        .eq("cluster_signature", cluster_sig)
+        .maybe_single()
+        .execute()
+    )
+    state = state_resp.data or None
+
+    if state and state.get("last_winner_label") == new_winner_label:
+        new_streak = int(state.get("consecutive_wins") or 0) + 1
+    else:
+        new_streak = 1
+
+    now_iso = datetime.now(UTC).isoformat()
+    converged = new_streak >= CONSECUTIVE_WINS_FOR_CONVERGENCE
+    payload: dict[str, Any] = {
+        "tenant_id": tenant_id,
+        "cluster_signature": cluster_sig,
+        "consecutive_wins": new_streak,
+        "last_winner_label": new_winner_label,
+        "updated_at": now_iso,
+    }
+    if converged:
+        payload["converged_at"] = now_iso
+        payload["champion_variant_id"] = winner_variant_id
+        # Clear any stale unlock marker so the drift cron timer
+        # restarts from the new convergence.
+        payload["unlocked_at"] = None
+
+    sb.table("cluster_state").upsert(payload).execute()
+    return converged
+
+
+def _reset_consecutive_wins(sb: Any, tenant_id: str, cluster_sig: str) -> None:
+    """Zero the streak — used when no_difference is declared."""
+    sb.table("cluster_state").upsert(
+        {
+            "tenant_id": tenant_id,
+            "cluster_signature": cluster_sig,
+            "consecutive_wins": 0,
+            "last_winner_label": None,
+            "updated_at": datetime.now(UTC).isoformat(),
+        }
+    ).execute()
 
 
 async def _generate_new_round(

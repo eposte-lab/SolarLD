@@ -453,6 +453,64 @@ const HOT_AWAITING_EXCLUDED: LeadStatus[] = [
   'blacklisted',
 ];
 
+export interface HotLeadCard {
+  id: string;
+  display_name: string;
+  engagement_score: number;
+  last_event_at: string | null;
+}
+
+/**
+ * Return the single most "hot" lead for the sidebar CTA.
+ *
+ * Priority: highest engagement_score over the last 24h of portal
+ * activity, falling back to highest engagement_score overall, then
+ * to the AI score. Returns null if no engagement signal exists yet
+ * (fresh tenant) — caller falls back to the legacy "Configura
+ * territorio" button.
+ */
+export async function getTopHotLead(): Promise<HotLeadCard | null> {
+  const supabase = await createSupabaseServerClient();
+  const { data, error } = await supabase
+    .from('leads')
+    .select(
+      'id, engagement_score, last_portal_event_at, score, ' +
+        'subjects(business_name, owner_first_name, owner_last_name)',
+    )
+    .gt('engagement_score', 0)
+    .order('engagement_score', { ascending: false })
+    .order('last_portal_event_at', { ascending: false, nullsFirst: false })
+    .order('score', { ascending: false })
+    .limit(1);
+
+  if (error || !data || data.length === 0) return null;
+  const row = data[0] as unknown as {
+    id: string;
+    engagement_score: number | null;
+    last_portal_event_at: string | null;
+    subjects:
+      | {
+          business_name: string | null;
+          owner_first_name: string | null;
+          owner_last_name: string | null;
+        }
+      | null;
+  };
+
+  const display =
+    row.subjects?.business_name ||
+    [row.subjects?.owner_first_name, row.subjects?.owner_last_name]
+      .filter(Boolean)
+      .join(' ') ||
+    'Lead senza nome';
+  return {
+    id: row.id,
+    display_name: display,
+    engagement_score: row.engagement_score ?? 0,
+    last_event_at: row.last_portal_event_at,
+  };
+}
+
 export async function listHotLeadsAwaitingResponse(opts: {
   sinceHours?: number;
   minScore?: number;

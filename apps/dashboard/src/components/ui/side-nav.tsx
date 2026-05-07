@@ -100,12 +100,25 @@ export interface NavSection {
   items: NavItem[];
 }
 
+export interface HotLeadHero {
+  id: string;
+  display_name: string;
+  engagement_score: number;
+  last_event_at: string | null;
+}
+
 export interface SideNavProps {
   /** Either a flat list (legacy) or grouped sections (preferred). */
   items?: NavItem[];
   sections?: NavSection[];
   tenant: { business_name: string };
   user_email: string | null;
+  /**
+   * Top-engagement lead surfaced as the hero CTA. When null the
+   * sidebar falls back to the legacy "Configura territorio" button
+   * (relevant for fresh tenants with zero portal activity).
+   */
+  hotLead?: HotLeadHero | null;
 }
 
 /**
@@ -165,7 +178,71 @@ function NavLink({ item, active }: { item: NavItem; active: boolean }) {
   );
 }
 
-export function SideNav({ items, sections, tenant, user_email }: SideNavProps) {
+/**
+ * Hero CTA at the top of the sidebar.
+ *
+ * Replaces the legacy "Configura territorio" button with the most
+ * actionable thing the operator should do RIGHT NOW: open the lead
+ * with the highest engagement_score. Falls back to the territory
+ * setup link only when no lead has any engagement yet (fresh
+ * tenant). The score chip + relative timestamp give an immediate
+ * sense of "is this still hot?".
+ */
+function HeroCta({ hotLead }: { hotLead: HotLeadHero | null }) {
+  if (!hotLead) {
+    return (
+      <GradientButton
+        href="/territorio"
+        size="md"
+        className="mb-6 w-full justify-center"
+      >
+        <Plus size={16} strokeWidth={2.25} aria-hidden />
+        Configura territorio
+      </GradientButton>
+    );
+  }
+  const truncated =
+    hotLead.display_name.length > 26
+      ? hotLead.display_name.slice(0, 24) + '…'
+      : hotLead.display_name;
+  return (
+    <Link
+      href={`/leads/${hotLead.id}`}
+      className="mb-6 block rounded-xl bg-primary/95 px-4 py-3 text-on-primary shadow-ambient-sm transition-opacity hover:opacity-95"
+    >
+      <p className="text-[10px] font-bold uppercase tracking-[0.18em] opacity-90">
+        🔥 Lead più caldo
+      </p>
+      <p className="mt-1 text-sm font-semibold leading-tight">{truncated}</p>
+      <p className="mt-1 text-[11px] opacity-90">
+        Score {hotLead.engagement_score}
+        {hotLead.last_event_at
+          ? ` · ${formatRelativeShort(hotLead.last_event_at)}`
+          : ''}
+      </p>
+    </Link>
+  );
+}
+
+function formatRelativeShort(iso: string): string {
+  const then = new Date(iso).getTime();
+  const diff = Date.now() - then;
+  const mins = Math.floor(diff / 60_000);
+  if (mins < 1) return 'ora';
+  if (mins < 60) return `${mins}m fa`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h fa`;
+  const days = Math.floor(hours / 24);
+  return `${days}g fa`;
+}
+
+export function SideNav({
+  items,
+  sections,
+  tenant,
+  user_email,
+  hotLead,
+}: SideNavProps) {
   const pathname = usePathname() ?? '/';
 
   // Normalize input: prefer sections, fall back to flat items.
@@ -196,11 +273,9 @@ export function SideNav({ items, sections, tenant, user_email }: SideNavProps) {
         </div>
       </div>
 
-      {/* Hero CTA */}
-      <GradientButton href="/territorio" size="md" className="mb-6 w-full justify-center">
-        <Plus size={16} strokeWidth={2.25} aria-hidden />
-        Configura territorio
-      </GradientButton>
+      {/* Hero CTA — hot lead first, fallback to setup if no engagement yet */}
+      <HeroCta hotLead={hotLead ?? null} />
+
 
       {/* Grouped nav */}
       <div className="flex-1 overflow-y-auto -mx-1 px-1 space-y-5">
