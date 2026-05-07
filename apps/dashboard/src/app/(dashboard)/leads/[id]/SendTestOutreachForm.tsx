@@ -96,7 +96,7 @@ export function SendTestOutreachForm({ leadId, defaultEmail }: Props) {
           value={override}
           onChange={(e) => setOverride(e.target.value)}
           disabled={busy}
-          className="flex-1 rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm text-on-surface placeholder:text-on-surface-variant focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-300 disabled:opacity-50"
+          className="flex-1 rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm text-stone-900 placeholder:text-stone-400 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-300 disabled:opacity-50"
         />
         <button
           type="submit"

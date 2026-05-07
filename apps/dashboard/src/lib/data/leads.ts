@@ -299,7 +299,12 @@ export async function getLeadV3Signal(
     leadRow?.subjects as { raw_data?: Record<string, unknown> | null } | null
   )?.raw_data;
 
-  if (!rawData || rawData.source !== 'funnel_v3') return null;
+  // Accept both 'funnel_v3' (live promotion) and 'funnel_v3_backfill'
+  // (manual backfill of accepted scan_candidates that were missed by the
+  // L6 promoter — same v3 signal shape, just promoted later).
+  if (!rawData) return null;
+  const src = typeof rawData.source === 'string' ? rawData.source : '';
+  if (!src.startsWith('funnel_v3')) return null;
   const scanCandidateId =
     typeof rawData.scan_candidate_id === 'string'
       ? rawData.scan_candidate_id
