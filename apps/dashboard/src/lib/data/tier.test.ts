@@ -40,12 +40,12 @@ function makeTenant(
 // ---------------------------------------------------------------------------
 
 describe('resolveTierSnapshot — defaults', () => {
-  it('founding has only email_outreach', () => {
+  it('founding has email_outreach and realtime_timeline', () => {
     const s = resolveTierSnapshot(makeTenant('founding'));
     expect(s.capabilities.email_outreach).toBe(true);
     expect(s.capabilities.postal_outreach).toBe(false);
     expect(s.capabilities.whatsapp_outreach).toBe(false);
-    expect(s.capabilities.realtime_timeline).toBe(false);
+    expect(s.capabilities.realtime_timeline).toBe(true);
     expect(s.capabilities.api_access).toBe(false);
     expect(s.hasOverrides).toBe(false);
   });
@@ -123,14 +123,14 @@ describe('getTierBudget', () => {
 // ---------------------------------------------------------------------------
 
 describe('feature_flags overrides', () => {
-  it('unlocks realtime_timeline on a founding pilot tenant', () => {
+  it('unlocks postal_outreach on a founding pilot tenant via feature_flag', () => {
     const tenant = makeTenant('founding', {
-      feature_flags: { realtime_timeline: true },
+      feature_flags: { postal_outreach: true },
     });
     const s = resolveTierSnapshot(tenant);
-    expect(s.capabilities.realtime_timeline).toBe(true);
+    expect(s.capabilities.postal_outreach).toBe(true);
     expect(s.hasOverrides).toBe(true);
-    expect(canTenantUse(tenant, 'realtime_timeline')).toBe(true);
+    expect(canTenantUse(tenant, 'postal_outreach')).toBe(true);
   });
 
   it('can strip a capability from pro via a false flag', () => {
@@ -166,8 +166,8 @@ describe('minimumTierFor', () => {
     expect(minimumTierFor('email_outreach')).toBe('founding');
   });
 
-  it('realtime_timeline is pro', () => {
-    expect(minimumTierFor('realtime_timeline')).toBe('pro');
+  it('realtime_timeline is founding', () => {
+    expect(minimumTierFor('realtime_timeline')).toBe('founding');
   });
 
   it('api_access is enterprise', () => {

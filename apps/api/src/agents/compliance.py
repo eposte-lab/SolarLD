@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import unicodedata
+
 from pydantic import BaseModel
 
 from ..core.supabase_client import get_service_client
