@@ -23,9 +23,8 @@ from __future__ import annotations
 
 import time
 from typing import Any
-from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Path, Query
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from ..core.queue import enqueue
@@ -486,25 +485,26 @@ async def scan_results(ctx: CurrentUser) -> ScanResultsResponse:
 
 
 # ---------------------------------------------------------------------------
-# Geocentric autopilot — auto-prepare (L0+L1+L2+L3) + per-candidate qualify
+# Geocentric autopilot — auto-prepare (full L0→L6 pipeline) + lead listing
 # ---------------------------------------------------------------------------
 #
 # UX model in /territorio:
 #   1. First page visit -> POST /v1/territory/auto-prepare (idempotent).
-#      The endpoint enqueues L0 (if no zones yet) and the L1+L2+L3 funnel
-#      with a small budget so the candidate pool stays around the user's
-#      target of ~10 final leads (30 L3 candidates -> ~10 qualify).
-#   2. Operator inspects the L3 pool returned by /scan-results.
-#   3. For each promising candidate the operator calls
-#      /v1/territory/candidates/{id}/qualify which synchronously runs the
-#      paid stages (L4 Solar API + L5 Haiku scoring + L6 lead creation).
-#   4. /v1/territory/reset wipes the v3 pipeline state so the user can
-#      restart the experiment from scratch.
+#      Enqueues L0 if zones are missing, then the full L1→L6 funnel with
+#      a tight budget so we land on ~10 leads (cap enforced server-side
+#      inside level6_promote_to_leads.py).
+#   2. /v1/territory/leads returns the resulting funnel_v3 leads with the
+#      fields the page needs to show contact + render/send buttons.
+#   3. Render and outreach are triggered per-lead via the existing
+#      /v1/leads/{id}/regenerate-rendering and /v1/leads/{id}/send-outreach
+#      endpoints — both already enqueue ARQ tasks.
+#   4. /v1/territory/reset wipes scan_candidates + funnel_v3 leads so the
+#      operator can restart the pilot from scratch.
 
-# Default budget for the auto-prepare run. Tuned so we converge on roughly
-# 10 actionable leads after the operator picks ~10 candidates from L3.
+# Budget tuned to converge on ~10 leads with the L6 cap as a hard ceiling.
+# 80 L1 → ~50 L2 with email → ~30 L3 quality → ~15 L4 accepted → ~10 L5
+# recommended → at most 10 L6 leads (capped).
 AUTO_PREPARE_MAX_L1 = 80
-AUTO_PREPARE_PHASE = 3
 QUALIFY_FINAL_TARGET = 10
 
 
@@ -520,17 +520,18 @@ class AutoPrepareResponse(BaseModel):
 
 @router.post("/auto-prepare", response_model=AutoPrepareResponse, status_code=202)
 async def auto_prepare(ctx: CurrentUser) -> AutoPrepareResponse:
-    """Idempotently kick off the background prepare flow (L0 + L1+L2+L3).
+    """Idempotently kick off the background prepare flow (L0 + L1→L6).
 
     Safe to call from a useEffect on first /territorio visit:
       * If zones are missing -> enqueue map_target_areas_task.
-      * If candidates are missing AND zones exist -> enqueue
-        hunter_funnel_v3_task with `max_phase=3` and a small budget.
-      * If both already populated -> no-op.
+      * If we already hit the QUALIFY_FINAL_TARGET cap -> no-op.
+      * Otherwise enqueue the full v3 funnel (L1→L6) with a tight
+        max_l1_candidates budget so we converge on ~10 leads. The L6
+        promoter applies the hard 10-lead cap regardless.
 
-    The paid stages (Solar + Haiku + lead creation) are *never* triggered
-    by this endpoint. They run on demand, one candidate at a time, via
-    /v1/territory/candidates/{id}/qualify.
+    Lead rendering + outreach are explicitly *not* triggered here — leads
+    land in pipeline_status='new' and the operator approves each one from
+    /territorio.
     """
     tenant_id = require_tenant(ctx)
     sb = get_service_client()
@@ -567,34 +568,33 @@ async def auto_prepare(ctx: CurrentUser) -> AutoPrepareResponse:
         )
         enqueued_map = True
 
-    cand_res = (
-        sb.table("scan_candidates")
-        .select("id", count="exact")
-        .eq("tenant_id", tenant_id)
-        .eq("funnel_version", 3)
-        .execute()
-    )
-    candidate_count = cand_res.count or 0
+    lead_count = _count_funnel_v3_leads(sb, tenant_id)
+    in_flight = _count_in_flight_v3_scans(sb, tenant_id)
 
     enqueued_funnel = False
     note = ""
     if zone_count == 0:
         note = "Mappatura zone in corso. Riprova fra qualche minuto per avviare la scansione candidati."
-    elif candidate_count == 0:
+    elif lead_count >= QUALIFY_FINAL_TARGET:
+        note = (
+            f"Pool già pronto: {lead_count} lead finali disponibili. "
+            "Premi un bottone per candidato per generare GIF e inviare email."
+        )
+    elif in_flight > 0:
+        note = "Scansione L1→L6 già in corso. La pagina si aggiorna ogni 8 secondi."
+    else:
         await enqueue(
             "hunter_funnel_v3_task",
             {
                 "tenant_id": tenant_id,
                 "max_l1_candidates": AUTO_PREPARE_MAX_L1,
-                "max_phase": AUTO_PREPARE_PHASE,
             },
             job_id=f"funnel_v3_autoprep:{tenant_id}:{int(time.time())}",
         )
         enqueued_funnel = True
-        note = "Preparazione candidati in corso (L1→L3 senza costi API a pagamento)."
-    else:
         note = (
-            f"Pool già pronto: {candidate_count} candidati disponibili per la qualifica selettiva."
+            "Pipeline L1→L6 in esecuzione: discovery, scraping, qualità edificio, "
+            "Solar API, scoring AI, creazione lead. Stop automatico a 10 lead."
         )
 
     return AutoPrepareResponse(
@@ -603,232 +603,119 @@ async def auto_prepare(ctx: CurrentUser) -> AutoPrepareResponse:
         enqueued_map=enqueued_map,
         enqueued_funnel=enqueued_funnel,
         zone_count=zone_count,
-        candidate_count=candidate_count,
+        candidate_count=lead_count,
         note=note,
     )
 
 
-class QualifyCandidateResponse(BaseModel):
-    candidate_id: str
-    tenant_id: str
-    solar_verdict: str | None
-    overall_score: int | None
-    recommended_for_rendering: bool
-    lead_id: str | None
-    qualified_count: int
-    target_total: int
-    cap_reached: bool
-    message: str
-
-
-@router.post(
-    "/candidates/{candidate_id}/qualify",
-    response_model=QualifyCandidateResponse,
-)
-async def qualify_candidate(
-    ctx: CurrentUser,
-    candidate_id: UUID = Path(..., description="scan_candidates.id (must belong to caller tenant)"),
-) -> QualifyCandidateResponse:
-    """Run L4 Solar + L5 Haiku + L6 lead creation for a single candidate.
-
-    Synchronous: the operator has clicked a button and expects an answer
-    within seconds (Solar ~2s, Haiku ~3s, lead insert <1s).
-
-    Cap: refuses to run when the tenant already has QUALIFY_FINAL_TARGET
-    funnel-v3 leads — the geocentric pilot deliberately stays small.
-    """
-    tenant_id = require_tenant(ctx)
-    sb = get_service_client()
-
-    # Hard cap so the pilot never overruns the "circa 10 contatti finali"
-    # target the operator asked for.
-    qualified_res = (
+def _count_funnel_v3_leads(sb: Any, tenant_id: str) -> int:
+    res = (
         sb.table("leads")
         .select("id, subjects:subjects(raw_data)")
         .eq("tenant_id", tenant_id)
         .execute()
     )
-    qualified_count = 0
-    for lr in qualified_res.data or []:
+    n = 0
+    for lr in res.data or []:
         sub = lr.get("subjects") or {}
         raw = (sub.get("raw_data") or {}) if isinstance(sub, dict) else {}
         if raw.get("source") == "funnel_v3":
-            qualified_count += 1
-    if qualified_count >= QUALIFY_FINAL_TARGET:
-        return QualifyCandidateResponse(
-            candidate_id=str(candidate_id),
-            tenant_id=tenant_id,
-            solar_verdict=None,
-            overall_score=None,
-            recommended_for_rendering=False,
-            lead_id=None,
-            qualified_count=qualified_count,
-            target_total=QUALIFY_FINAL_TARGET,
-            cap_reached=True,
-            message=(
-                f"Cap raggiunto: già {qualified_count} contatti finali "
-                f"qualificati (target {QUALIFY_FINAL_TARGET}). "
-                "Usa /reset per ripartire."
-            ),
-        )
+            n += 1
+    return n
 
-    # Load the candidate row + verify tenant ownership.
-    sc_res = (
-        sb.table("scan_candidates")
-        .select("*")
-        .eq("id", str(candidate_id))
+
+def _count_in_flight_v3_scans(sb: Any, tenant_id: str) -> int:
+    res = (
+        sb.table("scan_cost_log")
+        .select("scan_id", count="exact")
         .eq("tenant_id", tenant_id)
-        .eq("funnel_version", 3)
-        .maybe_single()
+        .eq("scan_mode", "v3_funnel")
+        .is_("completed_at", "null")
         .execute()
     )
-    sc = sc_res.data
-    if not sc:
-        raise HTTPException(404, detail="Candidato non trovato per questo tenant.")
-    if (sc.get("building_quality_score") or 0) < 3:
-        raise HTTPException(
-            409,
-            detail="Candidato non ha superato L3 (qualità edificio). Non eleggibile per qualifica.",
+    return res.count or 0
+
+
+class TerritoryLeadOut(BaseModel):
+    id: str
+    business_name: str | None
+    decision_maker_email: str | None
+    decision_maker_phone: str | None
+    sede_operativa_address: str | None
+    score: int | None
+    score_tier: str | None
+    pipeline_status: str | None
+    rendering_gif_url: str | None
+    rendering_image_url: str | None
+    outreach_sent_at: str | None
+    public_slug: str | None
+    created_at: str | None
+
+
+class TerritoryLeadsResponse(BaseModel):
+    tenant_id: str
+    target_total: int
+    lead_count: int
+    cap_reached: bool
+    leads: list[TerritoryLeadOut]
+
+
+@router.get("/leads", response_model=TerritoryLeadsResponse)
+async def territory_leads(ctx: CurrentUser) -> TerritoryLeadsResponse:
+    """Funnel-v3 leads (capped at QUALIFY_FINAL_TARGET) for the autopilot UI.
+
+    Returns the lead row + its subject's contact fields + the rendering
+    URLs and outreach timestamps so the /territorio page can show the
+    "Genera GIF" / "Invia email" buttons in the right state per row.
+    """
+    tenant_id = require_tenant(ctx)
+    sb = get_service_client()
+
+    res = (
+        sb.table("leads")
+        .select(
+            "id, score, score_tier, pipeline_status, rendering_gif_url, "
+            "rendering_image_url, outreach_sent_at, public_slug, created_at, "
+            "subjects:subjects(business_name, decision_maker_email, "
+            "decision_maker_phone, sede_operativa_address, raw_data)"
+        )
+        .eq("tenant_id", tenant_id)
+        .order("score", desc=True)
+        .execute()
+    )
+
+    leads: list[TerritoryLeadOut] = []
+    for lr in res.data or []:
+        sub = lr.get("subjects") or {}
+        if not isinstance(sub, dict):
+            continue
+        raw = sub.get("raw_data") or {}
+        if raw.get("source") != "funnel_v3":
+            continue
+        leads.append(
+            TerritoryLeadOut(
+                id=lr["id"],
+                business_name=sub.get("business_name"),
+                decision_maker_email=sub.get("decision_maker_email"),
+                decision_maker_phone=sub.get("decision_maker_phone"),
+                sede_operativa_address=sub.get("sede_operativa_address"),
+                score=lr.get("score"),
+                score_tier=lr.get("score_tier"),
+                pipeline_status=lr.get("pipeline_status"),
+                rendering_gif_url=lr.get("rendering_gif_url"),
+                rendering_image_url=lr.get("rendering_image_url"),
+                outreach_sent_at=lr.get("outreach_sent_at"),
+                public_slug=lr.get("public_slug"),
+                created_at=lr.get("created_at"),
+            )
         )
 
-    # Reconstruct the dataclass chain L1→L3 from the persisted row so we can
-    # call the paid stages directly without re-running scraping.
-    from ..agents.hunter_funnel.level4_solar_qualify import run_level4_solar_qualify
-    from ..agents.hunter_funnel.level5_proxy_score import run_level5_proxy_score
-    from ..agents.hunter_funnel.level6_promote_to_leads import run_level6_promote_to_leads
-    from ..agents.hunter_funnel.types_v3 import (
-        ContactExtraction,
-        FunnelV3Context,
-        PlaceCandidateRecord,
-        QualifiedCandidate,
-        ScrapedSignals,
-    )
-    from ..services.scan_cost_tracker import ScanCostAccumulator
-    from ..services.tenant_config_service import get_tenant_config
-
-    place_blob = (sc.get("enrichment") or {}).get("places") or {}
-    scraped_blob = sc.get("scraped_data") or {}
-    contact_blob = sc.get("contact_extraction") or {}
-
-    record = PlaceCandidateRecord(
-        candidate_id=UUID(sc["id"]),
-        google_place_id=sc.get("google_place_id") or "",
-        display_name=sc.get("business_name") or place_blob.get("display_name"),
-        formatted_address=place_blob.get("formatted_address") or sc.get("hq_address"),
-        lat=float(place_blob.get("lat") or sc.get("hq_lat") or 0.0),
-        lng=float(place_blob.get("lng") or sc.get("hq_lng") or 0.0),
-        types=list(place_blob.get("types") or []),
-        business_status=place_blob.get("business_status"),
-        user_ratings_total=place_blob.get("user_ratings_total"),
-        rating=place_blob.get("rating"),
-        website=place_blob.get("website"),
-        phone=place_blob.get("phone"),
-        google_maps_uri=place_blob.get("google_maps_uri"),
-        zone_id=None,
-        predicted_sector=sc.get("predicted_sector"),
-        sector_confidence=sc.get("sector_confidence"),
-        discovery_keyword=None,
-    )
-
-    scraped = ScrapedSignals(
-        website_emails=list((scraped_blob.get("website") or {}).get("emails") or []),
-        website_phone=(scraped_blob.get("website") or {}).get("phone"),
-        website_pec=(scraped_blob.get("website") or {}).get("pec"),
-        site_signals=list(scraped_blob.get("site_signals") or []),
-        scrape_ok=bool(scraped_blob.get("scrape_ok")),
-    )
-    contact = ContactExtraction(
-        best_email=contact_blob.get("best_email"),
-        best_email_confidence=contact_blob.get("best_email_confidence"),
-        best_email_type=contact_blob.get("best_email_type"),
-        best_phone=contact_blob.get("best_phone"),
-        pec=contact_blob.get("pec"),
-        decision_maker_name=contact_blob.get("decision_maker_name"),
-    )
-    qc = QualifiedCandidate(
-        record=record,
-        scraped=scraped,
-        contact=contact,
-        building_quality_score=int(sc.get("building_quality_score") or 0),
-    )
-
-    # Build a one-shot funnel context. Reuse the existing scan_id when
-    # available so the cost log lines up with the auto-prepare run that
-    # discovered this candidate.
-    config = await get_tenant_config(tenant_id)
-    scan_id = sc.get("scan_id") or str(UUID(int=0))
-    costs = ScanCostAccumulator(
+    return TerritoryLeadsResponse(
         tenant_id=tenant_id,
-        scan_id=scan_id,
-        scan_mode="v3_qualify_one",
-        territory_id=None,
-    )
-    funnel_ctx = FunnelV3Context(
-        tenant_id=tenant_id,
-        scan_id=scan_id,
-        config=config,
-        costs=costs,
-        max_l1_candidates=1,
-    )
-
-    l4 = await run_level4_solar_qualify(funnel_ctx, [qc])
-    accepted = [c for c in l4 if c.solar_verdict == "accepted"]
-    if not accepted:
-        await costs.flush(completed=True)
-        verdict = l4[0].solar_verdict if l4 else "unknown"
-        return QualifyCandidateResponse(
-            candidate_id=str(candidate_id),
-            tenant_id=tenant_id,
-            solar_verdict=verdict,
-            overall_score=None,
-            recommended_for_rendering=False,
-            lead_id=None,
-            qualified_count=qualified_count,
-            target_total=QUALIFY_FINAL_TARGET,
-            cap_reached=False,
-            message=f"Solar API: {verdict}. Nessun lead creato.",
-        )
-
-    l5 = await run_level5_proxy_score(funnel_ctx, accepted)
-    inserted = await run_level6_promote_to_leads(funnel_ctx, l5)
-    await costs.flush(completed=True)
-
-    scored = l5[0] if l5 else None
-    overall = int(scored.overall_score) if scored else None
-    recommended = bool(scored.recommended_for_rendering) if scored else False
-
-    lead_id: str | None = None
-    if inserted > 0:
-        lead_lookup = (
-            sb.table("leads")
-            .select("id, subjects:subjects(raw_data)")
-            .eq("tenant_id", tenant_id)
-            .order("created_at", desc=True)
-            .limit(20)
-            .execute()
-        )
-        for lr in lead_lookup.data or []:
-            sub = lr.get("subjects") or {}
-            raw = (sub.get("raw_data") or {}) if isinstance(sub, dict) else {}
-            if raw.get("scan_candidate_id") == str(candidate_id):
-                lead_id = lr["id"]
-                break
-
-    return QualifyCandidateResponse(
-        candidate_id=str(candidate_id),
-        tenant_id=tenant_id,
-        solar_verdict="accepted",
-        overall_score=overall,
-        recommended_for_rendering=recommended,
-        lead_id=lead_id,
-        qualified_count=qualified_count + (1 if lead_id else 0),
         target_total=QUALIFY_FINAL_TARGET,
-        cap_reached=False,
-        message=(
-            f"Lead creato (score {overall})."
-            if lead_id
-            else f"Score {overall}: candidato sotto soglia, nessun lead creato."
-        ),
+        lead_count=len(leads),
+        cap_reached=len(leads) >= QUALIFY_FINAL_TARGET,
+        leads=leads,
     )
 
 

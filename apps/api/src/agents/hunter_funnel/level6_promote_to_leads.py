@@ -41,6 +41,14 @@ log = get_logger(__name__)
 # convention: hot ≥ 75, warm ≥ 60, cold otherwise.
 QUALIFY_SCORE = 60
 
+# Geocentric pilot cap — never insert more than this many funnel_v3 leads
+# per tenant. The /territorio autopilot UX is built around the operator
+# manually triggering render + outreach for each lead, so an unbounded
+# pool would just be noise (and burn render credits). When the cap is
+# reached, L6 silently stops; the operator can call /v1/territory/reset
+# to wipe and re-run.
+MAX_FUNNEL_V3_LEADS_PER_TENANT = 10
+
 
 def _tier_for(score: int) -> str:
     """Map an overall_score 0-100 to a `lead_score_tier` enum label."""
@@ -83,7 +91,51 @@ async def run_level6_promote_to_leads(
         log.info("level6_promote.no_recommended", tenant_id=ctx.tenant_id)
         return 0
 
+    # Pre-cap check — count existing funnel_v3 leads for this tenant.
+    # We re-check inside the loop so concurrent runs can't both squeeze
+    # past the cap on the same iteration.
+    def _existing_v3_count() -> int:
+        try:
+            res = (
+                sb.table("leads")
+                .select("id, subjects:subjects(raw_data)")
+                .eq("tenant_id", ctx.tenant_id)
+                .execute()
+            )
+            n = 0
+            for lr in res.data or []:
+                sub = lr.get("subjects") or {}
+                raw = (sub.get("raw_data") or {}) if isinstance(sub, dict) else {}
+                if raw.get("source") == "funnel_v3":
+                    n += 1
+            return n
+        except Exception:  # noqa: BLE001
+            return 0
+
+    existing = _existing_v3_count()
+    if existing >= MAX_FUNNEL_V3_LEADS_PER_TENANT:
+        log.info(
+            "level6_promote.cap_reached_pre_loop",
+            tenant_id=ctx.tenant_id,
+            existing=existing,
+            cap=MAX_FUNNEL_V3_LEADS_PER_TENANT,
+        )
+        return 0
+
+    # Sort by overall_score DESC so the cap keeps the *best* candidates,
+    # not whichever ones the orchestrator happened to pass first.
+    recommended.sort(key=lambda c: int(c.overall_score), reverse=True)
+
     for cand in recommended:
+        if existing + inserted >= MAX_FUNNEL_V3_LEADS_PER_TENANT:
+            log.info(
+                "level6_promote.cap_reached_mid_loop",
+                tenant_id=ctx.tenant_id,
+                inserted=inserted,
+                existing=existing,
+                cap=MAX_FUNNEL_V3_LEADS_PER_TENANT,
+            )
+            break
         try:
             # --- Look up the scan_candidate row for roof_id + scraped data ---
             sc_res = (
@@ -198,7 +250,6 @@ async def run_level6_promote_to_leads(
 
             score = max(0, min(100, int(cand.overall_score)))
             tier = _tier_for(score)
-            qualified = score >= QUALIFY_SCORE
 
             lead_payload: dict[str, Any] = {
                 "tenant_id": ctx.tenant_id,
@@ -215,7 +266,10 @@ async def run_level6_promote_to_leads(
                     "overall": score,
                     "source": "funnel_v3_haiku",
                 },
-                "pipeline_status": "ready_to_send" if qualified else "new",
+                # Geocentric pilot: keep every lead in 'new' so the daily cron
+                # never auto-renders or auto-sends. The operator triggers both
+                # manually from the /territorio per-row buttons.
+                "pipeline_status": "new",
                 # leads.source CHECK only allows
                 # {cta_click, email_reply, whatsapp_reply, b2c_meta_ads, b2c_post_engagement}
                 # or NULL. Proactively-discovered leads (this funnel) have no
