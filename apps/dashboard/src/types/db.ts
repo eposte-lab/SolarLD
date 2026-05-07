@@ -114,6 +114,15 @@ export interface TenantRow {
    * (feature off) for non-demo tenants. See migration 0077.
    */
   demo_pipeline_test_remaining?: number;
+  /**
+   * Tenant-level outreach kill-switch (migration 0115). When true the
+   * OutreachAgent never contacts the email provider for this tenant —
+   * sends are recorded with a `blocked_demo:` message-id prefix. The
+   * dashboard treats this as the canonical "demo account" flag and
+   * exposes the per-lead test-send form instead of the regular send
+   * button. Default false on production tenants.
+   */
+  outreach_blocked?: boolean;
 }
 
 /**

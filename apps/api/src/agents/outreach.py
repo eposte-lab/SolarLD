@@ -177,6 +177,23 @@ class OutreachInput(BaseModel):
             "email_template_id for per-campaign send-rate fairness."
         ),
     )
+    # Demo-mode test send: route the email to an operator-supplied
+    # address instead of the lead's actual decision_maker_email. Used by
+    # the customer-facing demo flow on tenants with `outreach_blocked=true`
+    # — the operator types their own email, the OutreachAgent renders the
+    # full template (subject/body/CTA, ROI numbers, GIF) and Resend
+    # delivers it to the operator's inbox so they can verify the flow
+    # end-to-end without ever touching the real prospect.
+    recipient_override: str | None = Field(
+        default=None,
+        description=(
+            "When set, replaces the lead's resolved recipient at send time. "
+            "Bypasses tenants.outreach_blocked (the kill-switch only protects "
+            "real prospects — sending to an operator-supplied address is "
+            "explicitly authorised). Validated upstream: must be a syntactically "
+            "valid email and must NOT match the lead's actual recipient."
+        ),
+    )
 
 
 class OutreachOutput(BaseModel):
@@ -450,8 +467,25 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
 
         # ------------------------------------------------------------------
         # 6) Recipient resolution (email path)
+        #
+        # When ``payload.recipient_override`` is set we route the email to
+        # the operator-supplied address instead of the resolved lead email.
+        # This is the demo path: the customer toggles `outreach_blocked=true`
+        # on their tenant, the dashboard exposes a "send-test" form on the
+        # lead detail page where the operator types their own inbox, and
+        # the rendering + send flow runs identically — the only difference
+        # is the To: header.
         # ------------------------------------------------------------------
-        recipient = _resolve_recipient(subject)
+        if payload.recipient_override:
+            recipient = payload.recipient_override.strip().lower()
+            log.info(
+                "outreach.recipient_override_in_use",
+                lead_id=payload.lead_id,
+                tenant_id=payload.tenant_id,
+                override_domain=recipient.split("@", 1)[1] if "@" in recipient else "",
+            )
+        else:
+            recipient = _resolve_recipient(subject)
         if not recipient:
             return await self._record_failure(
                 payload=payload,
@@ -1318,7 +1352,12 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
         # `blocked_demo:` message-id prefix so it is trivially
         # filterable in /invii queries and downstream analytics.
         # Default FALSE: zero impact on real tenants.
-        if tenant_row.get("outreach_blocked"):
+        # The kill-switch protects real prospects. When the operator
+        # explicitly supplies a `recipient_override` we DO want the email
+        # to go out — they're sending it to themselves to verify the
+        # template renders correctly. Bypass the switch in that case.
+        kill_switch_active = bool(tenant_row.get("outreach_blocked")) and not payload.recipient_override
+        if kill_switch_active:
             log.info(
                 "outreach.kill_switch_active",
                 tenant_id=payload.tenant_id,

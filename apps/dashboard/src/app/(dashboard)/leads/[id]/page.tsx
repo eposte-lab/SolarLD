@@ -30,6 +30,7 @@ import {
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 
+import { DemoModeBanner } from '@/components/demo-mode-banner';
 import { FollowUpDrafter } from '@/components/follow-up-drafter';
 import { LeadConversationsCard } from '@/components/lead-conversations-card';
 import { LeadRepliesCard } from '@/components/lead-replies-card';
@@ -61,6 +62,7 @@ import { cn } from '@/lib/utils';
 
 import { RegenerateRenderingButton } from './RegenerateRenderingButton';
 import { SendOutreachButton } from './SendOutreachButton';
+import { SendTestOutreachForm } from './SendTestOutreachForm';
 import { SolarApiInspector } from './SolarApiInspector';
 
 export const dynamic = 'force-dynamic';
@@ -329,6 +331,10 @@ export default async function LeadDetailPage({ params }: PageProps) {
 
   return (
     <div className="space-y-4">
+      {ctx.tenant.outreach_blocked && (
+        <DemoModeBanner tenantName={ctx.tenant.business_name ?? null} />
+      )}
+
       {/* ─── Header ───────────────────────────────────────────────────── */}
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div className="space-y-3">
@@ -412,10 +418,22 @@ export default async function LeadDetailPage({ params }: PageProps) {
           </div>
         </div>
 
-        {!isBlacklisted && (
+        {!isBlacklisted && !ctx.tenant.outreach_blocked && (
           <SendOutreachButton leadId={lead.id} alreadySent={alreadySent} />
         )}
       </header>
+
+      {/* Demo-mode: replace the regular send button with a form that
+          accepts the operator's own email. The kill-switch
+          (tenants.outreach_blocked) protects real prospects from being
+          contacted; this surface gives the operator a way to verify the
+          template renders correctly without ever hitting the real lead. */}
+      {!isBlacklisted && ctx.tenant.outreach_blocked && (
+        <SendTestOutreachForm
+          leadId={lead.id}
+          defaultEmail={ctx.user_email ?? null}
+        />
+      )}
 
       {/* ─── Hero: video simulazione (Solar) — oppure info campagna custom ──
           For Solar leads: fallback chain video → GIF → static after image.

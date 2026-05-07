@@ -17,6 +17,7 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 
 import { BentoCard, BentoGrid } from '@/components/ui/bento-card';
+import { DemoModeBanner } from '@/components/demo-mode-banner';
 import { GradientButton } from '@/components/ui/gradient-button';
 import { KpiChipCard } from '@/components/ui/kpi-chip-card';
 import { ContattiTable } from '@/components/contatti/contatti-table';
@@ -79,6 +80,10 @@ export default async function ContattiPage({
 
   return (
     <div className="space-y-6">
+      {ctx.tenant.outreach_blocked && (
+        <DemoModeBanner tenantName={ctx.tenant.business_name ?? null} />
+      )}
+
       {/* Header */}
       <header className="flex items-end justify-between">
         <div>

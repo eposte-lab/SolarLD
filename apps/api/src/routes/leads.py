@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import io
+import re
 from datetime import UTC, datetime
 from typing import Any, Literal
 
@@ -587,6 +588,118 @@ async def send_outreach(
         job_id=f"outreach:{tenant_id}:{lead_id}:{channel}",
     )
     return {"ok": True, "lead_id": lead_id, **job}
+
+
+# Demo-mode test send. Only enabled when the tenant has the kill-switch
+# flipped on (tenants.outreach_blocked=true). Lets the operator type
+# their own email address as the recipient so they can verify the
+# rendering + send pipeline end-to-end without ever touching the real
+# prospect's inbox. The OutreachAgent honours `recipient_override`,
+# bypasses the kill-switch, and routes the email to the operator.
+_EMAIL_RX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+class SendTestOutreachRequest(BaseModel):
+    recipient_override: str = Field(
+        ...,
+        min_length=5,
+        max_length=320,
+        description="Operator's own email — receives the test send.",
+    )
+
+
+@router.post("/{lead_id}/send-test-outreach")
+async def send_test_outreach(
+    ctx: CurrentUser,
+    lead_id: str,
+    body: SendTestOutreachRequest,
+) -> dict[str, object]:
+    """Demo-mode: send the outreach email to an operator-supplied address.
+
+    Returns 403 unless the tenant has `outreach_blocked=true`. This
+    guards production accounts — only demo tenants can use the override
+    flow. The operator's address is also rejected when it matches the
+    lead's actual decision_maker_email (prevents accidentally hitting
+    the real prospect via the test endpoint).
+    """
+    tenant_id = require_tenant(ctx)
+    sb = get_service_client()
+
+    override = (body.recipient_override or "").strip().lower()
+    if not _EMAIL_RX.match(override):
+        raise HTTPException(status_code=400, detail="Email non valida.")
+
+    # Tenant must be in demo / kill-switch mode for this path to make sense.
+    tenant_res = (
+        sb.table("tenants")
+        .select("id, outreach_blocked")
+        .eq("id", tenant_id)
+        .single()
+        .execute()
+    )
+    if not tenant_res.data:
+        raise HTTPException(status_code=404, detail="Tenant non trovato.")
+    if not tenant_res.data.get("outreach_blocked"):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "Test send disponibile solo per gli account demo "
+                "(outreach_blocked=true). Per i tenant in produzione usa "
+                "il bottone 'Invia email' standard."
+            ),
+        )
+
+    # Resolve the lead + its real recipient so we can refuse a self-aimed
+    # override (i.e. the operator typed the prospect's address).
+    lead_res = (
+        sb.table("leads")
+        .select("id, subjects(decision_maker_email)")
+        .eq("id", lead_id)
+        .eq("tenant_id", tenant_id)
+        .limit(1)
+        .execute()
+    )
+    if not lead_res.data:
+        raise HTTPException(status_code=404, detail="Lead non trovato.")
+    real_email = (
+        ((lead_res.data[0].get("subjects") or {}).get("decision_maker_email") or "")
+        .strip()
+        .lower()
+    )
+    if real_email and real_email == override:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "L'indirizzo di test coincide con l'email reale del lead. "
+                "Inserisci la tua email personale per verificare il flusso."
+            ),
+        )
+
+    # job_id includes a hash of the override so re-running with the same
+    # override collapses to one job, but switching addresses spawns a new
+    # one. Force=true so the kill-switch bypass + override actually run
+    # even when outreach_sent_at is set (multiple test runs are fine).
+    import hashlib
+
+    override_tag = hashlib.sha256(override.encode()).hexdigest()[:10]
+    job = await enqueue(
+        "outreach_task",
+        {
+            "tenant_id": tenant_id,
+            "lead_id": lead_id,
+            "channel": "email",
+            "force": True,
+            "recipient_override": override,
+        },
+        job_id=f"outreach_test:{tenant_id}:{lead_id}:{override_tag}",
+    )
+    log.info(
+        "leads.send_test_outreach.queued",
+        tenant_id=tenant_id,
+        lead_id=lead_id,
+        override_domain=override.split("@", 1)[1],
+    )
+    return {"ok": True, "lead_id": lead_id, "recipient_override": override, **job}
 
 
 # ---------------------------------------------------------------------------
