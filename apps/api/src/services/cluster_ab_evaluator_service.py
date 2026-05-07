@@ -344,9 +344,7 @@ async def _generate_new_round(
     previous_winner: dict[str, str] | None,
 ) -> None:
     """Fetch tenant name and generate a new A+B pair for the next round."""
-    tenant_resp = (
-        sb.table("tenants").select("business_name").eq("id", tenant_id).single().execute()
-    )
+    tenant_resp = sb.table("tenants").select("business_name").eq("id", tenant_id).single().execute()
     tenant_name = (tenant_resp.data or {}).get("business_name") or "SolarLead"
 
     from .variant_generator_service import generate_variant_pair, persist_variant_pair
