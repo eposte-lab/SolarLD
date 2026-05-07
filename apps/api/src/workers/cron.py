@@ -1300,6 +1300,68 @@ def _parse_ts(raw: Any) -> datetime | None:
 
 
 # ---------------------------------------------------------------------------
+# Imminence Predictor — daily ranking of "leads to call today".
+# ---------------------------------------------------------------------------
+
+
+async def imminence_predictions_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
+    """Daily 06:30 UTC — refresh per-tenant ``lead_imminence_predictions``.
+
+    Runs after the 04:00 engagement_rollup_cron (so engagement_score is
+    fresh) and before the 07:30 follow_up_cron + 08:30 sla_first_touch
+    (so the operator opening the dashboard at 09:00 local sees a
+    populated list). Per-tenant batch keeps Haiku spend bounded — only
+    leads with deterministic score >= 60 trigger an LLM call.
+
+    No notifications are sent in this MVP — the dashboard's `/leads`
+    page surfaces today's predictions inline (badge "AI" + reasons
+    expandable on each row).
+    """
+    from ..services.imminence_reasoning_service import generate_reasoning
+    from ..services.imminence_service import run_imminence_predictions_for_tenant
+
+    sb = get_service_client()
+    # `tenants.status` is the activity flag in this schema; we run the
+    # predictor only for tenants in 'active' (skip churned/suspended).
+    tenants_res = sb.table("tenants").select("id, status").execute()
+    tenant_ids = [
+        t["id"]
+        for t in (tenants_res.data or [])
+        if (t.get("status") or "active") == "active"
+    ]
+
+    total_scored = 0
+    total_reasoned = 0
+    errors = 0
+    for tid in tenant_ids:
+        try:
+            res = await run_imminence_predictions_for_tenant(
+                tid, reasoning_fn=generate_reasoning
+            )
+            total_scored += res.get("scored", 0)
+            total_reasoned += res.get("reasoned", 0)
+        except Exception as exc:  # noqa: BLE001
+            errors += 1
+            log.warning(
+                "cron.imminence.tenant_failed", tenant_id=tid, err=str(exc)
+            )
+
+    log.info(
+        "cron.imminence.complete",
+        tenants=len(tenant_ids),
+        scored=total_scored,
+        reasoned=total_reasoned,
+        errors=errors,
+    )
+    return {
+        "tenants": len(tenant_ids),
+        "scored": total_scored,
+        "reasoned": total_reasoned,
+        "errors": errors,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Practice deadlines — daily monitor (Livello 2 Sprint 1).
 # ---------------------------------------------------------------------------
 

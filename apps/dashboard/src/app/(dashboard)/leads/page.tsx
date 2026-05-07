@@ -25,6 +25,7 @@ import {
   type LeadListFilter,
 } from '@/lib/data/leads';
 import { getContattiSummary } from '@/lib/data/contatti';
+import { listTodayPredictionsByLead } from '@/lib/data/imminence';
 import { getModuleForTenant } from '@/lib/data/modules.server';
 import { getCurrentTenantContext } from '@/lib/data/tenant';
 import type { CRMConfig } from '@/types/modules';
@@ -76,16 +77,18 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
   // In "Caldi adesso" mode we ignore the tier/status filters because
   // they would conflict with the operational definition (engagement
   // ≥ 60, recent portal event, NOT in a closing pipeline stage).
-  const [ctx, listResult, hotRows, contattiSummary] = await Promise.all([
-    getCurrentTenantContext(),
-    isHotMode
-      ? Promise.resolve({ rows: [], total: 0 })
-      : listLeads({ page, filter }),
-    isHotMode
-      ? listHotLeadsAwaitingResponse({ sinceHours: 72, limit: 50 })
-      : Promise.resolve([]),
-    getContattiSummary(),
-  ]);
+  const [ctx, listResult, hotRows, contattiSummary, predictionsByLead] =
+    await Promise.all([
+      getCurrentTenantContext(),
+      isHotMode
+        ? Promise.resolve({ rows: [], total: 0 })
+        : listLeads({ page, filter }),
+      isHotMode
+        ? listHotLeadsAwaitingResponse({ sinceHours: 72, limit: 50 })
+        : Promise.resolve([]),
+      getContattiSummary(),
+      listTodayPredictionsByLead(),
+    ]);
   if (!ctx) redirect('/login');
   const { rows: regularRows, total } = listResult;
   const rows = isHotMode ? hotRows : regularRows;
@@ -197,6 +200,31 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
         </div>
       )}
 
+      {/* AI suggestion banner — only on default mode ----------------- */}
+      {!isHotMode && predictionsByLead.size > 0 && (
+        <div className="flex items-center gap-3 rounded-xl bg-primary/10 px-5 py-3 text-sm">
+          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-on-primary">
+            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor" aria-hidden>
+              <path d="M12 2l2.4 6.6L21 11l-6.6 2.4L12 20l-2.4-6.6L3 11l6.6-2.4L12 2z" />
+            </svg>
+          </div>
+          <div className="flex-1">
+            <p className="font-semibold text-on-surface">
+              L&apos;agente AI suggerisce{' '}
+              <span className="text-primary">{predictionsByLead.size}</span>{' '}
+              lead da chiamare oggi
+            </p>
+            <p className="text-xs text-on-surface-variant">
+              Sono in cima alla lista, evidenziati in verde. Clicca il badge
+              <span className="mx-1 rounded-full bg-primary/20 px-1.5 py-0.5 text-[9px] font-bold uppercase text-primary">
+                AI
+              </span>
+              accanto al nome per vedere perché.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Real-time heat panel (only on default mode) ----------------- */}
       {!isHotMode && <HotLeadsNow minutes={60} limit={5} />}
 
@@ -264,7 +292,11 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
             )}
           </div>
         ) : (
-          <LeadsTable rows={rows} pipelineLabels={pipelineLabels} />
+          <LeadsTable
+            rows={rows}
+            pipelineLabels={pipelineLabels}
+            predictionsByLead={predictionsByLead}
+          />
         )}
 
         {/* Pagination --------------------------------------------- */}

@@ -39,6 +39,7 @@ from .routes import (
     followup,
     gdpr,
     health,
+    imminence,
     inboxes,
     leads,
     linkedin_enrich,
@@ -177,6 +178,7 @@ app.include_router(notifications.router, prefix="/v1/notifications", tags=["noti
 app.include_router(experiments.router, prefix="/v1/experiments", tags=["experiments"])
 # Sprint 9 B.6: cluster-level A/B variant management
 app.include_router(cluster_ab.router, prefix="/v1", tags=["cluster-ab"])
+app.include_router(imminence.router, prefix="/v1", tags=["imminence"])
 app.include_router(sector_news.router, prefix="/v1", tags=["sector-news"])
 # Sprint C.2 — sector palette catalogue (read-only, public)
 app.include_router(sectors.router, prefix="/v1/sectors", tags=["sectors"])
