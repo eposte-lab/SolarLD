@@ -408,10 +408,10 @@ def test_normalise_wa_number_accepts_italian_mobile(raw: str, expected: str) -> 
     [
         "",
         "abc",
-        "02 12345678",        # fixed-line — not a mobile
-        "+39 02 12345678",    # fixed-line with +39 — not a mobile
-        "1234",               # too short
-        "+1 555 1234567",     # US — only IT supported in Sprint 1
+        "02 12345678",  # fixed-line — not a mobile
+        "+39 02 12345678",  # fixed-line with +39 — not a mobile
+        "1234",  # too short
+        "+1 555 1234567",  # US — only IT supported in Sprint 1
     ],
 )
 def test_normalise_wa_number_rejects_invalid(raw: str) -> None:

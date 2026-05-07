@@ -62,7 +62,7 @@ class SolarPanel:
 
     lat: float
     lng: float
-    orientation: str          # "LANDSCAPE" | "PORTRAIT"
+    orientation: str  # "LANDSCAPE" | "PORTRAIT"
     segment_azimuth_deg: float
     yearly_energy_kwh: float
     segment_index: int
@@ -78,8 +78,8 @@ class DataLayers:
     """
 
     rgb_url: str
-    imagery_quality: str      # "HIGH" | "MEDIUM" | "LOW"
-    imagery_date: str         # "YYYY-MM-DD" (best effort)
+    imagery_quality: str  # "HIGH" | "MEDIUM" | "LOW"
+    imagery_date: str  # "YYYY-MM-DD" (best effort)
 
 
 @dataclass(slots=True)
@@ -107,7 +107,7 @@ class RoofInsight:
     raw: dict[str, Any]
     # Panel geometry — populated when solarPotential.solarPanels is present.
     panels: list[SolarPanel] = field(default_factory=list)
-    panel_width_m: float = 1.045   # Google Solar default (standard 2024 module)
+    panel_width_m: float = 1.045  # Google Solar default (standard 2024 module)
     panel_height_m: float = 1.879
 
 
@@ -279,7 +279,7 @@ def _mock_roof_insight(lat: float, lng: float) -> RoofInsight:
     deg_per_m_lat = 1 / 111320.0
     deg_per_m_lng = 1 / (111320.0 * 0.94)  # cos(20°) ≈ Italy mid-latitude
     mock_panels: list[SolarPanel] = []
-    cols = max(1, int((area_sqm ** 0.5) / 2.0))
+    cols = max(1, int((area_sqm**0.5) / 2.0))
     rows = max(1, n_panels // max(1, cols))
     for ri in range(rows):
         for ci in range(cols):
@@ -385,7 +385,8 @@ async def fetch_building_insight(
                 if quality != "HIGH":
                     log.info(
                         "solar_api_quality_tier_down",
-                        lat=lat, lng=lng,
+                        lat=lat,
+                        lng=lng,
                         quality_used=quality,
                     )
                 return _parse_building_insight_payload(resp.json())
@@ -396,8 +397,10 @@ async def fetch_building_insight(
 
             if resp.status_code in (429, 503):
                 log.warning(
-                    "solar_api_rate_limited", status=resp.status_code,
-                    lat=lat, lng=lng,
+                    "solar_api_rate_limited",
+                    status=resp.status_code,
+                    lat=lat,
+                    lng=lng,
                 )
                 raise SolarApiRateLimited(f"status={resp.status_code}")
 

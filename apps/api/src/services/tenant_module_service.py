@@ -417,9 +417,7 @@ def _synth_module(tenant_id: str, key: ModuleKey) -> TenantModule:
     )
 
 
-async def get_module(
-    tenant_id: UUID | str, key: ModuleKey
-) -> TenantModule:
+async def get_module(tenant_id: UUID | str, key: ModuleKey) -> TenantModule:
     """Fetch one module row, returning a defaulted instance if missing.
 
     Migration 0036 makes the "row missing" case unreachable for new
@@ -501,9 +499,7 @@ async def upsert_module(
 
     # Upsert by (tenant_id, module_key) — the unique constraint on the
     # table. Postgres handles insert-or-update atomically.
-    sb.table("tenant_modules").upsert(
-        payload, on_conflict="tenant_id,module_key"
-    ).execute()
+    sb.table("tenant_modules").upsert(payload, on_conflict="tenant_id,module_key").execute()
 
     log.info(
         "tenant_module.upsert",
@@ -528,12 +524,7 @@ async def all_completed(tenant_id: UUID | str) -> bool:
     """
     sb = get_service_client()
     tid = str(tenant_id)
-    res = (
-        sb.table("tenant_modules")
-        .select("module_key, version")
-        .eq("tenant_id", tid)
-        .execute()
-    )
+    res = sb.table("tenant_modules").select("module_key, version").eq("tenant_id", tid).execute()
     rows = list(getattr(res, "data", None) or [])
     touched = {r["module_key"] for r in rows if int(r.get("version") or 0) >= 1}
     return set(MODULE_KEYS).issubset(touched)

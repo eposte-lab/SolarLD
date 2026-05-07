@@ -242,9 +242,7 @@ class UpdateDocumentRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-async def _check_practice_eligibility(
-    *, tenant_id: UUID, lead_id: UUID
-) -> list[dict[str, str]]:
+async def _check_practice_eligibility(*, tenant_id: UUID, lead_id: UUID) -> list[dict[str, str]]:
     """Return a list of eligibility errors for creating a GSE practice.
 
     Sprint 2.3 — refuse to instantiate a practice when the lead is
@@ -301,13 +299,14 @@ async def _check_practice_eligibility(
         if not (subj.get("decision_maker_email") or "").strip():
             subj_missing.append("decision_maker_email")
         if subj_missing:
-            errors.append({
-                "code": "subject_anagrafica_incomplete",
-                "message": (
-                    "Anagrafica cliente incompleta. Mancano: "
-                    + ", ".join(subj_missing)
-                ),
-            })
+            errors.append(
+                {
+                    "code": "subject_anagrafica_incomplete",
+                    "message": (
+                        "Anagrafica cliente incompleta. Mancano: " + ", ".join(subj_missing)
+                    ),
+                }
+            )
 
         # Roof technical specs
         roof_missing: list[str] = []
@@ -316,31 +315,31 @@ async def _check_practice_eligibility(
         if not roof.get("area_sqm"):
             roof_missing.append("area_sqm")
         if roof_missing:
-            errors.append({
-                "code": "roof_specs_missing",
-                "message": (
-                    "Dati tecnici tetto mancanti. Eseguire l'analisi "
-                    "Solar API prima di creare la pratica."
-                ),
-            })
+            errors.append(
+                {
+                    "code": "roof_specs_missing",
+                    "message": (
+                        "Dati tecnici tetto mancanti. Eseguire l'analisi "
+                        "Solar API prima di creare la pratica."
+                    ),
+                }
+            )
 
         # At least one bolletta upload row for this lead
         bolletta_res = (
-            sb.table("bolletta_uploads")
-            .select("id")
-            .eq("lead_id", str(lead_id))
-            .limit(1)
-            .execute()
+            sb.table("bolletta_uploads").select("id").eq("lead_id", str(lead_id)).limit(1).execute()
         )
         if not (bolletta_res.data or []):
-            errors.append({
-                "code": "bolletta_missing",
-                "message": (
-                    "Bolletta non caricata. Il cliente deve caricare "
-                    "almeno una bolletta sul portale, oppure inserisci i "
-                    "consumi manualmente."
-                ),
-            })
+            errors.append(
+                {
+                    "code": "bolletta_missing",
+                    "message": (
+                        "Bolletta non caricata. Il cliente deve caricare "
+                        "almeno una bolletta sul portale, oppure inserisci i "
+                        "consumi manualmente."
+                    ),
+                }
+            )
     except Exception as exc:  # noqa: BLE001 — soft-fail to allow create
         log.warning(
             "practice.eligibility_check_failed",
@@ -356,9 +355,7 @@ async def _check_practice_eligibility(
     "/leads/{lead_id}/practice/draft",
     response_model=DraftPreviewResponse,
 )
-async def practice_draft(
-    ctx: CurrentUser, lead_id: UUID
-) -> DraftPreviewResponse:
+async def practice_draft(ctx: CurrentUser, lead_id: UUID) -> DraftPreviewResponse:
     """Pre-populate the "Crea pratica" modal.
 
     Read-only — does NOT consume the per-tenant practice counter. The
@@ -369,9 +366,7 @@ async def practice_draft(
     try:
         preview = get_draft_preview(lead_id=lead_id, tenant_id=tenant_id)
     except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="lead not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="lead not found")
     return DraftPreviewResponse(**preview)
 
 
@@ -428,9 +423,7 @@ async def post_practice(
             template_codes=body.template_codes or list(DEFAULT_TEMPLATE_CODES),
         )
     except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
     except Exception as exc:  # noqa: BLE001
         # Postgres UNIQUE violation → 409. The supabase-py client raises a
         # generic exception with the duplicate key name in str(exc); we
@@ -512,13 +505,11 @@ async def list_practices_route(
         # Lead/subject embed: B2B uses business_name; B2C falls back to
         # the owner's first+last. Defensive .get() chain because the
         # embed may be partial when the lead is missing a subject.
-        subj = ((r.get("leads") or {}).get("subjects") or {})
+        subj = (r.get("leads") or {}).get("subjects") or {}
         cliente_label = (
             subj.get("business_name")
             or " ".join(
-                p
-                for p in [subj.get("owner_first_name"), subj.get("owner_last_name")]
-                if p
+                p for p in [subj.get("owner_first_name"), subj.get("owner_last_name")] if p
             ).strip()
             or "—"
         )
@@ -541,9 +532,7 @@ async def list_practices_route(
 
 
 @router.get("/practices/{practice_id}")
-async def get_practice_detail(
-    ctx: CurrentUser, practice_id: UUID
-) -> dict[str, Any]:
+async def get_practice_detail(ctx: CurrentUser, practice_id: UUID) -> dict[str, Any]:
     """Detail with all sub-resources joined.
 
     Returns the raw PostgREST row dict (with embedded leads/subjects
@@ -554,9 +543,7 @@ async def get_practice_detail(
     tenant_id = require_tenant(ctx)
     detail = get_practice(practice_id=practice_id, tenant_id=tenant_id)
     if not detail:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="practice not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="practice not found")
     return detail
 
 
@@ -581,13 +568,9 @@ async def download_document(
     enough for a slow download / re-share.
     """
     tenant_id = require_tenant(ctx)
-    doc = get_document(
-        practice_id=practice_id, template_code=template_code, tenant_id=tenant_id
-    )
+    doc = get_document(practice_id=practice_id, template_code=template_code, tenant_id=tenant_id)
     if not doc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="document not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="document not found")
     if not doc.pdf_storage_path:
         raise HTTPException(
             status_code=status.HTTP_410_GONE,
@@ -633,9 +616,7 @@ async def regenerate(
             tenant_id=tenant_id,
         )
     except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
     except Exception:
         log.exception(
             "practice.document.regenerate.failed",
@@ -675,9 +656,7 @@ async def patch_document(
         rejection_reason=body.rejection_reason,
     )
     if not doc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="document not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="document not found")
     return PracticeDocumentResponse.from_dataclass(doc)
 
 
@@ -757,9 +736,7 @@ async def list_practice_deadlines_route(
 ) -> list[PracticeDeadlineResponse]:
     """All deadlines (open / satisfied / overdue / cancelled) for one practice."""
     tenant_id = require_tenant(ctx)
-    rows = list_deadlines_for_practice(
-        tenant_id=tenant_id, practice_id=practice_id
-    )
+    rows = list_deadlines_for_practice(tenant_id=tenant_id, practice_id=practice_id)
     return [_deadline_row_to_response(r) for r in rows]
 
 
@@ -788,9 +765,7 @@ async def list_open_practice_deadlines_route(
 
 
 @router.get("/practices/{practice_id}/missing-fields")
-async def get_missing_fields(
-    ctx: CurrentUser, practice_id: UUID
-) -> dict[str, Any]:
+async def get_missing_fields(ctx: CurrentUser, practice_id: UUID) -> dict[str, Any]:
     """Structured gap report for every registered template_code.
 
     Groups missing fields by source so the dashboard can show a form
@@ -807,9 +782,7 @@ async def get_missing_fields(
         mapper = PracticeDataMapper(practice_id, tenant_id)
         report = mapper.get_missing_fields_report()
     except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="practice not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="practice not found")
     return report
 
 
@@ -875,9 +848,7 @@ async def patch_practice(
         .execute()
     )
     if not existing_res.data:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="practice not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="practice not found")
     existing = existing_res.data[0]
 
     # 2. Build sparse update dict.
@@ -962,18 +933,10 @@ async def patch_practice(
                 codes=codes,
             )
 
-    practice = (
-        sb.table("practices")
-        .select("*")
-        .eq("id", str(practice_id))
-        .limit(1)
-        .execute()
-    )
+    practice = sb.table("practices").select("*").eq("id", str(practice_id)).limit(1).execute()
     from ..services.practice_service import Practice as PracticeDataclass
 
-    return PracticeResponse.from_dataclass(
-        PracticeDataclass.from_row(practice.data[0])
-    )
+    return PracticeResponse.from_dataclass(PracticeDataclass.from_row(practice.data[0]))
 
 
 # ---------------------------------------------------------------------------
@@ -994,9 +957,7 @@ async def patch_practice(
 # the lead from a public slug.
 
 UPLOAD_BUCKET = "practice-uploads"
-ALLOWED_UPLOAD_MIMES = frozenset(
-    {"image/jpeg", "image/png", "image/webp", "application/pdf"}
-)
+ALLOWED_UPLOAD_MIMES = frozenset({"image/jpeg", "image/png", "image/webp", "application/pdf"})
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB — matches bucket policy
 
 VALID_UPLOAD_KINDS = (
@@ -1047,9 +1008,7 @@ class PracticeUploadResponse(BaseModel):
             file_size_bytes=int(row["file_size_bytes"]),
             extraction_status=row["extraction_status"],
             extracted_data=row.get("extracted_data") or {},
-            confidence=(
-                float(row["confidence"]) if row.get("confidence") is not None else None
-            ),
+            confidence=(float(row["confidence"]) if row.get("confidence") is not None else None),
             extraction_error=row.get("extraction_error"),
             extracted_at=row.get("extracted_at"),
             applied_at=row.get("applied_at"),
@@ -1152,9 +1111,7 @@ async def upload_practice_document(
         )
         # Best-effort cleanup of the row.
         sb.table("practice_uploads").delete().eq("id", upload_id).execute()
-        raise HTTPException(
-            status_code=502, detail="Upload su storage fallito — riprova"
-        ) from exc
+        raise HTTPException(status_code=502, detail="Upload su storage fallito — riprova") from exc
 
     # ---- 4. Enqueue OCR
     try:
@@ -1175,13 +1132,7 @@ async def upload_practice_document(
         )
 
     # Re-read so we return canonical row (timestamps).
-    fresh = (
-        sb.table("practice_uploads")
-        .select("*")
-        .eq("id", upload_id)
-        .limit(1)
-        .execute()
-    )
+    fresh = sb.table("practice_uploads").select("*").eq("id", upload_id).limit(1).execute()
     return PracticeUploadResponse.from_row(fresh.data[0])
 
 
@@ -1238,9 +1189,7 @@ async def download_practice_upload(
     status_code=status.HTTP_204_NO_CONTENT,
     response_class=Response,
 )
-async def delete_practice_upload(
-    ctx: CurrentUser, practice_id: UUID, upload_id: UUID
-) -> Response:
+async def delete_practice_upload(ctx: CurrentUser, practice_id: UUID, upload_id: UUID) -> Response:
     """Remove the row + the storage object."""
     tenant_id = require_tenant(ctx)
     from ..core.supabase_client import get_service_client
@@ -1349,30 +1298,16 @@ async def apply_practice_upload(
 
     # ---- 3. Apply to tenant
     if "tenant" in payload:
-        sb.table("tenants").update(payload["tenant"]).eq(
-            "id", str(tenant_id)
-        ).execute()
+        sb.table("tenants").update(payload["tenant"]).eq("id", str(tenant_id)).execute()
         applied_targets["tenant"] = list(payload["tenant"].keys())
 
     # ---- 4. Apply to subject (resolve subject_id via lead → practice)
     subject_id: str | None = None
     if "subject" in payload:
-        prac = (
-            sb.table("practices")
-            .select("lead_id")
-            .eq("id", str(practice_id))
-            .limit(1)
-            .execute()
-        )
+        prac = sb.table("practices").select("lead_id").eq("id", str(practice_id)).limit(1).execute()
         if prac.data:
             lead_id = prac.data[0]["lead_id"]
-            lead = (
-                sb.table("leads")
-                .select("subject_id")
-                .eq("id", lead_id)
-                .limit(1)
-                .execute()
-            )
+            lead = sb.table("leads").select("subject_id").eq("id", lead_id).limit(1).execute()
             if lead.data and lead.data[0].get("subject_id"):
                 subject_id = lead.data[0]["subject_id"]
                 # Whitelist: only update columns that exist on subjects.
@@ -1380,9 +1315,7 @@ async def apply_practice_upload(
                 # anything that the schema rejects to a safe no-op rather
                 # than raising 500.
                 try:
-                    sb.table("subjects").update(payload["subject"]).eq(
-                        "id", subject_id
-                    ).execute()
+                    sb.table("subjects").update(payload["subject"]).eq("id", subject_id).execute()
                     applied_targets["subject"] = list(payload["subject"].keys())
                 except Exception as exc:  # noqa: BLE001
                     log.warning(
@@ -1398,21 +1331,13 @@ async def apply_practice_upload(
 
     if "extras" in payload:
         # Deep-merge into practices.extras JSONB.
-        cur = (
-            sb.table("practices")
-            .select("extras")
-            .eq("id", str(practice_id))
-            .limit(1)
-            .execute()
-        )
+        cur = sb.table("practices").select("extras").eq("id", str(practice_id)).limit(1).execute()
         cur_extras = (cur.data[0].get("extras") if cur.data else {}) or {}
         cur_extras = {**cur_extras, **payload["extras"]}
         practice_update["extras"] = cur_extras
 
     if practice_update:
-        sb.table("practices").update(practice_update).eq(
-            "id", str(practice_id)
-        ).execute()
+        sb.table("practices").update(practice_update).eq("id", str(practice_id)).execute()
         applied_targets["practice"] = list(practice_update.keys())
 
     # ---- 6. Mark upload as applied + emit event

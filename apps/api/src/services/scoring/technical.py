@@ -52,9 +52,9 @@ def _kwp_term(kwp: float | None, area_sqm: float | None) -> float | None:
     if kwp >= 50.0:
         return 100.0
     if kwp >= 15.0:
-        return 95.0 + (kwp - 15.0) * (5.0 / 35.0)     # 15→95, 50→100
+        return 95.0 + (kwp - 15.0) * (5.0 / 35.0)  # 15→95, 50→100
     if kwp >= 10.0:
-        return 70.0 + (kwp - 10.0) * 5.0              # 10→70, 15→95
+        return 70.0 + (kwp - 10.0) * 5.0  # 10→70, 15→95
     # [0, 10] → max(0, 30 + (kwp-2)*5)  (2→30, 10→70, <2 decays toward 0)
     return max(0.0, 30.0 + (kwp - 2.0) * 5.0)
 
@@ -69,7 +69,7 @@ def _pitch_term(pitch: float | None) -> float:
     if 20.0 <= p <= 40.0:
         return 100.0
     if 10.0 <= p < 20.0:
-        return 60.0 + (p - 10.0) * 4.0   # 10→60, 20→100
+        return 60.0 + (p - 10.0) * 4.0  # 10→60, 20→100
     if 40.0 < p <= 55.0:
         return 100.0 - (p - 40.0) * (40.0 / 15.0)  # 55→60
     if p < 10.0:
@@ -99,10 +99,10 @@ def technical_score(roof: dict[str, Any]) -> int:
         # No size info at all — refuse to score. Better a 0 than a
         # confident-looking number based only on pitch/exposure.
         return 0
-    shading_factor = shading if shading is not None else 0.75   # 0..1
+    shading_factor = shading if shading is not None else 0.75  # 0..1
     shading_factor = max(0.0, min(1.0, shading_factor))
     exposure_factor = _EXPOSURE_FACTOR.get(exposure or "", 0.75)
-    pitch_term = _pitch_term(pitch)                              # 0..100
+    pitch_term = _pitch_term(pitch)  # 0..100
 
     # Geometry base: kwp dominates (it's the actual energy capacity),
     # pitch only nudges. Shading + exposure apply as multipliers since

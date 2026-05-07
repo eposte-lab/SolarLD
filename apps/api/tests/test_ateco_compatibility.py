@@ -61,10 +61,10 @@ def test_is_ateco_compatible_multiple_prefixes() -> None:
 
 def test_filter_keeps_only_matching_profiles() -> None:
     profiles = [
-        _profile("IT01", "25.11"),    # matches industry_heavy
-        _profile("IT02", "84.11"),    # PA — out
-        _profile("IT03", "52.10"),    # logistics — matches
-        _profile("IT04", "70.22"),    # consulting — out
+        _profile("IT01", "25.11"),  # matches industry_heavy
+        _profile("IT02", "84.11"),  # PA — out
+        _profile("IT03", "52.10"),  # logistics — matches
+        _profile("IT04", "70.22"),  # consulting — out
     ]
     kept = _filter_by_ateco_compatibility(
         profiles=profiles,

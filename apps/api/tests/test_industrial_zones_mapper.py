@@ -240,9 +240,7 @@ def test_classify_zone_matches_multiple_sectors_and_picks_highest() -> None:
         min_zone_area_m2=5000,
     )
     zone = _make_zone(landuse="industrial", building="warehouse")
-    classified = izm.classify_zone_for_sectors(
-        zone, configs=[industry, logistics]
-    )
+    classified = izm.classify_zone_for_sectors(zone, configs=[industry, logistics])
     # Both match; logistics wins because warehouse weight 1.0 ties with
     # industrial weight 1.0 for industry_heavy. Sort is stable; either
     # ordering acceptable but both must be in matched_sectors.

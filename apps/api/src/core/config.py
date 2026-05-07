@@ -252,8 +252,7 @@ class Settings(BaseSettings):
         errors: list[str] = []
         if self.jwt_secret == self._DEV_JWT_DEFAULT or len(self.jwt_secret) < 32:
             errors.append(
-                "JWT_SECRET must be set to a strong random value "
-                "(≥32 chars, not the dev default)."
+                "JWT_SECRET must be set to a strong random value (≥32 chars, not the dev default)."
             )
         if not self.supabase_service_role_key:
             errors.append("SUPABASE_SERVICE_ROLE_KEY must be set.")
@@ -276,10 +275,7 @@ class Settings(BaseSettings):
         if self.redis_url.startswith("redis://localhost") or self.redis_url.startswith(
             "redis://127.0.0.1"
         ):
-            errors.append(
-                "REDIS_URL must point at the managed Redis instance, "
-                "not localhost."
-            )
+            errors.append("REDIS_URL must point at the managed Redis instance, not localhost.")
         # Meta Marketing checks are conditional — a tenant can run
         # without the B2C Meta channel. But if they've configured the
         # app id they've opted into the integration and the other
@@ -287,13 +283,9 @@ class Settings(BaseSettings):
         # rejects every POST in staging.
         if self.meta_app_id:
             if not self.meta_app_secret:
-                errors.append(
-                    "META_APP_SECRET must be set when META_APP_ID is."
-                )
+                errors.append("META_APP_SECRET must be set when META_APP_ID is.")
             if not self.meta_app_verify_token:
-                errors.append(
-                    "META_APP_VERIFY_TOKEN must be set when META_APP_ID is."
-                )
+                errors.append("META_APP_VERIFY_TOKEN must be set when META_APP_ID is.")
         # Supabase URL sanity — a missing anon key means the public
         # portal won't boot. The service-role key is checked above.
         if not self.next_public_supabase_url:

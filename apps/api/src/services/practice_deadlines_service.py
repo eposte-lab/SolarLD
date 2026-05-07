@@ -203,8 +203,7 @@ def project_event_to_deadlines(event: PracticeEvent) -> dict[str, Any]:
     # Walk rules looking for triggers.
     for rule in DEADLINE_RULES:
         if rule.trigger_event_type == event.event_type and (
-            rule.trigger_template is None
-            or rule.trigger_template == template_code
+            rule.trigger_template is None or rule.trigger_template == template_code
         ):
             occurred_dt = _parse_iso(event.occurred_at)
             due_at = occurred_dt + timedelta(days=rule.offset_days)
@@ -281,9 +280,7 @@ def project_event_to_deadlines(event: PracticeEvent) -> dict[str, Any]:
                 .execute()
             )
             for row in close_res.data or []:
-                summary["satisfied"].append(
-                    {"id": row["id"], "kind": rule.kind}
-                )
+                summary["satisfied"].append({"id": row["id"], "kind": rule.kind})
                 record_event(
                     tenant_id=event.tenant_id,
                     practice_id=event.practice_id,
@@ -341,9 +338,9 @@ def mark_overdue_and_notify(now: datetime | None = None) -> dict[str, Any]:
     errors = 0
     for row in rows:
         try:
-            sb.table("practice_deadlines").update(
-                {"status": "overdue"}
-            ).eq("id", row["id"]).execute()
+            sb.table("practice_deadlines").update({"status": "overdue"}).eq(
+                "id", row["id"]
+            ).execute()
 
             practice_number = (row.get("practices") or {}).get("practice_number")
             kind = row["deadline_kind"]

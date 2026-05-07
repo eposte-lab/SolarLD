@@ -151,11 +151,13 @@ async def _check_global_blacklist(
 
     try:
         res = await asyncio.to_thread(
-            lambda: sb.table("global_blacklist")
-            .select("id")
-            .eq("pii_hash", pii_hash)
-            .limit(1)
-            .execute()
+            lambda: (
+                sb.table("global_blacklist")
+                .select("id")
+                .eq("pii_hash", pii_hash)
+                .limit(1)
+                .execute()
+            )
         )
         if res.data:
             return PreflightResult(
@@ -189,15 +191,17 @@ async def _check_email_blacklist(
 
     try:
         res = await asyncio.to_thread(
-            lambda: sb.table("email_blacklist")
-            .select("reason")
-            .eq("email_hash", email_hash)
-            .eq("tenant_id", tenant_id)
-            .limit(1)
-            .execute()
+            lambda: (
+                sb.table("email_blacklist")
+                .select("reason")
+                .eq("email_hash", email_hash)
+                .eq("tenant_id", tenant_id)
+                .limit(1)
+                .execute()
+            )
         )
         if res.data:
-            reason = (res.data[0].get("reason") or "email_blacklisted")
+            reason = res.data[0].get("reason") or "email_blacklisted"
             return PreflightResult(
                 ok=False,
                 reason=reason,
@@ -229,11 +233,13 @@ async def _check_inbox_health(
 
     try:
         res = await asyncio.to_thread(
-            lambda: sb.table("tenant_inboxes")
-            .select("id, active, paused_until")
-            .eq("id", inbox_id)
-            .limit(1)
-            .execute()
+            lambda: (
+                sb.table("tenant_inboxes")
+                .select("id, active, paused_until")
+                .eq("id", inbox_id)
+                .limit(1)
+                .execute()
+            )
         )
         row = (res.data or [None])[0]
         if not row:
@@ -282,11 +288,13 @@ async def _check_domain_health(
 
     try:
         res = await asyncio.to_thread(
-            lambda: sb.table("tenant_email_domains")
-            .select("id, paused_until, pause_reason")
-            .eq("id", domain_id)
-            .limit(1)
-            .execute()
+            lambda: (
+                sb.table("tenant_email_domains")
+                .select("id, paused_until, pause_reason")
+                .eq("id", domain_id)
+                .limit(1)
+                .execute()
+            )
         )
         row = (res.data or [None])[0]
         if not row:

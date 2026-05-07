@@ -121,9 +121,15 @@ CAPABILITIES: dict[TenantTier, dict[Capability, bool]] = {
 }
 
 BUDGETS: dict[TenantTier, dict[Budget, int | None]] = {
-    "founding":   {Budget.MONTHLY_SCAN_BUDGET_CENTS: 15_000, Budget.MONTHLY_OUTREACH_BUDGET_CENTS: 10_000},
-    "pro":        {Budget.MONTHLY_SCAN_BUDGET_CENTS: 50_000, Budget.MONTHLY_OUTREACH_BUDGET_CENTS: 40_000},
-    "enterprise": {Budget.MONTHLY_SCAN_BUDGET_CENTS: None,   Budget.MONTHLY_OUTREACH_BUDGET_CENTS: None},
+    "founding": {
+        Budget.MONTHLY_SCAN_BUDGET_CENTS: 15_000,
+        Budget.MONTHLY_OUTREACH_BUDGET_CENTS: 10_000,
+    },
+    "pro": {Budget.MONTHLY_SCAN_BUDGET_CENTS: 50_000, Budget.MONTHLY_OUTREACH_BUDGET_CENTS: 40_000},
+    "enterprise": {
+        Budget.MONTHLY_SCAN_BUDGET_CENTS: None,
+        Budget.MONTHLY_OUTREACH_BUDGET_CENTS: None,
+    },
 }
 
 

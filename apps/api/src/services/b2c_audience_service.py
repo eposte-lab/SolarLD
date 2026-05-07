@@ -94,9 +94,7 @@ class AudienceFilters:
         cfg = cfg or {}
         return cls(
             reddito_min_eur=int(cfg.get("reddito_min_eur") or 0),
-            case_unifamiliari_pct_min=int(
-                cfg.get("case_unifamiliari_pct_min") or 0
-            ),
+            case_unifamiliari_pct_min=int(cfg.get("case_unifamiliari_pct_min") or 0),
         )
 
 
@@ -122,8 +120,7 @@ async def select_caps(
     geo = _geo_filters_from_territory(territory)
 
     q = sb.table("geo_income_stats").select(
-        "cap, provincia, regione, comune, reddito_medio_eur, "
-        "popolazione, case_unifamiliari_pct"
+        "cap, provincia, regione, comune, reddito_medio_eur, popolazione, case_unifamiliari_pct"
     )
     if "cap_in" in geo:
         q = q.in_("cap", geo["cap_in"])
@@ -159,9 +156,7 @@ async def materialise_audiences(
     updates channel availability + stima_contatti but preserves
     letters_sent/replies/qualified_roofs counters.
     """
-    rows = await select_caps(
-        territory=territory, filters=filters, limit=limit
-    )
+    rows = await select_caps(territory=territory, filters=filters, limit=limit)
     if not rows:
         return []
 
@@ -176,10 +171,7 @@ async def materialise_audiences(
         # Coarse contact estimate — assume average household size of
         # 2.3 (ISTAT), half single-family where `case_unifamiliari_pct`
         # absent, multiply by the CAP's detached-house share.
-        unif_pct = float(
-            r.get("case_unifamiliari_pct")
-            or 50
-        ) / 100.0
+        unif_pct = float(r.get("case_unifamiliari_pct") or 50) / 100.0
         stima = int(popolazione / 2.3 * unif_pct)
 
         payload.append(
@@ -199,9 +191,7 @@ async def materialise_audiences(
     sb = get_service_client()
     # We split on_conflict fields by comma — Supabase expects exactly
     # the composite UNIQUE constraint columns.
-    sb.table("b2c_audiences").upsert(
-        payload, on_conflict="tenant_id,scan_id,cap"
-    ).execute()
+    sb.table("b2c_audiences").upsert(payload, on_conflict="tenant_id,scan_id,cap").execute()
 
     log.info(
         "b2c_audiences.materialised",
@@ -230,9 +220,7 @@ async def list_audiences_for_scan(
     return list(getattr(res, "data", None) or [])
 
 
-async def get_audience(
-    audience_id: UUID | str, tenant_id: UUID | str
-) -> dict[str, Any] | None:
+async def get_audience(audience_id: UUID | str, tenant_id: UUID | str) -> dict[str, Any] | None:
     """Fetch a single audience by id, scoped to tenant (defence in
     depth — routes already check auth, but this makes the constraint
     explicit at the data layer too)."""

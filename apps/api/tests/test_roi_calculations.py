@@ -64,12 +64,14 @@ def test_compute_roi_b2b_uses_business_rates() -> None:
     # savings should also shift in a predictable direction: more self-
     # consumption at a cheaper tariff. We only verify the savings
     # calculation uses the right ratio/tariff pair.
-    expected_b2b = 65000 * SELF_CONSUMPTION_RATIO_B2B * GRID_PRICE_EUR_PER_KWH_B2B + 65000 * (
-        1 - SELF_CONSUMPTION_RATIO_B2B
-    ) * EXPORT_PRICE_EUR_PER_KWH
-    expected_b2c = 65000 * SELF_CONSUMPTION_RATIO_B2C * GRID_PRICE_EUR_PER_KWH_B2C + 65000 * (
-        1 - SELF_CONSUMPTION_RATIO_B2C
-    ) * EXPORT_PRICE_EUR_PER_KWH
+    expected_b2b = (
+        65000 * SELF_CONSUMPTION_RATIO_B2B * GRID_PRICE_EUR_PER_KWH_B2B
+        + 65000 * (1 - SELF_CONSUMPTION_RATIO_B2B) * EXPORT_PRICE_EUR_PER_KWH
+    )
+    expected_b2c = (
+        65000 * SELF_CONSUMPTION_RATIO_B2C * GRID_PRICE_EUR_PER_KWH_B2C
+        + 65000 * (1 - SELF_CONSUMPTION_RATIO_B2C) * EXPORT_PRICE_EUR_PER_KWH
+    )
     assert abs(est.yearly_savings_eur - expected_b2b) < 1e-6
     assert abs(b2c.yearly_savings_eur - expected_b2c) < 1e-6
 
@@ -86,12 +88,8 @@ def test_compute_roi_unknown_type_uses_conservative_fallback() -> None:
 
 
 def test_compute_roi_returns_none_when_both_inputs_missing() -> None:
-    assert compute_roi(
-        estimated_kwp=None, estimated_yearly_kwh=None, subject_type="b2c"
-    ) is None
-    assert compute_roi(
-        estimated_kwp=0, estimated_yearly_kwh=0, subject_type="b2c"
-    ) is None
+    assert compute_roi(estimated_kwp=None, estimated_yearly_kwh=None, subject_type="b2c") is None
+    assert compute_roi(estimated_kwp=0, estimated_yearly_kwh=0, subject_type="b2c") is None
 
 
 def test_compute_roi_derives_kwp_from_yearly_kwh() -> None:
@@ -116,12 +114,8 @@ def test_compute_roi_derives_yearly_kwh_from_kwp() -> None:
 
 
 def test_compute_roi_incentive_percent_matches_subject_tier() -> None:
-    b2c = compute_roi(
-        estimated_kwp=10.0, estimated_yearly_kwh=13_000.0, subject_type="b2c"
-    )
-    b2b = compute_roi(
-        estimated_kwp=10.0, estimated_yearly_kwh=13_000.0, subject_type="b2b"
-    )
+    b2c = compute_roi(estimated_kwp=10.0, estimated_yearly_kwh=13_000.0, subject_type="b2c")
+    b2b = compute_roi(estimated_kwp=10.0, estimated_yearly_kwh=13_000.0, subject_type="b2b")
     assert b2c is not None
     assert b2b is not None
     b2c_pct = b2c.incentive_eur / b2c.gross_capex_eur
@@ -135,7 +129,7 @@ def test_compute_roi_payback_handles_zero_savings() -> None:
     calculator must return payback=None rather than divide by zero."""
     est = compute_roi(
         estimated_kwp=5.0,
-        estimated_yearly_kwh=0.0,      # will be derived → 6500 via kwp
+        estimated_yearly_kwh=0.0,  # will be derived → 6500 via kwp
         subject_type="b2c",
     )
     # Derived yearly_kwh kicks in, so savings end up non-zero. The
@@ -145,9 +139,7 @@ def test_compute_roi_payback_handles_zero_savings() -> None:
 
 
 def test_compute_roi_co2_fields_make_sense() -> None:
-    est = compute_roi(
-        estimated_kwp=10.0, estimated_yearly_kwh=13_000.0, subject_type="b2c"
-    )
+    est = compute_roi(estimated_kwp=10.0, estimated_yearly_kwh=13_000.0, subject_type="b2c")
     assert est is not None
     # 13_000 kWh × 0.281 kg/kWh ≈ 3653 kg/year
     assert abs(est.co2_kg_per_year - 13_000 * 0.281) < 1e-6
@@ -242,9 +234,7 @@ def test_compute_roi_25y_savings_strictly_positive_for_real_systems() -> None:
     savings_25y_eur. This guards against accidental sign flip when the
     formula gets edited."""
     for st in ("b2c", "b2b", "unknown"):
-        est = compute_roi(
-            estimated_kwp=8.0, estimated_yearly_kwh=10_400.0, subject_type=st
-        )
+        est = compute_roi(estimated_kwp=8.0, estimated_yearly_kwh=10_400.0, subject_type=st)
         assert est is not None
         assert est.net_self_savings_eur > 0
         assert est.savings_25y_eur > 0

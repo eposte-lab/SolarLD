@@ -74,11 +74,29 @@ WARMUP_OUTREACH_DAYS = 21
 # Index 0 = day 1. len = 21.
 WARMUP_DAILY_CAPS_OUTREACH: tuple[int, ...] = (
     # Week 1 (days 1-7)
-    10, 10, 10, 10, 10, 10, 10,
+    10,
+    10,
+    10,
+    10,
+    10,
+    10,
+    10,
     # Week 2 (days 8-14)
-    25, 25, 25, 25, 25, 25, 25,
+    25,
+    25,
+    25,
+    25,
+    25,
+    25,
+    25,
     # Week 3 (days 15-21)
-    40, 40, 40, 40, 40, 40, 40,
+    40,
+    40,
+    40,
+    40,
+    40,
+    40,
+    40,
 )
 # After day 21, inbox sends at its configured daily_cap (default 50).
 STEADY_STATE_OUTREACH_CAP = 50
@@ -93,8 +111,8 @@ TIER_HOURLY_CAP: dict[TenantTier, int] = {
 
 # Redis key TTLs (seconds). A tiny buffer over the window length so a
 # clock drift doesn't give a stale counter a second life.
-_HOUR_KEY_TTL = 90 * 60        # 90 minutes
-_DAY_KEY_TTL = 48 * 60 * 60    # 48 hours
+_HOUR_KEY_TTL = 90 * 60  # 90 minutes
+_DAY_KEY_TTL = 48 * 60 * 60  # 48 hours
 
 
 # ---------------------------------------------------------------------------
@@ -214,7 +232,9 @@ async def peek_email_quota(tenant_row: dict[str, Any]) -> RateLimitDecision:
                 window="day",
                 domain=domain,
             )
-        override = settings_obj.get("email_rate_per_hour") if isinstance(settings_obj, dict) else None
+        override = (
+            settings_obj.get("email_rate_per_hour") if isinstance(settings_obj, dict) else None
+        )
         cap = tier_hourly_cap(tier, override=override)
         key = f"ratelimit:email:hour:{domain}:{now.strftime('%Y-%m-%d-%H')}"
         used = int(await r.get(key) or 0)

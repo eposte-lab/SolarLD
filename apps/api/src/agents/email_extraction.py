@@ -90,11 +90,13 @@ async def _is_pilot_tenant(tenant_id: str, sb: Any) -> bool:
 
     try:
         res = await asyncio.to_thread(
-            lambda: sb.table("tenants")
-            .select("pipeline_v2_pilot")
-            .eq("id", tenant_id)
-            .limit(1)
-            .execute()
+            lambda: (
+                sb.table("tenants")
+                .select("pipeline_v2_pilot")
+                .eq("id", tenant_id)
+                .limit(1)
+                .execute()
+            )
         )
         result: bool = bool((res.data or [{}])[0].get("pipeline_v2_pilot", False))
     except Exception as exc:  # noqa: BLE001
@@ -294,9 +296,7 @@ class EmailExtractionAgent(AgentBase[EmailExtractionInput, EmailExtractionOutput
                 err=str(exc),
             )
 
-    async def _maybe_extract_and_write_phone(
-        self, payload: EmailExtractionInput, sb: Any
-    ) -> None:
+    async def _maybe_extract_and_write_phone(self, payload: EmailExtractionInput, sb: Any) -> None:
         """Best-effort phone extraction — never raises.
 
         Skips entirely when the subject already has `decision_maker_phone`
@@ -309,11 +309,13 @@ class EmailExtractionAgent(AgentBase[EmailExtractionInput, EmailExtractionOutput
 
         try:
             existing = await asyncio.to_thread(
-                lambda: sb.table("subjects")
-                .select("decision_maker_phone")
-                .eq("id", payload.subject_id)
-                .limit(1)
-                .execute()
+                lambda: (
+                    sb.table("subjects")
+                    .select("decision_maker_phone")
+                    .eq("id", payload.subject_id)
+                    .limit(1)
+                    .execute()
+                )
             )
         except Exception as exc:  # noqa: BLE001
             log.debug(
@@ -324,9 +326,7 @@ class EmailExtractionAgent(AgentBase[EmailExtractionInput, EmailExtractionOutput
             return
 
         existing_phone = (
-            (existing.data or [{}])[0].get("decision_maker_phone")
-            if existing.data
-            else None
+            (existing.data or [{}])[0].get("decision_maker_phone") if existing.data else None
         )
         if existing_phone:
             return  # L4 already wrote a phone (Atoka). Don't overwrite.
@@ -344,9 +344,7 @@ class EmailExtractionAgent(AgentBase[EmailExtractionInput, EmailExtractionOutput
         if not result.phone or result.source == "failed":
             return
 
-        await self._write_phone_to_subject(
-            payload.subject_id, result.phone, result.source, sb
-        )
+        await self._write_phone_to_subject(payload.subject_id, result.phone, result.source, sb)
         log.info(
             "email_extraction.phone_found",
             tenant_id=payload.tenant_id,
@@ -367,15 +365,17 @@ class EmailExtractionAgent(AgentBase[EmailExtractionInput, EmailExtractionOutput
         """
         try:
             await asyncio.to_thread(
-                lambda: sb.table("subjects")
-                .update(
-                    {
-                        "decision_maker_phone": phone,
-                        "decision_maker_phone_source": source,
-                    }
+                lambda: (
+                    sb.table("subjects")
+                    .update(
+                        {
+                            "decision_maker_phone": phone,
+                            "decision_maker_phone_source": source,
+                        }
+                    )
+                    .eq("id", subject_id)
+                    .execute()
                 )
-                .eq("id", subject_id)
-                .execute()
             )
         except Exception as exc:  # noqa: BLE001
             log.warning(
@@ -384,20 +384,20 @@ class EmailExtractionAgent(AgentBase[EmailExtractionInput, EmailExtractionOutput
                 err=str(exc),
             )
 
-    async def _write_email_to_subject(
-        self, subject_id: str, email: str, sb: Any
-    ) -> None:
+    async def _write_email_to_subject(self, subject_id: str, email: str, sb: Any) -> None:
         try:
             await asyncio.to_thread(
-                lambda: sb.table("subjects")
-                .update(
-                    {
-                        "decision_maker_email": email,
-                        "decision_maker_email_verified": False,
-                    }
+                lambda: (
+                    sb.table("subjects")
+                    .update(
+                        {
+                            "decision_maker_email": email,
+                            "decision_maker_email_verified": False,
+                        }
+                    )
+                    .eq("id", subject_id)
+                    .execute()
                 )
-                .eq("id", subject_id)
-                .execute()
             )
         except Exception as exc:  # noqa: BLE001
             log.warning(
@@ -406,16 +406,16 @@ class EmailExtractionAgent(AgentBase[EmailExtractionInput, EmailExtractionOutput
                 err=str(exc),
             )
 
-    async def _mark_subject_rejected(
-        self, subject_id: str, rule: str, sb: Any
-    ) -> None:
+    async def _mark_subject_rejected(self, subject_id: str, rule: str, sb: Any) -> None:
         """Tag the subject so the dashboard waterfall shows Phase 2 rejects."""
         try:
             await asyncio.to_thread(
-                lambda: sb.table("subjects")
-                .update({"extraction_status": f"rejected_offline:{rule}"})
-                .eq("id", subject_id)
-                .execute()
+                lambda: (
+                    sb.table("subjects")
+                    .update({"extraction_status": f"rejected_offline:{rule}"})
+                    .eq("id", subject_id)
+                    .execute()
+                )
             )
         except Exception as exc:  # noqa: BLE001
             log.debug(
@@ -488,14 +488,10 @@ def build_candidate_dict_from_profile(
         "hq_cap": profile.hq_cap,
         "hq_address": profile.hq_address,
         # Offline filter fields from Atoka raw
-        "legal_status": (
-            raw.get("legalStatus") or raw.get("stato") or raw.get("legal_status")
-        ),
+        "legal_status": (raw.get("legalStatus") or raw.get("stato") or raw.get("legal_status")),
         "stato_attivita": raw.get("statoAttivita") or raw.get("stato_attivita"),
         "revenue_history_eur": revenue_history,
-        "building_ownership": (
-            raw.get("buildingOwnership") or raw.get("building_ownership")
-        ),
+        "building_ownership": (raw.get("buildingOwnership") or raw.get("building_ownership")),
         # Display / GDPR audit
         "decision_maker_name": profile.decision_maker_name,
         "decision_maker_role": profile.decision_maker_role,

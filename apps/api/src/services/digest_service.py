@@ -33,7 +33,7 @@ log = get_logger(__name__)
 @dataclass(slots=True, frozen=True)
 class DigestStats:
     tenant_name: str
-    window_label: str           # "ultime 24 ore" | "ultimi 7 giorni"
+    window_label: str  # "ultime 24 ore" | "ultimi 7 giorni"
     new_leads: int
     new_hot: int
     outreach_sent: int
@@ -54,10 +54,7 @@ def format_digest_html(stats: DigestStats) -> str:
         "padding:10px 0;border-bottom:1px solid #e5e5e5;"
         "font:14px/1.4 -apple-system,Segoe UI,sans-serif;"
     )
-    num = (
-        "font:600 18px/1 -apple-system,Segoe UI,sans-serif;"
-        "color:#0f172a;float:right;"
-    )
+    num = "font:600 18px/1 -apple-system,Segoe UI,sans-serif;color:#0f172a;float:right;"
     rows = [
         ("Nuovi lead", stats.new_leads),
         ("Di cui HOT", stats.new_hot),
@@ -67,8 +64,7 @@ def format_digest_html(stats: DigestStats) -> str:
         ("Contratti firmati", stats.contracts_signed),
     ]
     body_rows = "\n".join(
-        f'<div style="{row_style}">{label}'
-        f'<span style="{num}">{value}</span></div>'
+        f'<div style="{row_style}">{label}<span style="{num}">{value}</span></div>'
         for label, value in rows
     )
     return f"""<!doctype html>
@@ -275,23 +271,14 @@ async def send_daily_digests() -> dict[str, Any]:
     sb = get_service_client()
     res = (
         sb.table("tenants")
-        .select(
-            "id, business_name, contact_email, "
-            "email_from_domain, email_from_name, settings"
-        )
+        .select("id, business_name, contact_email, email_from_domain, email_from_name, settings")
         .eq("status", "active")
         .execute()
     )
-    tenants = [
-        t
-        for t in (res.data or [])
-        if _flag_enabled(t.get("settings"), "daily_digest")
-    ]
+    tenants = [t for t in (res.data or []) if _flag_enabled(t.get("settings"), "daily_digest")]
     log.info("digest.daily.candidates", count=len(tenants))
     summary = [
-        await _send_digest_to_tenant(
-            tenant=t, window_days=1, window_label="ultime 24 ore"
-        )
+        await _send_digest_to_tenant(tenant=t, window_days=1, window_label="ultime 24 ore")
         for t in tenants
     ]
     return {"window": "daily", "results": summary}
@@ -302,23 +289,14 @@ async def send_weekly_digests() -> dict[str, Any]:
     sb = get_service_client()
     res = (
         sb.table("tenants")
-        .select(
-            "id, business_name, contact_email, "
-            "email_from_domain, email_from_name, settings"
-        )
+        .select("id, business_name, contact_email, email_from_domain, email_from_name, settings")
         .eq("status", "active")
         .execute()
     )
-    tenants = [
-        t
-        for t in (res.data or [])
-        if _flag_enabled(t.get("settings"), "weekly_digest")
-    ]
+    tenants = [t for t in (res.data or []) if _flag_enabled(t.get("settings"), "weekly_digest")]
     log.info("digest.weekly.candidates", count=len(tenants))
     summary = [
-        await _send_digest_to_tenant(
-            tenant=t, window_days=7, window_label="ultimi 7 giorni"
-        )
+        await _send_digest_to_tenant(tenant=t, window_days=7, window_label="ultimi 7 giorni")
         for t in tenants
     ]
     return {"window": "weekly", "results": summary}

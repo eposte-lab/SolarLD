@@ -68,10 +68,7 @@ def test_resolve_recipient_b2c_always_none_for_now() -> None:
 
 
 def test_resolve_recipient_unknown_type_none() -> None:
-    assert (
-        _resolve_recipient({"type": "unknown", "decision_maker_email": "x@y.com"})
-        is None
-    )
+    assert _resolve_recipient({"type": "unknown", "decision_maker_email": "x@y.com"}) is None
 
 
 # ---------------------------------------------------------------------------
@@ -104,9 +101,7 @@ def test_greeting_b2b_final_fallback() -> None:
 
 
 def test_greeting_b2c_joins_first_and_last_names() -> None:
-    g = _greeting_for(
-        {"owner_first_name": "Maria", "owner_last_name": "Rossi"}, "b2c"
-    )
+    g = _greeting_for({"owner_first_name": "Maria", "owner_last_name": "Rossi"}, "b2c")
     assert g == "Maria Rossi"
 
 

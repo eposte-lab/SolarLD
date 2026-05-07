@@ -176,9 +176,7 @@ class MonthlyCostBreakdown:
             },
             "totals": {
                 "total_monthly_eur": round(self.total_monthly_eur, 2),
-                "cost_per_delivered_email_eur": round(
-                    self.cost_per_delivered_email_eur, 4
-                ),
+                "cost_per_delivered_email_eur": round(self.cost_per_delivered_email_eur, 4),
             },
         }
 
@@ -206,9 +204,7 @@ def estimate_atoka_runway_days(
     if credits_remaining <= 0:
         return 0.0
     if daily_call_rate is None:
-        daily_call_rate = (
-            ATOKA_PURCHASE_CREDITS / ATOKA_PURCHASE_RUNWAY_WORKING_DAYS
-        )
+        daily_call_rate = ATOKA_PURCHASE_CREDITS / ATOKA_PURCHASE_RUNWAY_WORKING_DAYS
     if daily_call_rate <= 0:
         return float("inf")
     return credits_remaining / daily_call_rate

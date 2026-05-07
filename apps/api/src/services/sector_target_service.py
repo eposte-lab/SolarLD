@@ -45,9 +45,9 @@ log = get_logger(__name__)
 class OsmTagHint:
     """One OSM-tag-with-weight signal. Used in BIC stage 4 voting."""
 
-    tag_key: str          # 'landuse' or 'building' or 'amenity', etc.
-    tag_value: str        # 'industrial', 'warehouse', 'hotel', etc.
-    weight: float         # 0..1 — additive bonus to the building's vote
+    tag_key: str  # 'landuse' or 'building' or 'amenity', etc.
+    tag_value: str  # 'industrial', 'warehouse', 'hotel', etc.
+    weight: float  # 0..1 — additive bonus to the building's vote
 
 
 @dataclass(slots=True, frozen=True)
@@ -140,9 +140,7 @@ async def _warm_cache(supabase: Any) -> None:
     )
 
 
-def _build_mapping_from_rows(
-    wizard_group: str, rows: list[dict[str, Any]]
-) -> SectorAreaMapping:
+def _build_mapping_from_rows(wizard_group: str, rows: list[dict[str, Any]]) -> SectorAreaMapping:
     """Merge multiple ATECO rows of the same wizard_group into one palette."""
     ateco_codes: list[str] = []
     landuse: list[OsmTagHint] = []
@@ -240,9 +238,7 @@ def _build_mapping_from_rows(
     )
 
 
-def _parse_osm_hints(
-    raw: Any, *, default_key: str | None
-) -> list[OsmTagHint]:
+def _parse_osm_hints(raw: Any, *, default_key: str | None) -> list[OsmTagHint]:
     """Parse a JSONB list like [{"landuse":"industrial","weight":1.0}, ...]
     into a list of `OsmTagHint`. Tolerant: skips malformed entries.
     The ``default_key`` parameter is used for compact ``osm_landuse_hints``
@@ -390,9 +386,7 @@ async def predict_sector_for_candidate(
     return None
 
 
-async def get_wizard_group_for_ateco(
-    supabase: Any, *, ateco_code: str
-) -> str | None:
+async def get_wizard_group_for_ateco(supabase: Any, *, ateco_code: str) -> str | None:
     """Direct lookup: which wizard_group owns this ATECO code? Cached."""
     if not ateco_code:
         return None

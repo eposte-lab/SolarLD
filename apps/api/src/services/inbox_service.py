@@ -413,5 +413,5 @@ def get_domain_purpose(inbox: dict[str, Any]) -> str:
     """
     domain_row = inbox.get("tenant_email_domains") or {}
     if isinstance(domain_row, dict):
-        return (domain_row.get("purpose") or "brand")
+        return domain_row.get("purpose") or "brand"
     return "brand"

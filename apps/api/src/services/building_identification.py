@@ -119,8 +119,8 @@ class BuildingCandidate:
 
     lat: float
     lng: float
-    weight: float                       # 0..1 typical; can exceed 1 for very strong deterministic signals
-    source: str                         # "atoka" | "places_q1_first_token" | ... | "vision" | "user_pick"
+    weight: float  # 0..1 typical; can exceed 1 for very strong deterministic signals
+    source: str  # "atoka" | "places_q1_first_token" | ... | "vision" | "user_pick"
     polygon_geojson: dict | None = None  # Building footprint when known (OSM, vision)
     metadata: dict = field(default_factory=dict)
 
@@ -201,10 +201,7 @@ def _haversine_m(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
     p1, p2 = math.radians(lat1), math.radians(lat2)
     dphi = math.radians(lat2 - lat1)
     dlmb = math.radians(lng2 - lng1)
-    a = (
-        math.sin(dphi / 2) ** 2
-        + math.cos(p1) * math.cos(p2) * math.sin(dlmb / 2) ** 2
-    )
+    a = math.sin(dphi / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dlmb / 2) ** 2
     return 2 * r * math.asin(math.sqrt(a))
 
 
@@ -224,14 +221,16 @@ async def lookup_cached_building(vat_number: str) -> BuildingMatch | None:
     sb = get_service_client()
     try:
         res = await asyncio.to_thread(
-            lambda: sb.table("known_company_buildings")
-            .select(
-                "vat_number, lat, lng, polygon_geojson, confidence, "
-                "source_chain, confirmed_at, resolved_at"
+            lambda: (
+                sb.table("known_company_buildings")
+                .select(
+                    "vat_number, lat, lng, polygon_geojson, confidence, "
+                    "source_chain, confirmed_at, resolved_at"
+                )
+                .eq("vat_number", vat_number.strip())
+                .limit(1)
+                .execute()
             )
-            .eq("vat_number", vat_number.strip())
-            .limit(1)
-            .execute()
         )
     except Exception as exc:  # noqa: BLE001 — cache miss must never crash the resolver
         log.warning(
@@ -284,9 +283,7 @@ async def cache_building_match(
         "lat": match.lat,
         "lng": match.lng,
         "polygon_geojson": match.polygon_geojson,
-        "confidence": (
-            "user_confirmed" if user_id else match.confidence
-        ),
+        "confidence": ("user_confirmed" if user_id else match.confidence),
         "source_chain": match.source_chain,
         "cost_cents": cost_cents,
     }
@@ -300,15 +297,15 @@ async def cache_building_match(
         # demo writes happen at human cadence — collisions are
         # vanishingly rare and the worst case is a redundant write.
         existing = await asyncio.to_thread(
-            lambda: sb.table("known_company_buildings")
-            .select("confidence")
-            .eq("vat_number", vat_number.strip())
-            .limit(1)
-            .execute()
+            lambda: (
+                sb.table("known_company_buildings")
+                .select("confidence")
+                .eq("vat_number", vat_number.strip())
+                .limit(1)
+                .execute()
+            )
         )
-        existing_conf = (
-            (existing.data or [{}])[0].get("confidence") if existing.data else None
-        )
+        existing_conf = (existing.data or [{}])[0].get("confidence") if existing.data else None
         if existing_conf == "user_confirmed" and not user_id:
             log.info(
                 "bic.cache_skip_user_confirmed",
@@ -318,9 +315,11 @@ async def cache_building_match(
             return
 
         await asyncio.to_thread(
-            lambda: sb.table("known_company_buildings")
-            .upsert(payload, on_conflict="vat_number")
-            .execute()
+            lambda: (
+                sb.table("known_company_buildings")
+                .upsert(payload, on_conflict="vat_number")
+                .execute()
+            )
         )
         log.info(
             "bic.cache_write",
@@ -368,9 +367,7 @@ def _cluster_candidates(
     return clusters
 
 
-def _classify_confidence(
-    cluster: list[BuildingCandidate], score: float
-) -> ConfidenceBucket:
+def _classify_confidence(cluster: list[BuildingCandidate], score: float) -> ConfidenceBucket:
     """Map (cluster, score) → confidence bucket.
 
     The score thresholds are augmented with a "deterministic signal
@@ -505,9 +502,7 @@ def vote_on_candidates(
         return BuildingMatch.empty()
 
     if sector_signal_hints:
-        candidates = _apply_sector_signal_bonus(
-            candidates, hints=sector_signal_hints
-        )
+        candidates = _apply_sector_signal_bonus(candidates, hints=sector_signal_hints)
 
     clusters = _cluster_candidates(candidates)
     # Sort by descending total weight; tie-breaker is the cluster's
@@ -780,9 +775,7 @@ async def identify_building(
     # input manageable. Pick the closest N to the zone anchor.
     if zone_anchor is not None:
         vision_eligible_buildings.sort(
-            key=lambda c: _haversine_m(
-                zone_anchor[0], zone_anchor[1], c.lat, c.lng
-            )
+            key=lambda c: _haversine_m(zone_anchor[0], zone_anchor[1], c.lat, c.lng)
         )
     vision_eligible_buildings = vision_eligible_buildings[:MAX_VISION_CANDIDATES]
 
@@ -807,15 +800,11 @@ async def identify_building(
             )
             if vision_pick is not None:
                 diagnostics["vision_match"] = True
-                diagnostics["vision_reasoning"] = vision_pick.metadata.get(
-                    "vision_reasoning"
-                )
+                diagnostics["vision_reasoning"] = vision_pick.metadata.get("vision_reasoning")
                 # Track which model actually decided so the cost
                 # estimate below reflects whether we saved a Sonnet
                 # call or paid for both models in the cascade.
-                diagnostics["vision_model"] = vision_pick.metadata.get(
-                    "vision_model"
-                )
+                diagnostics["vision_model"] = vision_pick.metadata.get("vision_model")
                 candidates.append(vision_pick)
         except Exception as exc:  # noqa: BLE001
             log.warning(
@@ -830,8 +819,10 @@ async def identify_building(
             best_so_far=round(best_so_far, 2),
             n_vision_buildings=len(vision_eligible_buildings),
             reason=(
-                "high_confidence_already" if best_so_far >= VISION_INVOCATION_THRESHOLD
-                else "insufficient_candidates" if len(vision_eligible_buildings) < 2
+                "high_confidence_already"
+                if best_so_far >= VISION_INVOCATION_THRESHOLD
+                else "insufficient_candidates"
+                if len(vision_eligible_buildings) < 2
                 else "no_zone_anchor"
             ),
         )
@@ -918,9 +909,7 @@ async def identify_building(
         confidence=match.confidence,
         winning_source=match.source,
         n_candidates=len(candidates),
-        n_clusters_evaluated=(
-            len(_cluster_candidates(candidates)) if candidates else 0
-        ),
+        n_clusters_evaluated=(len(_cluster_candidates(candidates)) if candidates else 0),
         diagnostics=diagnostics,
     )
 
@@ -939,10 +928,7 @@ async def identify_building(
     # User-confirmed entries are written via the dedicated
     # POST /v1/demo/confirm-building path (cache_building_match called
     # with user_id) — those still bypass this gate.
-    if (
-        match.has_coords
-        and match.confidence in ("medium", "high", "user_confirmed")
-    ):
+    if match.has_coords and match.confidence in ("medium", "high", "user_confirmed"):
         await cache_building_match(
             vat_number=vat_number,
             tenant_id=None,  # caller knows the tenant; cache is global

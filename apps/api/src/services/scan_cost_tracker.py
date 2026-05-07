@@ -149,9 +149,7 @@ class ScanCostAccumulator:
             row["completed_at"] = datetime.now(UTC).isoformat()
 
         try:
-            sb.table("scan_cost_log").upsert(
-                row, on_conflict="tenant_id,scan_id"
-            ).execute()
+            sb.table("scan_cost_log").upsert(row, on_conflict="tenant_id,scan_id").execute()
             self._dirty = False
         except Exception as exc:  # noqa: BLE001
             # Telemetry must never take down the scan itself.

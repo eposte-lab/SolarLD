@@ -226,18 +226,30 @@ def test_verify_webhook_signature_accepts_any_of_rotated_keys() -> None:
 
 
 def test_verify_webhook_signature_missing_fields_returns_false() -> None:
-    assert verify_webhook_signature(
-        body=b"", svix_id="", svix_timestamp="1", svix_signature="v1,x", secret="s"
-    ) is False
-    assert verify_webhook_signature(
-        body=b"", svix_id="a", svix_timestamp="", svix_signature="v1,x", secret="s"
-    ) is False
-    assert verify_webhook_signature(
-        body=b"", svix_id="a", svix_timestamp="1", svix_signature="", secret="s"
-    ) is False
-    assert verify_webhook_signature(
-        body=b"", svix_id="a", svix_timestamp="1", svix_signature="v1,x", secret=""
-    ) is False
+    assert (
+        verify_webhook_signature(
+            body=b"", svix_id="", svix_timestamp="1", svix_signature="v1,x", secret="s"
+        )
+        is False
+    )
+    assert (
+        verify_webhook_signature(
+            body=b"", svix_id="a", svix_timestamp="", svix_signature="v1,x", secret="s"
+        )
+        is False
+    )
+    assert (
+        verify_webhook_signature(
+            body=b"", svix_id="a", svix_timestamp="1", svix_signature="", secret="s"
+        )
+        is False
+    )
+    assert (
+        verify_webhook_signature(
+            body=b"", svix_id="a", svix_timestamp="1", svix_signature="v1,x", secret=""
+        )
+        is False
+    )
 
 
 def test_verify_webhook_signature_bad_timestamp_format() -> None:

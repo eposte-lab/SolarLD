@@ -47,12 +47,12 @@ _DEFAULT_BRAND_COLOR = "#0F766E"
 
 
 class DnsRecord(BaseModel):
-    type: str           # MX | TXT | CNAME
-    name: str           # hostname
-    value: str          # record value
+    type: str  # MX | TXT | CNAME
+    name: str  # hostname
+    value: str  # record value
     priority: int | None = None
     ttl: int | None = None
-    status: str = "not_started"   # not_started | pending | verified | failed (per-record)
+    status: str = "not_started"  # not_started | pending | verified | failed (per-record)
 
 
 class DomainSetupRequest(BaseModel):
@@ -63,7 +63,7 @@ class DomainSetupRequest(BaseModel):
 class DomainStatusResponse(BaseModel):
     domain_id: str
     domain: str
-    status: str          # not_started | pending | verified | failed
+    status: str  # not_started | pending | verified | failed
     dns_records: list[DnsRecord]
     created_at: str | None = None
 
@@ -71,8 +71,8 @@ class DomainStatusResponse(BaseModel):
 class EmailVariant(BaseModel):
     subject: str
     preheader: str
-    body_preview: str    # 2-3 sentence plain-text summary — shown in the preview card
-    rationale: str       # 1 sentence why this variant may win
+    body_preview: str  # 2-3 sentence plain-text summary — shown in the preview card
+    rationale: str  # 1 sentence why this variant may win
 
 
 class GenerateVariantsRequest(BaseModel):
@@ -185,9 +185,7 @@ async def get_email_preview(
 
 
 @router.post("/domain/setup", response_model=DomainStatusResponse)
-async def setup_domain(
-    ctx: CurrentUser, body: DomainSetupRequest
-) -> DomainStatusResponse:
+async def setup_domain(ctx: CurrentUser, body: DomainSetupRequest) -> DomainStatusResponse:
     """Add a custom sending domain to Resend and persist its DNS records.
 
     1. If the tenant already has a ``resend_domain_id`` for the *same*
@@ -534,13 +532,7 @@ async def generate_email_variants(
     tenant_id = require_tenant(ctx)
     sb = get_service_client()
 
-    t_res = (
-        sb.table("tenants")
-        .select("business_name")
-        .eq("id", tenant_id)
-        .limit(1)
-        .execute()
-    )
+    t_res = sb.table("tenants").select("business_name").eq("id", tenant_id).limit(1).execute()
     if not t_res.data:
         raise HTTPException(status_code=404, detail="Tenant not found")
     tenant_name = (t_res.data[0].get("business_name") or "la tua azienda").strip()
@@ -561,9 +553,7 @@ async def generate_email_variants(
         else "proprietari di abitazioni private"
     )
     hint_frag = (
-        f"\nIstruzione extra dall'operatore: «{body.context_hint}»"
-        if body.context_hint
-        else ""
+        f"\nIstruzione extra dall'operatore: «{body.context_hint}»" if body.context_hint else ""
     )
 
     prompt = f"""Sei un esperto copywriter email per il settore energia solare in Italia.
@@ -607,9 +597,7 @@ Rispondi SOLO con JSON valido, senza markdown né ```json```, in questo formato 
             raw_snippet=cleaned[:300],
             err=str(exc),
         )
-        raise HTTPException(
-            status_code=502, detail="Could not parse AI response as JSON"
-        ) from exc
+        raise HTTPException(status_code=502, detail="Could not parse AI response as JSON") from exc
 
     variants: list[EmailVariant] = []
     for v in variants_raw[: body.count]:
@@ -648,17 +636,17 @@ Rispondi SOLO con JSON valido, senza markdown né ```json```, in questo formato 
 
 class RegenerateEmailRequest(BaseModel):
     subject_type: Literal["b2b", "b2c"] = "b2c"
-    save: bool = True   # persist style + copy to tenant settings
+    save: bool = True  # persist style + copy to tenant settings
 
 
 class RegenerateEmailResponse(BaseModel):
-    style: str          # classic | bold | minimal
+    style: str  # classic | bold | minimal
     subject: str
     headline: str
     main_copy_1: str
     main_copy_2: str
     cta_text: str
-    rationale: str      # 1-sentence explanation of choices
+    rationale: str  # 1-sentence explanation of choices
 
 
 @router.post("/regenerate-email", response_model=RegenerateEmailResponse)
@@ -746,9 +734,7 @@ Rispondi SOLO con JSON valido, senza markdown né ```json```:
             raw_snippet=cleaned[:300],
             err=str(exc),
         )
-        raise HTTPException(
-            status_code=502, detail="Could not parse AI response as JSON"
-        ) from exc
+        raise HTTPException(status_code=502, detail="Could not parse AI response as JSON") from exc
 
     result = RegenerateEmailResponse(
         style=str(parsed.get("style", "classic")).strip(),
@@ -796,9 +782,9 @@ Rispondi SOLO con JSON valido, senza markdown né ```json```:
 # directly to the columns added in migration 0064_tenant_about.sql.
 
 
-_ABOUT_MD_MAX_BYTES = 4096          # mirrors DB CHECK
-_ABOUT_TAGLINE_MAX_CHARS = 120      # mirrors DB CHECK
-_ABOUT_CERTIFICATIONS_MAX = 12      # arbitrary but generous; portal chips would wrap past this
+_ABOUT_MD_MAX_BYTES = 4096  # mirrors DB CHECK
+_ABOUT_TAGLINE_MAX_CHARS = 120  # mirrors DB CHECK
+_ABOUT_CERTIFICATIONS_MAX = 12  # arbitrary but generous; portal chips would wrap past this
 
 
 class TenantAbout(BaseModel):
@@ -870,8 +856,7 @@ async def update_about(ctx: CurrentUser, body: TenantAbout) -> TenantAbout:
         raise HTTPException(
             status_code=422,
             detail=(
-                f"about_md exceeds {_ABOUT_MD_MAX_BYTES}-byte limit "
-                "(roughly 4000 characters)."
+                f"about_md exceeds {_ABOUT_MD_MAX_BYTES}-byte limit (roughly 4000 characters)."
             ),
         )
 
@@ -970,7 +955,9 @@ async def upload_email_template(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except RuntimeError as exc:
         log.error("branding.email_template_save_failed", tenant_id=tenant_id, err=str(exc))
-        raise HTTPException(status_code=502, detail="Errore durante il salvataggio del template.") from exc
+        raise HTTPException(
+            status_code=502, detail="Errore durante il salvataggio del template."
+        ) from exc
 
     return {
         "status": "saved",
@@ -1228,9 +1215,7 @@ async def _fetch_domain_status(
             domain=str(data.get("name") or ""),
             status=str(data.get("status") or "not_started"),
             dns_records=dns_records,
-            created_at=(
-                str(data["created_at"]) if data.get("created_at") else None
-            ),
+            created_at=(str(data["created_at"]) if data.get("created_at") else None),
         )
     except Exception as exc:  # noqa: BLE001
         # Never let a parser mismatch crash the request — it leaks as

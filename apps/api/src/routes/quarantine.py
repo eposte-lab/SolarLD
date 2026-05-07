@@ -60,6 +60,7 @@ _VALID_STATUSES = {"pending_review", "approved", "rejected"}
 
 class ReviewBody(BaseModel):
     """Payload for approve / reject actions."""
+
     notes: str | None = None
 
 
@@ -100,10 +101,7 @@ async def list_quarantine(
             valid = ", ".join(sorted(_VALID_STATUSES))
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=(
-                    f"Stato revisione non valido. Valori ammessi: {valid} "
-                    "oppure 'all'."
-                ),
+                detail=(f"Stato revisione non valido. Valori ammessi: {valid} oppure 'all'."),
             )
         q = q.eq("review_status", review_status)
 

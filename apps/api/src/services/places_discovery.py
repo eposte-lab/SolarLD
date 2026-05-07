@@ -344,9 +344,7 @@ async def fetch_place_details(
     if client is None:
         client = httpx.AsyncClient(timeout=5.0)
     try:
-        resp = await client.get(
-            PLACES_DETAILS_URL.format(place_id=place_id), headers=headers
-        )
+        resp = await client.get(PLACES_DETAILS_URL.format(place_id=place_id), headers=headers)
     finally:
         if owns_client:
             await client.aclose()

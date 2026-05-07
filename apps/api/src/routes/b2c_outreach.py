@@ -109,9 +109,7 @@ async def trigger_mail_campaign(
         cta_primary=ocfg.get("cta_primary"),
     )
 
-    template_id = payload.template_id or resolve_template_id(
-        tenant_id, bucket
-    )
+    template_id = payload.template_id or resolve_template_id(tenant_id, bucket)
 
     result = await submit_letter_campaign(
         LetterCampaignRequest(
@@ -182,9 +180,7 @@ async def trigger_meta_campaign(
 
 
 @router.get("/audiences/{audience_id}")
-async def read_audience(
-    ctx: CurrentUser, audience_id: UUID
-) -> dict[str, Any]:
+async def read_audience(ctx: CurrentUser, audience_id: UUID) -> dict[str, Any]:
     """Return one audience's full row — used by the dashboard detail page."""
     tenant_id = require_tenant(ctx)
     audience = await get_audience(audience_id, tenant_id)

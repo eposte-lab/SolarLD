@@ -114,7 +114,7 @@ async def _geocode_text(
     places = data.get("places") or []
     if not places:
         return None
-    loc = (places[0].get("location") or {})
+    loc = places[0].get("location") or {}
     lat = loc.get("latitude")
     lng = loc.get("longitude")
     if lat is None or lng is None:

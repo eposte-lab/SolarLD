@@ -80,11 +80,7 @@ def test_parse_batch_response_happy_path():
 
 
 def test_parse_batch_response_strips_markdown_fence():
-    text = (
-        "```json\n"
-        '{"results": [{"score": 50, "reasons": [], "flags": []}]}\n'
-        "```"
-    )
+    text = '```json\n{"results": [{"score": 50, "reasons": [], "flags": []}]}\n```'
     parsed = _parse_batch_response(text, expected_len=1)
     assert parsed is not None
     assert parsed[0]["score"] == 50
@@ -200,9 +196,7 @@ def test_fallback_marks_haiku_unavailable_flag():
 
 
 def test_cost_accumulator_sums_centres():
-    cost = ScanCostAccumulator(
-        tenant_id="t1", scan_id="s1", scan_mode="b2b_funnel_v2"
-    )
+    cost = ScanCostAccumulator(tenant_id="t1", scan_id="s1", scan_mode="b2b_funnel_v2")
     cost.add_atoka(records=100, cost_cents=100)
     cost.add_places(calls=50, cost_cents=100)
     cost.add_claude(scored=100, cost_cents=100)
@@ -217,14 +211,12 @@ def test_cost_accumulator_sums_centres():
 
 
 def test_cost_accumulator_over_budget_respects_none():
-    cost = ScanCostAccumulator(
-        tenant_id="t1", scan_id="s1", scan_mode="b2b_funnel_v2"
-    )
+    cost = ScanCostAccumulator(tenant_id="t1", scan_id="s1", scan_mode="b2b_funnel_v2")
     cost.add_atoka(records=100, cost_cents=50_000)  # €500
     assert cost.over_budget(None) is False
     assert cost.over_budget(0) is False
     assert cost.over_budget(1000.0) is False  # €1000 budget, €500 spent
-    assert cost.over_budget(100.0) is True    # €100 budget, €500 spent
+    assert cost.over_budget(100.0) is True  # €100 budget, €500 spent
 
 
 # ---------------------------------------------------------------------------

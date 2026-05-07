@@ -38,9 +38,9 @@ from typing import Any
 from ..models.enums import CampaignStatus, LeadStatus, OutreachChannel
 
 # Cadence offsets from the day-0 outreach.
-STEP_2_DELAY_DAYS = 4    # d+4: nudge
-STEP_3_DELAY_DAYS = 9    # d+9: soft case study
-STEP_4_DELAY_DAYS = 14   # d+14: breakup email ("chiudo il caso")
+STEP_2_DELAY_DAYS = 4  # d+4: nudge
+STEP_3_DELAY_DAYS = 9  # d+9: soft case study
+STEP_4_DELAY_DAYS = 14  # d+14: breakup email ("chiudo il caso")
 # Step N should never fire less than this after step N-1 (guard-rail in
 # case the clock skews or the first send was batch-backfilled).
 MIN_GAP_BETWEEN_STEPS_DAYS = 3
@@ -84,7 +84,7 @@ class FollowUpCandidate:
 @dataclass(slots=True, frozen=True)
 class CampaignSummary:
     sequence_step: int
-    status: str                            # pending|sent|delivered|failed|cancelled
+    status: str  # pending|sent|delivered|failed|cancelled
     sent_at: datetime | None
     channel: str = OutreachChannel.EMAIL.value
 
@@ -98,13 +98,11 @@ class FollowUpDecision:
     """
 
     should_send: bool
-    step: int | None = None            # 2 or 3
+    step: int | None = None  # 2 or 3
     reason: str | None = None
 
 
-def select_next_step(
-    candidate: FollowUpCandidate, *, now: datetime
-) -> FollowUpDecision:
+def select_next_step(candidate: FollowUpCandidate, *, now: datetime) -> FollowUpDecision:
     """Decide whether to enqueue a follow-up email for this lead.
 
     ``now`` is injected so tests can freeze the clock deterministically.
@@ -156,20 +154,12 @@ def select_next_step(
             return FollowUpDecision(False, reason="step2_not_delivered")
 
         age_days = _days_between(candidate.outreach_sent_at, now)
-        gap_days = (
-            _days_between(step2.sent_at, now)
-            if step2.sent_at is not None
-            else 0.0
-        )
+        gap_days = _days_between(step2.sent_at, now) if step2.sent_at is not None else 0.0
         if age_days >= STEP_3_DELAY_DAYS and gap_days >= MIN_GAP_BETWEEN_STEPS_DAYS:
             return FollowUpDecision(True, step=3)
         if age_days < STEP_3_DELAY_DAYS:
-            return FollowUpDecision(
-                False, reason=f"too_early_for_step3(age={age_days:.1f}d)"
-            )
-        return FollowUpDecision(
-            False, reason=f"step2_too_recent(gap={gap_days:.1f}d)"
-        )
+            return FollowUpDecision(False, reason=f"too_early_for_step3(age={age_days:.1f}d)")
+        return FollowUpDecision(False, reason=f"step2_too_recent(gap={gap_days:.1f}d)")
 
     # Step 3 already went — check step 4 (breakup email at d+14).
     if _find_step(candidate.campaigns, step=4) is not None:
@@ -183,20 +173,12 @@ def select_next_step(
         return FollowUpDecision(False, reason="step3_not_delivered")
 
     age_days = _days_between(candidate.outreach_sent_at, now)
-    gap_days = (
-        _days_between(step3_row.sent_at, now)
-        if step3_row.sent_at is not None
-        else 0.0
-    )
+    gap_days = _days_between(step3_row.sent_at, now) if step3_row.sent_at is not None else 0.0
     if age_days >= STEP_4_DELAY_DAYS and gap_days >= MIN_GAP_BETWEEN_STEPS_DAYS:
         return FollowUpDecision(True, step=4)
     if age_days < STEP_4_DELAY_DAYS:
-        return FollowUpDecision(
-            False, reason=f"too_early_for_step4(age={age_days:.1f}d)"
-        )
-    return FollowUpDecision(
-        False, reason=f"step3_too_recent(gap={gap_days:.1f}d)"
-    )
+        return FollowUpDecision(False, reason=f"too_early_for_step4(age={age_days:.1f}d)")
+    return FollowUpDecision(False, reason=f"step3_too_recent(gap={gap_days:.1f}d)")
 
 
 # ---------------------------------------------------------------------------
@@ -204,14 +186,10 @@ def select_next_step(
 # ---------------------------------------------------------------------------
 
 
-def _find_step(
-    campaigns: tuple[CampaignSummary, ...], *, step: int
-) -> CampaignSummary | None:
+def _find_step(campaigns: tuple[CampaignSummary, ...], *, step: int) -> CampaignSummary | None:
     """Return the most-recent email campaign matching this step."""
     matches = [
-        c
-        for c in campaigns
-        if c.sequence_step == step and c.channel == OutreachChannel.EMAIL.value
+        c for c in campaigns if c.sequence_step == step and c.channel == OutreachChannel.EMAIL.value
     ]
     if not matches:
         return None

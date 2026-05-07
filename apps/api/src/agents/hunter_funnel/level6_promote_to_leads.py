@@ -101,9 +101,7 @@ async def run_level6_promote_to_leads(
             roof_id = sc.get("roof_id")
             if not roof_id:
                 # No solar roof → can't create lead (subjects.roof_id NOT NULL)
-                log.debug(
-                    "level6_promote.skip_no_roof", candidate_id=str(cand.record.candidate_id)
-                )
+                log.debug("level6_promote.skip_no_roof", candidate_id=str(cand.record.candidate_id))
                 skipped += 1
                 continue
 
@@ -142,8 +140,7 @@ async def run_level6_promote_to_leads(
                     "type": "b2b",
                     "business_name": business_name,
                     "ateco_code": primary_ateco,
-                    "decision_maker_email": contact.get("best_email")
-                    or scraped.get("best_email"),
+                    "decision_maker_email": contact.get("best_email") or scraped.get("best_email"),
                     "decision_maker_email_verified": False,
                     "decision_maker_phone": contact.get("phone")
                     or scraped.get("phone")
@@ -154,11 +151,7 @@ async def run_level6_promote_to_leads(
                     # website_scrape — the closest semantic equivalent.
                     "decision_maker_phone_source": (
                         "website_scrape"
-                        if (
-                            contact.get("phone")
-                            or scraped.get("phone")
-                            or place_blob.get("phone")
-                        )
+                        if (contact.get("phone") or scraped.get("phone") or place_blob.get("phone"))
                         else None
                     ),
                     "linkedin_url": scraped.get("linkedin_url"),
@@ -218,9 +211,7 @@ async def run_level6_promote_to_leads(
                     "icp_fit": score_blob.get("icp_fit_score"),
                     "building_quality": score_blob.get("building_quality_score"),
                     "solar_potential": score_blob.get("solar_potential_score"),
-                    "contact_completeness": score_blob.get(
-                        "contact_completeness_score"
-                    ),
+                    "contact_completeness": score_blob.get("contact_completeness_score"),
                     "overall": score,
                     "source": "funnel_v3_haiku",
                 },

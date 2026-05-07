@@ -162,10 +162,7 @@ async def gdpr_erase(
 
     # 1) Subjects: blank il PII
     subj_res = (
-        sb.table("subjects")
-        .select("id, tenant_id")
-        .eq("decision_maker_email", email)
-        .execute()
+        sb.table("subjects").select("id, tenant_id").eq("decision_maker_email", email).execute()
     )
     subjects = subj_res.data or []
     subject_ids = [s["id"] for s in subjects]
@@ -192,12 +189,7 @@ async def gdpr_erase(
 
     # 3) Audit rows: hard delete (è esattamente il dato che il diritto
     #    all'oblio chiede di rimuovere)
-    cel_res = (
-        sb.table("contact_extraction_log")
-        .delete()
-        .eq("contact_value", email)
-        .execute()
-    )
+    cel_res = sb.table("contact_extraction_log").delete().eq("contact_value", email).execute()
     erased_audit = len(cel_res.data or [])
 
     # 4) Blacklist permanente per impedire re-discovery futuro

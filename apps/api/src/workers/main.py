@@ -61,9 +61,7 @@ async def hunter_task(_ctx: dict[str, Any], payload: dict[str, Any]) -> dict[str
     return out.model_dump()
 
 
-async def email_extraction_task(
-    _ctx: dict[str, Any], payload: dict[str, Any]
-) -> dict[str, Any]:
+async def email_extraction_task(_ctx: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
     """Phase 2 (offline filters) + Phase 3 (email extraction + GDPR audit).
 
     Replaces the legacy identity_task. Enqueued by level4_solar_gate.py
@@ -95,9 +93,7 @@ async def validate_prospect_list_task(
 ) -> dict[str, Any]:
     """ARQ task: convalida v3 (L2+L3+L4) on a prospect list. Triggered
     by `POST /v1/prospector/lists/{id}/validate`."""
-    res = await validate_prospect_list(
-        tenant_id=payload["tenant_id"], list_id=payload["list_id"]
-    )
+    res = await validate_prospect_list(tenant_id=payload["tenant_id"], list_id=payload["list_id"])
     return {
         "list_id": res.list_id,
         "total": res.total,
@@ -111,9 +107,7 @@ async def launch_outreach_for_list_task(
 ) -> dict[str, Any]:
     """ARQ task: promote accepted items to leads + queue creative +
     outreach. Triggered by `POST /v1/prospector/lists/{id}/launch-outreach`."""
-    res = await launch_outreach_for_list(
-        tenant_id=payload["tenant_id"], list_id=payload["list_id"]
-    )
+    res = await launch_outreach_for_list(tenant_id=payload["tenant_id"], list_id=payload["list_id"])
     return {
         "list_id": res.list_id,
         "promoted": res.promoted,
@@ -139,9 +133,7 @@ async def replies_task(_ctx: dict[str, Any], payload: dict[str, Any]) -> dict[st
     return out.model_dump()
 
 
-async def conversation_task(
-    _ctx: dict[str, Any], payload: dict[str, Any]
-) -> dict[str, Any]:
+async def conversation_task(_ctx: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
     out = await ConversationAgent().run(ConversationInput(**payload))
     return out.model_dump()
 
@@ -161,9 +153,7 @@ async def b2c_post_engagement_qualify_task(
     )
 
 
-async def meta_lead_enrich_task(
-    _ctx: dict[str, Any], payload: dict[str, Any]
-) -> dict[str, Any]:
+async def meta_lead_enrich_task(_ctx: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
     """Fetch Meta Graph API field_data for a newly-received leadgen id.
 
     Today this is a stub that records the intent — the real Graph
@@ -187,9 +177,7 @@ async def meta_lead_enrich_task(
     return {"status": "pending_graph_call", "leadgen_id": leadgen_id}
 
 
-async def practice_generation_task(
-    _ctx: dict[str, Any], payload: dict[str, Any]
-) -> dict[str, Any]:
+async def practice_generation_task(_ctx: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
     """Fan out per-template render tasks for a freshly-created practice.
 
     Payload:
@@ -307,14 +295,10 @@ async def extract_practice_upload_task(
     upload_id = payload["upload_id"]
     sb = get_service_client()
 
-    row_res = (
-        sb.table("practice_uploads").select("*").eq("id", upload_id).execute()
-    )
+    row_res = sb.table("practice_uploads").select("*").eq("id", upload_id).execute()
     rows = row_res.data or []
     if not rows:
-        log.warning(
-            "practice.upload.extract.row_missing", upload_id=upload_id
-        )
+        log.warning("practice.upload.extract.row_missing", upload_id=upload_id)
         return {"upload_id": upload_id, "ok": False, "error": "row_missing"}
 
     row = rows[0]
@@ -324,9 +308,7 @@ async def extract_practice_upload_task(
 
     # Download the file bytes from the private bucket via service role.
     try:
-        file_bytes = sb.storage.from_("practice-uploads").download(
-            storage_path
-        )
+        file_bytes = sb.storage.from_("practice-uploads").download(storage_path)
     except Exception as exc:  # noqa: BLE001
         log.exception(
             "practice.upload.extract.download_failed",
@@ -344,13 +326,9 @@ async def extract_practice_upload_task(
 
     # Run the OCR.
     try:
-        result = await extract_for_kind(
-            file_bytes, mime_type, upload_kind
-        )
+        result = await extract_for_kind(file_bytes, mime_type, upload_kind)
     except Exception as exc:  # noqa: BLE001
-        log.exception(
-            "practice.upload.extract.api_failed", upload_id=upload_id
-        )
+        log.exception("practice.upload.extract.api_failed", upload_id=upload_id)
         sb.table("practice_uploads").update(
             {
                 "extraction_status": "failed",
@@ -370,9 +348,7 @@ async def extract_practice_upload_task(
         }
     else:
         update = {
-            "extraction_status": (
-                "manual_required" if result.manual_required else "success"
-            ),
+            "extraction_status": ("manual_required" if result.manual_required else "success"),
             "extracted_data": result.fields,
             "confidence": result.confidence,
             "raw_response": result.raw_response,
@@ -396,9 +372,7 @@ async def extract_practice_upload_task(
     }
 
 
-async def map_target_areas_task(
-    _ctx: dict[str, Any], payload: dict[str, Any]
-) -> dict[str, Any]:
+async def map_target_areas_task(_ctx: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
     """L0 — One-shot OSM zone mapping for a tenant.
 
     Triggered via POST /v1/territory/map (or onboarding completion).
@@ -432,9 +406,7 @@ async def map_target_areas_task(
     }
 
 
-async def hunter_funnel_v3_task(
-    _ctx: dict[str, Any], payload: dict[str, Any]
-) -> dict[str, Any]:
+async def hunter_funnel_v3_task(_ctx: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
     """FLUSSO 1 v3 — geocentric, no-Atoka funnel for one tenant.
 
     Triggered by the daily 05:30 UTC cron for every tenant with at
@@ -481,9 +453,7 @@ async def hunter_funnel_v3_task(
     return summary
 
 
-async def crm_webhook_task(
-    _ctx: dict[str, Any], payload: dict[str, Any]
-) -> dict[str, Any]:
+async def crm_webhook_task(_ctx: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
     """Fan out a lifecycle event to every active subscription.
 
     Payload shape:

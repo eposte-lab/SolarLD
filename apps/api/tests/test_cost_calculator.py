@@ -135,8 +135,7 @@ def test_estimate_monthly_costs_caps_scale_linearly() -> None:
     # than 2× — fixed infra amortises across more emails.
     assert cap_200 > cap_100, f"cap_200 ({cap_200}) ≤ cap_100 ({cap_100})"
     assert cap_200 < 2 * cap_100, (
-        f"cap_200 ({cap_200}) ≥ 2× cap_100 ({2 * cap_100}) — fixed "
-        "infra not amortising"
+        f"cap_200 ({cap_200}) ≥ 2× cap_100 ({2 * cap_100}) — fixed infra not amortising"
     )
 
     # Sanity: cap-100 lands in the low thousands €, not hundreds or
@@ -221,9 +220,5 @@ def test_channel_mix_shares_sum_to_one() -> None:
     """email + whatsapp + phone_only must partition the universe.
     Drift here would silently mis-allocate the per-channel cost
     breakdown."""
-    total = (
-        cc.CHANNEL_MIX_EMAIL
-        + cc.CHANNEL_MIX_WHATSAPP
-        + cc.CHANNEL_MIX_PHONE_ONLY
-    )
+    total = cc.CHANNEL_MIX_EMAIL + cc.CHANNEL_MIX_WHATSAPP + cc.CHANNEL_MIX_PHONE_ONLY
     assert total == pytest.approx(1.0)

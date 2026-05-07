@@ -113,9 +113,7 @@ async def quote_draft(ctx: CurrentUser, lead_id: UUID) -> QuoteDraftResponse:
     try:
         auto = build_auto_fields(lead_id, tenant_id)
     except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="lead not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="lead not found")
 
     # We allocate-and-show here — the seq IS consumed. Two concurrent
     # drafts would get distinct numbers, the unused one is simply
@@ -154,9 +152,7 @@ async def create_quote(
             manual_fields=body.manual_fields,
         )
     except ValueError as exc:  # lead missing / wrong tenant
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
     except Exception:  # WeasyPrint errors, upload errors → log + 500
         log.exception(
             "quote.create.failed",
@@ -223,9 +219,7 @@ async def list_quotes(ctx: CurrentUser, lead_id: UUID) -> list[QuoteResponse]:
     response_class=RedirectResponse,
     status_code=status.HTTP_302_FOUND,
 )
-async def get_quote_pdf(
-    ctx: CurrentUser, lead_id: UUID, quote_id: UUID
-) -> RedirectResponse:
+async def get_quote_pdf(ctx: CurrentUser, lead_id: UUID, quote_id: UUID) -> RedirectResponse:
     """Redirect to a fresh signed URL for the PDF.
 
     The public URL stored in ``pdf_url`` works only for public buckets;
@@ -236,9 +230,7 @@ async def get_quote_pdf(
     tenant_id = require_tenant(ctx)
     quote = get_quote(quote_id, tenant_id)
     if not quote or str(quote.lead_id) != str(lead_id):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="quote not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="quote not found")
     if not quote.pdf_url:
         raise HTTPException(
             status_code=status.HTTP_410_GONE,

@@ -145,9 +145,7 @@ def reject_geo_change(
 
     cur = current or {}
     changed = [
-        f
-        for f in SORGENTE_LOCKED_FIELDS
-        if _normalised(cur.get(f)) != _normalised(proposed.get(f))
+        f for f in SORGENTE_LOCKED_FIELDS if _normalised(cur.get(f)) != _normalised(proposed.get(f))
     ]
     if changed:
         raise HTTPException(

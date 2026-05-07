@@ -71,8 +71,7 @@ async def get_warehouse_status(ctx: CurrentUser) -> dict[str, Any]:
     health_res = (
         sb.table("warehouse_health")
         .select(
-            "ready_to_send_count, expiring_within_3d, oldest_age_days, "
-            "runway_days, needs_refill"
+            "ready_to_send_count, expiring_within_3d, oldest_age_days, runway_days, needs_refill"
         )
         .eq("tenant_id", tenant_id)
         .limit(1)
@@ -103,9 +102,7 @@ async def get_warehouse_status(ctx: CurrentUser) -> dict[str, Any]:
     }
 
 
-def _derive_alerts(
-    *, ready: int, h: dict[str, Any], policy: Any
-) -> list[dict[str, Any]]:
+def _derive_alerts(*, ready: int, h: dict[str, Any], policy: Any) -> list[dict[str, Any]]:
     """Translate raw warehouse state into actionable alert cards.
 
     Kept inline here (rather than the admin alert service in Task 37)

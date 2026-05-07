@@ -126,9 +126,7 @@ class ScoringAgent(AgentBase[ScoringInput, ScoringOutput]):
             .execute()
         )
         weights_row = (weights_res.data or [None])[0]
-        weights = ScoringWeights.from_jsonb(
-            weights_row["weights"] if weights_row else None
-        )
+        weights = ScoringWeights.from_jsonb(weights_row["weights"] if weights_row else None)
         weights_version = weights_row["version"] if weights_row else None
 
         # 3) ATECO lookup (B2B only)
@@ -161,13 +159,9 @@ class ScoringAgent(AgentBase[ScoringInput, ScoringOutput]):
         breakdown = ScoringBreakdown(
             technical=technical_score(roof),
             consumption=consumption_score(subject, roof, ateco_profile),
-            incentives=incentives_score(
-                incentives, subject.get("type") or "unknown"
-            ),
+            incentives=incentives_score(incentives, subject.get("type") or "unknown"),
             solvency=solvency_score(subject),
-            distance=distance_score(
-                roof.get("lat"), roof.get("lng"), hq_lat, hq_lng
-            ),
+            distance=distance_score(roof.get("lat"), roof.get("lng"), hq_lat, hq_lng),
         )
         final_score = combine_breakdown(breakdown, weights)
 
@@ -220,10 +214,15 @@ class ScoringAgent(AgentBase[ScoringInput, ScoringOutput]):
             # progressed past it. A lead that's `picked` / `rendering` /
             # `sent` should keep its forward state — we just refreshed
             # the score for analytics, not to re-stage the same email.
-            if (
-                is_qualified
-                and existing_status in {None, "new", "discovered", "enriched", "scored", "qualified", "expired"}
-            ):
+            if is_qualified and existing_status in {
+                None,
+                "new",
+                "discovered",
+                "enriched",
+                "scored",
+                "qualified",
+                "expired",
+            }:
                 update_payload["pipeline_status"] = "ready_to_send"
                 update_payload["enqueued_to_warehouse_at"] = warehouse_now.isoformat()
                 if warehouse_expires is not None:
@@ -252,9 +251,9 @@ class ScoringAgent(AgentBase[ScoringInput, ScoringOutput]):
         # 7) Transition roof.status → scored (unless already downstream)
         current_status = roof.get("status")
         if current_status in (RoofStatus.IDENTIFIED.value, RoofStatus.DISCOVERED.value):
-            sb.table("roofs").update(
-                {"status": RoofStatus.SCORED.value}
-            ).eq("id", payload.roof_id).execute()
+            sb.table("roofs").update({"status": RoofStatus.SCORED.value}).eq(
+                "id", payload.roof_id
+            ).execute()
 
         out = ScoringOutput(
             lead_id=lead_id,
@@ -284,17 +283,8 @@ class ScoringAgent(AgentBase[ScoringInput, ScoringOutput]):
 # ---------------------------------------------------------------------------
 
 
-def _load_single(
-    sb: Any, table: str, row_id: str, tenant_id: str
-) -> dict[str, Any] | None:
-    res = (
-        sb.table(table)
-        .select("*")
-        .eq("id", row_id)
-        .eq("tenant_id", tenant_id)
-        .limit(1)
-        .execute()
-    )
+def _load_single(sb: Any, table: str, row_id: str, tenant_id: str) -> dict[str, Any] | None:
+    res = sb.table(table).select("*").eq("id", row_id).eq("tenant_id", tenant_id).limit(1).execute()
     data = res.data or []
     return data[0] if data else None
 

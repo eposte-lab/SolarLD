@@ -126,9 +126,9 @@ async def test_tier1_atoka_sede_operativa_short_circuits() -> None:
         hq_address=profile.hq_address,
         hq_city=profile.hq_city,
         hq_province=profile.hq_province,
-        scan_website=_no_call,         # must NOT be called
-        forward_geocode=_no_call,      # must NOT be called
-        places_search=_no_call,        # must NOT be called
+        scan_website=_no_call,  # must NOT be called
+        forward_geocode=_no_call,  # must NOT be called
+        places_search=_no_call,  # must NOT be called
     )
 
     assert site.source == "atoka"

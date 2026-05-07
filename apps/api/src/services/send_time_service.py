@@ -54,10 +54,12 @@ LOOKBACK_DAYS = 180
 # the client fetched the tracked link), so we include both —
 # counting a click as one vote on equal footing is fine because the
 # mode is rank-order, not weighted.
-_SIGNAL_EVENT_TYPES: frozenset[str] = frozenset({
-    "lead.email_opened",
-    "lead.email_clicked",
-})
+_SIGNAL_EVENT_TYPES: frozenset[str] = frozenset(
+    {
+        "lead.email_opened",
+        "lead.email_clicked",
+    }
+)
 
 # Default when no personal / tenant signal exists. 09 UTC ≈ 10-11 CET
 # — after standup, before the midday slump. Common default across
@@ -132,9 +134,7 @@ def pick_next_send_time(
         or DEFAULT_SEND_HOUR_UTC
     )
     now_utc = now.astimezone(UTC)
-    target_today = now_utc.replace(
-        hour=hour, minute=0, second=0, microsecond=0
-    )
+    target_today = now_utc.replace(hour=hour, minute=0, second=0, microsecond=0)
     window = timedelta(minutes=immediate_window_minutes)
 
     # Inside the "close enough to now" window → send immediately.
@@ -225,12 +225,7 @@ async def run_send_time_rollup(
 
     # Also find leads that used to have a best_send_hour so we can
     # clear stale ones (below the sample threshold after attrition).
-    stale_res = (
-        sb.table("leads")
-        .select("id")
-        .not_.is_("best_send_hour", "null")
-        .execute()
-    )
+    stale_res = sb.table("leads").select("id").not_.is_("best_send_hour", "null").execute()
     previously_set = {row["id"] for row in (stale_res.data or [])}
 
     updated = 0
@@ -238,9 +233,7 @@ async def run_send_time_rollup(
     for lid, timestamps in by_lead.items():
         best = compute_best_hour_from_timestamps(timestamps)
         try:
-            sb.table("leads").update(
-                {"best_send_hour": best}
-            ).eq("id", lid).execute()
+            sb.table("leads").update({"best_send_hour": best}).eq("id", lid).execute()
         except Exception as exc:  # noqa: BLE001
             log.warning(
                 "send_time.rollup.update_failed",
@@ -258,9 +251,7 @@ async def run_send_time_rollup(
     # (all of its opens fell out of the 180d window) → clear.
     for lid in previously_set:
         try:
-            sb.table("leads").update(
-                {"best_send_hour": None}
-            ).eq("id", lid).execute()
+            sb.table("leads").update({"best_send_hour": None}).eq("id", lid).execute()
             cleared += 1
         except Exception as exc:  # noqa: BLE001
             log.warning(

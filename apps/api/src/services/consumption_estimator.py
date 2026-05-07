@@ -66,58 +66,58 @@ from typing import Any
 ATECO_KWH_PER_1000_EUR: dict[str, float] = {
     # Heavy industry — ATECO division 24 (metallurgy), 23 (cement/glass),
     # 20 (chemicals), 17 (paper/pulp).
-    "24": 38.0,   # metallurgia
-    "23": 34.0,   # cemento, vetro, ceramica
-    "20": 30.0,   # chimica
-    "17": 26.0,   # carta
+    "24": 38.0,  # metallurgia
+    "23": 34.0,  # cemento, vetro, ceramica
+    "20": 30.0,  # chimica
+    "17": 26.0,  # carta
     # Food processing — energy-hungry refrigeration + ovens.
-    "10": 18.0,   # industria alimentare
-    "11": 16.0,   # bevande
+    "10": 18.0,  # industria alimentare
+    "11": 16.0,  # bevande
     # Other manufacturing.
-    "13": 15.0,   # tessile
-    "14": 12.0,   # abbigliamento
-    "15": 12.0,   # pelletteria
-    "16": 14.0,   # legno
-    "22": 14.0,   # gomma e plastica
-    "25": 16.0,   # metalli (non basici)
-    "27": 14.0,   # apparecchi elettrici
-    "28": 14.0,   # macchinari
-    "29": 14.0,   # autoveicoli
-    "31": 11.0,   # mobili
-    "32": 10.0,   # altre manifatturiere
+    "13": 15.0,  # tessile
+    "14": 12.0,  # abbigliamento
+    "15": 12.0,  # pelletteria
+    "16": 14.0,  # legno
+    "22": 14.0,  # gomma e plastica
+    "25": 16.0,  # metalli (non basici)
+    "27": 14.0,  # apparecchi elettrici
+    "28": 14.0,  # macchinari
+    "29": 14.0,  # autoveicoli
+    "31": 11.0,  # mobili
+    "32": 10.0,  # altre manifatturiere
     # Cold chain / logistics — driven by refrigerated warehouses.
-    "52": 9.0,    # magazzinaggio (incl. cold storage)
-    "49": 5.0,    # trasporto terrestre (depots + offices)
+    "52": 9.0,  # magazzinaggio (incl. cold storage)
+    "49": 5.0,  # trasporto terrestre (depots + offices)
     # Commerce + hospitality — driven by HVAC, lighting, cooking, fridges.
-    "47": 8.0,    # commercio al dettaglio
-    "46": 5.0,    # commercio all'ingrosso
-    "55": 14.0,   # alberghi
-    "56": 12.0,   # ristoranti, bar
+    "47": 8.0,  # commercio al dettaglio
+    "46": 5.0,  # commercio all'ingrosso
+    "55": 14.0,  # alberghi
+    "56": 12.0,  # ristoranti, bar
     # Large public-facing services.
-    "85": 7.0,    # istruzione (scuole)
-    "86": 11.0,   # sanità (cliniche, RSA)
-    "87": 9.0,    # assistenza sociale residenziale
-    "93": 8.0,    # attività sportive (palestre, piscine)
+    "85": 7.0,  # istruzione (scuole)
+    "86": 11.0,  # sanità (cliniche, RSA)
+    "87": 9.0,  # assistenza sociale residenziale
+    "93": 8.0,  # attività sportive (palestre, piscine)
     # Office-heavy services.
-    "41": 5.0,    # costruzioni edili (uffici di cantiere)
-    "42": 5.0,    # ingegneria civile
-    "43": 4.0,    # installazioni
-    "68": 2.5,    # immobiliare
-    "69": 2.0,    # studi legali / contabili
-    "70": 2.0,    # consulenza direzionale
-    "71": 2.5,    # ingegneria, architettura
-    "73": 2.5,    # marketing, advertising
-    "74": 2.0,    # altre attività professionali
+    "41": 5.0,  # costruzioni edili (uffici di cantiere)
+    "42": 5.0,  # ingegneria civile
+    "43": 4.0,  # installazioni
+    "68": 2.5,  # immobiliare
+    "69": 2.0,  # studi legali / contabili
+    "70": 2.0,  # consulenza direzionale
+    "71": 2.5,  # ingegneria, architettura
+    "73": 2.5,  # marketing, advertising
+    "74": 2.0,  # altre attività professionali
     # Light services / digital.
-    "62": 1.5,    # software, IT
-    "63": 1.5,    # servizi informatici
-    "58": 1.8,    # editoria
-    "82": 2.5,    # servizi alle imprese (call centre etc.)
+    "62": 1.5,  # software, IT
+    "63": 1.5,  # servizi informatici
+    "58": 1.8,  # editoria
+    "82": 2.5,  # servizi alle imprese (call centre etc.)
     # Public sector / utilities (excluded by anti-uffici filter usually,
     # kept here for completeness).
-    "35": 22.0,   # energia (own consumption)
-    "36": 12.0,   # acqua
-    "38": 10.0,   # rifiuti
+    "35": 22.0,  # energia (own consumption)
+    "36": 12.0,  # acqua
+    "38": 10.0,  # rifiuti
 }
 
 # Fallback when the ATECO code has no entry — uses the median of the
@@ -145,7 +145,7 @@ MIN_QUALIFYING_KWP: float = 30.0
 # reports a holding's consolidated revenue against a tiny operating
 # subsidiary, which would over-estimate consumption 100x).
 MAX_REASONABLE_YEARLY_KWH: float = 50_000_000.0  # 50 GWh — a small smelter
-MIN_REASONABLE_YEARLY_KWH: float = 1_000.0       # below this we treat as "no data"
+MIN_REASONABLE_YEARLY_KWH: float = 1_000.0  # below this we treat as "no data"
 
 
 @dataclass(frozen=True)
@@ -207,9 +207,7 @@ def stima_potenza_FV(azienda: dict[str, Any]) -> ConsumptionEstimate:
             notes="Estimated load below minimum threshold for B2B PV.",
         )
 
-    recommended_kwp = (
-        yearly_kwh * SELF_CONSUMPTION_TARGET_RATIO / KWH_PER_KWP_PER_YEAR_AVG
-    )
+    recommended_kwp = yearly_kwh * SELF_CONSUMPTION_TARGET_RATIO / KWH_PER_KWP_PER_YEAR_AVG
     qualifies = recommended_kwp >= MIN_QUALIFYING_KWP
 
     return ConsumptionEstimate(

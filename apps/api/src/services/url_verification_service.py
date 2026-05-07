@@ -151,9 +151,7 @@ async def is_url_reachable(
             await client.aclose()
 
 
-async def filter_url_or_none(
-    url: str | None, *, timeout_s: float = 5.0
-) -> str | None:
+async def filter_url_or_none(url: str | None, *, timeout_s: float = 5.0) -> str | None:
     """Convenience wrapper: return url when reachable, else None.
 
     Use this at write sites where we want to drop unreachable URLs:

@@ -166,9 +166,7 @@ async def run_engagement_rollup(
     # ------------------------------------------------------------------
     events_res = (
         sb.table("portal_events")
-        .select(
-            "tenant_id, lead_id, session_id, event_kind, metadata"
-        )
+        .select("tenant_id, lead_id, session_id, event_kind, metadata")
         .gte("occurred_at", window_start.isoformat())
         .execute()
     )
@@ -179,9 +177,7 @@ async def run_engagement_rollup(
         tid = row.get("tenant_id")
         if not lid or not tid:
             continue
-        stats = by_lead.setdefault(
-            lid, LeadEngagementStats(lead_id=lid, tenant_id=tid)
-        )
+        stats = by_lead.setdefault(lid, LeadEngagementStats(lead_id=lid, tenant_id=tid))
         sid = row.get("session_id")
         if sid:
             stats.sessions.add(str(sid))

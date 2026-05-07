@@ -100,9 +100,7 @@ async def run_b2c_residential(
             "channels_active": channels_active,
             # Rough reachable-household total across all CAPs — useful
             # for the dashboard tile headline.
-            "reachable_contacts": sum(
-                a.get("stima_contatti", 0) for a in audiences
-            ),
+            "reachable_contacts": sum(a.get("stima_contatti", 0) for a in audiences),
         },
         tenant_id=payload.tenant_id,
     )

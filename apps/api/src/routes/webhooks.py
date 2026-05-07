@@ -222,19 +222,13 @@ async def email_inbound_webhook(
     # Only stamp once — do not overwrite a prior cta_click.
     # ----------------------------------------------------------------
     if not lead.get("source"):
-        sb.table("leads").update({"source": "email_reply"}).eq(
-            "id", lead_id
-        ).execute()
+        sb.table("leads").update({"source": "email_reply"}).eq("id", lead_id).execute()
 
     # ----------------------------------------------------------------
     # Insert lead_replies row (unanalysed; RepliesAgent will fill it)
     # ----------------------------------------------------------------
     from_email = _extract_from_email(payload.get("from") or "")
-    body_text = (
-        payload.get("text")
-        or _strip_html(payload.get("html") or "")
-        or ""
-    ).strip()
+    body_text = (payload.get("text") or _strip_html(payload.get("html") or "") or "").strip()
     reply_subject = (payload.get("subject") or "").strip() or None
 
     now_iso = datetime.now(UTC).isoformat()
@@ -366,9 +360,7 @@ async def pixart_webhook(request: Request) -> dict[str, str]:
     # 1) Auth (HMAC-SHA256)
     # ------------------------------------------------------------------
     sig_header = (
-        request.headers.get("X-Pixart-Signature")
-        or request.headers.get("x-pixart-signature")
-        or ""
+        request.headers.get("X-Pixart-Signature") or request.headers.get("x-pixart-signature") or ""
     )
     if not settings.pixart_webhook_secret:
         log.warning(
@@ -422,11 +414,15 @@ async def pixart_webhook(request: Request) -> dict[str, str]:
         or ""
     )
     event_type = (
-        payload_json.get("event_type")
-        or payload_json.get("status")
-        or payload_json.get("type")
-        or ""
-    ).strip().lower()
+        (
+            payload_json.get("event_type")
+            or payload_json.get("status")
+            or payload_json.get("type")
+            or ""
+        )
+        .strip()
+        .lower()
+    )
 
     if not tracking_id:
         log.warning(
@@ -517,9 +513,7 @@ async def whatsapp_webhook(
     try:
         payload_json: dict = json.loads(raw_body.decode("utf-8"))
     except (ValueError, UnicodeDecodeError) as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid JSON"
-        ) from exc
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid JSON") from exc
 
     messages_raw: list[dict] = payload_json.get("messages") or []
     if not messages_raw:
@@ -594,7 +588,9 @@ async def whatsapp_webhook(
         # ------------------------------------------------------------------
         # 4) Enqueue ConversationAgent
         # ------------------------------------------------------------------
-        job_id = f"conversation:{tenant_id}:{wa_phone}:{message_id or datetime.now(UTC).isoformat()}"
+        job_id = (
+            f"conversation:{tenant_id}:{wa_phone}:{message_id or datetime.now(UTC).isoformat()}"
+        )
         await enqueue(
             "conversation_task",
             {
@@ -676,9 +672,7 @@ async def meta_leads_verify(
 @router.post("/meta-leads")
 async def meta_leads_webhook(
     request: Request,
-    x_hub_signature_256: str | None = Header(
-        default=None, alias="X-Hub-Signature-256"
-    ),
+    x_hub_signature_256: str | None = Header(default=None, alias="X-Hub-Signature-256"),
 ) -> dict[str, str | int]:
     """Meta Lead Ads lead-submission webhook.
 
@@ -757,9 +751,7 @@ async def meta_leads_webhook(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Missing X-Hub-Signature-256",
         )
-    expected = "sha256=" + _hmac.new(
-        secret.encode("utf-8"), raw_body, hashlib.sha256
-    ).hexdigest()
+    expected = "sha256=" + _hmac.new(secret.encode("utf-8"), raw_body, hashlib.sha256).hexdigest()
     if not _hmac.compare_digest(expected, x_hub_signature_256):
         log.warning(
             "webhook.meta_leads.signature_invalid",

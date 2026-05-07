@@ -72,9 +72,7 @@ class ValidationResult:
     by_status: dict[str, int]
 
 
-async def validate_prospect_list(
-    *, tenant_id: str, list_id: str
-) -> ValidationResult:
+async def validate_prospect_list(*, tenant_id: str, list_id: str) -> ValidationResult:
     """Run v3 convalida (L2+L3+L4) on every pending item of a list.
 
     When ``prospect_lists.campaign_type='generic_outreach'`` the L4 Solar
@@ -98,9 +96,9 @@ async def validate_prospect_list(
     campaign_type: str = (list_meta.data or {}).get("campaign_type") or "solar_rooftop"
 
     # ── Mark list as validating ──────────────────────────────────────────
-    sb.table("prospect_lists").update(
-        {"validation_started_at": datetime.utcnow().isoformat()}
-    ).eq("id", list_id).eq("tenant_id", tenant_id).execute()
+    sb.table("prospect_lists").update({"validation_started_at": datetime.utcnow().isoformat()}).eq(
+        "id", list_id
+    ).eq("tenant_id", tenant_id).execute()
 
     # ── Pull pending items (avoid huge result sets — process in pages) ──
     items = (
@@ -212,9 +210,9 @@ async def _validate_one(
         return "skipped"
 
     # ── Mark validating + create/find scan_candidate ─────────────────────
-    sb.table("prospect_list_items").update(
-        {"validation_status": "validating"}
-    ).eq("id", item_id).execute()
+    sb.table("prospect_list_items").update({"validation_status": "validating"}).eq(
+        "id", item_id
+    ).execute()
 
     # Try to reuse an existing scan_candidate for this place_id (the daily
     # cron may have already discovered it). If not, create one stage=1
@@ -262,9 +260,9 @@ async def _validate_one(
 
     # Persist the scan_candidate_id back on the item so subsequent runs
     # (or the outreach launch) can find it.
-    sb.table("prospect_list_items").update(
-        {"scan_candidate_id": candidate_id}
-    ).eq("id", item_id).execute()
+    sb.table("prospect_list_items").update({"scan_candidate_id": candidate_id}).eq(
+        "id", item_id
+    ).execute()
 
     # ── L2 — Scraping ────────────────────────────────────────────────────
     try:
@@ -392,20 +390,14 @@ async def _validate_one(
         "pitch_degrees": insight.pitch_degrees,
         "shading_score": insight.shading_score,
         "raw_data": insight.raw,
-        "address": (
-            (insight.locality or "") + " " + (insight.postal_code or "")
-        ).strip()
+        "address": ((insight.locality or "") + " " + (insight.postal_code or "")).strip()
         or address,
         "comune": insight.locality,
         "cap": insight.postal_code,
         "status": "identified",
     }
     try:
-        res = (
-            sb.table("roofs")
-            .upsert(roof_row, on_conflict="tenant_id,geohash")
-            .execute()
-        )
+        res = sb.table("roofs").upsert(roof_row, on_conflict="tenant_id,geohash").execute()
         roof_id = res.data[0]["id"] if res.data else None
         if not roof_id:
             existing = (
@@ -447,9 +439,9 @@ async def _validate_one(
 def _mark_verdict(sb: Any, item_id: str, candidate_id: str, verdict: str) -> str:
     """Persist a non-accepted verdict on both scan_candidate + item, and
     return the mapped prospect_list_items.validation_status."""
-    sb.table("scan_candidates").update(
-        {"stage": 4, "solar_verdict": verdict}
-    ).eq("id", candidate_id).execute()
+    sb.table("scan_candidates").update({"stage": 4, "solar_verdict": verdict}).eq(
+        "id", candidate_id
+    ).execute()
     status_value = VERDICT_TO_STATUS.get(verdict, "skipped")
     sb.table("prospect_list_items").update(
         {
@@ -495,11 +487,7 @@ def _persist_placeholder_roof(
         "status": "non_solar",
     }
     try:
-        res = (
-            sb.table("roofs")
-            .upsert(row, on_conflict="tenant_id,geohash")
-            .execute()
-        )
+        res = sb.table("roofs").upsert(row, on_conflict="tenant_id,geohash").execute()
         roof_id = res.data[0]["id"] if res.data else None
         if not roof_id:
             existing = (

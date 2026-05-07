@@ -159,17 +159,10 @@ async def get_inbox_quota(ctx: CurrentUser) -> dict[str, Any]:
 
     rows = res.data or []
     active = [r for r in rows if r.get("active")]
-    paused = [
-        r for r in active
-        if r.get("paused_until") and r["paused_until"] > now_utc
-    ]
+    paused = [r for r in active if r.get("paused_until") and r["paused_until"] > now_utc]
 
     total_cap = sum(int(r.get("daily_cap", 50)) for r in active)
-    sent = sum(
-        int(r.get("total_sent_today", 0))
-        for r in active
-        if r.get("sent_date") == today
-    )
+    sent = sum(int(r.get("total_sent_today", 0)) for r in active if r.get("sent_date") == today)
 
     return {
         "total_daily_cap": total_cap,
@@ -215,10 +208,7 @@ async def create_inbox(body: InboxCreate, ctx: CurrentUser) -> dict[str, Any]:
         if "unique" in err_str.lower() or "duplicate" in err_str.lower():
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail=(
-                    f"L'inbox {body.email} è già configurata per questo "
-                    "account."
-                ),
+                detail=(f"L'inbox {body.email} è già configurata per questo account."),
             ) from exc
         log.warning("inboxes.create_failed", tenant_id=tenant_id, err=err_str)
         raise HTTPException(
@@ -251,9 +241,7 @@ async def update_inbox(
     tenant_id = require_tenant(ctx)
     sb = get_service_client()
 
-    update_data: dict[str, Any] = {
-        "updated_at": datetime.now(UTC).isoformat()
-    }
+    update_data: dict[str, Any] = {"updated_at": datetime.now(UTC).isoformat()}
     if body.display_name is not None:
         update_data["display_name"] = body.display_name.strip()
     if body.reply_to_email is not None:
@@ -424,9 +412,7 @@ def _verify_oauth_state(token: str) -> dict[str, Any]:
 
 
 @router.post("/{inbox_id}/oauth/gmail/authorize")
-async def gmail_oauth_authorize(
-    inbox_id: str, ctx: CurrentUser
-) -> dict[str, Any]:
+async def gmail_oauth_authorize(inbox_id: str, ctx: CurrentUser) -> dict[str, Any]:
     """Return a Google OAuth consent URL for connecting this inbox.
 
     The dashboard opens the URL in a popup / new tab; Google redirects
@@ -474,8 +460,8 @@ async def gmail_oauth_authorize(
         "redirect_uri": redirect_uri,
         "response_type": "code",
         "scope": " ".join(_GOOGLE_SCOPES),
-        "access_type": "offline",         # → returns refresh_token
-        "prompt": "consent",              # force re-consent so we always get refresh_token
+        "access_type": "offline",  # → returns refresh_token
+        "prompt": "consent",  # force re-consent so we always get refresh_token
         "include_granted_scopes": "true",
         "state": state,
         # Nudge Google to prefill the right email in the account picker.
@@ -571,9 +557,7 @@ async def gmail_oauth_callback(
     oauth_account_email = ""
     if id_token:
         try:
-            claims = jwt.decode(
-                id_token, options={"verify_signature": False}
-            )
+            claims = jwt.decode(id_token, options={"verify_signature": False})
             oauth_account_email = str(claims.get("email") or "")
         except Exception:  # noqa: BLE001
             pass
@@ -633,9 +617,7 @@ async def gmail_oauth_callback(
 
 
 @router.post("/{inbox_id}/oauth/disconnect")
-async def oauth_disconnect(
-    inbox_id: str, ctx: CurrentUser
-) -> dict[str, Any]:
+async def oauth_disconnect(inbox_id: str, ctx: CurrentUser) -> dict[str, Any]:
     """Detach the OAuth connection from an inbox.
 
     Resets the provider to ``resend`` (the default) and clears all token
@@ -667,9 +649,7 @@ async def oauth_disconnect(
             .execute()
         )
     except Exception as exc:  # noqa: BLE001
-        log.warning(
-            "inboxes.oauth_disconnect_failed", inbox_id=inbox_id, err=str(exc)
-        )
+        log.warning("inboxes.oauth_disconnect_failed", inbox_id=inbox_id, err=str(exc))
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Disconnect failed",

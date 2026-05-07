@@ -88,7 +88,7 @@ _MAILTO_HREF_RE = re.compile(
     re.IGNORECASE,
 )
 _PLAIN_EMAIL_RE = re.compile(
-    r'\b([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})\b',
+    r"\b([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})\b",
 )
 
 # Phone regex: `tel:` href links are the highest-confidence signal because
@@ -107,16 +107,56 @@ _PLAIN_PHONE_RE = re.compile(
 
 # Role accounts we never target — their inbox is typically a ticket queue,
 # not a person. Sending cold B2B to `info@` is noise and harms reputation.
-_ROLE_PREFIXES = frozenset({
-    "info", "info.", "contatti", "contatto", "contact", "hello", "hola",
-    "support", "supporto", "assistenza", "help", "noreply", "no-reply",
-    "no.reply", "mail", "email", "newsletter", "news",
-    "marketing", "press", "stampa", "media", "hr", "risorse.umane",
-    "recruiting", "jobs", "careers", "lavora.con.noi", "postmaster",
-    "webmaster", "admin", "amministrazione", "segreteria", "reception",
-    "ufficio", "generale", "general", "office", "vendor", "fornitori",
-    "privacy", "gdpr", "dpo", "legal", "legale", "abuse",
-})
+_ROLE_PREFIXES = frozenset(
+    {
+        "info",
+        "info.",
+        "contatti",
+        "contatto",
+        "contact",
+        "hello",
+        "hola",
+        "support",
+        "supporto",
+        "assistenza",
+        "help",
+        "noreply",
+        "no-reply",
+        "no.reply",
+        "mail",
+        "email",
+        "newsletter",
+        "news",
+        "marketing",
+        "press",
+        "stampa",
+        "media",
+        "hr",
+        "risorse.umane",
+        "recruiting",
+        "jobs",
+        "careers",
+        "lavora.con.noi",
+        "postmaster",
+        "webmaster",
+        "admin",
+        "amministrazione",
+        "segreteria",
+        "reception",
+        "ufficio",
+        "generale",
+        "general",
+        "office",
+        "vendor",
+        "fornitori",
+        "privacy",
+        "gdpr",
+        "dpo",
+        "legal",
+        "legale",
+        "abuse",
+    }
+)
 
 # Contact page URL suffixes to try in order (appended to the website root).
 _CONTACT_PATHS = (
@@ -125,9 +165,9 @@ _CONTACT_PATHS = (
     "/contact",
     "/contacts",
     "/contact-us",
-    "/chi-siamo",    # "about us" pages often list email
+    "/chi-siamo",  # "about us" pages often list email
     "/about",
-    "",              # homepage as last resort
+    "",  # homepage as last resort
 )
 
 
@@ -141,9 +181,9 @@ class ExtractionResult:
     """Outcome of one extraction attempt. Persisted to email_extraction_log."""
 
     email: str | None
-    source: str                # 'atoka' | 'website_scrape' | 'pec_registry' | 'failed'
-    confidence: float          # 0..1 — meaningful for website_scrape; 1.0 for Atoka
-    cost_cents: int            # API cost paid for this attempt
+    source: str  # 'atoka' | 'website_scrape' | 'pec_registry' | 'failed'
+    confidence: float  # 0..1 — meaningful for website_scrape; 1.0 for Atoka
+    cost_cents: int  # API cost paid for this attempt
     company_name: str | None = None
     domain: str | None = None
     raw_response: dict[str, Any] = field(default_factory=dict)
@@ -409,7 +449,9 @@ def _score_email(email: str, company_domain: str, *, is_mailto: bool) -> float:
     addr_domain = addr_domain.lower().removeprefix("www.")
 
     # Bonus: domain matches company
-    if addr_domain and (addr_domain == company_domain or company_domain.endswith(f".{addr_domain}")):
+    if addr_domain and (
+        addr_domain == company_domain or company_domain.endswith(f".{addr_domain}")
+    ):
         score += 0.5
     elif addr_domain:
         # Cross-domain email on the same page — could be a partner or tool,
@@ -456,8 +498,8 @@ class PhoneExtractionResult:
     """
 
     phone: str | None
-    source: str               # 'atoka' | 'website_scrape' | 'failed'
-    confidence: float         # 0..1 — meaningful for website_scrape; 1.0 for Atoka
+    source: str  # 'atoka' | 'website_scrape' | 'failed'
+    confidence: float  # 0..1 — meaningful for website_scrape; 1.0 for Atoka
     notes: str = ""
 
 
@@ -691,9 +733,7 @@ _LD_JSON_RE = re.compile(
 )
 
 # HTML <address> blocks — strip tags afterwards, run the inline regex.
-_ADDRESS_BLOCK_RE = re.compile(
-    r"<address[^>]*>(.*?)</address>", re.IGNORECASE | re.DOTALL
-)
+_ADDRESS_BLOCK_RE = re.compile(r"<address[^>]*>(.*?)</address>", re.IGNORECASE | re.DOTALL)
 _HTML_TAG_RE = re.compile(r"<[^>]+>")
 
 
@@ -710,8 +750,8 @@ class ScrapedAddress:
     cap: str | None = None
     city: str | None = None
     province: str | None = None
-    confidence: float = 0.0          # 0..1
-    source_strategy: str = "regex"   # 'json_ld' | 'address_tag' | 'regex'
+    confidence: float = 0.0  # 0..1
+    source_strategy: str = "regex"  # 'json_ld' | 'address_tag' | 'regex'
     page_url: str | None = None
 
     def as_geocode_query(self) -> str:
@@ -964,6 +1004,7 @@ async def _check_blacklists(
     """
 
     import hashlib
+
     email_norm = email.strip().lower()
     email_hash = hashlib.sha256(email_norm.encode()).hexdigest()
     domain = email_norm.partition("@")[2]
@@ -971,11 +1012,13 @@ async def _check_blacklists(
     try:
         # Email blacklist check (email_hash indexed lookup).
         res = await asyncio.to_thread(
-            lambda: sb.table("email_blacklist")
-            .select("reason")
-            .eq("email_hash", email_hash)
-            .limit(1)
-            .execute()
+            lambda: (
+                sb.table("email_blacklist")
+                .select("reason")
+                .eq("email_hash", email_hash)
+                .limit(1)
+                .execute()
+            )
         )
         if res.data:
             reason = res.data[0].get("reason", "blacklisted")
@@ -993,11 +1036,13 @@ async def _check_blacklists(
     try:
         # Domain blacklist check.
         res = await asyncio.to_thread(
-            lambda: sb.table("domain_blacklist")
-            .select("reason")
-            .eq("domain", domain)
-            .limit(1)
-            .execute()
+            lambda: (
+                sb.table("domain_blacklist")
+                .select("reason")
+                .eq("domain", domain)
+                .limit(1)
+                .execute()
+            )
         )
         if res.data:
             reason = res.data[0].get("reason", "domain_blacklisted")
@@ -1023,11 +1068,7 @@ async def _check_blacklists(
 def _resolve_domain(azienda: dict[str, Any]) -> str | None:
     """Extract a usable website domain from the company record."""
 
-    raw = (
-        azienda.get("website_domain")
-        or azienda.get("website")
-        or ""
-    ).strip()
+    raw = (azienda.get("website_domain") or azienda.get("website") or "").strip()
     if not raw:
         return None
     # Strip scheme + trailing slashes.
@@ -1080,8 +1121,15 @@ def _looks_like_example(email: str) -> bool:
 
     lower = email.lower()
     for sentinel in (
-        "example", "esempio", "test", "your@", "user@", "dummy",
-        "placeholder", "nome@", "cognome@",
+        "example",
+        "esempio",
+        "test",
+        "your@",
+        "user@",
+        "dummy",
+        "placeholder",
+        "nome@",
+        "cognome@",
     ):
         if sentinel in lower:
             return True

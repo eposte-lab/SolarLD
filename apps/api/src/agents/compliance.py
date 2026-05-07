@@ -57,19 +57,11 @@ class ComplianceAgent(AgentBase[ComplianceInput, ComplianceOutput]):
 
         # 2) Cancel any pending campaigns for matching subjects
         subjects = (
-            sb.table("subjects")
-            .select("id, tenant_id")
-            .eq("pii_hash", payload.pii_hash)
-            .execute()
+            sb.table("subjects").select("id, tenant_id").eq("pii_hash", payload.pii_hash).execute()
         )
         cancelled = 0
         for subj in subjects.data or []:
-            leads = (
-                sb.table("leads")
-                .select("id")
-                .eq("subject_id", subj["id"])
-                .execute()
-            )
+            leads = sb.table("leads").select("id").eq("subject_id", subj["id"]).execute()
             lead_ids = [x["id"] for x in (leads.data or [])]
             if not lead_ids:
                 continue

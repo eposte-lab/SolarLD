@@ -88,9 +88,7 @@ DEFAULT_MODEL_NAME = os.getenv("AI_PAINT_MODEL_NAME", "nano-banana")
 # nano-banana publishes "predictions" via the model-slug endpoint, which
 # auto-resolves the latest version. We keep this format so swapping the
 # slug above doesn't require chasing a version hash.
-_PREDICTIONS_URL_FMT = (
-    REPLICATE_API_BASE + "/models/{owner}/{name}/predictions"
-)
+_PREDICTIONS_URL_FMT = REPLICATE_API_BASE + "/models/{owner}/{name}/predictions"
 _PREDICTION_URL_FMT = REPLICATE_API_BASE + "/predictions/{pred_id}"
 
 
@@ -159,9 +157,7 @@ def build_paint_prompt(
          image unchanged rather than inventing one. nano-banana
          honours this; SDXL would not.
     """
-    panel_word = (
-        f"approximately {panel_count}" if panel_count > 0 else "several"
-    )
+    panel_word = f"approximately {panel_count}" if panel_count > 0 else "several"
 
     type_hint = {
         "b2b": "commercial or industrial building",
@@ -177,11 +173,7 @@ def build_paint_prompt(
             "identified the most suitable surface."
         )
 
-    scale_hint = (
-        f", forming roughly a {kwp:.0f} kWp photovoltaic array"
-        if kwp and kwp > 0
-        else ""
-    )
+    scale_hint = f", forming roughly a {kwp:.0f} kWp photovoltaic array" if kwp and kwp > 0 else ""
 
     # Roof geometry hints sourced from Google Solar API. These are the
     # tightest constraints we have on what the rooftop *actually* looks
@@ -196,13 +188,9 @@ def build_paint_prompt(
         )
     if roof_segment_count and roof_segment_count > 0:
         plane_word = "plane" if roof_segment_count == 1 else "distinct planes"
-        geometry_parts.append(
-            f"{roof_segment_count} {plane_word}"
-        )
+        geometry_parts.append(f"{roof_segment_count} {plane_word}")
     if roof_pitch_deg is not None and roof_pitch_deg > 0:
-        geometry_parts.append(
-            f"a dominant pitch of about {roof_pitch_deg:.0f}°"
-        )
+        geometry_parts.append(f"a dominant pitch of about {roof_pitch_deg:.0f}°")
     geometry_hint = ""
     if geometry_parts:
         geometry_hint = (
@@ -400,9 +388,7 @@ async def paint_panels_on_aerial(
                 },
             )
         if resp.status_code >= 400:
-            raise AiPaintError(
-                f"create status={resp.status_code} body={resp.text[:300]}"
-            )
+            raise AiPaintError(f"create status={resp.status_code} body={resp.text[:300]}")
         body = resp.json()
         pred_id = body.get("id")
         status = body.get("status", "")
@@ -420,18 +406,14 @@ async def paint_panels_on_aerial(
                 headers=_auth_headers(),
             )
             if r.status_code >= 400:
-                raise AiPaintError(
-                    f"poll {pred_id} status={r.status_code} body={r.text[:200]}"
-                )
+                raise AiPaintError(f"poll {pred_id} status={r.status_code} body={r.text[:200]}")
             j = r.json()
             status = j.get("status", "")
             output = j.get("output")
             error = j.get("error")
 
         if status != "succeeded":
-            raise AiPaintError(
-                f"prediction {pred_id} ended {status}: {error or 'unknown'}"
-            )
+            raise AiPaintError(f"prediction {pred_id} ended {status}: {error or 'unknown'}")
 
         out_url = _extract_output_url(output)
         if not out_url:
@@ -441,9 +423,7 @@ async def paint_panels_on_aerial(
         #    so we must materialise bytes in the same call window.
         dl = await client.get(out_url, timeout=60.0)
         if dl.status_code != 200:
-            raise AiPaintError(
-                f"download {out_url[:80]} status={dl.status_code}"
-            )
+            raise AiPaintError(f"download {out_url[:80]} status={dl.status_code}")
         png_bytes = dl.content
 
         log.info(

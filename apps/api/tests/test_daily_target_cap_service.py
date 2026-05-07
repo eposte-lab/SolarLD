@@ -31,23 +31,14 @@ class TestCapForTenant:
         assert svc.cap_for_tenant({}) == svc.DEFAULT_DAILY_CAP
 
     def test_falls_back_on_none(self) -> None:
-        assert (
-            svc.cap_for_tenant({"daily_target_send_cap": None})
-            == svc.DEFAULT_DAILY_CAP
-        )
+        assert svc.cap_for_tenant({"daily_target_send_cap": None}) == svc.DEFAULT_DAILY_CAP
 
     def test_falls_back_on_zero(self) -> None:
         # 0 would silently "disable" the cap → guard against it.
-        assert (
-            svc.cap_for_tenant({"daily_target_send_cap": 0})
-            == svc.DEFAULT_DAILY_CAP
-        )
+        assert svc.cap_for_tenant({"daily_target_send_cap": 0}) == svc.DEFAULT_DAILY_CAP
 
     def test_falls_back_on_negative(self) -> None:
-        assert (
-            svc.cap_for_tenant({"daily_target_send_cap": -1})
-            == svc.DEFAULT_DAILY_CAP
-        )
+        assert svc.cap_for_tenant({"daily_target_send_cap": -1}) == svc.DEFAULT_DAILY_CAP
 
     def test_coerces_float(self) -> None:
         # Defensive: a JSONB read could surface a float.
@@ -118,9 +109,7 @@ def fake_redis(monkeypatch: pytest.MonkeyPatch) -> FakeRedis:
 
 @pytest.mark.asyncio
 async def test_first_send_allowed_and_sets_ttl(fake_redis: FakeRedis) -> None:
-    decision = await svc.check_and_reserve(
-        {"id": "tenant-1", "daily_target_send_cap": 250}
-    )
+    decision = await svc.check_and_reserve({"id": "tenant-1", "daily_target_send_cap": 250})
     assert decision.allowed
     assert decision.verdict == "allowed"
     assert decision.used == 1
@@ -186,9 +175,7 @@ async def test_missing_tenant_id_fails_open(fake_redis: FakeRedis) -> None:
 @pytest.mark.asyncio
 async def test_redis_down_fails_open(fake_redis: FakeRedis) -> None:
     fake_redis.fail = True
-    decision = await svc.check_and_reserve(
-        {"id": "tenant-1", "daily_target_send_cap": 250}
-    )
+    decision = await svc.check_and_reserve({"id": "tenant-1", "daily_target_send_cap": 250})
     # Fail-open: we don't take the tenant's pipeline down because
     # Redis blipped — the inbox-level caps still bound blast radius.
     assert decision.allowed
@@ -211,9 +198,7 @@ async def test_uses_default_cap_when_column_missing(
 
 @pytest.mark.asyncio
 async def test_peek_returns_zero_when_no_sends(fake_redis: FakeRedis) -> None:
-    decision = await svc.peek_usage(
-        {"id": "tenant-1", "daily_target_send_cap": 250}
-    )
+    decision = await svc.peek_usage({"id": "tenant-1", "daily_target_send_cap": 250})
     assert decision.used == 0
     assert decision.verdict == "allowed"
     assert decision.remaining == 250
@@ -244,9 +229,7 @@ async def test_peek_says_cap_reached_at_limit(fake_redis: FakeRedis) -> None:
 @pytest.mark.asyncio
 async def test_peek_redis_down_fails_open(fake_redis: FakeRedis) -> None:
     fake_redis.fail = True
-    decision = await svc.peek_usage(
-        {"id": "tenant-1", "daily_target_send_cap": 250}
-    )
+    decision = await svc.peek_usage({"id": "tenant-1", "daily_target_send_cap": 250})
     # Same fail-open philosophy — UI shows 0/250 rather than crashing.
     assert decision.used == 0
     assert decision.verdict == "allowed"

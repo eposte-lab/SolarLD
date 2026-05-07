@@ -153,10 +153,7 @@ async def create_email_domain(body: DomainCreate, ctx: CurrentUser) -> dict[str,
         if "unique" in err_str.lower() or "duplicate" in err_str.lower():
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail=(
-                    f"Il dominio {body.domain} è già configurato per questo "
-                    "account."
-                ),
+                detail=(f"Il dominio {body.domain} è già configurato per questo account."),
             ) from exc
         log.warning("email_domains.create_failed", tenant_id=tenant_id, err=err_str)
         raise HTTPException(
@@ -185,9 +182,7 @@ async def update_email_domain(
     tenant_id = require_tenant(ctx)
     sb = get_service_client()
 
-    update_data: dict[str, Any] = {
-        "updated_at": datetime.now(UTC).isoformat()
-    }
+    update_data: dict[str, Any] = {"updated_at": datetime.now(UTC).isoformat()}
     if body.tracking_host is not None:
         update_data["tracking_host"] = (
             body.tracking_host.lower().strip() if body.tracking_host else None

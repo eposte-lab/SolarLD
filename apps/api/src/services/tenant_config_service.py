@@ -156,15 +156,9 @@ def _project_from_modules(
     # Local import to avoid circularity at module-load time.
     from .tenant_module_service import schema_for
 
-    sorgente = modules_by_key.get("sorgente") or schema_for("sorgente")().model_dump(
-        mode="json"
-    )
-    tecnico = modules_by_key.get("tecnico") or schema_for("tecnico")().model_dump(
-        mode="json"
-    )
-    economico = modules_by_key.get("economico") or schema_for("economico")().model_dump(
-        mode="json"
-    )
+    sorgente = modules_by_key.get("sorgente") or schema_for("sorgente")().model_dump(mode="json")
+    tecnico = modules_by_key.get("tecnico") or schema_for("tecnico")().model_dump(mode="json")
+    economico = modules_by_key.get("economico") or schema_for("economico")().model_dump(mode="json")
 
     mode: ScanMode = sorgente.get("mode") or "b2b_funnel_v2"
 

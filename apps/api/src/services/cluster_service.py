@@ -25,10 +25,10 @@ import re
 # ── Employee buckets ──────────────────────────────────────────────────
 # Thresholds chosen to match common Atoka employee range breakpoints.
 _EMPLOYEE_THRESHOLDS = (
-    (10,  "s"),    # 1-10
-    (25,  "m"),    # 11-25
-    (50,  "l"),    # 26-50
-    (100, "xl"),   # 51-100
+    (10, "s"),  # 1-10
+    (25, "m"),  # 11-25
+    (50, "l"),  # 26-50
+    (100, "xl"),  # 51-100
 )
 _EMPLOYEE_BUCKET_XXL = "xxl"  # 101+
 
@@ -108,6 +108,7 @@ def _normalise_role(role: str | None) -> str:
 
 # ── ATECO normalisation ────────────────────────────────────────────────
 
+
 def _ateco_2digit(ateco_code: str | None) -> str | None:
     """Extract the leading 2-digit ATECO division from a code like '41.10'."""
     if not ateco_code:
@@ -119,6 +120,7 @@ def _ateco_2digit(ateco_code: str | None) -> str | None:
 
 
 # ── Public entry ────────────────────────────────────────────────────────
+
 
 def compute_cluster_signature(subject: dict) -> str:
     """Return the cluster_signature for a lead's subject (company data).

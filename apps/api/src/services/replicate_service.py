@@ -44,9 +44,7 @@ REPLICATE_API_BASE = "https://api.replicate.com/v1"
 
 # ``stability-ai/sdxl`` public version pinned 2026-Q1. Bump after prompt
 # regression tests when a newer checkpoint is better calibrated.
-DEFAULT_MODEL_VERSION = (
-    "7762fd07cf82c948538e41f63f77d685e02b063e37e496e96eefd46c929f9bdc"
-)
+DEFAULT_MODEL_VERSION = "7762fd07cf82c948538e41f63f77d685e02b063e37e496e96eefd46c929f9bdc"
 
 # A Replicate call at sdxl-img2img with ~40 inference steps costs
 # ~ $0.0035 on an A40 shared. Round up for wall-clock inefficiency.
@@ -66,7 +64,7 @@ class PredictionResult:
     """Outcome of a single Replicate prediction."""
 
     id: str
-    status: str          # starting | processing | succeeded | failed | canceled
+    status: str  # starting | processing | succeeded | failed | canceled
     output_url: str | None
     error: str | None
     logs: str | None
@@ -167,7 +165,7 @@ async def create_prediction(
             or "people, cars, text, watermark, blurry, distorted, low quality",
             "num_inference_steps": 40,
             "guidance_scale": 7.5,
-            "prompt_strength": 0.55,   # keep ~45% of the original roof
+            "prompt_strength": 0.55,  # keep ~45% of the original roof
         },
     }
     owns_client = client is None
@@ -184,9 +182,7 @@ async def create_prediction(
             await client.aclose()
 
     if resp.status_code >= 400:
-        raise ReplicateError(
-            f"predictions create status={resp.status_code} body={resp.text[:300]}"
-        )
+        raise ReplicateError(f"predictions create status={resp.status_code} body={resp.text[:300]}")
     return parse_prediction(resp.json())
 
 
@@ -211,9 +207,7 @@ async def fetch_prediction(
         if owns_client:
             await client.aclose()
     if resp.status_code >= 400:
-        raise ReplicateError(
-            f"predictions get status={resp.status_code} body={resp.text[:300]}"
-        )
+        raise ReplicateError(f"predictions get status={resp.status_code} body={resp.text[:300]}")
     return parse_prediction(resp.json())
 
 
@@ -278,8 +272,7 @@ async def create_pv_rendering(
                 if created.is_success:
                     return created
                 last_err = ReplicateError(
-                    f"prediction {created.id} ended {created.status}: "
-                    f"{created.error}"
+                    f"prediction {created.id} ended {created.status}: {created.error}"
                 )
                 log.warning(
                     "replicate.prediction_failed",

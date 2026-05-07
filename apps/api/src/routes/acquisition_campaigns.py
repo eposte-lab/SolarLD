@@ -257,9 +257,7 @@ async def update_acquisition_campaign(
     # custom_copy_override: support clearing (null) vs setting (dict).
     # We honour the field only if the client *explicitly* included it.
     if "custom_copy_override" in body.model_fields_set:
-        update_data["custom_copy_override"] = _sanitise_custom_copy(
-            body.custom_copy_override
-        )
+        update_data["custom_copy_override"] = _sanitise_custom_copy(body.custom_copy_override)
 
     if len(update_data) == 1:
         raise HTTPException(
@@ -437,6 +435,7 @@ class CampaignOverrideCreate(BaseModel):
 
     def check_window(self) -> None:
         from datetime import timedelta
+
         if self.end_at <= self.start_at:
             raise ValueError("end_at must be after start_at")
         if self.end_at > self.start_at + timedelta(days=90):
@@ -553,9 +552,9 @@ async def delete_campaign_override(
     sb = get_service_client()
 
     try:
-        sb.table("campaign_overrides").delete().eq(
-            "id", override_id
-        ).eq("campaign_id", campaign_id).eq("tenant_id", tenant_id).execute()
+        sb.table("campaign_overrides").delete().eq("id", override_id).eq(
+            "campaign_id", campaign_id
+        ).eq("tenant_id", tenant_id).execute()
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail="Delete failed") from exc
 

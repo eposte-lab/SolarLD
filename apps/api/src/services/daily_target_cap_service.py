@@ -76,7 +76,7 @@ class DailyTargetCapDecision:
     """Outcome of a ``check_and_reserve`` call."""
 
     verdict: Verdict
-    used: int           # post-reserve count (or pre-reserve if blocked)
+    used: int  # post-reserve count (or pre-reserve if blocked)
     limit: int
     tenant_id: str
 
@@ -167,7 +167,7 @@ async def check_and_reserve(
             await r.decr(key)
             return DailyTargetCapDecision(
                 verdict="cap_reached",
-                used=cap,           # report the cap as "used" so the UI shows 250/250
+                used=cap,  # report the cap as "used" so the UI shows 250/250
                 limit=cap,
                 tenant_id=str(tenant_id),
             )

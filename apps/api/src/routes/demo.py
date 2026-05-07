@@ -194,13 +194,15 @@ class DemoPipelineRunResponse(BaseModel):
     # Delivery truth — populated from outreach_sends after the
     # OutreachAgent has inserted the row, then mutated by the Resend
     # webhook (TrackingAgent) when delivered/bounced events land.
-    email_status: str | None = None              # SENT|DELIVERED|FAILED|...
-    email_status_detail: str | None = None        # bounce_reason, complaint code
-    email_recipient: str | None = None            # actual To: address (post override)
+    email_status: str | None = None  # SENT|DELIVERED|FAILED|...
+    email_status_detail: str | None = None  # bounce_reason, complaint code
+    email_recipient: str | None = None  # actual To: address (post override)
     email_message_id: str | None = None
     # Roof identification cascade outcome (subjects.sede_operativa_*).
-    roof_source: str | None = None                # atoka|website_scrape|google_places|mapbox_hq|osm_snap|unresolved
-    roof_confidence: str | None = None            # high|medium|low|none
+    roof_source: str | None = (
+        None  # atoka|website_scrape|google_places|mapbox_hq|osm_snap|unresolved
+    )
+    roof_confidence: str | None = None  # high|medium|low|none
 
 
 # ---------------------------------------------------------------------------
@@ -317,18 +319,20 @@ async def _require_demo_tenant(tenant_id: str) -> dict[str, Any]:
     """
     sb = get_service_client()
     res = await asyncio.to_thread(
-        lambda: sb.table("tenants")
-        .select(
-            "id, is_demo, demo_pipeline_test_remaining, "
-            "email_from_domain, email_from_domain_verified_at, email_from_name, "
-            # cost_assumptions per-tenant overrides for the ROI calculator —
-            # threaded into compute_full_derivations() so the demo run
-            # produces tenant-specific numbers when configured.
-            "cost_assumptions"
+        lambda: (
+            sb.table("tenants")
+            .select(
+                "id, is_demo, demo_pipeline_test_remaining, "
+                "email_from_domain, email_from_domain_verified_at, email_from_name, "
+                # cost_assumptions per-tenant overrides for the ROI calculator —
+                # threaded into compute_full_derivations() so the demo run
+                # produces tenant-specific numbers when configured.
+                "cost_assumptions"
+            )
+            .eq("id", tenant_id)
+            .limit(1)
+            .execute()
         )
-        .eq("id", tenant_id)
-        .limit(1)
-        .execute()
     )
     rows = res.data or []
     if not rows:
@@ -356,12 +360,10 @@ def _decrement_attempts(tenant_id: str) -> int | None:
     """
     sb = get_service_client()
     try:
-        res = (
-            sb.rpc(
-                "demo_decrement_pipeline_attempts",
-                {"p_tenant_id": tenant_id},
-            ).execute()
-        )
+        res = sb.rpc(
+            "demo_decrement_pipeline_attempts",
+            {"p_tenant_id": tenant_id},
+        ).execute()
         # The RPC returns NULL when the counter was already 0.
         val = res.data
         if val is None:
@@ -394,9 +396,9 @@ def _decrement_attempts(tenant_id: str) -> int | None:
         remaining_now: int = cur.data[0].get("demo_pipeline_test_remaining") or 0
         if remaining_now <= 0:
             return None
-        sb.table("tenants").update(
-            {"demo_pipeline_test_remaining": remaining_now - 1}
-        ).eq("id", tenant_id).gt("demo_pipeline_test_remaining", 0).execute()
+        sb.table("tenants").update({"demo_pipeline_test_remaining": remaining_now - 1}).eq(
+            "id", tenant_id
+        ).gt("demo_pipeline_test_remaining", 0).execute()
         return remaining_now - 1
 
 
@@ -490,12 +492,14 @@ async def demo_list_inboxes(ctx: CurrentUser) -> DemoInboxListResponse:
     await _require_demo_tenant(tenant_id)
     sb = get_service_client()
     res = await asyncio.to_thread(
-        lambda: sb.table("tenant_inboxes")
-        .select("id, email, display_name")
-        .eq("tenant_id", tenant_id)
-        .eq("active", True)
-        .order("display_name", desc=False)
-        .execute()
+        lambda: (
+            sb.table("tenant_inboxes")
+            .select("id, email, display_name")
+            .eq("tenant_id", tenant_id)
+            .eq("active", True)
+            .order("display_name", desc=False)
+            .execute()
+        )
     )
     rows = res.data or []
     return DemoInboxListResponse(
@@ -557,18 +561,20 @@ async def demo_random_seed(
     sb = get_service_client()
 
     res = await asyncio.to_thread(
-        lambda: sb.table("demo_mock_enrichment")
-        .select(
-            "vat_number, legal_name, ateco_code, ateco_description, "
-            "hq_address, decision_maker_name, decision_maker_role, "
-            "decision_maker_email, employees, yearly_revenue_cents"
+        lambda: (
+            sb.table("demo_mock_enrichment")
+            .select(
+                "vat_number, legal_name, ateco_code, ateco_description, "
+                "hq_address, decision_maker_name, decision_maker_role, "
+                "decision_maker_email, employees, yearly_revenue_cents"
+            )
+            # Only return rows that have the prefill fields populated —
+            # legacy rows (pre-migration 0095) without legal_name would
+            # produce a half-broken form.
+            .not_.is_("legal_name", "null")
+            .not_.is_("hq_address", "null")
+            .execute()
         )
-        # Only return rows that have the prefill fields populated —
-        # legacy rows (pre-migration 0095) without legal_name would
-        # produce a half-broken form.
-        .not_.is_("legal_name", "null")
-        .not_.is_("hq_address", "null")
-        .execute()
     )
     rows = res.data or []
     if exclude_vat:
@@ -588,6 +594,7 @@ async def demo_random_seed(
         )
 
     import secrets
+
     pick = rows[secrets.randbelow(len(rows))]
     return DemoFormSeed(
         vat_number=pick["vat_number"],
@@ -646,12 +653,14 @@ async def demo_test_pipeline(
         sb_check = get_service_client()
         try:
             inbox_check = await asyncio.to_thread(
-                lambda: sb_check.table("tenant_inboxes")
-                .select("id, active")
-                .eq("id", body.inbox_id)
-                .eq("tenant_id", tenant_id)
-                .limit(1)
-                .execute()
+                lambda: (
+                    sb_check.table("tenant_inboxes")
+                    .select("id, active")
+                    .eq("id", body.inbox_id)
+                    .eq("tenant_id", tenant_id)
+                    .limit(1)
+                    .execute()
+                )
             )
         except Exception as exc:  # noqa: BLE001
             log.warning(
@@ -722,10 +731,7 @@ async def demo_test_pipeline(
         )
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=(
-                "Indirizzo non riconosciuto. Aggiungi il numero civico "
-                "o il CAP e riprova."
-            ),
+            detail=("Indirizzo non riconosciuto. Aggiungi il numero civico o il CAP e riprova."),
         )
 
     # 3. Run the synchronous pipeline. Reuses the exact same shape as
@@ -798,10 +804,7 @@ async def demo_test_pipeline(
     # compatibility with API consumers that don't yet call
     # /identify-building first.
     resolved_site: OperatingSite
-    if (
-        body.confirmed_building_lat is not None
-        and body.confirmed_building_lng is not None
-    ):
+    if body.confirmed_building_lat is not None and body.confirmed_building_lng is not None:
         log.info(
             "demo.confirmed_building_used",
             vat_number=body.vat_number,
@@ -843,9 +846,7 @@ async def demo_test_pipeline(
     if resolved_site.has_coords:
         roof_lat = resolved_site.lat
         roof_lng = resolved_site.lng
-        roof_address = (
-            resolved_site.address or geo.address or body.hq_address
-        )
+        roof_address = resolved_site.address or geo.address or body.hq_address
         log.info(
             "demo.operating_site_resolved",
             vat_number=body.vat_number,
@@ -929,18 +930,10 @@ async def demo_test_pipeline(
         # built, or photo-redacted).
         "area_sqm": solar_insight.area_sqm if solar_insight else 180.0,
         "estimated_kwp": solar_insight.estimated_kwp if solar_insight else 30.0,
-        "estimated_yearly_kwh": (
-            solar_insight.estimated_yearly_kwh if solar_insight else 36000
-        ),
-        "exposure": (
-            solar_insight.dominant_exposure if solar_insight else "south"
-        ),
-        "pitch_degrees": (
-            solar_insight.pitch_degrees if solar_insight else None
-        ),
-        "shading_score": (
-            solar_insight.shading_score if solar_insight else 0.85
-        ),
+        "estimated_yearly_kwh": (solar_insight.estimated_yearly_kwh if solar_insight else 36000),
+        "exposure": (solar_insight.dominant_exposure if solar_insight else "south"),
+        "pitch_degrees": (solar_insight.pitch_degrees if solar_insight else None),
+        "shading_score": (solar_insight.shading_score if solar_insight else 0.85),
         "has_existing_pv": False,
         # Honest data_source: GOOGLE_SOLAR only when we actually got the
         # insight. Otherwise mark as MAPBOX_AI_FALLBACK so the dashboard
@@ -981,7 +974,9 @@ async def demo_test_pipeline(
             panel_count=(
                 len(solar_insight.panels)
                 if solar_insight and solar_insight.panels
-                else solar_insight.max_panel_count if solar_insight else None
+                else solar_insight.max_panel_count
+                if solar_insight
+                else None
             ),
             panel_capacity_w=solar_insight.panel_capacity_w if solar_insight else None,
             panel_width_m=solar_insight.panel_width_m if solar_insight else None,
@@ -1000,9 +995,9 @@ async def demo_test_pipeline(
 
     try:
         roof_res = await asyncio.to_thread(
-            lambda: sb.table("roofs")
-            .upsert(roof_payload, on_conflict="tenant_id,geohash")
-            .execute()
+            lambda: (
+                sb.table("roofs").upsert(roof_payload, on_conflict="tenant_id,geohash").execute()
+            )
         )
     except Exception as exc:  # noqa: BLE001
         await asyncio.to_thread(_refund_attempt, tenant_id)
@@ -1107,9 +1102,7 @@ async def demo_test_pipeline(
         # Tag the data_sources array so ops can filter "leads from
         # demo with mock enrichment vs without" without a join.
         "data_sources": (
-            ["demo_test_pipeline", "demo_mock_enrichment"]
-            if mock
-            else ["demo_test_pipeline"]
+            ["demo_test_pipeline", "demo_mock_enrichment"] if mock else ["demo_test_pipeline"]
         ),
         "enrichment_cost_cents": 0,
         "enrichment_completed_at": now.isoformat(),
@@ -1136,9 +1129,11 @@ async def demo_test_pipeline(
         )
     try:
         subject_res = await asyncio.to_thread(
-            lambda: sb.table("subjects")
-            .upsert(subject_payload, on_conflict="tenant_id,roof_id")
-            .execute()
+            lambda: (
+                sb.table("subjects")
+                .upsert(subject_payload, on_conflict="tenant_id,roof_id")
+                .execute()
+            )
         )
     except Exception as exc:  # noqa: BLE001
         # Refund the attempt so a schema/validation bug doesn't burn the
@@ -1225,9 +1220,7 @@ async def demo_test_pipeline(
 
     # Scoring done — flip the tracker to 'creative' and attach the lead
     # id so the dashboard toast can deep-link straight to /leads/{id}.
-    await asyncio.to_thread(
-        _update_run, run_id, status="creative", lead_id=lead_id
-    )
+    await asyncio.to_thread(_update_run, run_id, status="creative", lead_id=lead_id)
 
     # ── Creative + Outreach (background — rendering ~60s, send ~5s) ─
     # We deliberately do NOT await this. The endpoint returns 202 with
@@ -1247,11 +1240,7 @@ async def demo_test_pipeline(
     # 4. Look up the public_slug so the dashboard toast can deep-link
     #    straight into the lead detail page.
     lead_row = await asyncio.to_thread(
-        lambda: sb.table("leads")
-        .select("public_slug")
-        .eq("id", lead_id)
-        .limit(1)
-        .execute()
+        lambda: sb.table("leads").select("public_slug").eq("id", lead_id).limit(1).execute()
     )
     public_slug = (lead_row.data or [{}])[0].get("public_slug") if lead_row.data else None
 
@@ -1336,9 +1325,7 @@ async def _run_creative_and_outreach_background(
             # instead of just "Replicate failed somehow".
             after_present = bool(rows[0].get("rendering_image_url"))
             agent_reason = (
-                creative_out.reason
-                if creative_out is not None and creative_out.reason
-                else None
+                creative_out.reason if creative_out is not None and creative_out.reason else None
             )
             if after_present:
                 note = (
@@ -1404,9 +1391,7 @@ async def _run_creative_and_outreach_background(
     "/pipeline-runs/{run_id}",
     response_model=DemoPipelineRunResponse,
 )
-async def demo_pipeline_run_status(
-    ctx: CurrentUser, run_id: str
-) -> DemoPipelineRunResponse:
+async def demo_pipeline_run_status(ctx: CurrentUser, run_id: str) -> DemoPipelineRunResponse:
     """Polled by the dialog to surface async pipeline state.
 
     Tenant-scoped: a tenant can only read its own runs. The dialog
@@ -1421,12 +1406,14 @@ async def demo_pipeline_run_status(
     # add columns on subjects (the embedded-resource select was failing
     # silently in production whenever a new column hadn't propagated yet).
     res = await asyncio.to_thread(
-        lambda: sb.table("demo_pipeline_runs")
-        .select("id, lead_id, status, failed_step, error_message, notes, updated_at")
-        .eq("id", run_id)
-        .eq("tenant_id", tenant_id)
-        .limit(1)
-        .execute()
+        lambda: (
+            sb.table("demo_pipeline_runs")
+            .select("id, lead_id, status, failed_step, error_message, notes, updated_at")
+            .eq("id", run_id)
+            .eq("tenant_id", tenant_id)
+            .limit(1)
+            .execute()
+        )
     )
     rows = res.data or []
     if not rows:
@@ -1442,15 +1429,17 @@ async def demo_pipeline_run_status(
     if lead_id:
         try:
             lead_res = await asyncio.to_thread(
-                lambda: sb.table("leads")
-                .select(
-                    "subject_id, "
-                    "subjects(decision_maker_email, sede_operativa_source, "
-                    "sede_operativa_confidence)"
+                lambda: (
+                    sb.table("leads")
+                    .select(
+                        "subject_id, "
+                        "subjects(decision_maker_email, sede_operativa_source, "
+                        "sede_operativa_confidence)"
+                    )
+                    .eq("id", lead_id)
+                    .limit(1)
+                    .execute()
                 )
-                .eq("id", lead_id)
-                .limit(1)
-                .execute()
             )
             if lead_res.data:
                 subj = lead_res.data[0].get("subjects") or {}
@@ -1473,12 +1462,14 @@ async def demo_pipeline_run_status(
     if lead_id:
         try:
             send_res = await asyncio.to_thread(
-                lambda: sb.table("outreach_sends")
-                .select("status, failure_reason, email_message_id, sent_at")
-                .eq("lead_id", lead_id)
-                .order("created_at", desc=False)
-                .limit(1)
-                .execute()
+                lambda: (
+                    sb.table("outreach_sends")
+                    .select("status, failure_reason, email_message_id, sent_at")
+                    .eq("lead_id", lead_id)
+                    .order("created_at", desc=False)
+                    .limit(1)
+                    .execute()
+                )
             )
             if send_res.data:
                 email_state = send_res.data[0] or {}
@@ -1547,7 +1538,7 @@ class IdentifyBuildingCandidate(BaseModel):
 class IdentifyBuildingResponse(BaseModel):
     """BIC preview result — winning match + ranked candidates."""
 
-    confidence: str                  # high|medium|low|none|user_confirmed
+    confidence: str  # high|medium|low|none|user_confirmed
     needs_user_confirmation: bool
     lat: float | None = None
     lng: float | None = None
@@ -1666,9 +1657,7 @@ async def demo_identify_building(
     # the voter) as picker candidates. We sort by weight desc + rank
     # them so the dialog can colour-code (rank 1 green, 2-3 amber,
     # 4-5 grey).
-    sorted_chain = sorted(
-        match.source_chain, key=lambda e: e.get("weight", 0.0), reverse=True
-    )
+    sorted_chain = sorted(match.source_chain, key=lambda e: e.get("weight", 0.0), reverse=True)
     cands: list[IdentifyBuildingCandidate] = []
     seen_coords: set[tuple[float, float]] = set()
 
@@ -1682,9 +1671,7 @@ async def demo_identify_building(
         lng = float(entry["lng"])
         seen_coords.add(_coord_key(lat, lng))
         try:
-            preview_url = build_static_satellite_url(
-                lat, lng, zoom=18, width=320, height=320
-            )
+            preview_url = build_static_satellite_url(lat, lng, zoom=18, width=320, height=320)
         except Exception:  # noqa: BLE001 — preview is optional
             preview_url = None
         cands.append(
@@ -1696,8 +1683,7 @@ async def demo_identify_building(
                 source=str(entry.get("stage") or "unknown"),
                 polygon_geojson=None,
                 metadata={
-                    k: v for k, v in entry.items()
-                    if k not in ("stage", "weight", "lat", "lng")
+                    k: v for k, v in entry.items() if k not in ("stage", "weight", "lat", "lng")
                 },
                 preview_url=preview_url,
             )
@@ -1855,8 +1841,8 @@ def _refund_attempt(tenant_id: str) -> None:
         if not cur.data:
             return
         current: int = cur.data[0].get("demo_pipeline_test_remaining") or 0
-        sb.table("tenants").update(
-            {"demo_pipeline_test_remaining": current + 1}
-        ).eq("id", tenant_id).execute()
+        sb.table("tenants").update({"demo_pipeline_test_remaining": current + 1}).eq(
+            "id", tenant_id
+        ).execute()
     except Exception as exc:  # noqa: BLE001
         log.warning("demo.refund_attempt_failed", err=str(exc), tenant_id=tenant_id)

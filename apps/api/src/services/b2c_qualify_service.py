@@ -69,9 +69,7 @@ def _address_from_lead(lead: dict[str, Any]) -> str | None:
     graph_fields = payload.get("graph_fields") or []
     if isinstance(graph_fields, list):
         named = {
-            f.get("name"): (f.get("values") or [""])[0]
-            for f in graph_fields
-            if isinstance(f, dict)
+            f.get("name"): (f.get("values") or [""])[0] for f in graph_fields if isinstance(f, dict)
         }
         street = named.get("street_address") or named.get("indirizzo")
         city = city or named.get("city") or named.get("comune")
@@ -90,9 +88,7 @@ def _address_from_lead(lead: dict[str, Any]) -> str | None:
     return None
 
 
-def _subject_from_lead(
-    lead: dict[str, Any], roof_id: UUID, tenant_id: str
-) -> dict[str, Any]:
+def _subject_from_lead(lead: dict[str, Any], roof_id: UUID, tenant_id: str) -> dict[str, Any]:
     """Build a `subjects` insert row from the Meta lead fields.
 
     We hash the PII in the caller — `pii_hash` is NOT NULL on the
@@ -121,14 +117,12 @@ def _subject_from_lead(
     cap = payload.get("postcode") or payload.get("cap") or named.get("postcode")
     city = payload.get("city") or payload.get("comune") or named.get("city")
     street = (
-        payload.get("full_address")
-        or payload.get("street_address")
-        or named.get("street_address")
+        payload.get("full_address") or payload.get("street_address") or named.get("street_address")
     )
 
     import hashlib
 
-    hash_src = f"{(first+last).lower()}|{cap or ''}".encode()
+    hash_src = f"{(first + last).lower()}|{cap or ''}".encode()
     pii_hash = hashlib.sha256(hash_src).hexdigest()
 
     return {
@@ -150,9 +144,7 @@ def _subject_from_lead(
 # ---------------------------------------------------------------------------
 
 
-async def qualify_b2c_lead(
-    *, tenant_id: str, lead_id: str
-) -> dict[str, Any]:
+async def qualify_b2c_lead(*, tenant_id: str, lead_id: str) -> dict[str, Any]:
     """Run Solar qualification for a B2C lead.
 
     Returns a small status dict the arq task surfaces in its result:
@@ -163,10 +155,7 @@ async def qualify_b2c_lead(
 
     lead_res = (
         sb.table("leads")
-        .select(
-            "id, tenant_id, source, pipeline_status, roof_id, "
-            "subject_id, inbound_payload"
-        )
+        .select("id, tenant_id, source, pipeline_status, roof_id, subject_id, inbound_payload")
         .eq("id", lead_id)
         .eq("tenant_id", tenant_id)
         .limit(1)
@@ -218,10 +207,7 @@ async def qualify_b2c_lead(
 
     # Minimum B2C thresholds — lower than B2B. A family roof with
     # ~3 kWp and decent orientation still converts.
-    accepted = (
-        insight.estimated_kwp >= 3.0
-        and insight.dominant_exposure != "N"
-    )
+    accepted = insight.estimated_kwp >= 3.0 and insight.dominant_exposure != "N"
 
     gh = geohash.encode(insight.lat or geo.lat, insight.lng or geo.lng, precision=8)
 
@@ -242,9 +228,7 @@ async def qualify_b2c_lead(
         "shading_score": insight.shading_score,
         "data_source": RoofDataSource.GOOGLE_SOLAR.value,
         "classification": "b2c",
-        "status": (
-            RoofStatus.DISCOVERED if accepted else RoofStatus.REJECTED
-        ).value,
+        "status": (RoofStatus.DISCOVERED if accepted else RoofStatus.REJECTED).value,
         "raw_data": {
             "solar": insight.raw,
             "b2c_post_engagement": {
@@ -256,11 +240,7 @@ async def qualify_b2c_lead(
     }
 
     try:
-        up = (
-            sb.table("roofs")
-            .upsert(roof_row, on_conflict="tenant_id,geohash")
-            .execute()
-        )
+        up = sb.table("roofs").upsert(roof_row, on_conflict="tenant_id,geohash").execute()
         roof_id = up.data[0]["id"] if up.data else None
     except Exception as exc:  # noqa: BLE001
         log.warning(
@@ -299,17 +279,13 @@ async def qualify_b2c_lead(
     # analytics can tell Meta-form leads apart from leads that were
     # promoted from a reply / WhatsApp engagement — the former keeps
     # `b2c_meta_ads`, the latter becomes `b2c_post_engagement`.
-    new_source = (
-        "b2c_post_engagement" if source != "b2c_meta_ads" else source
-    )
+    new_source = "b2c_post_engagement" if source != "b2c_meta_ads" else source
     try:
         sb.table("leads").update(
             {
                 "roof_id": roof_id,
                 "subject_id": subject_id,
-                "pipeline_status": "qualified"
-                if accepted
-                else lead.get("pipeline_status"),
+                "pipeline_status": "qualified" if accepted else lead.get("pipeline_status"),
                 "source": new_source,
             }
         ).eq("id", lead_id).execute()

@@ -43,7 +43,7 @@ class VariantSpec:
     copy_opening_line: str
     copy_proposition_line: str
     cta_primary_label: str
-    variant_label: str           # 'A' or 'B'
+    variant_label: str  # 'A' or 'B'
     generated_by: str = "haiku"  # 'haiku' | 'manual' | 'seed'
 
 
@@ -54,8 +54,7 @@ class VariantSpec:
 _SEED_VARIANT_A = VariantSpec(
     copy_subject="Analisi fotovoltaica per la vostra sede",
     copy_opening_line=(
-        "Ho analizzato la vostra sede e i risultati sono interessanti per "
-        "il vostro settore."
+        "Ho analizzato la vostra sede e i risultati sono interessanti per il vostro settore."
     ),
     copy_proposition_line=(
         "Vi proponiamo un sopralluogo gratuito per validare i dati e "
@@ -174,7 +173,12 @@ def _parse_haiku_response(text: str) -> tuple[dict, dict] | None:
         data = json.loads(stripped)
         va = data["variant_a"]
         vb = data["variant_b"]
-        required = {"copy_subject", "copy_opening_line", "copy_proposition_line", "cta_primary_label"}
+        required = {
+            "copy_subject",
+            "copy_opening_line",
+            "copy_proposition_line",
+            "cta_primary_label",
+        }
         if not (required.issubset(va) and required.issubset(vb)):
             return None
         return va, vb
@@ -407,19 +411,21 @@ async def persist_variant_pair(
     """Insert A+B rows into cluster_copy_variants and return (id_a, id_b)."""
     rows = []
     for spec in (variant_a, variant_b):
-        rows.append({
-            "id": str(uuid.uuid4()),
-            "tenant_id": tenant_id,
-            "cluster_signature": cluster_signature,
-            "round_number": round_number,
-            "variant_label": spec.variant_label,
-            "copy_subject": spec.copy_subject,
-            "copy_opening_line": spec.copy_opening_line,
-            "copy_proposition_line": spec.copy_proposition_line,
-            "cta_primary_label": spec.cta_primary_label,
-            "status": "active",
-            "generated_by": spec.generated_by,
-        })
+        rows.append(
+            {
+                "id": str(uuid.uuid4()),
+                "tenant_id": tenant_id,
+                "cluster_signature": cluster_signature,
+                "round_number": round_number,
+                "variant_label": spec.variant_label,
+                "copy_subject": spec.copy_subject,
+                "copy_opening_line": spec.copy_opening_line,
+                "copy_proposition_line": spec.copy_proposition_line,
+                "cta_primary_label": spec.cta_primary_label,
+                "status": "active",
+                "generated_by": spec.generated_by,
+            }
+        )
 
     resp = await supabase.table("cluster_copy_variants").insert(rows).execute()
     if resp.error:

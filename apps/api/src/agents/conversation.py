@@ -61,12 +61,13 @@ _HANDOFF_MESSAGE = (
     "team si farà vivo."
 )
 
+
 class ConversationInput(BaseModel):
     tenant_id: str
     lead_id: str
-    wa_phone: str      # E.164 without "+", e.g. "393331234567"
+    wa_phone: str  # E.164 without "+", e.g. "393331234567"
     incoming_text: str
-    message_id: str = Field(default="")   # 360dialog wamid
+    message_id: str = Field(default="")  # 360dialog wamid
 
 
 class ConversationOutput(BaseModel):
@@ -103,16 +104,18 @@ class ConversationAgent(AgentBase[ConversationInput, ConversationOutput]):
             # Create new conversation tied to this lead
             insert_res = (
                 sb.table("conversations")
-                .insert({
-                    "tenant_id": payload.tenant_id,
-                    "lead_id": payload.lead_id,
-                    "channel": "whatsapp",
-                    "whatsapp_phone": payload.wa_phone,
-                    "state": "active",
-                    "messages": [],
-                    "last_inbound_id": payload.message_id or None,
-                    "last_message_at": now_iso,
-                })
+                .insert(
+                    {
+                        "tenant_id": payload.tenant_id,
+                        "lead_id": payload.lead_id,
+                        "channel": "whatsapp",
+                        "whatsapp_phone": payload.wa_phone,
+                        "state": "active",
+                        "messages": [],
+                        "last_inbound_id": payload.message_id or None,
+                        "last_message_at": now_iso,
+                    }
+                )
                 .execute()
             )
             rows = insert_res.data or []
@@ -154,19 +157,20 @@ class ConversationAgent(AgentBase[ConversationInput, ConversationOutput]):
         # ------------------------------------------------------------------
         # 3) Append inbound message
         # ------------------------------------------------------------------
-        messages.append({
-            "role": "lead",
-            "content": payload.incoming_text,
-            "ts": now_iso,
-            **({"id": payload.message_id} if payload.message_id else {}),
-        })
+        messages.append(
+            {
+                "role": "lead",
+                "content": payload.incoming_text,
+                "ts": now_iso,
+                **({"id": payload.message_id} if payload.message_id else {}),
+            }
+        )
 
         # ------------------------------------------------------------------
         # 4) Handoff check
         # ------------------------------------------------------------------
         needs_handoff = (
-            bool(_HANDOFF_RE.search(payload.incoming_text))
-            or auto_replies >= AUTO_REPLY_LIMIT
+            bool(_HANDOFF_RE.search(payload.incoming_text)) or auto_replies >= AUTO_REPLY_LIMIT
         )
 
         if needs_handoff:
@@ -177,27 +181,33 @@ class ConversationAgent(AgentBase[ConversationInput, ConversationOutput]):
                 tenant_id=payload.tenant_id,
             )
             if sent:
-                messages.append({
-                    "role": "ai",
-                    "content": _HANDOFF_MESSAGE,
-                    "ts": now_iso,
-                    "handoff_message": True,
-                })
+                messages.append(
+                    {
+                        "role": "ai",
+                        "content": _HANDOFF_MESSAGE,
+                        "ts": now_iso,
+                        "handoff_message": True,
+                    }
+                )
 
-            sb.table("conversations").update({
-                "state": "handoff",
-                "messages": messages,
-                "last_inbound_id": payload.message_id or None,
-                "last_message_at": now_iso,
-                "turn_count": len(messages),
-            }).eq("id", conv_id).execute()
+            sb.table("conversations").update(
+                {
+                    "state": "handoff",
+                    "messages": messages,
+                    "last_inbound_id": payload.message_id or None,
+                    "last_message_at": now_iso,
+                    "turn_count": len(messages),
+                }
+            ).eq("id", conv_id).execute()
 
             await self._emit_event(
                 event_type="lead.whatsapp_handoff",
                 payload={
                     "lead_id": payload.lead_id,
                     "conversation_id": conv_id,
-                    "reason": "human_request" if _HANDOFF_RE.search(payload.incoming_text) else "turn_limit",
+                    "reason": "human_request"
+                    if _HANDOFF_RE.search(payload.incoming_text)
+                    else "turn_limit",
                     "auto_replies_count": auto_replies,
                 },
                 tenant_id=payload.tenant_id,
@@ -223,8 +233,7 @@ class ConversationAgent(AgentBase[ConversationInput, ConversationOutput]):
         lead_res = (
             sb.table("leads")
             .select(
-                "id, public_slug, pipeline_status, roi_data, "
-                "outreach_sent_at, outreach_opened_at"
+                "id, public_slug, pipeline_status, roi_data, outreach_sent_at, outreach_opened_at"
             )
             .eq("id", payload.lead_id)
             .eq("tenant_id", payload.tenant_id)
@@ -246,9 +255,7 @@ class ConversationAgent(AgentBase[ConversationInput, ConversationOutput]):
             else type("R", (), {"data": []})()
         )
         subject: dict[str, Any] = (
-            (subject_res.data or [{}])[0]
-            if hasattr(subject_res, "data")
-            else {}
+            (subject_res.data or [{}])[0] if hasattr(subject_res, "data") else {}
         )
 
         # We need subject_id — load lead with it
@@ -273,9 +280,7 @@ class ConversationAgent(AgentBase[ConversationInput, ConversationOutput]):
             if lead_full.get("subject_id")
             else None
         )
-        subject = (
-            (subject_res2.data or [{}])[0] if subject_res2 and subject_res2.data else {}
-        )
+        subject = (subject_res2.data or [{}])[0] if subject_res2 and subject_res2.data else {}
 
         tenant_res = (
             sb.table("tenants")
@@ -386,20 +391,24 @@ class ConversationAgent(AgentBase[ConversationInput, ConversationOutput]):
         # 8) Persist updated thread
         # ------------------------------------------------------------------
         if sent:
-            messages.append({
-                "role": "ai",
-                "content": ai_reply,
-                "ts": datetime.now(UTC).isoformat(),
-            })
+            messages.append(
+                {
+                    "role": "ai",
+                    "content": ai_reply,
+                    "ts": datetime.now(UTC).isoformat(),
+                }
+            )
 
         new_auto_replies = auto_replies + (1 if sent else 0)
-        sb.table("conversations").update({
-            "messages": messages,
-            "last_inbound_id": payload.message_id or None,
-            "last_message_at": now_iso,
-            "turn_count": len(messages),
-            "auto_replies_count": new_auto_replies,
-        }).eq("id", conv_id).execute()
+        sb.table("conversations").update(
+            {
+                "messages": messages,
+                "last_inbound_id": payload.message_id or None,
+                "last_message_at": now_iso,
+                "turn_count": len(messages),
+                "auto_replies_count": new_auto_replies,
+            }
+        ).eq("id", conv_id).execute()
 
         # Advance pipeline to 'whatsapp' if not already engaged further
         _advance_pipeline_whatsapp(sb, payload.lead_id, payload.tenant_id)
@@ -451,23 +460,23 @@ async def _send_wa_message(*, phone: str, text: str, tenant_id: str) -> bool:
 
 
 _PIPELINE_ORDER = [
-    "new", "sent", "delivered", "opened", "clicked",
-    "engaged", "whatsapp", "appointment", "closed_won", "closed_lost",
+    "new",
+    "sent",
+    "delivered",
+    "opened",
+    "clicked",
+    "engaged",
+    "whatsapp",
+    "appointment",
+    "closed_won",
+    "closed_lost",
 ]
 
 
-def _advance_pipeline_whatsapp(
-    sb: Any, lead_id: str, tenant_id: str
-) -> None:
+def _advance_pipeline_whatsapp(sb: Any, lead_id: str, tenant_id: str) -> None:
     """Advance lead pipeline to 'whatsapp' if not already at a higher stage."""
     try:
-        res = (
-            sb.table("leads")
-            .select("pipeline_status")
-            .eq("id", lead_id)
-            .limit(1)
-            .execute()
-        )
+        res = sb.table("leads").select("pipeline_status").eq("id", lead_id).limit(1).execute()
         rows = res.data or []
         if not rows:
             return
@@ -475,8 +484,6 @@ def _advance_pipeline_whatsapp(
         current_idx = _PIPELINE_ORDER.index(current) if current in _PIPELINE_ORDER else 0
         wa_idx = _PIPELINE_ORDER.index("whatsapp")
         if current_idx < wa_idx:
-            sb.table("leads").update({"pipeline_status": "whatsapp"}).eq(
-                "id", lead_id
-            ).execute()
+            sb.table("leads").update({"pipeline_status": "whatsapp"}).eq("id", lead_id).execute()
     except Exception as exc:  # noqa: BLE001
         log.warning("conversation.pipeline_advance_failed", err=str(exc))

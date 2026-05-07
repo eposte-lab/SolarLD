@@ -117,8 +117,8 @@ class OperatingSite:
     cap: str | None
     city: str | None
     province: str | None
-    source: str             # 'atoka' | 'website_scrape' | 'google_places' | 'mapbox_hq' | 'unresolved'
-    confidence: str         # 'high' | 'medium' | 'low' | 'none'
+    source: str  # 'atoka' | 'website_scrape' | 'google_places' | 'mapbox_hq' | 'unresolved'
+    confidence: str  # 'high' | 'medium' | 'low' | 'none'
 
     @classmethod
     def empty(cls) -> OperatingSite:

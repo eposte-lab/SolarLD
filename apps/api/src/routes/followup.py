@@ -32,6 +32,7 @@ router = APIRouter()
 # POST /trigger — manual trigger of the engagement follow-up cron
 # ---------------------------------------------------------------------------
 
+
 @router.post("/trigger")
 async def trigger_followup_now(ctx: CurrentUser) -> dict[str, Any]:
     """Queue engagement-based follow-up evaluation for all eligible leads.
@@ -51,11 +52,7 @@ async def trigger_followup_now(ctx: CurrentUser) -> dict[str, Any]:
 
     # Verify tenant exists and is active
     tenant_res = (
-        sb.table("tenants")
-        .select("id, business_name")
-        .eq("id", tenant_id)
-        .limit(1)
-        .execute()
+        sb.table("tenants").select("id, business_name").eq("id", tenant_id).limit(1).execute()
     )
     if not tenant_res.data:
         raise HTTPException(status_code=404, detail="Tenant not found")
@@ -72,9 +69,7 @@ async def trigger_followup_now(ctx: CurrentUser) -> dict[str, Any]:
         skipped_raw = result.get("skipped") or 0
         if isinstance(skipped_raw, dict):
             skipped_count = sum(int(v) for v in skipped_raw.values())
-            skipped_breakdown: dict[str, int] = {
-                str(k): int(v) for k, v in skipped_raw.items()
-            }
+            skipped_breakdown: dict[str, int] = {str(k): int(v) for k, v in skipped_raw.items()}
         else:
             skipped_count = int(skipped_raw)
             skipped_breakdown = {}
@@ -111,6 +106,7 @@ async def trigger_followup_now(ctx: CurrentUser) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # POST /bulk-draft — AI draft for multiple leads, queue sends
 # ---------------------------------------------------------------------------
+
 
 class BulkDraftRequest(BaseModel):
     lead_ids: list[str]
@@ -192,7 +188,9 @@ async def bulk_draft_followup(
 
     async def draft_one(lead_id: str) -> BulkDraftResult:
         if lead_id not in leads_by_id:
-            return BulkDraftResult(lead_id=lead_id, ok=False, error="Lead non trovato o non autorizzato")
+            return BulkDraftResult(
+                lead_id=lead_id, ok=False, error="Lead non trovato o non autorizzato"
+            )
 
         lead = leads_by_id[lead_id]
         subj = lead.get("subjects") or {}
@@ -250,7 +248,7 @@ Installer: {tenant.get("business_name", "SolarLead")}
         )
         prompt = (
             f"Write a follow-up email for this lead:\n\n{context_block}\n\n"
-            "Return JSON: {\"subject\": \"...\", \"body\": \"...\"} "
+            'Return JSON: {"subject": "...", "body": "..."} '
             "(plain text Italian, no HTML, no markdown)."
         )
 
@@ -269,7 +267,9 @@ Installer: {tenant.get("business_name", "SolarLead")}
         body_text = str(draft.get("body") or "")
 
         if not body_text:
-            return BulkDraftResult(lead_id=lead_id, ok=False, error="Claude non ha restituito un corpo email")
+            return BulkDraftResult(
+                lead_id=lead_id, ok=False, error="Claude non ha restituito un corpo email"
+            )
 
         if req.send_immediately:
             # Call send logic directly (reuse helper)
@@ -293,13 +293,16 @@ Installer: {tenant.get("business_name", "SolarLead")}
                     err=str(exc),
                 )
                 return BulkDraftResult(
-                    lead_id=lead_id, ok=False,
-                    subject=subject_line, body=body_text,
+                    lead_id=lead_id,
+                    ok=False,
+                    subject=subject_line,
+                    body=body_text,
                     error="Invio fallito. La bozza è stata salvata, riprova manualmente.",
                 )
 
         return BulkDraftResult(
-            lead_id=lead_id, ok=True,
+            lead_id=lead_id,
+            ok=True,
             subject=subject_line,
             body=body_text,
         )
@@ -348,8 +351,13 @@ async def _send_followup(
 
     def _text_to_html(text: str) -> str:
         import html as html_lib
+
         paras = text.strip().split("\n\n")
-        return "".join(f"<p>{html_lib.escape(p.strip()).replace(chr(10), '<br>')}</p>" for p in paras if p.strip())
+        return "".join(
+            f"<p>{html_lib.escape(p.strip()).replace(chr(10), '<br>')}</p>"
+            for p in paras
+            if p.strip()
+        )
 
     email_input = SendEmailInput(
         from_address=from_address,
@@ -375,20 +383,20 @@ async def _send_followup(
     next_step = max(2, max_step + 1)
     now_iso = datetime.now(UTC).isoformat()
 
-    sb.table("outreach_sends").insert({
-        "lead_id": lead_id,
-        "tenant_id": tenant["id"],
-        "channel": "email",
-        "sequence_step": next_step,
-        "status": "sent",
-        "sent_at": now_iso,
-        "email_subject": subject,
-        # Bulk drafts triggered by the operator → manual flag + cooldown.
-        "is_manual": True,
-    }).execute()
+    sb.table("outreach_sends").insert(
+        {
+            "lead_id": lead_id,
+            "tenant_id": tenant["id"],
+            "channel": "email",
+            "sequence_step": next_step,
+            "status": "sent",
+            "sent_at": now_iso,
+            "email_subject": subject,
+            # Bulk drafts triggered by the operator → manual flag + cooldown.
+            "is_manual": True,
+        }
+    ).execute()
 
     # Register the manual follow-up so the auto-cron skips this lead
     # for 24h (see workers/cron.py manual_cooldown).
-    sb.table("leads").update(
-        {"last_followup_sent_at": now_iso}
-    ).eq("id", lead_id).execute()
+    sb.table("leads").update({"last_followup_sent_at": now_iso}).eq("id", lead_id).execute()

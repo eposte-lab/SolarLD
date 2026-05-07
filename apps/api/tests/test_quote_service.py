@@ -71,9 +71,7 @@ def _stub_supabase(
             chain.update.return_value = chain
             chain.insert.return_value = chain
             chain.execute.side_effect = None
-            chain.execute.return_value = MagicMock(
-                data=insert_returning or prev_versions or []
-            )
+            chain.execute.return_value = MagicMock(data=insert_returning or prev_versions or [])
             return chain
         return _stub_query()
 
@@ -234,9 +232,7 @@ def test_next_preventivo_number_formats_year_and_seq() -> None:
 
     sb = _stub_supabase(rpc_seq=42)
     with patch.object(quote_service, "get_service_client", return_value=sb):
-        number, seq = quote_service.next_preventivo_number(
-            "22222222-2222-2222-2222-222222222222"
-        )
+        number, seq = quote_service.next_preventivo_number("22222222-2222-2222-2222-222222222222")
 
     expected_year = datetime.now(UTC).year
     assert number == f"{expected_year}/PV/0042"
@@ -250,9 +246,7 @@ def test_next_preventivo_number_rejects_zero_seq() -> None:
     sb = _stub_supabase(rpc_seq=0)
     with patch.object(quote_service, "get_service_client", return_value=sb):
         with pytest.raises(RuntimeError):
-            quote_service.next_preventivo_number(
-                "22222222-2222-2222-2222-222222222222"
-            )
+            quote_service.next_preventivo_number("22222222-2222-2222-2222-222222222222")
 
 
 # ---------------------------------------------------------------------------
@@ -290,9 +284,7 @@ async def test_save_quote_increments_version_and_inserts() -> None:
 
     with (
         patch.object(quote_service, "get_service_client", return_value=sb),
-        patch.object(
-            quote_service, "render_quote_pdf", return_value=b"%PDF-fake"
-        ),
+        patch.object(quote_service, "render_quote_pdf", return_value=b"%PDF-fake"),
         patch.object(
             quote_service,
             "upload_bytes",
@@ -339,9 +331,7 @@ async def test_save_quote_starts_at_version_1_when_no_prior() -> None:
 
     with (
         patch.object(quote_service, "get_service_client", return_value=sb),
-        patch.object(
-            quote_service, "render_quote_pdf", return_value=b"%PDF-fake"
-        ),
+        patch.object(quote_service, "render_quote_pdf", return_value=b"%PDF-fake"),
         patch.object(
             quote_service,
             "upload_bytes",

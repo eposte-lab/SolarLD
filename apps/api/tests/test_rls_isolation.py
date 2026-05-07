@@ -192,9 +192,7 @@ class _FilterFakeSupabase:
             return _FakeResult(data=[dict(chain._payload)])
         if chain._op == "update":
             assert chain._payload is not None
-            self.updates.append(
-                (chain._table, dict(chain._payload), dict(chain.filters))
-            )
+            self.updates.append((chain._table, dict(chain._payload), dict(chain.filters)))
             # Simulate: update returns the row only when both id AND tenant_id match.
             fn = self.selects.get(chain._table)
             if fn is not None:
@@ -290,8 +288,7 @@ async def test_list_leads_tenant_isolation(monkeypatch: pytest.MonkeyPatch) -> N
         assert r_b.status_code == 200
         body_b = r_b.json()
         assert body_b["pagination"]["total"] == 0, (
-            "Tenant-B must not see Tenant-A's leads — application-level "
-            "tenant isolation failed"
+            "Tenant-B must not see Tenant-A's leads — application-level tenant isolation failed"
         )
         assert body_b["data"] == []
     finally:
@@ -341,8 +338,7 @@ async def test_get_lead_cross_tenant_returns_404(
                 headers={"Authorization": "Bearer dummy-b"},
             )
         assert r_b.status_code == 404, (
-            f"Expected 404 for cross-tenant lead access, got {r_b.status_code}: "
-            f"{r_b.text}"
+            f"Expected 404 for cross-tenant lead access, got {r_b.status_code}: {r_b.text}"
         )
     finally:
         app.dependency_overrides.clear()
@@ -390,9 +386,8 @@ async def test_delete_lead_cross_tenant_returns_404(
             f"Expected 404 for cross-tenant delete, got {r.status_code}: {r.text}"
         )
         # The fake DB must not have received a delete for tenant-A's lead
-        assert not any(
-            filters.get("id") == lead_id
-            for (_, filters) in fake_sb.deletes
-        ), "Cross-tenant delete reached the DB layer — isolation bypassed"
+        assert not any(filters.get("id") == lead_id for (_, filters) in fake_sb.deletes), (
+            "Cross-tenant delete reached the DB layer — isolation bypassed"
+        )
     finally:
         app.dependency_overrides.clear()

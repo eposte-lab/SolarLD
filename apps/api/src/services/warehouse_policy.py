@@ -31,12 +31,12 @@ _DEFAULT_SURVIVAL_TARGET = 0.80
 class WarehousePolicy:
     """Operational parameters for one tenant's warehouse pipeline."""
 
-    daily_send_cap: int            # effective send cap today
-    daily_send_cap_min: int        # admin-slider lower bound
-    daily_send_cap_max: int        # admin-slider upper bound
-    warehouse_buffer_days: int     # refill trigger threshold
-    lead_expiration_days: int      # auto-expire after N days in ready_to_send
-    atoka_survival_target: float   # below → admin alert
+    daily_send_cap: int  # effective send cap today
+    daily_send_cap_min: int  # admin-slider lower bound
+    daily_send_cap_max: int  # admin-slider upper bound
+    warehouse_buffer_days: int  # refill trigger threshold
+    lead_expiration_days: int  # auto-expire after N days in ready_to_send
+    atoka_survival_target: float  # below → admin alert
 
     # ----- derived -----------------------------------------------------
 
@@ -63,18 +63,10 @@ def policy_for(tenant_row: dict[str, Any]) -> WarehousePolicy:
     """
     return WarehousePolicy(
         daily_send_cap=_int(tenant_row.get("daily_target_send_cap"), _DEFAULT_DAILY_CAP),
-        daily_send_cap_min=_int(
-            tenant_row.get("daily_send_cap_min"), _DEFAULT_CAP_MIN
-        ),
-        daily_send_cap_max=_int(
-            tenant_row.get("daily_send_cap_max"), _DEFAULT_CAP_MAX
-        ),
-        warehouse_buffer_days=_int(
-            tenant_row.get("warehouse_buffer_days"), _DEFAULT_BUFFER_DAYS
-        ),
-        lead_expiration_days=_int(
-            tenant_row.get("lead_expiration_days"), _DEFAULT_EXPIRATION_DAYS
-        ),
+        daily_send_cap_min=_int(tenant_row.get("daily_send_cap_min"), _DEFAULT_CAP_MIN),
+        daily_send_cap_max=_int(tenant_row.get("daily_send_cap_max"), _DEFAULT_CAP_MAX),
+        warehouse_buffer_days=_int(tenant_row.get("warehouse_buffer_days"), _DEFAULT_BUFFER_DAYS),
+        lead_expiration_days=_int(tenant_row.get("lead_expiration_days"), _DEFAULT_EXPIRATION_DAYS),
         atoka_survival_target=_float(
             tenant_row.get("atoka_survival_target"), _DEFAULT_SURVIVAL_TARGET
         ),

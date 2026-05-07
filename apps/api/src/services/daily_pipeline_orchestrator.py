@@ -68,9 +68,7 @@ async def run_daily_orchestrator() -> dict[str, Any]:
     # bounded UPDATE) so we always run it before today's pick.
     try:
         recovered = sb.rpc("warehouse_unstick_picked", {"p_max_age_hours": 6}).execute()
-        recovered_count = (
-            recovered.data if isinstance(recovered.data, int) else 0
-        )
+        recovered_count = recovered.data if isinstance(recovered.data, int) else 0
         if recovered_count:
             log.warning("warehouse_unstuck_picks", count=recovered_count)
     except Exception as exc:  # noqa: BLE001
@@ -108,9 +106,7 @@ async def run_daily_orchestrator() -> dict[str, Any]:
         "tenants_failed": failed,
         "details": details,
     }
-    log.info("daily_orchestrator_complete", **{
-        k: v for k, v in summary.items() if k != "details"
-    })
+    log.info("daily_orchestrator_complete", **{k: v for k, v in summary.items() if k != "details"})
     return summary
 
 
@@ -130,9 +126,7 @@ async def process_tenant_daily_send(tenant: dict[str, Any]) -> dict[str, Any]:
     # so an admin watching the widget sees what the orchestrator saw.
     health = (
         sb.table("warehouse_health")
-        .select(
-            "ready_to_send_count, expiring_within_3d, runway_days, needs_refill"
-        )
+        .select("ready_to_send_count, expiring_within_3d, runway_days, needs_refill")
         .eq("tenant_id", tenant_id)
         .limit(1)
         .execute()

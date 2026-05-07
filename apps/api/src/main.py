@@ -154,9 +154,7 @@ app.include_router(practices.router, prefix="/v1", tags=["practices"])
 # /v1/campaigns kept for backward compat (returns outreach_sends data)
 app.include_router(campaigns.router, prefix="/v1/campaigns", tags=["campaigns"])
 # New primary endpoints
-app.include_router(
-    outreach_sends.router, prefix="/v1/outreach-sends", tags=["outreach-sends"]
-)
+app.include_router(outreach_sends.router, prefix="/v1/outreach-sends", tags=["outreach-sends"])
 app.include_router(
     acquisition_campaigns.router,
     prefix="/v1/acquisition-campaigns",
@@ -174,15 +172,9 @@ app.include_router(admin.router, prefix="/v1/admin", tags=["admin"])
 # Auth is per-tenant (any role); the endpoint itself enforces the
 # `is_demo` flag and the per-tenant 3-attempt counter (migration 0077).
 app.include_router(demo.router, prefix="/v1/demo", tags=["demo"])
-app.include_router(
-    crm_webhooks.router, prefix="/v1/crm-webhooks", tags=["crm-webhooks"]
-)
-app.include_router(
-    notifications.router, prefix="/v1/notifications", tags=["notifications"]
-)
-app.include_router(
-    experiments.router, prefix="/v1/experiments", tags=["experiments"]
-)
+app.include_router(crm_webhooks.router, prefix="/v1/crm-webhooks", tags=["crm-webhooks"])
+app.include_router(notifications.router, prefix="/v1/notifications", tags=["notifications"])
+app.include_router(experiments.router, prefix="/v1/experiments", tags=["experiments"])
 # Sprint 9 B.6: cluster-level A/B variant management
 app.include_router(cluster_ab.router, prefix="/v1", tags=["cluster-ab"])
 app.include_router(sector_news.router, prefix="/v1", tags=["sector-news"])
@@ -223,8 +215,7 @@ async def tier_gate_handler(_req: Request, exc: TierGateError) -> JSONResponse:
         status_code=403,
         content={
             "detail": (
-                "Funzionalità non disponibile sul tuo piano. "
-                "Aggiorna il piano per sbloccarla."
+                "Funzionalità non disponibile sul tuo piano. Aggiorna il piano per sbloccarla."
             ),
             "error": {
                 "code": "tier_gate",

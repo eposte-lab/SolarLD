@@ -54,18 +54,10 @@ def _translate(exc: ResendError) -> ProviderError:
     """Map a ResendError onto the shared ProviderError taxonomy."""
     code = getattr(exc, "status_code", 0) or 0
     if code == 429:
-        return ProviderError(
-            str(exc), kind="rate_limited", status_code=code, retryable=True
-        )
+        return ProviderError(str(exc), kind="rate_limited", status_code=code, retryable=True)
     if 500 <= code < 600:
-        return ProviderError(
-            str(exc), kind="server_error", status_code=code, retryable=True
-        )
+        return ProviderError(str(exc), kind="server_error", status_code=code, retryable=True)
     if 400 <= code < 500:
-        return ProviderError(
-            str(exc), kind="permanent", status_code=code, retryable=False
-        )
+        return ProviderError(str(exc), kind="permanent", status_code=code, retryable=False)
     # Non-HTTP failure (JSON parse, network): treat as transport.
-    return ProviderError(
-        str(exc), kind="transport", status_code=code, retryable=True
-    )
+    return ProviderError(str(exc), kind="transport", status_code=code, retryable=True)

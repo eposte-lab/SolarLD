@@ -26,20 +26,23 @@ def test_supported_template_codes_match_sprint_2_set() -> None:
     """
     from src.services.practice_pdf_renderer import SUPPORTED_TEMPLATE_CODES
 
-    assert frozenset(
-        {
-            "dm_37_08",
-            "comunicazione_comune",
-            "modello_unico_p1",
-            "modello_unico_p2",
-            "schema_unifilare",
-            "attestazione_titolo",
-            "tica_areti",
-            "transizione_50_ex_ante",
-            "transizione_50_ex_post",
-            "transizione_50_attestazione",
-        }
-    ) == SUPPORTED_TEMPLATE_CODES
+    assert (
+        frozenset(
+            {
+                "dm_37_08",
+                "comunicazione_comune",
+                "modello_unico_p1",
+                "modello_unico_p2",
+                "schema_unifilare",
+                "attestazione_titolo",
+                "tica_areti",
+                "transizione_50_ex_ante",
+                "transizione_50_ex_post",
+                "transizione_50_attestazione",
+            }
+        )
+        == SUPPORTED_TEMPLATE_CODES
+    )
 
 
 def test_render_practice_pdf_rejects_unknown_template_code() -> None:

@@ -122,6 +122,7 @@ class ForwardGeocodeResult:
     HunterAgent can reject ambiguous matches (e.g. a street that exists in
     both Rome and Milan).
     """
+
     lat: float
     lng: float
     address: str | None

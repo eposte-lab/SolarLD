@@ -47,9 +47,7 @@ def test_build_canonical_payload_assigns_fields() -> None:
 def test_signature_matches_manual_hmac() -> None:
     body = b'{"event":"lead.scored"}'
     secret = "s3kret"
-    expected = "sha256=" + hmac.new(
-        secret.encode("utf-8"), body, hashlib.sha256
-    ).hexdigest()
+    expected = "sha256=" + hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
     assert sign(body, secret) == expected
 
 

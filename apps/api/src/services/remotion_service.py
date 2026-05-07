@@ -66,7 +66,7 @@ class RenderTransitionInput:
     yearly_savings_eur: float
     payback_years: float
     tenant_name: str
-    output_path: str                          # e.g. "{tenant_id}/{lead_id}"
+    output_path: str  # e.g. "{tenant_id}/{lead_id}"
     co2_tonnes_lifetime: float | None = None
     brand_primary_color: str = "#0F766E"
     brand_logo_url: str | None = None
@@ -189,14 +189,10 @@ async def render_transition(
 
     if resp.status_code >= 500:
         # Let tenacity retry
-        raise RemotionError(
-            f"sidecar 5xx status={resp.status_code} body={resp.text[:300]}"
-        )
+        raise RemotionError(f"sidecar 5xx status={resp.status_code} body={resp.text[:300]}")
     if resp.status_code >= 400:
         # Permanent — caller shouldn't retry, skip the video step.
-        raise RemotionError(
-            f"sidecar 4xx status={resp.status_code} body={resp.text[:300]}"
-        )
+        raise RemotionError(f"sidecar 4xx status={resp.status_code} body={resp.text[:300]}")
     try:
         return parse_render_response(resp.json())
     except ValueError as exc:  # json decode

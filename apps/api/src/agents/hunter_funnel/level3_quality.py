@@ -78,9 +78,7 @@ async def run_level3_quality(
 
     if bulk_updates:
         try:
-            sb.table("scan_candidates").upsert(
-                bulk_updates, on_conflict="id"
-            ).execute()
+            sb.table("scan_candidates").upsert(bulk_updates, on_conflict="id").execute()
         except Exception as exc:  # noqa: BLE001
             log.warning(
                 "level3_quality.persist_failed",

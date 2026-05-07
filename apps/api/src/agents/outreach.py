@@ -181,8 +181,8 @@ class OutreachInput(BaseModel):
 
 class OutreachOutput(BaseModel):
     lead_id: str
-    campaign_id: str | None = None         # outreach_sends row id
-    provider_id: str | None = None         # Resend message id
+    campaign_id: str | None = None  # outreach_sends row id
+    provider_id: str | None = None  # Resend message id
     status: str = CampaignStatus.PENDING.value
     cost_cents: int = 0
     skipped: bool = False
@@ -215,9 +215,7 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
         subject = _load_single(sb, "subjects", lead["subject_id"], payload.tenant_id)
         roof = _load_single(sb, "roofs", lead["roof_id"], payload.tenant_id)
         if not subject or not roof:
-            raise ValueError(
-                f"lead {payload.lead_id} missing subject or roof rows"
-            )
+            raise ValueError(f"lead {payload.lead_id} missing subject or roof rows")
 
         tenant_res = (
             sb.table("tenants")
@@ -356,7 +354,8 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
         # ------------------------------------------------------------------
         if payload.channel == OutreachChannel.EMAIL and not payload.force:
             missing_legal = [
-                f for f in ("legal_name", "vat_number", "legal_address")
+                f
+                for f in ("legal_name", "vat_number", "legal_address")
                 if not (tenant_row.get(f) or "").strip()
             ]
             if missing_legal:
@@ -503,9 +502,7 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
         # cap we don't even need to talk to Redis for the hourly
         # window check.
         # ------------------------------------------------------------------
-        cap_decision = await daily_target_cap_service.check_and_reserve(
-            tenant_row
-        )
+        cap_decision = await daily_target_cap_service.check_and_reserve(tenant_row)
         if not cap_decision.allowed:
             log.info(
                 "outreach.daily_target_cap_reached",
@@ -640,9 +637,7 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
         # inbox restrictions (Phase A) and the demo dialog's "scegli mittente"
         # picker (passes a single inbox UUID via OutreachInput.inbox_id).
         # ------------------------------------------------------------------
-        pinned_inbox_ids: list[str] | None = (
-            [payload.inbox_id] if payload.inbox_id else None
-        )
+        pinned_inbox_ids: list[str] | None = [payload.inbox_id] if payload.inbox_id else None
         selected_inbox: dict[str, Any] | None = await inbox_service.pick_and_claim(
             sb,
             payload.tenant_id,
@@ -676,9 +671,8 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
 
         if selected_inbox is not None:
             from_address = inbox_service.build_from_address(selected_inbox)
-            reply_to = (
-                selected_inbox.get("reply_to_email")
-                or _build_reply_to(tenant_row, lead.get("public_slug"))
+            reply_to = selected_inbox.get("reply_to_email") or _build_reply_to(
+                tenant_row, lead.get("public_slug")
             )
             tracking_host = get_tracking_host(selected_inbox)
             domain_purpose = get_domain_purpose(selected_inbox)
@@ -687,9 +681,7 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
             from_address = _build_from_address(tenant_row)
             reply_to = _build_reply_to(tenant_row, lead.get("public_slug"))
 
-        inbox_id: str | None = (
-            str(selected_inbox["id"]) if selected_inbox else None
-        )
+        inbox_id: str | None = str(selected_inbox["id"]) if selected_inbox else None
 
         # ------------------------------------------------------------------
         # 7) Build the outreach context (template inputs)
@@ -716,11 +708,8 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
         # 1. Outreach domain (Gmail) → default plain_conversational
         # 2. Tenant setting in tenant_modules.outreach.email_style overrides
         # 3. Brand/Resend domain → default visual_preventivo
-        inbox_email_style = (
-            (selected_inbox or {}).get("email_style") or (
-                "plain_conversational" if domain_purpose == "outreach"
-                else "visual_preventivo"
-            )
+        inbox_email_style = (selected_inbox or {}).get("email_style") or (
+            "plain_conversational" if domain_purpose == "outreach" else "visual_preventivo"
         )
         # Tenant-level override (from modules.outreach settings).
         t_settings: dict = dict(tenant_row.get("settings") or {})
@@ -789,19 +778,14 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
         experiment_variant: str | None = None
         final_subject = default_subject
 
-        if (
-            payload.sequence_step == 1
-            and can_tenant_use(tenant_row, Capability.AB_TESTING_TEMPLATES)
+        if payload.sequence_step == 1 and can_tenant_use(
+            tenant_row, Capability.AB_TESTING_TEMPLATES
         ):
             from ..routes.experiments import load_active_experiment
 
             active_exp = load_active_experiment(payload.tenant_id)
             if active_exp:
-                chosen = (
-                    "a"
-                    if _random.random() < (active_exp.get("split_pct", 50) / 100)
-                    else "b"
-                )
+                chosen = "a" if _random.random() < (active_exp.get("split_pct", 50) / 100) else "b"
                 subject_key = f"variant_{chosen}_subject"
                 override = (active_exp.get(subject_key) or "").strip()
                 if override:
@@ -903,17 +887,20 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
             cluster_sig = lead.get("cluster_signature")
             if not cluster_sig:
                 from .cluster_service import compute_cluster_signature
+
                 cluster_sig = compute_cluster_signature(subject)
                 # Persist so follow-up steps don't recompute.
-                sb.table("leads").update(
-                    {"cluster_signature": cluster_sig}
-                ).eq("id", payload.lead_id).execute()
+                sb.table("leads").update({"cluster_signature": cluster_sig}).eq(
+                    "id", payload.lead_id
+                ).execute()
 
             # Fetch active variants for (tenant, cluster).
             cv_resp = (
                 sb.table("cluster_copy_variants")
-                .select("id, variant_label, copy_subject, copy_opening_line, "
-                        "copy_proposition_line, cta_primary_label, round_number")
+                .select(
+                    "id, variant_label, copy_subject, copy_opening_line, "
+                    "copy_proposition_line, cta_primary_label, round_number"
+                )
                 .eq("tenant_id", payload.tenant_id)
                 .eq("cluster_signature", cluster_sig)
                 .eq("status", "active")
@@ -941,9 +928,7 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
                             cluster_signature=cluster_sig,
                             round_number=1,
                         )
-                        await persist_variant_pair(
-                            sb, payload.tenant_id, cluster_sig, 1, va, vb
-                        )
+                        await persist_variant_pair(sb, payload.tenant_id, cluster_sig, 1, va, vb)
                     except Exception as _exc:  # noqa: BLE001
                         log.warning(
                             "outreach.cluster_variant_gen_failed",
@@ -956,6 +941,7 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
             elif len(variants) >= 2:
                 # Deterministic assignment.
                 import uuid as _uuid_mod
+
                 lead_uuid = _uuid_mod.UUID(payload.lead_id)
                 bucket = int.from_bytes(lead_uuid.bytes, "big") % 2
                 assigned_label = "A" if bucket == 0 else "B"
@@ -975,10 +961,12 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
                 }
                 # Persist the assignment on the lead for follow-up steps.
                 if not lead.get("assigned_variant"):
-                    sb.table("leads").update({
-                        "assigned_variant": assigned_label,
-                        "assigned_round": chosen_variant.get("round_number", 1),
-                    }).eq("id", payload.lead_id).execute()
+                    sb.table("leads").update(
+                        {
+                            "assigned_variant": assigned_label,
+                            "assigned_round": chosen_variant.get("round_number", 1),
+                        }
+                    ).eq("id", payload.lead_id).execute()
 
                 # Override the email subject when copy_subject is set.
                 if copy_overrides.get("copy_subject"):
@@ -1025,8 +1013,7 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
         roof_derivations = roof.get("derivations") if roof else None
         ctx = OutreachContext(
             tenant_name=tenant_row.get("business_name") or "SolarLead",
-            brand_primary_color=tenant_row.get("brand_primary_color")
-            or DEFAULT_BRAND_PRIMARY,
+            brand_primary_color=tenant_row.get("brand_primary_color") or DEFAULT_BRAND_PRIMARY,
             brand_logo_url=tenant_row.get("brand_logo_url"),
             greeting_name=greeting,
             lead_url=lead_url,
@@ -1112,6 +1099,7 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
                     ),
                 )
                 from ..services.email_template_service import RenderedEmail
+
                 rendered = RenderedEmail(
                     subject=custom_rendered["subject"],
                     html=custom_rendered["html"],
@@ -1233,9 +1221,7 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
             extra_headers["List-Unsubscribe"] = f"<{optout_url}>"
         else:
             # Fallback: mailto: form (RFC 2369). Never left empty.
-            extra_headers["List-Unsubscribe"] = (
-                f"<mailto:{from_address}?subject=unsubscribe>"
-            )
+            extra_headers["List-Unsubscribe"] = f"<mailto:{from_address}?subject=unsubscribe>"
         extra_headers["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click"
 
         # Bulk-send signals
@@ -1247,9 +1233,7 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
         _step_tag = f"step{payload.sequence_step}"
         _tid_short = (payload.tenant_id or "").replace("-", "")[:8]
         _lid_short = (payload.lead_id or "").replace("-", "")[:8]
-        extra_headers["Feedback-ID"] = (
-            f"{_tid_short}:{_lid_short}:{_step_tag}:solarld"
-        )
+        extra_headers["Feedback-ID"] = f"{_tid_short}:{_lid_short}:{_step_tag}:solarld"
 
         send_input = SendEmailInput(
             from_address=from_address,
@@ -1320,16 +1304,12 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
         # ``gmail_oauth`` for per-inbox cold outreach via Google Workspace.
         # Legacy single-inbox path (no selected_inbox) falls through the
         # "resend" default.
-        provider_name = (
-            (selected_inbox or {}).get("provider") or "resend"
-        )
+        provider_name = (selected_inbox or {}).get("provider") or "resend"
         provider = get_provider(provider_name, sb=sb)
         provider_inbox_row: dict[str, Any] = selected_inbox or {"id": None}
 
         try:
-            send_result = await provider.send(
-                send_input, inbox=provider_inbox_row
-            )
+            send_result = await provider.send(send_input, inbox=provider_inbox_row)
         except ProviderError as exc:
             log.warning(
                 "outreach.provider_failed",
@@ -1346,14 +1326,16 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
             if inbox_id:
                 if exc.kind == "rate_limited":
                     await inbox_service.pause_inbox(
-                        sb, inbox_id,
+                        sb,
+                        inbox_id,
                         hours=PAUSE_HOURS_429,
                         reason=f"{provider_name}_rate_limited",
                         tenant_id=payload.tenant_id,
                     )
                 elif exc.kind == "server_error":
                     await inbox_service.pause_inbox(
-                        sb, inbox_id,
+                        sb,
+                        inbox_id,
                         hours=PAUSE_HOURS_5XX,
                         reason=f"{provider_name}_{exc.status_code}",
                         tenant_id=payload.tenant_id,
@@ -1392,9 +1374,7 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
             "tenant_id": payload.tenant_id,
             "lead_id": payload.lead_id,
             "channel": OutreachChannel.EMAIL.value,
-            "template_id": _template_id_for(
-                subject_type, sequence_step=payload.sequence_step
-            ),
+            "template_id": _template_id_for(subject_type, sequence_step=payload.sequence_step),
             "sequence_step": payload.sequence_step,
             "email_message_id": send_result.message_id,
             "email_subject": rendered.subject,
@@ -1421,14 +1401,8 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
             campaign_insert["experiment_variant"] = experiment_variant
         if cluster_variant_id:
             campaign_insert["cluster_variant_id"] = cluster_variant_id
-        campaign_res = (
-            sb.table("outreach_sends").insert(campaign_insert).execute()
-        )
-        campaign_id = (
-            (campaign_res.data[0]["id"])
-            if campaign_res.data
-            else None
-        )
+        campaign_res = sb.table("outreach_sends").insert(campaign_insert).execute()
+        campaign_id = (campaign_res.data[0]["id"]) if campaign_res.data else None
 
         # Only the day-0 outreach moves the pipeline to ``sent``. Follow-
         # up steps preserve the current status so webhook events
@@ -1503,13 +1477,9 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
             | {
                 "channel": OutreachChannel.EMAIL.value,
                 "sequence_step": payload.sequence_step,
-                "template_id": _template_id_for(
-                    subject_type, sequence_step=payload.sequence_step
-                ),
+                "template_id": _template_id_for(subject_type, sequence_step=payload.sequence_step),
                 "subject": rendered.subject,
-                "recipient_domain": recipient.split("@", 1)[1]
-                if "@" in recipient
-                else "",
+                "recipient_domain": recipient.split("@", 1)[1] if "@" in recipient else "",
             },
             tenant_id=payload.tenant_id,
             lead_id=payload.lead_id,
@@ -1527,9 +1497,7 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
                     "lead_id": payload.lead_id,
                     "channel": OutreachChannel.EMAIL.value,
                     "campaign_id": campaign_id,
-                    "recipient_domain": recipient.split("@", 1)[1]
-                    if "@" in recipient
-                    else "",
+                    "recipient_domain": recipient.split("@", 1)[1] if "@" in recipient else "",
                 },
                 tenant_id=payload.tenant_id,
                 lead_id=payload.lead_id,
@@ -1553,9 +1521,9 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
     ) -> OutreachOutput:
         sb = get_service_client()
         if pipeline_status:
-            sb.table("leads").update(
-                {"pipeline_status": pipeline_status}
-            ).eq("id", payload.lead_id).execute()
+            sb.table("leads").update({"pipeline_status": pipeline_status}).eq(
+                "id", payload.lead_id
+            ).execute()
         event_payload: dict[str, Any] = {
             "lead_id": payload.lead_id,
             "reason": reason,
@@ -1592,9 +1560,7 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
             "tenant_id": payload.tenant_id,
             "lead_id": payload.lead_id,
             "channel": payload.channel.value,
-            "template_id": _template_id_for(
-                subject_type, sequence_step=payload.sequence_step
-            ),
+            "template_id": _template_id_for(subject_type, sequence_step=payload.sequence_step),
             "sequence_step": payload.sequence_step,
             "scheduled_for": now_iso,
             "cost_cents": 0,
@@ -1709,7 +1675,7 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
             "postal_provider_order_id": result.pixart_job_id,
             "scheduled_for": now_iso,
             "sent_at": now_iso,
-            "cost_cents": 0,   # Pixart invoices monthly; updated on webhook
+            "cost_cents": 0,  # Pixart invoices monthly; updated on webhook
             "status": CampaignStatus.SENT.value,
         }
         if result.stub:
@@ -1835,7 +1801,9 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
         # Build short follow-up copy (Italian, plain text)
         subject_type = subject.get("type") or SubjectType.UNKNOWN.value
         greeting = _greeting_for(subject, subject_type)
-        lead_url = _public_lead_url(lead.get("public_slug"), tracking_host=None)  # WA channel: no custom tracking host
+        lead_url = _public_lead_url(
+            lead.get("public_slug"), tracking_host=None
+        )  # WA channel: no custom tracking host
         wa_text = _build_wa_followup_text(
             greeting=greeting,
             step=payload.sequence_step,
@@ -1865,7 +1833,7 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
             "channel": OutreachChannel.WHATSAPP.value,
             "template_id": f"wa_followup_step{payload.sequence_step}",
             "sequence_step": payload.sequence_step,
-            "email_message_id": wamid,   # provider message ID
+            "email_message_id": wamid,  # provider message ID
             "scheduled_for": now_iso,
             "sent_at": now_iso,
             "cost_cents": WA_COST_PER_MESSAGE_CENTS,
@@ -2169,17 +2137,8 @@ def _tracking_pixel_url(
 # ---------------------------------------------------------------------------
 
 
-def _load_single(
-    sb: Any, table: str, row_id: str, tenant_id: str
-) -> dict[str, Any] | None:
-    res = (
-        sb.table(table)
-        .select("*")
-        .eq("id", row_id)
-        .eq("tenant_id", tenant_id)
-        .limit(1)
-        .execute()
-    )
+def _load_single(sb: Any, table: str, row_id: str, tenant_id: str) -> dict[str, Any] | None:
+    res = sb.table(table).select("*").eq("id", row_id).eq("tenant_id", tenant_id).limit(1).execute()
     data = res.data or []
     return data[0] if data else None
 
@@ -2334,19 +2293,21 @@ async def _check_neverbounce(
         # Log cost regardless of verdict
         sb = get_service_client()
         try:
-            sb.table("api_usage_log").insert({
-                "tenant_id": tenant_id,
-                "provider": "neverbounce",
-                "endpoint": "single/check",
-                "request_count": 1,
-                "cost_cents": NEVERBOUNCE_COST_PER_CALL_CENTS,
-                "status": "success",
-                "metadata": {
-                    "email_domain": email.split("@", 1)[1] if "@" in email else "",
-                    "result": result.result.value,
-                    "lead_id": lead_id,
-                },
-            }).execute()
+            sb.table("api_usage_log").insert(
+                {
+                    "tenant_id": tenant_id,
+                    "provider": "neverbounce",
+                    "endpoint": "single/check",
+                    "request_count": 1,
+                    "cost_cents": NEVERBOUNCE_COST_PER_CALL_CENTS,
+                    "status": "success",
+                    "metadata": {
+                        "email_domain": email.split("@", 1)[1] if "@" in email else "",
+                        "result": result.result.value,
+                        "lead_id": lead_id,
+                    },
+                }
+            ).execute()
         except Exception:  # noqa: BLE001
             pass
         return result
@@ -2544,9 +2505,7 @@ async def _monthly_campaign_spend_cents(sb: Any, tenant_id: str) -> int:
         )
         return sum(int(r.get("cost_cents") or 0) for r in (res.data or []))
     except Exception as exc:  # noqa: BLE001
-        log.warning(
-            "outreach.monthly_spend_lookup_failed", tenant_id=tenant_id, err=str(exc)
-        )
+        log.warning("outreach.monthly_spend_lookup_failed", tenant_id=tenant_id, err=str(exc))
         return 0
 
 
@@ -2560,7 +2519,7 @@ async def _log_content_quarantine(
     sb: Any,
     tenant_id: str,
     lead_id: str,
-    rendered: Any,          # RenderedEmail
+    rendered: Any,  # RenderedEmail
     email_style: str,
     sequence_step: int,
     val_result: ValidationResult,
@@ -2595,9 +2554,7 @@ async def _log_content_quarantine(
         "review_status": "pending_review",
     }
     try:
-        await asyncio.to_thread(
-            lambda: sb.table("quarantine_emails").insert(row).execute()
-        )
+        await asyncio.to_thread(lambda: sb.table("quarantine_emails").insert(row).execute())
     except Exception as exc:  # noqa: BLE001
         log.warning(
             "outreach.quarantine_log_failed",

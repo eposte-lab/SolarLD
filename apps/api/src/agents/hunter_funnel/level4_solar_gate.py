@@ -66,9 +66,7 @@ _GEOCODE_CONCURRENCY = 6
 _MAPBOX_GEOCODE_COST_CENTS = 1
 
 
-async def run_level4(
-    ctx: FunnelContext, scored: list[ScoredCandidate]
-) -> int:
+async def run_level4(ctx: FunnelContext, scored: list[ScoredCandidate]) -> int:
     """Run Solar on the top-N candidates and upsert surviving leads.
 
     Returns the number of qualified leads (roofs that passed the technical
@@ -148,7 +146,7 @@ async def _gate_one(
     geo_sem: asyncio.Semaphore,
 ) -> str:
     """Process one candidate through Solar. Returns one of:
-       'qualified' | 'rejected_tech' | 'no_building' | 'api_error' | 'skipped_no_coords'
+    'qualified' | 'rejected_tech' | 'no_building' | 'api_error' | 'skipped_no_coords'
     """
     site = await _resolve_coords(
         cand,
@@ -225,9 +223,7 @@ async def _gate_one(
                     "subject_id": str(subject_id),
                     "roof_id": str(roof_id),
                     "territory_id": ctx.territory_id,
-                    "candidate": build_candidate_dict_from_profile(
-                        cand.profile, cand.enrichment
-                    ),
+                    "candidate": build_candidate_dict_from_profile(cand.profile, cand.enrichment),
                     # Pass a lightweight territory dict (provinces + caps)
                     # for the sede_operativa offline filter. Permissive when empty.
                     "territory": {
@@ -345,9 +341,7 @@ async def _resolve_coords(
     return site
 
 
-def _apply_filters(
-    insight: RoofInsight, filters: TechnicalFilters
-) -> tuple[bool, str | None]:
+def _apply_filters(insight: RoofInsight, filters: TechnicalFilters) -> tuple[bool, str | None]:
     """Return (accepted, reason_if_rejected). Mirrors _apply_config_filters
     in hunter.py so the v2 path behaves identically to v1 for the roof
     verdict — we want existing tenants to get the same accept/reject ruling
@@ -406,9 +400,7 @@ def _upsert_roof_and_subject(
         "shading_score": insight.shading_score,
         "data_source": RoofDataSource.GOOGLE_SOLAR.value,
         "classification": classification,
-        "status": (
-            RoofStatus.DISCOVERED if accepted else RoofStatus.REJECTED
-        ).value,
+        "status": (RoofStatus.DISCOVERED if accepted else RoofStatus.REJECTED).value,
         "scan_cost_cents": SOLAR_COST_PER_CALL_CENTS,
         "raw_data": {
             "solar": insight.raw,
@@ -432,9 +424,7 @@ def _upsert_roof_and_subject(
             estimated_kwp=insight.estimated_kwp,
             estimated_yearly_kwh=insight.estimated_yearly_kwh,
             roof_area_sqm=insight.area_sqm,
-            panel_count=(
-                len(insight.panels) if insight.panels else insight.max_panel_count
-            ),
+            panel_count=(len(insight.panels) if insight.panels else insight.max_panel_count),
             panel_capacity_w=insight.panel_capacity_w,
             panel_width_m=insight.panel_width_m,
             panel_height_m=insight.panel_height_m,
@@ -458,7 +448,7 @@ def _upsert_roof_and_subject(
         )
         return None, None
 
-    roof_id = (up.data[0]["id"] if up.data else None)
+    roof_id = up.data[0]["id"] if up.data else None
     if roof_id is None:
         return None, None
 
@@ -491,9 +481,7 @@ def _upsert_roof_and_subject(
                     # The `*_source` column lets the UI badge the
                     # provenance and ops audit data quality.
                     "decision_maker_phone": cand.enrichment.phone,
-                    "decision_maker_phone_source": (
-                        "atoka" if cand.enrichment.phone else None
-                    ),
+                    "decision_maker_phone_source": ("atoka" if cand.enrichment.phone else None),
                     "vat_number": cand.profile.vat_number,
                     "ateco_code": cand.profile.ateco_code,
                     "employees": cand.profile.employees,
@@ -541,9 +529,7 @@ def _upsert_roof_and_subject(
     )
 
 
-def _mark_verdict(
-    candidate_id: UUID, verdict: str, *, roof_id: UUID | None
-) -> None:
+def _mark_verdict(candidate_id: UUID, verdict: str, *, roof_id: UUID | None) -> None:
     sb = get_service_client()
     try:
         update: dict[str, Any] = {
@@ -552,9 +538,7 @@ def _mark_verdict(
         }
         if roof_id is not None:
             update["roof_id"] = str(roof_id)
-        sb.table("scan_candidates").update(update).eq(
-            "id", str(candidate_id)
-        ).execute()
+        sb.table("scan_candidates").update(update).eq("id", str(candidate_id)).execute()
     except Exception as exc:  # noqa: BLE001
         log.debug(
             "l4_mark_verdict_failed",
@@ -571,8 +555,8 @@ def _mark_skipped_below_gate(skipped: list[ScoredCandidate]) -> None:
     sb = get_service_client()
     ids = [str(c.candidate_id) for c in skipped]
     try:
-        sb.table("scan_candidates").update(
-            {"solar_verdict": "skipped_below_gate", "stage": 4}
-        ).in_("id", ids).execute()
+        sb.table("scan_candidates").update({"solar_verdict": "skipped_below_gate", "stage": 4}).in_(
+            "id", ids
+        ).execute()
     except Exception as exc:  # noqa: BLE001
         log.debug("l4_mark_skipped_failed", err=str(exc))

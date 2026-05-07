@@ -114,9 +114,9 @@ async def followup_auto_toggle(
     """
     tenant_id = require_tenant(ctx)
     sb = get_service_client()
-    sb.table("tenants").update(
-        {"followup_auto_enabled": body.enabled}
-    ).eq("id", tenant_id).execute()
+    sb.table("tenants").update({"followup_auto_enabled": body.enabled}).eq(
+        "id", tenant_id
+    ).execute()
     log.info(
         "tenants.followup_auto_toggled",
         tenant_id=tenant_id,

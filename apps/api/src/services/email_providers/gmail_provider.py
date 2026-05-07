@@ -45,9 +45,7 @@ from .base import EmailProvider, ProviderError, SendEmailInput, SendResult
 log = get_logger(__name__)
 
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
-GMAIL_SEND_URL = (
-    "https://gmail.googleapis.com/gmail/v1/users/me/messages/send"
-)
+GMAIL_SEND_URL = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send"
 # Refresh an access token 5 min before expiry so parallel workers don't
 # race at the cliff.
 REFRESH_BUFFER_SECONDS = 300
@@ -178,10 +176,8 @@ class GmailProvider(EmailProvider):
         if encrypted_access and expires_at:
             # ``expires_at`` may arrive as string (PostgREST) or datetime.
             expiry_dt = _parse_ts(expires_at)
-            if (
-                expiry_dt
-                and expiry_dt
-                > datetime.now(UTC) + timedelta(seconds=REFRESH_BUFFER_SECONDS)
+            if expiry_dt and expiry_dt > datetime.now(UTC) + timedelta(
+                seconds=REFRESH_BUFFER_SECONDS
             ):
                 try:
                     return decrypt(encrypted_access)
@@ -195,9 +191,7 @@ class GmailProvider(EmailProvider):
 
         return await self._refresh_access_token(inbox, force=False)
 
-    async def _refresh_access_token(
-        self, inbox: dict[str, Any], *, force: bool
-    ) -> str:
+    async def _refresh_access_token(self, inbox: dict[str, Any], *, force: bool) -> str:
         """Exchange the refresh token for a new access token."""
         encrypted_refresh = inbox.get("oauth_refresh_token_encrypted")
         if not encrypted_refresh:
@@ -309,9 +303,7 @@ class GmailProvider(EmailProvider):
                 err=str(exc),
             )
 
-    async def _record_auth_error(
-        self, inbox: dict[str, Any], reason: str
-    ) -> None:
+    async def _record_auth_error(self, inbox: dict[str, Any], reason: str) -> None:
         """Mark the inbox inactive + surface the error for the dashboard."""
         if self._sb is None:
             return

@@ -105,9 +105,7 @@ class PracticeEvent:
             document_id=(str(row["document_id"]) if row.get("document_id") else None),
             event_type=row["event_type"],
             payload=row.get("payload") or {},
-            actor_user_id=(
-                str(row["actor_user_id"]) if row.get("actor_user_id") else None
-            ),
+            actor_user_id=(str(row["actor_user_id"]) if row.get("actor_user_id") else None),
             occurred_at=row["occurred_at"],
             created_at=row["created_at"],
         )

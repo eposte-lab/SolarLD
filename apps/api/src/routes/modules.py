@@ -157,9 +157,7 @@ async def read_one_module(ctx: CurrentUser, key: str) -> TenantModule:
 
 
 @router.put("/{key}", response_model=TenantModule)
-async def upsert_one_module(
-    ctx: CurrentUser, key: str, payload: ModuleUpsertIn
-) -> TenantModule:
+async def upsert_one_module(ctx: CurrentUser, key: str, payload: ModuleUpsertIn) -> TenantModule:
     """Upsert one module's config and/or `active` flag.
 
     Validation errors bubble up as 422 with the pydantic error list
@@ -201,9 +199,7 @@ async def upsert_one_module(
 
 
 @router.post("/{key}/preview")
-async def preview_module(
-    ctx: CurrentUser, key: str, payload: ModulePreviewIn
-) -> dict[str, Any]:
+async def preview_module(ctx: CurrentUser, key: str, payload: ModulePreviewIn) -> dict[str, Any]:
     """Dry-run: validate the proposed config, and for Sorgente also
     estimate the resulting Atoka match count.
 
@@ -237,13 +233,10 @@ async def preview_module(
         province = normalised.get("province") or []
         regioni = normalised.get("regioni") or []
         # Rough: 50 companies per ATECO × province, 500 per regione.
-        estimate["atoka_rough_count"] = (
-            len(ateco) * (max(1, len(province)) * 50 + len(regioni) * 500)
+        estimate["atoka_rough_count"] = len(ateco) * (
+            max(1, len(province)) * 50 + len(regioni) * 500
         )
-        estimate["note"] = (
-            "Rough placeholder estimate. Live Atoka count endpoint "
-            "lands in Phase 3."
-        )
+        estimate["note"] = "Rough placeholder estimate. Live Atoka count endpoint lands in Phase 3."
     elif module_key == "economico":
         # Project budget into estimated L1/L2/L4 candidate counts.
         budget = float(normalised.get("budget_scan_eur") or 0)

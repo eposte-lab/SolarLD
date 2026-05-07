@@ -28,9 +28,7 @@ from ..core.supabase_client import get_service_client
 log = get_logger(__name__)
 
 
-SUPPORTED_SEVERITIES: frozenset[str] = frozenset(
-    {"info", "success", "warning", "error"}
-)
+SUPPORTED_SEVERITIES: frozenset[str] = frozenset({"info", "success", "warning", "error"})
 
 
 async def notify(

@@ -114,9 +114,9 @@ export default async function SettingsPage() {
         domainSwitched={domainSwitched}
       />
 
-      <ModulesCard modules={modules} isDemo={ctx.tenant.is_demo} />
+      <ModulesCard modules={modules} isDemo={ctx.tenant.is_demo ?? false} />
 
-      <IntegrationsCard tenant={ctx.tenant} isDemo={ctx.tenant.is_demo} />
+      <IntegrationsCard tenant={ctx.tenant} isDemo={ctx.tenant.is_demo ?? false} />
 
       <FollowupCard tenant={ctx.tenant} />
 

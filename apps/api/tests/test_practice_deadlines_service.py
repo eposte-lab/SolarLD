@@ -248,9 +248,7 @@ def test_document_accepted_satisfies_open_deadline(
         ]
     )
 
-    event = _make_event(
-        EVT_DOCUMENT_ACCEPTED, template_code="comunicazione_comune"
-    )
+    event = _make_event(EVT_DOCUMENT_ACCEPTED, template_code="comunicazione_comune")
     summary = project_event_to_deadlines(event)
 
     # The .satisfied list contains the closed deadline.

@@ -34,12 +34,13 @@ from src.services.solar_rendering_service import (
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_geotiff(
     width: int = 512,
     height: int = 512,
     west_lng: float = 12.0,
     north_lat: float = 42.0,
-    scale_x: float = 1e-5,   # ~1 m/pixel at equator
+    scale_x: float = 1e-5,  # ~1 m/pixel at equator
     scale_y: float = 1e-5,
 ) -> bytes:
     """Return a minimal GeoTIFF (RGB, all white) with proper georeference tags."""
@@ -169,8 +170,12 @@ def test_rotate_corners_90_degrees() -> None:
 
 def _panel(orientation: str, azimuth: float) -> SolarPanel:
     return SolarPanel(
-        lat=42.0, lng=12.0, orientation=orientation,
-        segment_azimuth_deg=azimuth, yearly_energy_kwh=350.0, segment_index=0
+        lat=42.0,
+        lng=12.0,
+        orientation=orientation,
+        segment_azimuth_deg=azimuth,
+        yearly_energy_kwh=350.0,
+        segment_index=0,
     )
 
 
@@ -205,7 +210,7 @@ def test_panel_rotation_portrait_east() -> None:
 def test_geotransform_scaled_center_pixel() -> None:
     """The centre pixel of a GeoTIFF should map back to the reference lat/lng."""
     west_lng, north_lat = 12.0, 42.0
-    scale_x = scale_y = 1e-4   # 0.0001 deg/pixel ≈ 11 m/pixel
+    scale_x = scale_y = 1e-4  # 0.0001 deg/pixel ≈ 11 m/pixel
     scale_factor = 2.0
     crop_col = crop_row = 0
 
@@ -227,9 +232,12 @@ def test_geotransform_scaled_center_pixel() -> None:
 def test_geotransform_meters_to_pixels() -> None:
     """1 m should convert to ~9.0 pixels at 1e-5 deg/pixel scale, factor=1."""
     t = _GeoTransformScaled(
-        west_lng=12.0, north_lat=42.0,
-        scale_x=1e-5, scale_y=1e-5,
-        crop_col=0, crop_row=0,
+        west_lng=12.0,
+        north_lat=42.0,
+        scale_x=1e-5,
+        scale_y=1e-5,
+        crop_col=0,
+        crop_row=0,
         scale_factor=1.0,
     )
     # scale_y = 1e-5 deg/px → 1 deg = 100000 px → 1 m ≈ 100000/111320 ≈ 0.899 px
@@ -249,14 +257,15 @@ async def test_render_before_after_returns_png_bytes() -> None:
     The TIFF uses ~0.11 m/pixel (scale=1e-6) so panel rectangles are ~9 px
     wide — well above the 2-pixel guard in _draw_panels.
     """
-    lat, lng = 41.9028, 12.4964   # Rome
+    lat, lng = 41.9028, 12.4964  # Rome
     insight = _make_insight(lat=lat, lng=lng, n_panels=6)
     # High-res TIFF: 1e-6 deg/pixel ≈ 0.11 m/pixel.
     # Centre at (500,500) within a 1024×1024 image so the crop has room.
     tiff_bytes = _make_geotiff(
-        width=1024, height=1024,
-        west_lng=lng - 0.0005,    # 500 px west of centre
-        north_lat=lat + 0.0005,   # 500 px north of centre
+        width=1024,
+        height=1024,
+        west_lng=lng - 0.0005,  # 500 px west of centre
+        north_lat=lat + 0.0005,  # 500 px north of centre
         scale_x=1e-6,
         scale_y=1e-6,
     )
@@ -296,7 +305,8 @@ async def test_render_before_after_no_panels_before_equals_after() -> None:
     lat, lng = 41.9028, 12.4964
     insight = _make_insight(lat=lat, lng=lng, n_panels=0)  # empty panel list
     tiff_bytes = _make_geotiff(
-        width=512, height=512,
+        width=512,
+        height=512,
         west_lng=lng - 0.005,
         north_lat=lat + 0.005,
         scale_x=2e-5,
@@ -305,8 +315,14 @@ async def test_render_before_after_no_panels_before_equals_after() -> None:
     fake_dl = DataLayers(rgb_url="https://fake", imagery_quality="HIGH", imagery_date="2024-01-01")
 
     with (
-        patch("src.services.solar_rendering_service.fetch_data_layers", new=AsyncMock(return_value=fake_dl)),
-        patch("src.services.solar_rendering_service.download_geotiff", new=AsyncMock(return_value=tiff_bytes)),
+        patch(
+            "src.services.solar_rendering_service.fetch_data_layers",
+            new=AsyncMock(return_value=fake_dl),
+        ),
+        patch(
+            "src.services.solar_rendering_service.download_geotiff",
+            new=AsyncMock(return_value=tiff_bytes),
+        ),
     ):
         before, after = await render_before_after(lat, lng, insight, api_key="fake-key")
 
@@ -346,9 +362,7 @@ async def test_render_before_after_falls_back_when_tiff_lacks_georef_tags() -> N
             new=AsyncMock(return_value=tiff_bytes),
         ),
     ):
-        before, after = await render_before_after(
-            lat, lng, insight, api_key="fake-key"
-        )
+        before, after = await render_before_after(lat, lng, insight, api_key="fake-key")
 
     # Pipeline completed — both outputs are valid PNG.
     for label, b in [("before", before), ("after", after)]:
@@ -368,6 +382,7 @@ async def test_render_before_after_raises_on_solar_not_found() -> None:
         patch(
             "src.services.solar_rendering_service.fetch_data_layers",
             new=AsyncMock(side_effect=SolarApiNotFound("no data")),
-        ),pytest.raises(SolarRenderingError, match="no imagery")
+        ),
+        pytest.raises(SolarRenderingError, match="no imagery"),
     ):
         await render_before_after(lat, lng, insight, api_key="fake-key")

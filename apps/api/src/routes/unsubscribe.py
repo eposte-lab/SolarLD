@@ -149,12 +149,14 @@ async def _process_optout(
     # Load lead + subject in one call.
     try:
         res = await asyncio.to_thread(
-            lambda: sb.table("leads")
-            .select("id, tenant_id, subject_id, pipeline_status, subjects(pii_hash)")
-            .eq("id", lead_id)
-            .eq("tenant_id", tenant_id)
-            .limit(1)
-            .execute()
+            lambda: (
+                sb.table("leads")
+                .select("id, tenant_id, subject_id, pipeline_status, subjects(pii_hash)")
+                .eq("id", lead_id)
+                .eq("tenant_id", tenant_id)
+                .limit(1)
+                .execute()
+            )
         )
     except Exception as exc:  # noqa: BLE001
         log.error("unsubscribe.lead_fetch_failed", lead_id=lead_id, err=str(exc))
@@ -174,15 +176,15 @@ async def _process_optout(
     if not already_blacklisted:
         try:
             await asyncio.to_thread(
-                lambda: sb.table("leads")
-                .update({"pipeline_status": _STATUS_BLACKLISTED})
-                .eq("id", lead_id)
-                .execute()
+                lambda: (
+                    sb.table("leads")
+                    .update({"pipeline_status": _STATUS_BLACKLISTED})
+                    .eq("id", lead_id)
+                    .execute()
+                )
             )
         except Exception as exc:  # noqa: BLE001
-            log.error(
-                "unsubscribe.status_update_failed", lead_id=lead_id, err=str(exc)
-            )
+            log.error("unsubscribe.status_update_failed", lead_id=lead_id, err=str(exc))
 
     if pii_hash:
         try:
@@ -197,17 +199,13 @@ async def _process_optout(
                 job_id=f"compliance:{pii_hash}:{_BLACKLIST_REASON}",
             )
         except Exception as exc:  # noqa: BLE001
-            log.error(
-                "unsubscribe.enqueue_failed", lead_id=lead_id, err=str(exc)
-            )
+            log.error("unsubscribe.enqueue_failed", lead_id=lead_id, err=str(exc))
 
     # Also add email to the email_blacklist table (migration 0057) for
     # pre-extraction filtering. We use the pii_hash to fetch the email
     # from subjects via a second query — done in background to not
     # block the HTTP response.
-    asyncio.ensure_future(
-        _add_to_email_blacklist(sb, pii_hash, tenant_id, source)
-    )
+    asyncio.ensure_future(_add_to_email_blacklist(sb, pii_hash, tenant_id, source))
 
     log.info(
         "unsubscribe.processed",
@@ -233,11 +231,7 @@ async def _add_to_email_blacklist(
     try:
         # Fetch the email from subjects.
         res = await asyncio.to_thread(
-            lambda: sb.table("subjects")
-            .select("email")
-            .eq("pii_hash", pii_hash)
-            .limit(1)
-            .execute()
+            lambda: sb.table("subjects").select("email").eq("pii_hash", pii_hash).limit(1).execute()
         )
         if not res.data:
             return
@@ -253,9 +247,7 @@ async def _add_to_email_blacklist(
             "notes": "HMAC-authenticated optout from email footer link",
         }
         await asyncio.to_thread(
-            lambda: sb.table("email_blacklist")
-            .upsert(row, on_conflict="tenant_id,email")
-            .execute()
+            lambda: sb.table("email_blacklist").upsert(row, on_conflict="tenant_id,email").execute()
         )
     except Exception as exc:  # noqa: BLE001
         # Non-critical: the compliance cascade handles the main blacklist;

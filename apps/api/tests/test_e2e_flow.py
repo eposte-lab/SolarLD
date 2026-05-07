@@ -217,9 +217,7 @@ async def test_crm_webhook_dispatch_end_to_end(
         async def __aexit__(self, *_: Any) -> None:
             return None
 
-        async def post(
-            self, url: str, *, content: bytes, headers: dict[str, str]
-        ) -> _FakeResponse:
+        async def post(self, url: str, *, content: bytes, headers: dict[str, str]) -> _FakeResponse:
             captured["url"] = url
             captured["body"] = content
             captured["headers"] = headers
@@ -284,9 +282,9 @@ async def test_daily_digest_skips_empty_and_sends_active(
 ) -> None:
     """Two opted-in tenants — one idle, one active — exercise every branch.
 
-      * The empty-window tenant must be *skipped* (no email).
-      * The active tenant must receive an email whose subject, body
-        and tags match the daily digest format.
+    * The empty-window tenant must be *skipped* (no email).
+    * The active tenant must receive an email whose subject, body
+      and tags match the daily digest format.
     """
     tenants = [
         {
@@ -324,7 +322,6 @@ async def test_daily_digest_skips_empty_and_sends_active(
         "tenant-active": (12, 3, 8, 5, 2, 1, 1234),
     }
 
-
     def _leads_select(chain: _FakeChain) -> _FakeResult:
         """Dispatch leads/api_usage_log counts via call order.
 
@@ -345,7 +342,9 @@ async def test_daily_digest_skips_empty_and_sends_active(
     cursor = {"idx": 0, "leads_seen": 0, "usage_seen": 0}
 
     def _current_tenant_id() -> str:
-        eligible = [t for t in tenants if t["settings"].get("feature_flags", {}).get("daily_digest")]
+        eligible = [
+            t for t in tenants if t["settings"].get("feature_flags", {}).get("daily_digest")
+        ]
         return eligible[cursor["idx"]]["id"]
 
     def _leads_dispatch(_chain: _FakeChain) -> _FakeResult:
@@ -361,9 +360,7 @@ async def test_daily_digest_skips_empty_and_sends_active(
         # End of this tenant's stat bundle — advance cursor.
         cursor["idx"] += 1
         cursor["leads_seen"] = 0
-        return _FakeResult(
-            data=[{"cost_cents": cost_cents}] if cost_cents else []
-        )
+        return _FakeResult(data=[{"cost_cents": cost_cents}] if cost_cents else [])
 
     fake_sb = FakeSupabase(
         selects={

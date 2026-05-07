@@ -181,6 +181,26 @@ jobs:
             CREATE OR REPLACE FUNCTION auth.role() RETURNS text
               LANGUAGE sql STABLE AS $$ SELECT 'anon' $$;
             CREATE SCHEMA IF NOT EXISTS storage;
+            CREATE TABLE IF NOT EXISTS storage.buckets (
+              id text PRIMARY KEY,
+              name text NOT NULL,
+              public boolean DEFAULT false,
+              file_size_limit bigint,
+              allowed_mime_types text[],
+              created_at timestamptz DEFAULT now(),
+              updated_at timestamptz DEFAULT now()
+            );
+            CREATE TABLE IF NOT EXISTS storage.objects (
+              id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+              bucket_id text REFERENCES storage.buckets(id),
+              name text,
+              owner uuid,
+              created_at timestamptz DEFAULT now(),
+              updated_at timestamptz DEFAULT now(),
+              metadata jsonb
+            );
+            CREATE OR REPLACE FUNCTION storage.foldername(name text) RETURNS text[]
+              LANGUAGE sql AS $$ SELECT string_to_array(name, '/') $$;
             CREATE SCHEMA IF NOT EXISTS realtime;
           SQL
 

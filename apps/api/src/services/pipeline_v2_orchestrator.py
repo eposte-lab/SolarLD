@@ -219,9 +219,9 @@ async def _run_hunter_fallback(
     return ExtractionResult(
         email=best.email,
         source="atoka",  # map to 'atoka' class for GDPR audit — Hunter is
-                          # treated as an Atoka-equivalent data provider for
-                          # fallback mode. Change to 'hunter_io' when we want
-                          # separate reporting.
+        # treated as an Atoka-equivalent data provider for
+        # fallback mode. Change to 'hunter_io' when we want
+        # separate reporting.
         confidence=float(best.confidence or 0.5),
         cost_cents=5,  # Hunter.io ~$0.049/lookup ≈ 5 cents
         company_name=company_name,
@@ -263,9 +263,7 @@ async def log_rejection(
         "rejected_at": datetime.now(tz=UTC).isoformat(),
     }
     try:
-        await asyncio.to_thread(
-            lambda: sb.table("lead_rejection_log").insert(row).execute()
-        )
+        await asyncio.to_thread(lambda: sb.table("lead_rejection_log").insert(row).execute())
     except Exception as exc:  # noqa: BLE001
         log.warning(
             "pipeline_v2.log_rejection_failed",
@@ -301,9 +299,7 @@ async def log_extraction(
         "occurred_at": datetime.now(tz=UTC).isoformat(),
     }
     try:
-        await asyncio.to_thread(
-            lambda: sb.table("email_extraction_log").insert(row).execute()
-        )
+        await asyncio.to_thread(lambda: sb.table("email_extraction_log").insert(row).execute())
     except Exception as exc:  # noqa: BLE001
         log.warning(
             "pipeline_v2.log_extraction_failed",

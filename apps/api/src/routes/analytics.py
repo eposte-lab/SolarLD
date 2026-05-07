@@ -152,13 +152,13 @@ async def analytics_scan_funnel(ctx: CurrentUser) -> dict[str, Any]:
     tenant_id = require_tenant(ctx)
     sb = get_service_client()
 
-    def _sc_count(*, gte_stage: int | None = None, eq_stage: int | None = None,
-                  solar_verdict: str | None = None) -> int:
-        q = (
-            sb.table("scan_candidates")
-            .select("id", count="exact")
-            .eq("tenant_id", tenant_id)
-        )
+    def _sc_count(
+        *,
+        gte_stage: int | None = None,
+        eq_stage: int | None = None,
+        solar_verdict: str | None = None,
+    ) -> int:
+        q = sb.table("scan_candidates").select("id", count="exact").eq("tenant_id", tenant_id)
         if gte_stage is not None:
             q = q.gte("stage", gte_stage)
         if eq_stage is not None:
@@ -188,7 +188,8 @@ async def analytics_scan_funnel(ctx: CurrentUser) -> dict[str, Any]:
                 .eq("tenant_id", tenant_id)
                 .not_.is_(col, "null")
                 .execute()
-                .count or 0
+                .count
+                or 0
             )
         except Exception:  # noqa: BLE001
             return 0
@@ -201,7 +202,8 @@ async def analytics_scan_funnel(ctx: CurrentUser) -> dict[str, Any]:
                 .eq("tenant_id", tenant_id)
                 .eq("stage", stage)
                 .execute()
-                .count or 0
+                .count
+                or 0
             )
         except Exception:  # noqa: BLE001
             return 0
@@ -237,21 +239,15 @@ async def analytics_scan_funnel(ctx: CurrentUser) -> dict[str, Any]:
             .limit(200)
             .execute()
         )
-        for ev in (ev_res.data or []):
+        for ev in ev_res.data or []:
             p = ev.get("payload") or {}
             total_scan_cost_cents += int(p.get("total_cost_cents") or 0)
     except Exception:  # noqa: BLE001
         pass
 
-    cost_per_contact = (
-        round(total_scan_cost_cents / l1) if l1 > 0 else None
-    )
-    cost_per_lead = (
-        round(total_scan_cost_cents / leads_total) if leads_total > 0 else None
-    )
-    cost_per_sent = (
-        round(total_scan_cost_cents / leads_sent) if leads_sent > 0 else None
-    )
+    cost_per_contact = round(total_scan_cost_cents / l1) if l1 > 0 else None
+    cost_per_lead = round(total_scan_cost_cents / leads_total) if leads_total > 0 else None
+    cost_per_sent = round(total_scan_cost_cents / leads_sent) if leads_sent > 0 else None
 
     return {
         "discovery": {

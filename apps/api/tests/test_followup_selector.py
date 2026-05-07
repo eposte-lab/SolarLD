@@ -44,9 +44,7 @@ def _candidate(
 
 
 def _step1(status: str = "sent", sent_at: datetime = D0) -> CampaignSummary:
-    return CampaignSummary(
-        sequence_step=1, status=status, sent_at=sent_at, channel="email"
-    )
+    return CampaignSummary(sequence_step=1, status=status, sent_at=sent_at, channel="email")
 
 
 def _step2(status: str = "sent", sent_at: datetime | None = None) -> CampaignSummary:

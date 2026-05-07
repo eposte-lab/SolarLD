@@ -44,7 +44,9 @@ async def list_contatti(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=200),
     stage: int | None = Query(
-        default=None, ge=1, le=4,
+        default=None,
+        ge=1,
+        le=4,
         description="Filter by funnel stage (1=Atoka, 2=Enriched, 3=Scored, 4=Solar-qualified)",
     ),
     territory_id: str | None = Query(
@@ -69,11 +71,7 @@ async def list_contatti(
     from_idx = (page - 1) * page_size
     to_idx = from_idx + page_size - 1
 
-    q = (
-        sb.table("scan_candidates")
-        .select(_LIST_SELECT, count="exact")
-        .eq("tenant_id", tenant_id)
-    )
+    q = sb.table("scan_candidates").select(_LIST_SELECT, count="exact").eq("tenant_id", tenant_id)
 
     if stage is not None:
         q = q.eq("stage", stage)
@@ -83,11 +81,7 @@ async def list_contatti(
         q = q.eq("solar_verdict", solar_verdict)
 
     try:
-        result = (
-            q.order("created_at", desc=True)
-            .range(from_idx, to_idx)
-            .execute()
-        )
+        result = q.order("created_at", desc=True).range(from_idx, to_idx).execute()
     except Exception as exc:  # noqa: BLE001
         log.warning("contatti.list_failed", tenant_id=tenant_id, err=str(exc))
         return {"rows": [], "total": 0, "page": page, "page_size": page_size}
@@ -148,9 +142,13 @@ async def contatti_summary(ctx: CurrentUser) -> dict[str, Any]:
     except Exception as exc:  # noqa: BLE001
         log.warning("contatti.summary_failed", tenant_id=tenant_id, err=str(exc))
         return {
-            "l1": 0, "l2": 0, "l3": 0,
-            "l4_accepted": 0, "l4_rejected_tech": 0,
-            "l4_no_building": 0, "l4_skipped": 0,
+            "l1": 0,
+            "l2": 0,
+            "l3": 0,
+            "l4_accepted": 0,
+            "l4_rejected_tech": 0,
+            "l4_no_building": 0,
+            "l4_skipped": 0,
         }
 
     return {

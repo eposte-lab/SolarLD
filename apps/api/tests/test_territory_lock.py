@@ -150,14 +150,17 @@ class _LockFakeSupabase:
     ) -> None:
         self.tenant_row: dict[str, Any] = {
             "id": tenant_id,
-            "territory_locked_at": (
-                "2024-01-01T00:00:00+00:00" if locked else None
-            ),
+            "territory_locked_at": ("2024-01-01T00:00:00+00:00" if locked else None),
             "territory_locked_by": USER if locked else None,
         }
         self.territories: list[dict[str, Any]] = [
-            {"id": TERRITORY_ID, "tenant_id": tenant_id, "type": "regione",
-             "code": "15", "name": "Campania"},
+            {
+                "id": TERRITORY_ID,
+                "tenant_id": tenant_id,
+                "type": "regione",
+                "code": "15",
+                "name": "Campania",
+            },
         ]
         self.sorgente_config: dict[str, Any] = sorgente_config or {
             "mode": "b2b_funnel_v2",
@@ -259,9 +262,7 @@ def _clear_auth() -> None:
     app.dependency_overrides.clear()
 
 
-def _patch_service_clients(
-    monkeypatch: pytest.MonkeyPatch, fake: _LockFakeSupabase
-) -> None:
+def _patch_service_clients(monkeypatch: pytest.MonkeyPatch, fake: _LockFakeSupabase) -> None:
     """Point every call site that reads/writes lock state at the fake.
 
     The service module and each route import ``get_service_client`` at
@@ -272,16 +273,10 @@ def _patch_service_clients(
     from src.routes import territories as territories_route
     from src.services import tenant_module_service, territory_lock_service
 
-    monkeypatch.setattr(
-        territory_lock_service, "get_service_client", lambda: fake
-    )
-    monkeypatch.setattr(
-        territories_route, "get_service_client", lambda: fake
-    )
+    monkeypatch.setattr(territory_lock_service, "get_service_client", lambda: fake)
+    monkeypatch.setattr(territories_route, "get_service_client", lambda: fake)
     monkeypatch.setattr(admin_route, "get_service_client", lambda: fake)
-    monkeypatch.setattr(
-        tenant_module_service, "get_service_client", lambda: fake
-    )
+    monkeypatch.setattr(tenant_module_service, "get_service_client", lambda: fake)
     # onboarding imports lock() from the service — already patched above.
     _ = onboarding_route  # silence unused
 
@@ -526,9 +521,7 @@ def test_delete_territory_returns_423_when_locked(
                 headers={"Authorization": "Bearer dummy"},
             )
         assert r.status_code == 423, r.text
-        assert fake.territory_deletes == 0, (
-            "Lock was bypassed — delete reached the DB"
-        )
+        assert fake.territory_deletes == 0, "Lock was bypassed — delete reached the DB"
     finally:
         _clear_auth()
 
@@ -591,9 +584,7 @@ def test_put_sorgente_geo_change_returns_423_when_locked(
             )
         assert r.status_code == 423, r.text
         # upsert must NOT have been called.
-        assert fake.module_upserts == [], (
-            "Lock bypassed — sorgente upsert reached the DB"
-        )
+        assert fake.module_upserts == [], "Lock bypassed — sorgente upsert reached the DB"
     finally:
         _clear_auth()
 

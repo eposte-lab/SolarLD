@@ -138,9 +138,7 @@ async def follow_up_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
         #    follow-up cron in /leads/follow-up, skip the whole tenant.
         tenant_row = _get_tenant(lead["tenant_id"])
         if tenant_row and tenant_row.get("followup_auto_enabled") is False:
-            skipped_reasons["auto_disabled"] = (
-                skipped_reasons.get("auto_disabled", 0) + 1
-            )
+            skipped_reasons["auto_disabled"] = skipped_reasons.get("auto_disabled", 0) + 1
             continue
 
         # 2) Manual-send cooldown — operator sent a follow-up in the
@@ -158,9 +156,7 @@ async def follow_up_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
             .eq("lead_id", lead["id"])
             .execute()
         )
-        candidate = build_candidate_from_rows(
-            lead=lead, campaigns=campaigns.data or []
-        )
+        candidate = build_candidate_from_rows(lead=lead, campaigns=campaigns.data or [])
         decision = select_next_step(candidate, now=now)
         if not decision.should_send:
             reason = decision.reason or "unknown"
@@ -172,9 +168,7 @@ async def follow_up_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
         # (falls back to tenant default / 09 UTC). The outreach task
         # is idempotent and Redis holds deferred jobs durably, so this
         # just shifts the fire-time, not the semantics.
-        send_at = pick_next_send_time(
-            lead_row=lead, tenant_row=tenant_row, now=now
-        )
+        send_at = pick_next_send_time(lead_row=lead, tenant_row=tenant_row, now=now)
         is_deferred = send_at > now
 
         await enqueue(
@@ -187,10 +181,7 @@ async def follow_up_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
                 "force": False,
             },
             # Deterministic job id → duplicates collapse in Redis.
-            job_id=(
-                f"outreach:{lead['tenant_id']}:{lead['id']}:"
-                f"email:step{decision.step}"
-            ),
+            job_id=(f"outreach:{lead['tenant_id']}:{lead['id']}:email:step{decision.step}"),
             defer_until=send_at if is_deferred else None,
         )
         queued += 1
@@ -353,10 +344,7 @@ async def sla_first_touch_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
 
     # 1. Load CRM module configs for all tenants.
     mods_res = (
-        sb.table("tenant_modules")
-        .select("tenant_id, config")
-        .eq("module_key", "crm")
-        .execute()
+        sb.table("tenant_modules").select("tenant_id, config").eq("module_key", "crm").execute()
     )
     crm_mods = mods_res.data or []
     log.info("cron.sla.tenants_loaded", count=len(crm_mods))
@@ -443,9 +431,7 @@ async def retention_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
     rendering bucket is deferred to a separate cron (Sprint 9+).
     """
     sb = get_service_client()
-    cutoff = (
-        datetime.now(UTC) - timedelta(days=RETENTION_DAYS)
-    ).isoformat()
+    cutoff = (datetime.now(UTC) - timedelta(days=RETENTION_DAYS)).isoformat()
 
     # Look up the victims first so we can emit a count (the Supabase
     # SDK's ``delete`` doesn't return rowcount reliably).
@@ -501,11 +487,13 @@ async def smartlead_warmup_sync_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
     # Load all tenants that have at least one Gmail OAuth inbox.
     try:
         res = await asyncio.to_thread(
-            lambda: sb.table("tenant_inboxes")
-            .select("tenant_id")
-            .eq("provider", "gmail_oauth")
-            .eq("active", True)
-            .execute()
+            lambda: (
+                sb.table("tenant_inboxes")
+                .select("tenant_id")
+                .eq("provider", "gmail_oauth")
+                .eq("active", True)
+                .execute()
+            )
         )
         tenant_ids: list[str] = list(
             {row["tenant_id"] for row in (res.data or []) if row.get("tenant_id")}
@@ -614,12 +602,7 @@ async def funnel_v3_cron(ctx: dict[str, Any]) -> dict[str, Any]:
     existing candidates rather than duplicating them.
     """
     sb = get_service_client()
-    res = (
-        sb.table("tenant_target_areas")
-        .select("tenant_id")
-        .eq("status", "active")
-        .execute()
-    )
+    res = sb.table("tenant_target_areas").select("tenant_id").eq("status", "active").execute()
     rows = res.data or []
     tenant_ids = sorted({r["tenant_id"] for r in rows if r.get("tenant_id")})
     if not tenant_ids:
@@ -755,10 +738,10 @@ async def weekly_cluster_refresh_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
         # Pick the variant with more replies (or just A) as the baseline.
         baseline = pair[0]
         previous_winner = {
-            "copy_subject":          baseline.get("copy_subject") or "",
-            "copy_opening_line":     baseline.get("copy_opening_line") or "",
+            "copy_subject": baseline.get("copy_subject") or "",
+            "copy_opening_line": baseline.get("copy_opening_line") or "",
             "copy_proposition_line": baseline.get("copy_proposition_line") or "",
-            "cta_primary_label":     baseline.get("cta_primary_label") or "",
+            "cta_primary_label": baseline.get("cta_primary_label") or "",
         }
 
         try:
@@ -774,11 +757,7 @@ async def weekly_cluster_refresh_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
 
             # Fetch tenant name for prompt personalisation.
             tn_resp = (
-                sb.table("tenants")
-                .select("business_name")
-                .eq("id", tenant_id)
-                .single()
-                .execute()
+                sb.table("tenants").select("business_name").eq("id", tenant_id).single().execute()
             )
             tenant_name = (tn_resp.data or {}).get("business_name") or "SolarLead"
 
@@ -793,9 +772,7 @@ async def weekly_cluster_refresh_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
                 round_number=round_number + 1,
                 previous_winner=previous_winner,
             )
-            await persist_variant_pair(
-                sb, tenant_id, cluster_sig, round_number + 1, va, vb
-            )
+            await persist_variant_pair(sb, tenant_id, cluster_sig, round_number + 1, va, vb)
             refreshed += 1
             log.info(
                 "cron.weekly_cluster_refresh.refreshed",
@@ -922,14 +899,9 @@ async def engagement_followup_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
     # Tenants that have disabled the auto follow-up cron — skip every
     # lead belonging to them. Single SELECT keeps the cron fast.
     disabled_tenants_res = (
-        sb.table("tenants")
-        .select("id")
-        .eq("followup_auto_enabled", False)
-        .execute()
+        sb.table("tenants").select("id").eq("followup_auto_enabled", False).execute()
     )
-    disabled_tenant_ids = {
-        str(r["id"]) for r in (disabled_tenants_res.data or [])
-    }
+    disabled_tenant_ids = {str(r["id"]) for r in (disabled_tenants_res.data or [])}
 
     # Pull leads worth evaluating: have an initial outreach, not in
     # terminal states, and either currently engaged (score > 0) OR
@@ -969,9 +941,7 @@ async def engagement_followup_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
         # Skip lead with manual follow-up in the last 24h (cooldown).
         last_manual = lead.get("last_followup_sent_at")
         if last_manual and last_manual > manual_cooldown:
-            skipped["manual_cooldown_24h"] = (
-                skipped.get("manual_cooldown_24h", 0) + 1
-            )
+            skipped["manual_cooldown_24h"] = skipped.get("manual_cooldown_24h", 0) + 1
             continue
 
         # Detect cold-cadence completion: step 4 sent, OR initial send
@@ -998,9 +968,7 @@ async def engagement_followup_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
             pipeline_status=str(lead.get("pipeline_status") or ""),
             engagement_score=int(lead.get("engagement_score") or 0),
             engagement_peak_score=int(
-                lead.get("engagement_peak_score")
-                or lead.get("engagement_score")
-                or 0
+                lead.get("engagement_peak_score") or lead.get("engagement_score") or 0
             ),
             last_engagement_at=_parse_ts(lead.get("last_portal_event_at")),
             initial_outreach_at=outreach_sent_at,
@@ -1034,9 +1002,9 @@ async def engagement_followup_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
                     "scenario": "hot",
                 },
             )
-            sb.table("leads").update(
-                {"hot_lead_alerted_at": now.isoformat()}
-            ).eq("id", snap.lead_id).execute()
+            sb.table("leads").update({"hot_lead_alerted_at": now.isoformat()}).eq(
+                "id", snap.lead_id
+            ).execute()
             notified_hot += 1
             continue
 
@@ -1134,9 +1102,7 @@ async def engagement_followup_for_tenant(tenant_id: str) -> dict[str, Any]:
             pipeline_status=str(lead.get("pipeline_status") or ""),
             engagement_score=int(lead.get("engagement_score") or 0),
             engagement_peak_score=int(
-                lead.get("engagement_peak_score")
-                or lead.get("engagement_score")
-                or 0
+                lead.get("engagement_peak_score") or lead.get("engagement_score") or 0
             ),
             last_engagement_at=_parse_ts(lead.get("last_portal_event_at")),
             initial_outreach_at=outreach_sent_at,
@@ -1169,9 +1135,9 @@ async def engagement_followup_for_tenant(tenant_id: str) -> dict[str, Any]:
                     "scenario": "hot",
                 },
             )
-            sb.table("leads").update(
-                {"hot_lead_alerted_at": now.isoformat()}
-            ).eq("id", snap.lead_id).execute()
+            sb.table("leads").update({"hot_lead_alerted_at": now.isoformat()}).eq(
+                "id", snap.lead_id
+            ).execute()
             continue
 
         scenario = decision.scenario or "cold"
