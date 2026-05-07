@@ -208,6 +208,7 @@ _SECTOR_TO_INCLUDED_TYPES: dict[str, list[str]] = {
     "hospitality_large": ["hotel", "resort_hotel"],
     "healthcare": ["hospital"],
     "education": ["school", "university"],
+    "amministratori_condominio": ["real_estate_agency"],
 }
 
 

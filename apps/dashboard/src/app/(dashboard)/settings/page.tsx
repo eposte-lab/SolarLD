@@ -114,9 +114,9 @@ export default async function SettingsPage() {
         domainSwitched={domainSwitched}
       />
 
-      <ModulesCard modules={modules} />
+      <ModulesCard modules={modules} isDemo={ctx.tenant.is_demo} />
 
-      <IntegrationsCard tenant={ctx.tenant} />
+      <IntegrationsCard tenant={ctx.tenant} isDemo={ctx.tenant.is_demo} />
 
       <FollowupCard tenant={ctx.tenant} />
 
@@ -151,21 +151,31 @@ function Header({ tenantName }: { tenantName: string }) {
 
 // ---------------------------------------------------------------------------
 
-function ModulesCard({ modules }: { modules: TenantModule[] }) {
+function ModulesCard({ modules, isDemo }: { modules: TenantModule[]; isDemo: boolean }) {
   const byKey = new Map(modules.map((m) => [m.module_key, m]));
 
   return (
     <BentoCard span="full">
-      <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
-        Moduli Hunter
-      </p>
-      <h2 className="mt-1 font-headline text-2xl font-bold tracking-tighter">
-        Cinque aree, cinque pagine
-      </h2>
-      <p className="mt-1 max-w-2xl text-sm text-on-surface-variant">
-        Ogni modulo controlla un pezzo del funnel. Puoi disattivare un modulo
-        per escluderlo dalle scansioni senza perdere la configurazione.
-      </p>
+      <div className="flex flex-col gap-1 md:flex-row md:items-end md:justify-between">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
+            Moduli Hunter
+          </p>
+          <h2 className="mt-1 font-headline text-2xl font-bold tracking-tighter">
+            Cinque aree, cinque pagine
+          </h2>
+          <p className="mt-1 max-w-2xl text-sm text-on-surface-variant">
+            Ogni modulo controlla un pezzo del funnel. Puoi disattivare un modulo
+            per escluderlo dalle scansioni senza perdere la configurazione.
+          </p>
+        </div>
+        {isDemo && (
+          <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-outline-variant/60 bg-surface-container-high px-3 py-1 text-xs font-medium text-on-surface-variant">
+            <Lock size={11} strokeWidth={2} aria-hidden />
+            Configurati in onboarding
+          </span>
+        )}
+      </div>
 
       <div className="mt-5 grid gap-3 md:grid-cols-2">
         {MODULE_ORDER.map((key) => {
@@ -173,6 +183,37 @@ function ModulesCard({ modules }: { modules: TenantModule[] }) {
           const meta = MODULE_META[key];
           const configured = (row?.version ?? 0) >= 1;
           const active = row?.active ?? true;
+
+          if (isDemo) {
+            return (
+              <div
+                key={key}
+                className="relative flex cursor-not-allowed items-start justify-between gap-4 overflow-hidden rounded-xl liquid-glass-sm px-4 py-4 opacity-60"
+              >
+                <span
+                  className="pointer-events-none absolute inset-x-0 top-0 h-12 bg-glass-specular"
+                  aria-hidden
+                />
+                <div className="relative flex items-start gap-3">
+                  <span
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/12 text-primary"
+                    aria-hidden
+                  >
+                    <meta.Icon size={16} strokeWidth={2} />
+                  </span>
+                  <div>
+                    <p className="font-semibold text-on-surface">{meta.title}</p>
+                    <p className="mt-1 text-xs text-on-surface-variant">{meta.blurb}</p>
+                  </div>
+                </div>
+                <div className="relative flex flex-col items-end gap-1">
+                  <ModuleStatusChip configured={configured} active={active} />
+                  <Lock size={13} strokeWidth={2} className="text-on-surface-variant/50" aria-hidden />
+                </div>
+              </div>
+            );
+          }
+
           return (
             <Link
               key={key}
@@ -249,7 +290,7 @@ function ModuleStatusChip({
 // Integrations → subpages (CRM webhooks for now; room to grow)
 // ---------------------------------------------------------------------------
 
-function IntegrationsCard({ tenant }: { tenant: TenantRow }) {
+function IntegrationsCard({ tenant, isDemo }: { tenant: TenantRow; isDemo: boolean }) {
   const crmAllowed = canTenantUse(tenant, 'crm_outbound_webhooks');
   const abAllowed = canTenantUse(tenant, 'ab_testing_templates');
   return (
@@ -275,17 +316,27 @@ function IntegrationsCard({ tenant }: { tenant: TenantRow }) {
           href="/settings/email-domains"
           title="Domini email"
           blurb="Gestisci dominio brand (per email transazionali) e dominio outreach (Gmail) con verifica DNS in tempo reale SPF/DKIM/DMARC e tracking per dominio."
+          locked={isDemo}
+          lockedReason={isDemo ? 'Configurato in onboarding' : undefined}
         />
         <IntegrationLink
           href="/settings/branding"
           title="Branding email"
           blurb="Colore principale, logo e nome mittente con anteprima live del template. Nessun wizard richiesto."
         />
+
+        {/* ── Template email — due sistemi distinti ─────────────────── */}
         <IntegrationLink
           href="/settings/email-template"
-          title="Template & A/B per cluster"
-          blurb="Scegli Premium SolarLead, legacy o carica un HTML personalizzato. A/B test per cluster di lead con copy generato dall&apos;AI e promozione automatica del vincitore."
+          title="Template solar + A/B cluster"
+          blurb="Family built-in o HTML personalizzato per il flusso solar standard. A/B test per cluster di lead: copy generato dall'AI, promozione automatica del vincitore ogni settimana."
         />
+        <IntegrationLink
+          href="/email-templates"
+          title="Template campagne generic"
+          blurb="Template HTML Jinja2 per le campagne generic_outreach di Trova aziende (es. amministratori di condominio). Ogni template va associato a una lista prima del lancio."
+        />
+
         <IntegrationLink
           href="/settings/sector-news"
           title="News di settore"
@@ -306,6 +357,8 @@ function IntegrationsCard({ tenant }: { tenant: TenantRow }) {
           href="/settings/legal"
           title="Dati legali (pratiche GSE)"
           blurb="Anagrafica impresa, codice fiscale, CCIAA e responsabile tecnico. Richiesti dal DM 37/08 e dalle pratiche GSE."
+          locked={isDemo}
+          lockedReason={isDemo ? 'Configurato in onboarding' : undefined}
         />
         <IntegrationLink
           href="/experiments"
@@ -323,12 +376,40 @@ function IntegrationLink({
   title,
   blurb,
   locked = false,
+  lockedReason,
 }: {
   href: string;
   title: string;
   blurb: string;
   locked?: boolean;
+  lockedReason?: string;
 }) {
+  if (locked) {
+    return (
+      <div
+        className="relative flex cursor-not-allowed items-start justify-between gap-4 overflow-hidden rounded-xl liquid-glass-sm px-4 py-4 opacity-60"
+        title={lockedReason}
+      >
+        <span
+          className="pointer-events-none absolute inset-x-0 top-0 h-12 bg-glass-specular"
+          aria-hidden
+        />
+        <div className="relative">
+          <p className="font-semibold text-on-surface">{title}</p>
+          <p className="mt-1 text-xs text-on-surface-variant">{blurb}</p>
+          {lockedReason && (
+            <p className="mt-1.5 text-[10px] font-semibold uppercase tracking-wider text-on-surface-variant/70">
+              {lockedReason}
+            </p>
+          )}
+        </div>
+        <span className="relative shrink-0 self-center" aria-hidden>
+          <Lock size={14} strokeWidth={2} className="text-on-surface-variant/70" />
+        </span>
+      </div>
+    );
+  }
+
   return (
     <Link
       href={href}
@@ -346,19 +427,11 @@ function IntegrationLink({
         <p className="mt-1 text-xs text-on-surface-variant">{blurb}</p>
       </div>
       <span className="relative shrink-0 self-center" aria-hidden>
-        {locked ? (
-          <Lock
-            size={14}
-            strokeWidth={2}
-            className="text-on-surface-variant/70"
-          />
-        ) : (
-          <ArrowUpRight
-            size={14}
-            strokeWidth={2}
-            className="text-on-surface-variant transition-all group-hover:text-primary group-hover:translate-x-0.5 group-hover:-translate-y-0.5"
-          />
-        )}
+        <ArrowUpRight
+          size={14}
+          strokeWidth={2}
+          className="text-on-surface-variant transition-all group-hover:text-primary group-hover:translate-x-0.5 group-hover:-translate-y-0.5"
+        />
       </span>
     </Link>
   );
