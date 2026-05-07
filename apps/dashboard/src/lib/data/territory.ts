@@ -140,3 +140,63 @@ export async function runFunnelManual(opts: {
 export async function getScanResults(): Promise<ScanResultsResponse> {
   return apiFetch<ScanResultsResponse>('/v1/territory/scan-results');
 }
+
+// ---------------------------------------------------------------------------
+// Geocentric autopilot (auto-prepare + per-candidate qualify + reset)
+// ---------------------------------------------------------------------------
+
+export interface AutoPrepareResponse {
+  job_id: string;
+  tenant_id: string;
+  enqueued_map: boolean;
+  enqueued_funnel: boolean;
+  zone_count: number;
+  candidate_count: number;
+  note: string;
+}
+
+export interface QualifyCandidateResponse {
+  candidate_id: string;
+  tenant_id: string;
+  solar_verdict: string | null;
+  overall_score: number | null;
+  recommended_for_rendering: boolean;
+  lead_id: string | null;
+  qualified_count: number;
+  target_total: number;
+  cap_reached: boolean;
+  message: string;
+}
+
+export interface ResetPipelineResponse {
+  tenant_id: string;
+  candidates_deleted: number;
+  leads_deleted: number;
+  cost_logs_deleted: number;
+}
+
+/** Idempotently kick off L0 (if needed) + L1+L2+L3 in the background. */
+export async function autoPrepareTerritory(): Promise<AutoPrepareResponse> {
+  return apiFetch<AutoPrepareResponse>('/v1/territory/auto-prepare', {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
+}
+
+/** On-demand qualify (Solar + Haiku + lead creation) for one candidate. */
+export async function qualifyCandidate(
+  candidateId: string,
+): Promise<QualifyCandidateResponse> {
+  return apiFetch<QualifyCandidateResponse>(
+    `/v1/territory/candidates/${candidateId}/qualify`,
+    { method: 'POST', body: JSON.stringify({}) },
+  );
+}
+
+/** Wipe v3 pipeline state for the current tenant (zones survive). */
+export async function resetTerritoryPipeline(): Promise<ResetPipelineResponse> {
+  return apiFetch<ResetPipelineResponse>('/v1/territory/reset', {
+    method: 'POST',
+    body: JSON.stringify({}),
+  });
+}
