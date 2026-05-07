@@ -181,12 +181,11 @@ function NavLink({ item, active }: { item: NavItem; active: boolean }) {
 /**
  * Hero CTA at the top of the sidebar.
  *
- * Replaces the legacy "Configura territorio" button with the most
- * actionable thing the operator should do RIGHT NOW: open the lead
- * with the highest engagement_score. Falls back to the territory
- * setup link only when no lead has any engagement yet (fresh
- * tenant). The score chip + relative timestamp give an immediate
- * sense of "is this still hot?".
+ * Single line: just "Lead più caldo" → /leads/{topLeadId}. No emoji,
+ * no name, no score in the chrome — keep the rail clean and trust
+ * the lead detail page to show the details. Falls back to the
+ * legacy "Configura territorio" gradient button when no engagement
+ * signal exists yet (fresh tenant).
  */
 function HeroCta({ hotLead }: { hotLead: HotLeadHero | null }) {
   if (!hotLead) {
@@ -201,39 +200,15 @@ function HeroCta({ hotLead }: { hotLead: HotLeadHero | null }) {
       </GradientButton>
     );
   }
-  const truncated =
-    hotLead.display_name.length > 26
-      ? hotLead.display_name.slice(0, 24) + '…'
-      : hotLead.display_name;
   return (
-    <Link
+    <GradientButton
       href={`/leads/${hotLead.id}`}
-      className="mb-6 block rounded-xl bg-primary/95 px-4 py-3 text-on-primary shadow-ambient-sm transition-opacity hover:opacity-95"
+      size="md"
+      className="mb-6 w-full justify-center"
     >
-      <p className="text-[10px] font-bold uppercase tracking-[0.18em] opacity-90">
-        🔥 Lead più caldo
-      </p>
-      <p className="mt-1 text-sm font-semibold leading-tight">{truncated}</p>
-      <p className="mt-1 text-[11px] opacity-90">
-        Score {hotLead.engagement_score}
-        {hotLead.last_event_at
-          ? ` · ${formatRelativeShort(hotLead.last_event_at)}`
-          : ''}
-      </p>
-    </Link>
+      Lead più caldo
+    </GradientButton>
   );
-}
-
-function formatRelativeShort(iso: string): string {
-  const then = new Date(iso).getTime();
-  const diff = Date.now() - then;
-  const mins = Math.floor(diff / 60_000);
-  if (mins < 1) return 'ora';
-  if (mins < 60) return `${mins}m fa`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h fa`;
-  const days = Math.floor(hours / 24);
-  return `${days}g fa`;
 }
 
 export function SideNav({
