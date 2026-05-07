@@ -27,7 +27,6 @@ import {
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 
-import { DemoModeBanner } from '@/components/demo-mode-banner';
 import { FollowUpDrafter } from '@/components/follow-up-drafter';
 import { LeadConversationsCard } from '@/components/lead-conversations-card';
 import { LeadRepliesCard } from '@/components/lead-replies-card';
@@ -57,6 +56,7 @@ import {
 } from '@/lib/utils';
 import { cn } from '@/lib/utils';
 
+import { LeadFeedbackPicker } from './LeadFeedbackPicker';
 import { RegenerateRenderingButton } from './RegenerateRenderingButton';
 import { SendOutreachButton } from './SendOutreachButton';
 import { SendTestOutreachForm } from './SendTestOutreachForm';
@@ -328,10 +328,6 @@ export default async function LeadDetailPage({ params }: PageProps) {
 
   return (
     <div className="space-y-4">
-      {ctx.tenant.outreach_blocked && (
-        <DemoModeBanner tenantName={ctx.tenant.business_name ?? null} />
-      )}
-
       {/* ─── Header ───────────────────────────────────────────────────── */}
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div className="space-y-3">
@@ -398,11 +394,10 @@ export default async function LeadDetailPage({ params }: PageProps) {
                 Genera preventivo completo
               </Link>
             )}
-            {/* GSE practice entry-point. Sprint 1: visibile solo a contratto
-                firmato (post-firma). La pagina /leads/{id}/practice/new
-                fa il fetch del draft e gestisce sia "crea nuova" sia
-                "apri esistente" (1 pratica per lead). */}
-            {lead.feedback === 'contract_signed' && (
+            {/* GSE practice entry-point. Visible always so the operator
+                knows the feature exists, but disabled until the lead is
+                marked contract_signed via the LeadFeedbackPicker below. */}
+            {lead.feedback === 'contract_signed' ? (
               <Link
                 href={`/leads/${lead.id}/practice/new`}
                 className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
@@ -411,7 +406,19 @@ export default async function LeadDetailPage({ params }: PageProps) {
                 <FolderOpen size={11} strokeWidth={2.25} aria-hidden />
                 Crea pratica GSE
               </Link>
+            ) : (
+              <span
+                className="inline-flex cursor-not-allowed items-center gap-1 text-xs font-semibold text-on-surface-variant opacity-50"
+                title="Marca il lead come 'Contratto firmato' qui sotto per abilitare la creazione della pratica GSE"
+              >
+                <FolderOpen size={11} strokeWidth={2.25} aria-hidden />
+                Crea pratica GSE
+              </span>
             )}
+            <LeadFeedbackPicker
+              leadId={lead.id}
+              currentFeedback={lead.feedback ?? null}
+            />
           </div>
         </div>
 
