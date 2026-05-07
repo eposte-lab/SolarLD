@@ -18,7 +18,7 @@ test.describe('Login page', () => {
 
     // Brand mark
     await expect(
-      page.getByText('SolarLead'),
+      page.getByText('SolarLead', { exact: true }).first(),
     ).toBeVisible();
 
     // Email input

@@ -20,7 +20,8 @@ filters by tenant) in addition to FastAPI's auth dependency.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
+from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
@@ -35,9 +36,6 @@ from ..services.pixart_service import (
     submit_letter_campaign,
 )
 from ..services.tenant_module_service import get_module
-
-if TYPE_CHECKING:
-    from uuid import UUID
 
 router = APIRouter()
 log = get_logger(__name__)

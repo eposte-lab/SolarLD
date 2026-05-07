@@ -21,7 +21,8 @@ Auth pattern mirrors b2c_exports.py: ``CurrentUser`` Depends, then
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
+from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import RedirectResponse
@@ -38,9 +39,6 @@ from ..services.quote_service import (
     save_quote,
 )
 from ..services.storage_service import sign_url
-
-if TYPE_CHECKING:
-    from uuid import UUID
 
 router = APIRouter()
 log = get_logger(__name__)

@@ -312,6 +312,8 @@ def test_prompts_registry_covers_all_supported_kinds() -> None:
         "visura_catastale",
         "documento_identita",
         "bolletta_pod",
+        "durc",
+        "ccnl",
         "altro",
     }
 
@@ -323,6 +325,8 @@ def test_prompts_registry_covers_all_supported_kinds() -> None:
         "visura_catastale",
         "documento_identita",
         "bolletta_pod",
+        "durc",
+        "ccnl",
         "altro",
     ],
 )
