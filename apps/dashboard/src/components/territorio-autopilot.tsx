@@ -301,7 +301,7 @@ export function TerritorioAutopilot({ initialData }: AutopilotProps) {
         {capReached ? (
           <p className="mt-4 rounded-md bg-warning/10 p-3 text-xs text-warning">
             Cap raggiunto: già {qualifiedCount} contatti finali qualificati. Usa
-            "Riparti da capo" per ricominciare il pilota.
+            il bottone <em>Riparti da capo</em> per ricominciare il pilota.
           </p>
         ) : null}
       </div>
