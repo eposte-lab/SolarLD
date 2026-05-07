@@ -215,6 +215,7 @@ jobs:
             CREATE OR REPLACE FUNCTION storage.foldername(name text) RETURNS text[]
               LANGUAGE sql AS $$ SELECT string_to_array(name, '/') $$;
             CREATE SCHEMA IF NOT EXISTS realtime;
+            CREATE PUBLICATION IF NOT EXISTS supabase_realtime;
           SQL
 
       - name: Apply migrations

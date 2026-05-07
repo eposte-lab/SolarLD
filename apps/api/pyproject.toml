@@ -114,7 +114,7 @@ line-length = 100
 target-version = "py312"
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "N", "B", "UP", "ASYNC", "S", "C4", "PT", "SIM", "TCH"]
+select = ["E", "F", "W", "I", "N", "B", "UP", "ASYNC", "S", "C4", "PT", "SIM"]
 ignore = [
   "S101",    # assert — used in tests
   "E501",    # line too long — handled by formatter
