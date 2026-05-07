@@ -930,6 +930,57 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
                     "id", payload.lead_id
                 ).execute()
 
+            # Convergence check — when a cluster has converged the
+            # cluster_state row carries the champion. We serve 100%
+            # of traffic to that variant and skip the A/B hash split
+            # entirely. The drift cron (90 days) or a manual
+            # "Sfida il vincitore" click resets converged_at and
+            # the test resumes.
+            state_resp = (
+                sb.table("cluster_state")
+                .select("converged_at, champion_variant_id")
+                .eq("tenant_id", payload.tenant_id)
+                .eq("cluster_signature", cluster_sig)
+                .maybe_single()
+                .execute()
+            )
+            cstate = state_resp.data if state_resp else None
+            if cstate and cstate.get("converged_at") and cstate.get("champion_variant_id"):
+                champ_resp = (
+                    sb.table("cluster_copy_variants")
+                    .select(
+                        "id, variant_label, copy_subject, copy_opening_line, "
+                        "copy_proposition_line, cta_primary_label, round_number"
+                    )
+                    .eq("id", cstate["champion_variant_id"])
+                    .maybe_single()
+                    .execute()
+                )
+                champion = champ_resp.data if champ_resp else None
+                if champion:
+                    log.info(
+                        "outreach.cluster_converged_send",
+                        cluster=cluster_sig,
+                        champion_label=champion.get("variant_label"),
+                        lead_id=payload.lead_id,
+                    )
+                    cluster_variant_id = champion["id"]
+                    copy_overrides = {
+                        "copy_subject": champion.get("copy_subject") or "",
+                        "copy_opening_line": champion.get("copy_opening_line") or "",
+                        "copy_proposition_line": champion.get("copy_proposition_line") or "",
+                        "cta_primary_label": champion.get("cta_primary_label") or "",
+                    }
+                    if copy_overrides.get("copy_subject"):
+                        final_subject = copy_overrides["copy_subject"]
+                    sb.table("leads").update(
+                        {
+                            "assigned_variant": champion.get("variant_label"),
+                            "assigned_round": champion.get("round_number"),
+                        }
+                    ).eq("id", payload.lead_id).execute()
+                    raise _SkipClusterAB()
+
             # Fetch active variants for (tenant, cluster).
             cv_resp = (
                 sb.table("cluster_copy_variants")

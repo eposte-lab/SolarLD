@@ -791,6 +791,118 @@ async def weekly_cluster_refresh_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
                 err=str(exc)[:200],
             )
 
+    # Drift detection — unlock converged clusters that have been
+    # locked for >= 90 days. Without this a winning copy stays
+    # unchallenged forever even if the market shifts (new
+    # competitors, seasonal patterns, regulation changes). 90 days
+    # is the same cadence as the chi-square evaluation window x
+    # ~6, giving the operator one quarter of "set and forget" before
+    # the system probes for drift on its own.
+    drift_unlocked = 0
+    drift_failed = 0
+    drift_cutoff = (datetime.now(UTC) - timedelta(days=90)).isoformat()
+    drift_res = (
+        sb.table("cluster_state")
+        .select("tenant_id, cluster_signature, champion_variant_id")
+        .lt("converged_at", drift_cutoff)
+        .is_("unlocked_at", None)
+        .limit(MAX_REFRESH_PER_RUN)
+        .execute()
+    )
+    for row in drift_res.data or []:
+        try:
+            # Pull the old champion's copy as the baseline for the
+            # new round so the new sfidante starts from the proven
+            # winner instead of generating from scratch.
+            champ_id = row.get("champion_variant_id")
+            previous_winner = None
+            if champ_id:
+                champ_resp = (
+                    sb.table("cluster_copy_variants")
+                    .select(
+                        "round_number, copy_subject, copy_opening_line, "
+                        "copy_proposition_line, cta_primary_label"
+                    )
+                    .eq("id", champ_id)
+                    .maybe_single()
+                    .execute()
+                )
+                champ = champ_resp.data if champ_resp else None
+                if champ:
+                    previous_winner = {
+                        "copy_subject": champ.get("copy_subject") or "",
+                        "copy_opening_line": champ.get("copy_opening_line") or "",
+                        "copy_proposition_line": champ.get("copy_proposition_line") or "",
+                        "cta_primary_label": champ.get("cta_primary_label") or "",
+                    }
+                    next_round = int(champ.get("round_number") or 1) + 1
+                else:
+                    next_round = 1
+            else:
+                next_round = 1
+
+            # Reset cluster_state — the new round is a fresh test.
+            (
+                sb.table("cluster_state")
+                .upsert(
+                    {
+                        "tenant_id": row["tenant_id"],
+                        "cluster_signature": row["cluster_signature"],
+                        "consecutive_wins": 0,
+                        "last_winner_label": None,
+                        "converged_at": None,
+                        "champion_variant_id": None,
+                        "updated_at": datetime.now(UTC).isoformat(),
+                    }
+                )
+                .execute()
+            )
+
+            # Generate the new sfidante pair.
+            tn_resp = (
+                sb.table("tenants")
+                .select("business_name")
+                .eq("id", row["tenant_id"])
+                .single()
+                .execute()
+            )
+            tenant_name = (tn_resp.data or {}).get("business_name") or "SolarLead"
+
+            from ..services.variant_generator_service import (
+                generate_variant_pair,
+                persist_variant_pair,
+            )
+
+            va, vb = await generate_variant_pair(
+                tenant_name=tenant_name,
+                cluster_signature=row["cluster_signature"],
+                round_number=next_round,
+                previous_winner=previous_winner,
+            )
+            await persist_variant_pair(
+                sb,
+                row["tenant_id"],
+                row["cluster_signature"],
+                next_round,
+                va,
+                vb,
+            )
+            drift_unlocked += 1
+            log.info(
+                "cluster_ab.drift_refresh_triggered",
+                tenant_id=row["tenant_id"],
+                cluster=row["cluster_signature"],
+                new_round=next_round,
+            )
+        except Exception as exc:  # noqa: BLE001
+            drift_failed += 1
+            log.warning(
+                "cluster_ab.drift_refresh_failed",
+                tenant_id=row.get("tenant_id"),
+                cluster=row.get("cluster_signature"),
+                err=str(exc)[:200],
+            )
+
     summary = {
         "ok": True,
         "candidates": len(grouped),
@@ -798,6 +910,8 @@ async def weekly_cluster_refresh_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
         "skipped_high_volume": skipped_high_volume,
         "failed": failed,
         "capped": refreshed >= MAX_REFRESH_PER_RUN,
+        "drift_unlocked": drift_unlocked,
+        "drift_failed": drift_failed,
     }
     log.info("cron.weekly_cluster_refresh.done", **summary)
     return summary

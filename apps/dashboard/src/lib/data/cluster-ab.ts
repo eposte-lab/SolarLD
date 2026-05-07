@@ -27,6 +27,14 @@ export interface ClusterAB {
   round_number: number;
   variants: VariantCopy[];
   prob_a_wins: number | null;
+  /**
+   * When set, the cluster has converged: the OutreachAgent serves
+   * 100% of the traffic to ``champion_variant_id`` and no new rounds
+   * are generated. The drift cron (90 days) or the operator
+   * "Sfida il vincitore" button restarts testing.
+   */
+  converged_at?: string | null;
+  champion_variant_id?: string | null;
 }
 
 export interface ActiveClustersResponse {
@@ -84,6 +92,26 @@ export async function regenerateCluster(
 ): Promise<RegenerateResult> {
   return apiFetch<RegenerateResult>(
     `/v1/cluster-ab/${encodeURIComponent(clusterSignature)}/regenerate`,
+    { method: 'POST' },
+  );
+}
+
+export interface UnlockResult {
+  cluster_signature: string;
+  new_round: number;
+  unlocked_at: string;
+}
+
+/**
+ * Manually challenge a converged cluster's champion. Resets
+ * cluster_state and triggers a fresh A+B generation. The dashboard
+ * "Sfida il vincitore" button calls this.
+ */
+export async function unlockConvergedCluster(
+  clusterSignature: string,
+): Promise<UnlockResult> {
+  return apiFetch<UnlockResult>(
+    `/v1/cluster-ab/${encodeURIComponent(clusterSignature)}/unlock`,
     { method: 'POST' },
   );
 }

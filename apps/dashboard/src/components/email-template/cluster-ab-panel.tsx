@@ -15,6 +15,7 @@ import {
   listActiveClusters,
   promoteVariant,
   regenerateCluster,
+  unlockConvergedCluster,
   type ClusterAB,
   type VariantCopy,
 } from '@/lib/data/cluster-ab';
@@ -67,6 +68,120 @@ function VariantCard({ variant, label }: { variant: VariantCopy; label: string }
           <span className="font-medium italic">{variant.cta_primary_label}</span>
         </p>
       </div>
+    </div>
+  );
+}
+
+function ConvergedClusterCard({
+  cluster,
+  onAction,
+}: {
+  cluster: ClusterAB;
+  onAction: () => void;
+}) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const champion = cluster.variants[0];
+
+  const handleUnlock = useCallback(async () => {
+    if (
+      !confirm(
+        `Sfidare il vincitore di "${cluster.cluster_signature}"? ` +
+          'Verrà generata una nuova variante B sfidante e il test ripartirà.',
+      )
+    )
+      return;
+    setLoading(true);
+    setError('');
+    try {
+      await unlockConvergedCluster(cluster.cluster_signature);
+      onAction();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Errore unlock');
+    } finally {
+      setLoading(false);
+    }
+  }, [cluster.cluster_signature, onAction]);
+
+  const convergedDate = cluster.converged_at
+    ? new Date(cluster.converged_at).toLocaleDateString('it-IT', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+      })
+    : null;
+
+  return (
+    <div className="rounded-2xl border border-primary/30 bg-primary/5 shadow-sm overflow-hidden">
+      <div className="px-5 py-4 flex items-center justify-between">
+        <div className="flex items-center gap-3 flex-wrap">
+          <span className="font-mono text-sm font-semibold">
+            {cluster.cluster_signature}
+          </span>
+          <span className="text-xs bg-primary text-on-primary px-2.5 py-1 rounded-full font-semibold inline-flex items-center gap-1">
+            🏆 Stabile
+          </span>
+          {convergedDate && (
+            <span className="text-xs text-on-surface-variant">
+              vincitore consolidato il {convergedDate}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {champion && (
+        <div className="px-5 pb-4 space-y-3">
+          {error && (
+            <p className="text-sm text-red-600 rounded-lg bg-red-50 px-3 py-2">
+              {error}
+            </p>
+          )}
+          <div className="rounded-xl border bg-surface p-4 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold uppercase tracking-wide text-primary">
+                Champion · Variante {champion.variant_label}
+              </span>
+              <span className="text-xs text-on-surface-variant">
+                Round {champion.round_number} · {champion.sent_count} invii ·{' '}
+                {champion.replied_count} risposte
+              </span>
+            </div>
+            <div className="space-y-1 text-xs">
+              <p>
+                <span className="text-on-surface-variant">Oggetto: </span>
+                <span className="font-medium">{champion.copy_subject}</span>
+              </p>
+              <p>
+                <span className="text-on-surface-variant">Apertura: </span>
+                {champion.copy_opening_line}
+              </p>
+              <p>
+                <span className="text-on-surface-variant">Proposizione: </span>
+                {champion.copy_proposition_line}
+              </p>
+              <p>
+                <span className="text-on-surface-variant">CTA: </span>
+                <span className="font-medium italic">
+                  {champion.cta_primary_label}
+                </span>
+              </p>
+            </div>
+          </div>
+          <p className="text-xs text-on-surface-variant">
+            Questa variante riceve il 100% del traffico. Sarà sfidata
+            automaticamente fra 90 giorni per controllo deriva, oppure
+            puoi forzare un nuovo test ora.
+          </p>
+          <button
+            type="button"
+            onClick={handleUnlock}
+            disabled={loading}
+            className="text-sm rounded-xl border border-primary px-4 py-1.5 text-primary hover:bg-primary/10 transition-colors disabled:opacity-50"
+          >
+            {loading ? 'Generazione sfidante…' : '🔄 Sfida il vincitore'}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -225,11 +340,20 @@ export function ClusterAbPanel({ initialClusters }: ClusterAbPanelProps) {
     );
   }
 
+  // Stable winners on top so the operator sees "what works" first;
+  // active tests below for the still-running experiments.
+  const stable = clusters.filter((c) => c.converged_at);
+  const active = clusters.filter((c) => !c.converged_at);
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <p className="text-sm text-on-surface-variant">
-          {clusters.length} cluster attivi — il sistema valuta i risultati ogni notte
+          {active.length} test attiv{active.length === 1 ? 'o' : 'i'}
+          {stable.length > 0
+            ? ` · ${stable.length} stabil${stable.length === 1 ? 'e' : 'i'}`
+            : ''}{' '}
+          — valutazione automatica ogni notte
         </p>
         <button
           type="button"
@@ -241,7 +365,14 @@ export function ClusterAbPanel({ initialClusters }: ClusterAbPanelProps) {
         </button>
       </div>
 
-      {clusters.map((c) => (
+      {stable.map((c) => (
+        <ConvergedClusterCard
+          key={c.cluster_signature}
+          cluster={c}
+          onAction={refresh}
+        />
+      ))}
+      {active.map((c) => (
         <ClusterCard key={c.cluster_signature} cluster={c} onAction={refresh} />
       ))}
     </div>

@@ -5,6 +5,7 @@ import { RealtimeToaster } from '@/components/realtime-toaster';
 import { BackButton } from '@/components/ui/back-button';
 import { NotificationsBell } from '@/components/ui/notifications-bell';
 import { SideNav, type NavSection } from '@/components/ui/side-nav';
+import { getTopHotLead } from '@/lib/data/leads';
 import {
   countUnreadNotifications,
   listRecentNotifications,
@@ -87,16 +88,20 @@ export default async function DashboardLayout({
     }
   }
 
-  // Onboarding gate + notifications in parallel — no dependency between
-  // them, so fire both at once. The wizard check must resolve before
-  // rendering (potential redirect), notifications can fall back to zero.
+  // Onboarding gate + notifications + hot-lead hero CTA in parallel.
+  // The wizard check must resolve before rendering (potential redirect);
+  // notifications and hot-lead can fall back gracefully.
   let unread = 0;
   let recent: Awaited<ReturnType<typeof listRecentNotifications>> = [];
+  let hotLead: Awaited<ReturnType<typeof getTopHotLead>> = null;
   const [pending] = await Promise.all([
     isOnboardingPending(ctx.tenant.id),
     Promise.all([countUnreadNotifications(), listRecentNotifications(20)])
       .then(([u, r]) => { unread = u; recent = r; })
       .catch(() => { /* bell degrades gracefully */ }),
+    getTopHotLead()
+      .then((l) => { hotLead = l; })
+      .catch(() => { /* hero CTA degrades to fallback */ }),
   ]);
 
   if (pending) {
@@ -122,6 +127,7 @@ export default async function DashboardLayout({
         sections={visibleSections}
         tenant={{ business_name: ctx.tenant.business_name }}
         user_email={ctx.user_email}
+        hotLead={hotLead}
       />
       <main className="flex-1 px-6 py-8 md:px-10">
         <div className="mx-auto max-w-[1400px]">

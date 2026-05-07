@@ -42,7 +42,16 @@ export default async function AbTestingPage() {
     <div className="space-y-6">
       <header>
         <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
-          Esperimenti A/B · {clusters.length} cluster attiv{clusters.length === 1 ? 'o' : 'i'}
+          {(() => {
+            const stable = clusters.filter((c) => c.converged_at).length;
+            const active = clusters.length - stable;
+            const parts = [
+              `${active} test attiv${active === 1 ? 'o' : 'i'}`,
+            ];
+            if (stable > 0)
+              parts.push(`${stable} stabil${stable === 1 ? 'e' : 'i'}`);
+            return `Esperimenti A/B · ${parts.join(' · ')}`;
+          })()}
         </p>
         <h1 className="font-headline text-4xl font-bold tracking-tighter">
           Esperimenti A/B
@@ -50,9 +59,9 @@ export default async function AbTestingPage() {
         <p className="mt-2 max-w-3xl text-sm text-on-surface-variant">
           Per ogni cluster di lead simili (settore + ruolo decisore + dimensione)
           il sistema mantiene due varianti email — A e B — assegnate
-          automaticamente 50/50. Ogni notte alle 03:30 controlla con un
-          chi-square test se una delle due ha vinto. Quando una vince,
-          Haiku ne genera una nuova sfidante. Il loop è autonomo.
+          automaticamente 50/50. Quando una variante vince 2 round consecutivi
+          il cluster va in stato &laquo;stabile&raquo; e riceve il 100% del traffico.
+          Dopo 90 giorni viene sfidata di nuovo per controllo deriva.
         </p>
       </header>
 
@@ -74,8 +83,8 @@ export default async function AbTestingPage() {
           />
           <HowItWorksCard
             step="3"
-            title="Vincitore + nuova sfidante"
-            description="Chi-square notturno con soglia 20 invii/variante. Vincitore promosso, perdente demoted, Haiku rigenera una nuova B per continuare il test."
+            title="Vincitore → stabile"
+            description="Chi-square notturno con soglia 20 invii/variante. Dopo 2 vittorie consecutive il vincitore va al 100% del traffico (niente più test). Sfida automatica fra 90 giorni per controllo deriva."
           />
         </div>
       </BentoCard>
