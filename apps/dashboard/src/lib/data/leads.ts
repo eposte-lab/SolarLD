@@ -576,17 +576,21 @@ export async function getOverviewKpis(): Promise<OverviewKpis> {
   const supabase = await createSupabaseServerClient();
   const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
 
-  // "Hot leads" — score_tier='hot' AND any engagement signal AND that
-  // signal happened in the last 30 days. Without the freshness filter
-  // a lead engaged 6 months ago that has since gone silent stayed in
-  // the counter forever (inconsistent with the 30d window of the
-  // sibling KPIs).
+  // "Hot leads" — score_tier='hot' AND (recent action OR meaningful score).
+  // The engagement_score itself is a rolling aggregate over the same 30d
+  // window the rollup uses, so a score >= 50 already implies activity in
+  // the period — using it as a fallback prevents the counter from going
+  // to zero on tenants whose hot leads were imported/seeded without
+  // explicit per-event timestamps (e.g. demo data, CSV migrations).
+  // Without this fallback "Hot leads" would silently drop to 0 even
+  // when /leads?tier=hot was full.
   const FRESHNESS_OR = [
     `last_portal_event_at.gte.${since}`,
     `outreach_clicked_at.gte.${since}`,
     `dashboard_visited_at.gte.${since}`,
     `whatsapp_initiated_at.gte.${since}`,
     `outreach_replied_at.gte.${since}`,
+    `engagement_score.gte.50`,
   ].join(',');
 
   const [sent, hot, conversionRows] = await Promise.all([
