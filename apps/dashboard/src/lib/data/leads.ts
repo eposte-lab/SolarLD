@@ -576,38 +576,54 @@ export async function getOverviewKpis(): Promise<OverviewKpis> {
   const supabase = await createSupabaseServerClient();
   const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
 
-  const [sent, hot, appointments, closedWon] = await Promise.all([
+  // "Hot leads" — score_tier='hot' AND any engagement signal AND that
+  // signal happened in the last 30 days. Without the freshness filter
+  // a lead engaged 6 months ago that has since gone silent stayed in
+  // the counter forever (inconsistent with the 30d window of the
+  // sibling KPIs).
+  const FRESHNESS_OR = [
+    `last_portal_event_at.gte.${since}`,
+    `outreach_clicked_at.gte.${since}`,
+    `dashboard_visited_at.gte.${since}`,
+    `whatsapp_initiated_at.gte.${since}`,
+    `outreach_replied_at.gte.${since}`,
+  ].join(',');
+
+  const [sent, hot, conversionRows] = await Promise.all([
     supabase
       .from('leads')
       .select('id', { count: 'exact', head: true })
       .not('outreach_sent_at', 'is', null)
       .gte('outreach_sent_at', since),
-    // "Hot leads" su Panoramica = lead già engagati con tier hot.
-    // Senza il filtro engagement il counter si "accendeva" da L6
-    // promote-to-leads (lead nuovo + score>=75) — ma a quello stadio
-    // il prospect non ha ancora reagito, quindi non è ancora "hot"
-    // commercialmente. Coerente con la nuova semantica `/leads`.
     supabase
       .from('leads')
       .select('id', { count: 'exact', head: true })
       .eq('score_tier', 'hot')
-      .or(ENGAGEMENT_OR),
+      .or(ENGAGEMENT_OR)
+      .or(FRESHNESS_OR),
+    // Appointments + closed_won come from the `conversions` table —
+    // `closed_at` is the actual transition timestamp, while
+    // `leads.created_at` is the lead's birthday and would silently drop
+    // every old lead that signs today. The `conversions` table is
+    // populated by the public pixel + POST endpoints and is the same
+    // source `getConversionStats` reads on the funnel card below.
     supabase
-      .from('leads')
-      .select('id', { count: 'exact', head: true })
-      .eq('pipeline_status', 'appointment')
-      .gte('created_at', since),
-    supabase
-      .from('leads')
-      .select('id', { count: 'exact', head: true })
-      .eq('pipeline_status', 'closed_won')
-      .gte('created_at', since),
+      .from('conversions')
+      .select('stage')
+      .gte('closed_at', since),
   ]);
+
+  let appointments_30d = 0;
+  let closed_won_30d = 0;
+  for (const row of conversionRows.data ?? []) {
+    if (row.stage === 'booked') appointments_30d += 1;
+    else if (row.stage === 'won') closed_won_30d += 1;
+  }
 
   return {
     leads_sent_30d: sent.count ?? 0,
     hot_leads: hot.count ?? 0,
-    appointments_30d: appointments.count ?? 0,
-    closed_won_30d: closedWon.count ?? 0,
+    appointments_30d,
+    closed_won_30d,
   };
 }
