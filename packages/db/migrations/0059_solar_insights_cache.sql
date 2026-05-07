@@ -68,8 +68,7 @@ CREATE TABLE IF NOT EXISTS solar_insights_cache (
 );
 
 CREATE INDEX IF NOT EXISTS idx_solar_cache_active
-    ON solar_insights_cache (lat_q, lng_q, payload_kind)
-    WHERE expires_at > now();
+    ON solar_insights_cache (lat_q, lng_q, payload_kind, expires_at);
 
 -- Cross-tenant: Solar API responses are tied to physical coordinates,
 -- not to a tenant. Sharing the cache is the correct economic model

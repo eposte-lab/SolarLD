@@ -31,7 +31,8 @@ from __future__ import annotations
 
 import io
 from datetime import date
-from typing import TYPE_CHECKING, Any
+from typing import Any
+from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import Response
@@ -41,9 +42,6 @@ from ..core.security import CurrentUser, require_tenant
 from ..core.supabase_client import get_service_client
 from ..services.b2c_audience_service import get_audience
 from ..services.tenant_module_service import get_module
-
-if TYPE_CHECKING:
-    from uuid import UUID
 
 router = APIRouter()
 log = get_logger(__name__)

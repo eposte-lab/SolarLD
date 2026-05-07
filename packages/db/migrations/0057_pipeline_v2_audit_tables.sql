@@ -208,8 +208,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_domain_blacklist_global_unique
     WHERE tenant_id IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_domain_blacklist_active
-    ON domain_blacklist (domain)
-    WHERE expires_at IS NULL OR expires_at > now();
+    ON domain_blacklist (domain, expires_at);
 
 ALTER TABLE domain_blacklist ENABLE ROW LEVEL SECURITY;
 
