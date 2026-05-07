@@ -31,9 +31,16 @@ from ..core.logging import get_logger
 log = get_logger(__name__)
 
 # ── Constants ─────────────────────────────────────────────────────────
+# Calibrated for SMB SolarLead tenants (8-30 sends/day per cluster).
+# At MIN_SAMPLES=100 the first verdict took ~25 days, well past the
+# point where the operator stopped trusting the system. 20/variant
+# (40 sends total) gives a first verdict in ~5 days for a typical
+# tenant, with looser confidence but still meaningful direction.
+# A/B power at p<0.05 with 20 samples is real but suggestive — the
+# weekly Haiku refresh keeps the loop turning even on tied tests.
 WINDOW_DAYS: int = 14  # rolling window for aggregation
-MIN_SAMPLES: int = 100  # minimum sends per variant before deciding
-MAX_SAMPLES: int = 1000  # total sends after which no_difference is forced
+MIN_SAMPLES: int = 20  # minimum sends per variant before deciding
+MAX_SAMPLES: int = 500  # total sends after which no_difference is forced
 ALPHA: float = 0.05  # significance level for chi-square
 
 
