@@ -14,6 +14,7 @@ import { apiFetchServer } from '../api-client-server';
 import type {
   ScanResultsResponse,
   TargetZone,
+  TerritoryLeadsResponse,
   TerritoryStatus,
 } from './territory';
 
@@ -41,4 +42,9 @@ export async function listTargetZones(opts: {
 /** Latest v3 scan results for the current tenant. */
 export async function getScanResults(): Promise<ScanResultsResponse> {
   return apiFetchServer<ScanResultsResponse>('/v1/territory/scan-results');
+}
+
+/** Funnel-v3 leads (capped) for the autopilot UI. */
+export async function getTerritoryLeads(): Promise<TerritoryLeadsResponse> {
+  return apiFetchServer<TerritoryLeadsResponse>('/v1/territory/leads');
 }
