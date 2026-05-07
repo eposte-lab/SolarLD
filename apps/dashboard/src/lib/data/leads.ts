@@ -113,6 +113,16 @@ const ENGAGEMENT_OR = [
   'whatsapp_initiated_at.not.is.null',
   'outreach_replied_at.not.is.null',
   'portal_sessions.gt.0',
+  // Server-side engagement signals: a portal_event written by the API
+  // (bolletta upload, manual ops actions) bumps engagement_score and
+  // last_portal_event_at via bump_engagement_score RPC, but doesn't
+  // touch dashboard_visited_at (only the client VisitTracker does).
+  // Without these two clauses such leads vanish from /leads even
+  // though they're clearly engaged. Keeping both is defensive — either
+  // one alone misses some scenarios (rollup-only sessions reset
+  // engagement_score during the night, but last_portal_event_at stays).
+  'engagement_score.gt.0',
+  'last_portal_event_at.not.is.null',
   ...ENGAGED_PIPELINE_STATUSES.map((s) => `pipeline_status.eq.${s}`),
 ].join(',');
 
