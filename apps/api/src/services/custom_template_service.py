@@ -254,7 +254,7 @@ async def save_custom_template(supabase: Any, tenant_id: str, html: str) -> str:
     content_bytes = (result.sanitized_html or "").encode("utf-8")
 
     # Upload to Supabase Storage (service-role, bypasses RLS).
-    upload_resp = await supabase.storage.from_(_STORAGE_BUCKET).upload(
+    upload_resp = supabase.storage.from_(_STORAGE_BUCKET).upload(
         path,
         io.BytesIO(content_bytes),
         file_options={
@@ -269,7 +269,7 @@ async def save_custom_template(supabase: Any, tenant_id: str, html: str) -> str:
     from datetime import datetime
 
     now_iso = datetime.now(UTC).isoformat()
-    await (
+    (
         supabase.table("tenants")
         .update(
             {
@@ -293,7 +293,7 @@ async def save_custom_template(supabase: Any, tenant_id: str, html: str) -> str:
 
 async def deactivate_custom_template(supabase: Any, tenant_id: str) -> None:
     """Set custom_email_template_active=False without deleting the file."""
-    await (
+    (
         supabase.table("tenants")
         .update(
             {
@@ -329,7 +329,7 @@ async def render_custom_template(
     from premailer import transform as premailer_transform
 
     # Download from Storage.
-    dl = await supabase.storage.from_(_STORAGE_BUCKET).download(template_path)
+    dl = supabase.storage.from_(_STORAGE_BUCKET).download(template_path)
     if isinstance(dl, (bytes, bytearray)):
         raw_html = dl.decode("utf-8")
     elif hasattr(dl, "read"):

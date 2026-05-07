@@ -97,7 +97,7 @@ async def list_active_clusters(user: CurrentUser) -> dict[str, Any]:
     sb = get_service_client()
 
     resp = (
-        await sb.table("cluster_copy_variants")
+        sb.table("cluster_copy_variants")
         .select(
             "id, tenant_id, cluster_signature, round_number, variant_label, "
             "copy_subject, copy_opening_line, copy_proposition_line, cta_primary_label, "
@@ -148,7 +148,7 @@ async def get_cluster_detail(cluster_signature: str, user: CurrentUser) -> dict[
     sb = get_service_client()
 
     variants_resp = (
-        await sb.table("cluster_copy_variants")
+        sb.table("cluster_copy_variants")
         .select(
             "id, variant_label, round_number, status, generated_by, "
             "copy_subject, copy_opening_line, copy_proposition_line, cta_primary_label, "
@@ -170,7 +170,7 @@ async def get_cluster_detail(cluster_signature: str, user: CurrentUser) -> dict[
 
     # Last 30 days of daily metrics.
     metrics_resp = (
-        await sb.table("ab_test_metrics_daily")
+        sb.table("ab_test_metrics_daily")
         .select("round_number, variant_label, date, sent_count, replied_count, reply_rate")
         .eq("tenant_id", tenant_id)
         .eq("cluster_signature", cluster_signature)
@@ -243,7 +243,7 @@ async def regenerate_cluster(cluster_signature: str, user: CurrentUser) -> dict[
 
     # Find current active variants.
     resp = (
-        await sb.table("cluster_copy_variants")
+        sb.table("cluster_copy_variants")
         .select("id, round_number")
         .eq("tenant_id", tenant_id)
         .eq("cluster_signature", cluster_signature)
@@ -266,7 +266,7 @@ async def regenerate_cluster(cluster_signature: str, user: CurrentUser) -> dict[
     now_iso = datetime.now(UTC).isoformat()
     ids = [v["id"] for v in current]
     for vid in ids:
-        await (
+        (
             sb.table("cluster_copy_variants")
             .update({"status": "archived", "promoted_at": now_iso})
             .eq("id", vid)

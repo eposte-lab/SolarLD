@@ -121,7 +121,7 @@ async def evaluate_cluster_ab_tests(sb: Any) -> dict[str, Any]:
 
     # Find all (tenant_id, cluster_signature) pairs with active variants.
     active_resp = (
-        await sb.table("cluster_copy_variants")
+        sb.table("cluster_copy_variants")
         .select("tenant_id, cluster_signature")
         .eq("status", "active")
         .execute()
@@ -162,7 +162,7 @@ async def _evaluate_one_cluster(
     """Run evaluation for one (tenant, cluster) pair."""
     # Fetch the active A+B variants (highest round_number).
     variants_resp = (
-        await sb.table("cluster_copy_variants")
+        sb.table("cluster_copy_variants")
         .select("id, variant_label, round_number, sent_count, replied_count")
         .eq("tenant_id", tenant_id)
         .eq("cluster_signature", cluster_sig)
@@ -190,13 +190,13 @@ async def _evaluate_one_cluster(
     sent_b, replied_b = await _aggregate_variant(sb, vb["id"])
 
     # Update denormalised counters.
-    await (
+    (
         sb.table("cluster_copy_variants")
         .update({"sent_count": sent_a, "replied_count": replied_a})
         .eq("id", va["id"])
         .execute()
     )
-    await (
+    (
         sb.table("cluster_copy_variants")
         .update({"sent_count": sent_b, "replied_count": replied_b})
         .eq("id", vb["id"])
@@ -206,7 +206,7 @@ async def _evaluate_one_cluster(
     # Append daily snapshot (upsert).
     for label, sent, replied in (("A", sent_a, replied_a), ("B", sent_b, replied_b)):
         rate = round(replied / sent, 4) if sent > 0 else None
-        await (
+        (
             sb.table("ab_test_metrics_daily")
             .upsert(
                 {
@@ -250,13 +250,13 @@ async def _evaluate_one_cluster(
         loser_var = var_map[loser_label]
 
         now_iso = datetime.now(UTC).isoformat()
-        await (
+        (
             sb.table("cluster_copy_variants")
             .update({"status": "winner", "promoted_at": now_iso})
             .eq("id", winner_var["id"])
             .execute()
         )
-        await (
+        (
             sb.table("cluster_copy_variants")
             .update({"status": "loser", "promoted_at": now_iso})
             .eq("id", loser_var["id"])
@@ -287,7 +287,7 @@ async def _evaluate_one_cluster(
         # No significant difference after MAX_SAMPLES — call it no_difference.
         now_iso = datetime.now(UTC).isoformat()
         for v in (va, vb):
-            await (
+            (
                 sb.table("cluster_copy_variants")
                 .update({"status": "no_difference", "promoted_at": now_iso})
                 .eq("id", v["id"])
@@ -321,7 +321,7 @@ async def _aggregate_variant(sb: Any, variant_id: str) -> tuple[int, int]:
     since = (datetime.now(UTC) - timedelta(days=WINDOW_DAYS)).isoformat()
 
     resp = (
-        await sb.table("outreach_sends")
+        sb.table("outreach_sends")
         .select("id, pipeline_status")
         .eq("cluster_variant_id", variant_id)
         .gte("sent_at", since)
@@ -345,7 +345,7 @@ async def _generate_new_round(
 ) -> None:
     """Fetch tenant name and generate a new A+B pair for the next round."""
     tenant_resp = (
-        await sb.table("tenants").select("business_name").eq("id", tenant_id).single().execute()
+        sb.table("tenants").select("business_name").eq("id", tenant_id).single().execute()
     )
     tenant_name = (tenant_resp.data or {}).get("business_name") or "SolarLead"
 
@@ -374,7 +374,7 @@ async def manually_promote_variant(
     a new round.  Returns a summary dict.
     """
     winner_resp = (
-        await sb.table("cluster_copy_variants")
+        sb.table("cluster_copy_variants")
         .select("*")
         .eq("id", winner_variant_id)
         .eq("tenant_id", tenant_id)
@@ -392,7 +392,7 @@ async def manually_promote_variant(
     now_iso = datetime.now(UTC).isoformat()
 
     # Promote winner.
-    await (
+    (
         sb.table("cluster_copy_variants")
         .update({"status": "winner", "promoted_at": now_iso})
         .eq("id", winner_variant_id)
@@ -400,7 +400,7 @@ async def manually_promote_variant(
     )
 
     # Demote partner.
-    await (
+    (
         sb.table("cluster_copy_variants")
         .update({"status": "loser", "promoted_at": now_iso})
         .eq("tenant_id", tenant_id)

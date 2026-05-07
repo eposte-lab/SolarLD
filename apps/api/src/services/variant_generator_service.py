@@ -427,7 +427,7 @@ async def persist_variant_pair(
             }
         )
 
-    resp = await supabase.table("cluster_copy_variants").insert(rows).execute()
+    resp = supabase.table("cluster_copy_variants").insert(rows).execute()
     if resp.error:
         raise RuntimeError(f"persist_variant_pair: {resp.error.message}")
 
