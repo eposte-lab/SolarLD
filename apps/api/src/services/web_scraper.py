@@ -327,6 +327,147 @@ INFERRED_EMAIL_PATTERNS = (
 )
 
 
+# Domains that are NOT a company's own website even when Google Places
+# returns them as the `website` for a place. Matches both the eTLD+1
+# itself and any subdomain (so "facebook.com/page" and
+# "m.facebook.com/page" are both rejected). Inferring `info@<domain>`
+# from these would produce useless emails like `info@facebook.com`.
+#
+# Categories:
+#   - Social networks: places where SMEs publish a "page" instead of a
+#     real site. Common for restaurants, small shops, freelancers.
+#   - Marketplaces / directories: storefronts, listings, classifieds.
+#   - Search/maps redirects: the URL itself is a redirect, not the site.
+#   - Linktree-style aggregators: the "site" is just a link list.
+NON_BUSINESS_DOMAINS: frozenset[str] = frozenset(
+    {
+        # Social networks
+        "facebook.com",
+        "fb.com",
+        "fb.me",
+        "m.facebook.com",
+        "instagram.com",
+        "linkedin.com",
+        "twitter.com",
+        "x.com",
+        "tiktok.com",
+        "youtube.com",
+        "youtu.be",
+        "pinterest.com",
+        "pinterest.it",
+        "snapchat.com",
+        "threads.net",
+        "whatsapp.com",
+        "wa.me",
+        "telegram.me",
+        "t.me",
+        # Marketplaces / aggregators / directories
+        "amazon.com",
+        "amazon.it",
+        "ebay.com",
+        "ebay.it",
+        "subito.it",
+        "kijiji.it",
+        "tripadvisor.com",
+        "tripadvisor.it",
+        "yelp.com",
+        "yelp.it",
+        "thefork.it",
+        "thefork.com",
+        "deliveroo.it",
+        "ubereats.com",
+        "justeat.it",
+        "glovoapp.com",
+        "booking.com",
+        "airbnb.com",
+        "airbnb.it",
+        "hotels.com",
+        "expedia.com",
+        # Italian phone-book/directory style aggregators
+        "paginegialle.it",
+        "paginebianche.it",
+        "europages.it",
+        "europages.com",
+        "kompass.com",
+        "kompass.it",
+        # Linktree-style
+        "linktr.ee",
+        "linktree.com",
+        "bento.me",
+        "carrd.co",
+        # Generic / placeholder
+        "example.com",
+        "example.org",
+        "example.net",
+        "test.com",
+        "localhost",
+        # Search/maps redirects
+        "google.com",
+        "google.it",
+        "maps.google.com",
+        "goo.gl",
+        "bit.ly",
+        # Free email providers (B2C)
+        "gmail.com",
+        "googlemail.com",
+        "yahoo.com",
+        "yahoo.it",
+        "hotmail.com",
+        "hotmail.it",
+        "outlook.com",
+        "live.com",
+        "libero.it",
+        "tiscali.it",
+        "alice.it",
+        "tin.it",
+        "virgilio.it",
+        "fastwebnet.it",
+    }
+)
+
+
+def _normalize_domain(domain_or_url: str) -> str | None:
+    """Return the bare hostname (lowercase, no scheme/path/www).
+
+    None when input is empty / unparseable. Strips port numbers.
+    """
+    if not domain_or_url:
+        return None
+    d = domain_or_url.strip()
+    if "://" in d:
+        d = d.split("://", 1)[1]
+    d = d.split("/", 1)[0].split("?", 1)[0].split("#", 1)[0]
+    d = d.split(":", 1)[0]
+    d = d.lower().lstrip(".")
+    if d.startswith("www."):
+        d = d[4:]
+    if not d or "." not in d:
+        return None
+    return d
+
+
+def is_non_business_domain(domain_or_url: str | None) -> bool:
+    """Return True when the URL/domain is a social/marketplace/directory.
+
+    Matches both the bare eTLD+1 and any subdomain — so "facebook.com",
+    "m.facebook.com" and "https://facebook.com/somepage" all return True.
+    Used to keep social URLs out of `scan_candidates.website` and to
+    refuse `info@<social>` inference in `infer_email_from_domain`.
+    """
+    norm = _normalize_domain(domain_or_url or "")
+    if not norm:
+        return False
+    if norm in NON_BUSINESS_DOMAINS:
+        return True
+    # Subdomain match: walk back the labels until we find a known root.
+    parts = norm.split(".")
+    for i in range(1, len(parts)):
+        suffix = ".".join(parts[i:])
+        if suffix in NON_BUSINESS_DOMAINS:
+            return True
+    return False
+
+
 def _has_mx_record(domain: str, *, timeout: float = 3.0) -> bool:
     """Return True if `domain` has at least one MX record.
 
@@ -363,14 +504,17 @@ async def infer_email_from_domain(
     """
     if not domain:
         return None
-    # Strip scheme/path if a full URL was passed.
-    if "://" in domain:
-        domain = domain.split("://", 1)[1]
-    domain = domain.split("/", 1)[0].lower().lstrip(".")
-    if domain.startswith("www."):
-        domain = domain[4:]
-    if not domain or "." not in domain:
+    norm = _normalize_domain(domain)
+    if not norm:
         return None
+    # Refuse to infer an email on a social / marketplace / directory
+    # domain — e.g. when Google Places returned the company's Facebook
+    # page as `website`, we'd otherwise emit `info@facebook.com` which
+    # is worse than no email at all.
+    if is_non_business_domain(norm):
+        log.debug("web_scraper.infer.non_business_domain", domain=norm)
+        return None
+    domain = norm
 
     has_mx = await asyncio.to_thread(_has_mx_record, domain)
     if not has_mx:

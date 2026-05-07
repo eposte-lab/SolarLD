@@ -41,6 +41,7 @@ from ...services.sector_target_service import (
     _warm_cache,
     get_sector_config_by_wizard_group,
 )
+from ...services.web_scraper import is_non_business_domain
 from .types_v3 import FunnelV3Context, PlaceCandidateRecord
 
 log = get_logger(__name__)
@@ -170,6 +171,20 @@ async def run_level1_places(ctx: FunnelV3Context) -> list[PlaceCandidateRecord]:
     #    columns once 0102 (which keeps roof_id around) is applied.
     rows = []
     for _place_id, (cand, _zone) in all_candidates.items():
+        # Drop `website` when Places returned a social/marketplace/directory
+        # URL — those are not the company's own site and would poison L2
+        # scraping (e.g. inferring `info@facebook.com` for a restaurant
+        # whose only "website" is its FB page). When dropped, L2 will fall
+        # back to phone-only enrichment instead of fabricating an email.
+        website = cand.website
+        if website and is_non_business_domain(website):
+            log.debug(
+                "level1_places.dropped_social_website",
+                place_id=cand.place_id,
+                website=website,
+            )
+            website = None
+
         rows.append(
             {
                 "tenant_id": ctx.tenant_id,
@@ -191,7 +206,7 @@ async def run_level1_places(ctx: FunnelV3Context) -> list[PlaceCandidateRecord]:
                         "business_status": cand.business_status,
                         "user_ratings_total": cand.user_ratings_total,
                         "rating": cand.rating,
-                        "website": cand.website,
+                        "website": website,
                         "phone": cand.phone,
                         "google_maps_uri": cand.google_maps_uri,
                         "discovery_keyword": cand.discovery_keyword,
