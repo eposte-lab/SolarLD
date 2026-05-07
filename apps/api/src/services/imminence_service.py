@@ -85,9 +85,7 @@ def _video_seconds(events: list[dict[str, Any]]) -> int:
     60s. This proxies the spec's `get_total_video_watch_time`.
     """
     play = sum(1 for e in events if e.get("event_kind") == "portal.video_play")
-    complete = sum(
-        1 for e in events if e.get("event_kind") == "portal.video_complete"
-    )
+    complete = sum(1 for e in events if e.get("event_kind") == "portal.video_complete")
     return play * 30 + complete * 60
 
 
@@ -119,14 +117,10 @@ def _parse_ts(s: str | None) -> datetime:
 # ── Sub-score 1: Behavioral (weight 40%) ───────────────────────────
 
 
-def compute_behavioral_score(
-    events_last_7d: list[dict[str, Any]], *, now: datetime
-) -> int:
+def compute_behavioral_score(events_last_7d: list[dict[str, Any]], *, now: datetime) -> int:
     """Recent engagement signal — see spec §1."""
     events_last_3d = [
-        e
-        for e in events_last_7d
-        if _parse_ts(e.get("occurred_at")) >= now - timedelta(days=3)
+        e for e in events_last_7d if _parse_ts(e.get("occurred_at")) >= now - timedelta(days=3)
     ]
     visits_3d = _portal_session_count(events_last_3d)
     visits_7d = _portal_session_count(events_last_7d)
@@ -200,9 +194,7 @@ def compute_temporal_score(
 
     # Acceleration: more events in last 48h than in the prior 5 days.
     events_48h = [
-        e
-        for e in events_last_7d
-        if _parse_ts(e.get("occurred_at")) >= now - timedelta(hours=48)
+        e for e in events_last_7d if _parse_ts(e.get("occurred_at")) >= now - timedelta(hours=48)
     ]
     if len(events_prev_5d) == 0:
         if len(events_48h) >= 2:
@@ -218,9 +210,7 @@ def compute_temporal_score(
         (_parse_ts(e.get("occurred_at")).hour + 2) % 24  # naive +2h shift
         for e in events_last_7d
     ]
-    if local_hours and sum(1 for h in local_hours if 9 <= h <= 18) / len(
-        local_hours
-    ) >= 0.6:
+    if local_hours and sum(1 for h in local_hours if 9 <= h <= 18) / len(local_hours) >= 0.6:
         score += 10
 
     return min(score, 100)
@@ -301,12 +291,8 @@ def compute_comparative_score(
     if not similar_closed:
         return 30  # neutral: no benchmark, don't punish
 
-    avg_eng = sum(s.engagement_score_at_close for s in similar_closed) / len(
-        similar_closed
-    )
-    avg_days = sum(
-        s.days_from_first_contact_to_close for s in similar_closed
-    ) / len(similar_closed)
+    avg_eng = sum(s.engagement_score_at_close for s in similar_closed) / len(similar_closed)
+    avg_days = sum(s.days_from_first_contact_to_close for s in similar_closed) / len(similar_closed)
 
     score = 0
     if avg_days > 0 and days_since_first_contact >= avg_days * 0.8:
@@ -394,13 +380,9 @@ def _build_lead_inputs(
 
     seven_d_cutoff = now - timedelta(days=7)
     twelve_d_cutoff = now - timedelta(days=12)
-    last_7d = [
-        e for e in all_events if _parse_ts(e.get("occurred_at")) >= seven_d_cutoff
-    ]
+    last_7d = [e for e in all_events if _parse_ts(e.get("occurred_at")) >= seven_d_cutoff]
     prev_5d = [
-        e
-        for e in all_events
-        if twelve_d_cutoff <= _parse_ts(e.get("occurred_at")) < seven_d_cutoff
+        e for e in all_events if twelve_d_cutoff <= _parse_ts(e.get("occurred_at")) < seven_d_cutoff
     ]
 
     return LeadInputs(
@@ -413,9 +395,7 @@ def _build_lead_inputs(
         outreach_sent_at=_parse_ts(lead_row.get("outreach_sent_at"))
         if lead_row.get("outreach_sent_at")
         else None,
-        estimated_kwp=(roofs.get("estimated_kwp")) or subjects.get(
-            "solar_kw_installable"
-        ),
+        estimated_kwp=(roofs.get("estimated_kwp")) or subjects.get("solar_kw_installable"),
         employees=subjects.get("employees"),
         predicted_sector=subjects.get("predicted_sector"),
         business_name=subjects.get("business_name"),
@@ -445,10 +425,7 @@ def _compute_sector_conversion_rates(
         bucket["total"] += 1
         if r.get("pipeline_status") == "closed_won":
             bucket["won"] += 1
-    return {
-        sec: (b["won"] / b["total"]) if b["total"] > 0 else 0.0
-        for sec, b in by_sector.items()
-    }
+    return {sec: (b["won"] / b["total"]) if b["total"] > 0 else 0.0 for sec, b in by_sector.items()}
 
 
 def _fetch_similar_closed(
@@ -508,9 +485,7 @@ def _fetch_similar_closed(
 
 def fetch_eligible_leads(sb: Any, tenant_id: str) -> list[dict[str, Any]]:
     """Leads that already engaged at least once but aren't claimed yet."""
-    since = (
-        datetime.now(UTC) - timedelta(days=ELIGIBILITY_LOOKBACK_DAYS)
-    ).isoformat()
+    since = (datetime.now(UTC) - timedelta(days=ELIGIBILITY_LOOKBACK_DAYS)).isoformat()
     res = (
         sb.table("leads")
         .select(
@@ -558,9 +533,7 @@ def score_lead(
     similar_closed: list[SimilarClosedLead],
     now: datetime,
 ) -> ImminenceScores:
-    behavioral = compute_behavioral_score(
-        inputs.portal_events_last_7d, now=now
-    )
+    behavioral = compute_behavioral_score(inputs.portal_events_last_7d, now=now)
     temporal = compute_temporal_score(
         inputs.portal_events_last_7d, inputs.portal_events_prev_5d, now=now
     )
@@ -573,9 +546,7 @@ def score_lead(
     )
     days_since_first = 0
     if inputs.outreach_sent_at:
-        days_since_first = max(
-            0, (now - inputs.outreach_sent_at).days
-        )
+        days_since_first = max(0, (now - inputs.outreach_sent_at).days)
     comparative = compute_comparative_score(
         similar_closed=similar_closed,
         lead_engagement_score=inputs.engagement_score,
@@ -656,9 +627,7 @@ async def run_imminence_predictions_for_tenant(
     scored = 0
     reasoned = 0
     for row in eligible:
-        inputs = _build_lead_inputs(
-            row, events_by_lead=events_by_lead, now=now
-        )
+        inputs = _build_lead_inputs(row, events_by_lead=events_by_lead, now=now)
         similar = _fetch_similar_closed(
             sb,
             tenant_id=tenant_id,
@@ -668,9 +637,7 @@ async def run_imminence_predictions_for_tenant(
         )
         scores = score_lead(
             inputs,
-            sector_conversion_rate=sector_rates.get(
-                inputs.predicted_sector or "", 0.0
-            ),
+            sector_conversion_rate=sector_rates.get(inputs.predicted_sector or "", 0.0),
             similar_closed=similar,
             now=now,
         )

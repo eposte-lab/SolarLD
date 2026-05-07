@@ -1325,9 +1325,7 @@ async def imminence_predictions_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
     # predictor only for tenants in 'active' (skip churned/suspended).
     tenants_res = sb.table("tenants").select("id, status").execute()
     tenant_ids = [
-        t["id"]
-        for t in (tenants_res.data or [])
-        if (t.get("status") or "active") == "active"
+        t["id"] for t in (tenants_res.data or []) if (t.get("status") or "active") == "active"
     ]
 
     total_scored = 0
@@ -1335,16 +1333,12 @@ async def imminence_predictions_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
     errors = 0
     for tid in tenant_ids:
         try:
-            res = await run_imminence_predictions_for_tenant(
-                tid, reasoning_fn=generate_reasoning
-            )
+            res = await run_imminence_predictions_for_tenant(tid, reasoning_fn=generate_reasoning)
             total_scored += res.get("scored", 0)
             total_reasoned += res.get("reasoned", 0)
         except Exception as exc:  # noqa: BLE001
             errors += 1
-            log.warning(
-                "cron.imminence.tenant_failed", tenant_id=tid, err=str(exc)
-            )
+            log.warning("cron.imminence.tenant_failed", tenant_id=tid, err=str(exc))
 
     log.info(
         "cron.imminence.complete",

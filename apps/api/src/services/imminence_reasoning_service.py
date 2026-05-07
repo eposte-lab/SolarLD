@@ -45,8 +45,8 @@ def _get_client() -> AsyncAnthropic:
 SYSTEM_PROMPT = (
     "Sei un assistente commerciale per installatori fotovoltaici B2B in Italia. "
     "Il tuo compito è spiegare in modo CONCRETO e SPECIFICO perché un lead "
-    "merita di essere chiamato OGGI. Niente frasi generiche tipo \"lead "
-    "promettente\". Ogni motivazione deve citare un fatto reale (numero di "
+    'merita di essere chiamato OGGI. Niente frasi generiche tipo "lead '
+    'promettente". Ogni motivazione deve citare un fatto reale (numero di '
     "visite, sezione vista, tempo speso, settore con tasso di conversione X%). "
     "Lingua: italiano colloquiale ma professionale. Restituisci SOLO il JSON "
     "richiesto, niente preamboli."
@@ -54,11 +54,12 @@ SYSTEM_PROMPT = (
 
 
 def _build_user_prompt(inputs: LeadInputs, scores: ImminenceScores) -> str:
-    visits_count = len({e.get("session_id") for e in inputs.portal_events_last_7d if e.get("session_id")})
+    visits_count = len(
+        {e.get("session_id") for e in inputs.portal_events_last_7d if e.get("session_id")}
+    )
     video_sec = _video_seconds(inputs.portal_events_last_7d)
     bolletta = any(
-        e.get("event_kind") == "portal.bolletta_uploaded"
-        for e in inputs.portal_events_last_7d
+        e.get("event_kind") == "portal.bolletta_uploaded" for e in inputs.portal_events_last_7d
     )
     cta_clicks = sum(
         1
@@ -70,11 +71,7 @@ def _build_user_prompt(inputs: LeadInputs, scores: ImminenceScores) -> str:
     sector = inputs.predicted_sector or "non classificato"
     business = inputs.business_name or "questa azienda"
     employees = inputs.employees if inputs.employees is not None else "n/d"
-    kwp = (
-        f"{int(inputs.estimated_kwp)} kW"
-        if inputs.estimated_kwp
-        else "non stimato"
-    )
+    kwp = f"{int(inputs.estimated_kwp)} kW" if inputs.estimated_kwp else "non stimato"
 
     return f"""# Lead
 - Azienda: {business}
@@ -113,9 +110,7 @@ Regole:
 - Niente saluti, niente "ciao", solo JSON."""
 
 
-async def generate_reasoning(
-    inputs: LeadInputs, scores: ImminenceScores
-) -> dict[str, Any] | None:
+async def generate_reasoning(inputs: LeadInputs, scores: ImminenceScores) -> dict[str, Any] | None:
     """Async-safe Haiku call. Returns None on any failure."""
     try:
         client = _get_client()
