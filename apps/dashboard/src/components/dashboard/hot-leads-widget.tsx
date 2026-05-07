@@ -26,12 +26,16 @@ import { relativeTime } from '@/lib/utils';
 export async function HotLeadsWidget({
   limit = 5,
   sinceHours = 24,
-  minScore = 70,
+  minScore,
 }: {
   limit?: number;
   sinceHours?: number;
   minScore?: number;
 } = {}) {
+  // Default `minScore` = undefined → defer to listHotLeadsAwaitingResponse,
+  // which after the engagement-weight recalibration uses 5 ("any portal
+  // activity counts"). The previous hard-coded 70 left this widget
+  // empty even when /leads?mode=hot was full.
   const rows = await listHotLeadsAwaitingResponse({
     limit,
     sinceHours,
@@ -49,8 +53,8 @@ export async function HotLeadsWidget({
             Caldi senza risposta
           </h3>
           <p className="mt-0.5 text-xs text-on-surface-variant">
-            Engagement ≥ {minScore}, attivi nelle ultime {sinceHours}h, ancora
-            da contattare.
+            Almeno una azione sul portale nelle ultime {sinceHours}h, ancora da
+            contattare.
           </p>
         </div>
         <Link

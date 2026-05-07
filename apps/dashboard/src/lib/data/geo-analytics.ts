@@ -301,21 +301,36 @@ export async function getAiInsights(): Promise<AiInsight[]> {
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
   const prevMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString();
 
+  // States that mean the sales side has already taken over — exclude
+  // them from "stale" / "needs follow-up" insights so we don't nag the
+  // operator about leads that are actually being worked.
+  const HANDLED_STATUSES = [
+    'whatsapp',
+    'appointment',
+    'closed_won',
+    'closed_lost',
+    'blacklisted',
+  ];
+
   const [
     staleHotRes,
     freshOpensRes,
     appointmentsRes,
     warmUncontactedRes,
-    wonThisMonthRes,
-    wonPrevMonthRes,
+    wonConversionsThisMonthRes,
+    wonConversionsPrevMonthRes,
   ] = await Promise.all([
-    // Hot leads that opened but stalled for 48h+
+    // Hot leads that engaged but stalled for 48h+. Engagement-based
+    // (engagement_score >= 60 covers email-clicked + portal session)
+    // rather than pipeline_status='opened' — that single status
+    // excluded leads that progressed to clicked/engaged, which are
+    // exactly the ones the operator is letting go cold.
     supabase
       .from('leads')
       .select('id', { count: 'exact', head: true })
-      .eq('score_tier', 'hot')
-      .eq('pipeline_status', 'opened')
-      .lte('outreach_opened_at', h48),
+      .gte('engagement_score', 60)
+      .lte('last_portal_event_at', h48)
+      .not('pipeline_status', 'in', `(${HANDLED_STATUSES.join(',')})`),
 
     // Leads that opened in the last 24h (fresh opportunity)
     supabase
@@ -337,20 +352,23 @@ export async function getAiInsights(): Promise<AiInsight[]> {
       .eq('score_tier', 'warm')
       .is('outreach_sent_at', null),
 
-    // Won this month (with roi_data for value estimate)
+    // Won this month — read from `conversions` (closed_at is the actual
+    // transition timestamp). The previous query used `leads.updated_at`
+    // which moved any row touched this month into the bucket, even if
+    // the lead was won months ago.
     supabase
-      .from('leads')
-      .select('id, roi_data')
-      .eq('pipeline_status', 'closed_won')
-      .gte('updated_at', monthStart),
+      .from('conversions')
+      .select('lead_id, amount_cents')
+      .eq('stage', 'won')
+      .gte('closed_at', monthStart),
 
-    // Won last month (comparison)
+    // Won last month (MoM comparison)
     supabase
-      .from('leads')
+      .from('conversions')
       .select('id', { count: 'exact', head: true })
-      .eq('pipeline_status', 'closed_won')
-      .gte('updated_at', prevMonthStart)
-      .lt('updated_at', monthStart),
+      .eq('stage', 'won')
+      .gte('closed_at', prevMonthStart)
+      .lt('closed_at', monthStart),
   ]);
 
   const insights: AiInsight[] = [];
@@ -360,10 +378,10 @@ export async function getAiInsights(): Promise<AiInsight[]> {
   if (staleHot > 0) {
     insights.push({
       type: 'warning',
-      title: `${staleHot} lead hot senza follow-up`,
-      body: `${staleHot > 1 ? `${staleHot} lead hot hanno` : 'Un lead hot ha'} aperto la tua email oltre 48 ore fa senza ricevere un contatto diretto.`,
-      action_href: '/leads?tier=hot&status=opened',
-      action_label: 'Contatta ora',
+      title: `${staleHot} lead caldi senza follow-up`,
+      body: `${staleHot > 1 ? `${staleHot} lead con engagement alto sono` : 'Un lead con engagement alto è'} fermo da oltre 48h. Una chiamata oggi può sbloccarlo.`,
+      action_href: '/leads?mode=hot',
+      action_label: 'Apri lista',
       metric: String(staleHot),
     });
   }
@@ -407,15 +425,40 @@ export async function getAiInsights(): Promise<AiInsight[]> {
     });
   }
 
-  // 5. Won this month vs last
-  const wonRows = wonThisMonthRes.data ?? [];
+  // 5. Won this month vs last — both counts and value come from
+  // `conversions`, which is the authoritative attribution table.
+  // Value-per-row prefers `amount_cents` (set by POST endpoint or
+  // Zapier); when null, fall back to a kWp-based estimate from the
+  // related lead's roi_data.
+  const wonRows = wonConversionsThisMonthRes.data ?? [];
   const wonCount = wonRows.length;
   if (wonCount > 0) {
+    const leadIds = wonRows
+      .map((r) => (r as { lead_id: string | null }).lead_id)
+      .filter((v): v is string => typeof v === 'string');
+    const roiByLead = new Map<string, number>();
+    if (leadIds.length > 0) {
+      const { data: roiRows } = await supabase
+        .from('leads')
+        .select('id, roi_data')
+        .in('id', leadIds);
+      for (const lr of (roiRows ?? []) as Array<{
+        id: string;
+        roi_data: { estimated_kwp?: number } | null;
+      }>) {
+        const kwp = lr.roi_data?.estimated_kwp ?? 8;
+        roiByLead.set(lr.id, kwp * 1500);
+      }
+    }
     const wonValue = wonRows.reduce((acc, r) => {
-      const kwp = ((r.roi_data as { estimated_kwp?: number } | null)?.estimated_kwp) ?? 8;
-      return acc + kwp * 1500;
+      const row = r as { lead_id: string | null; amount_cents: number | null };
+      if (row.amount_cents != null) return acc + row.amount_cents / 100;
+      if (row.lead_id && roiByLead.has(row.lead_id)) {
+        return acc + (roiByLead.get(row.lead_id) ?? 0);
+      }
+      return acc + 8 * 1500;
     }, 0);
-    const prevWon = wonPrevMonthRes.count ?? 0;
+    const prevWon = wonConversionsPrevMonthRes.count ?? 0;
     const delta = prevWon > 0 ? Math.round(((wonCount - prevWon) / prevWon) * 100) : null;
     insights.push({
       type: 'success',

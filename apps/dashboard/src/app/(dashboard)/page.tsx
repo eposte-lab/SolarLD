@@ -122,8 +122,8 @@ export default async function DashboardOverview() {
         />
         <KpiChipCard
           label="Scansionati"
-          value={formatNumber(contattiSummary.l1)}
-          hint={`${formatNumber(contattiSummary.l4_qualified)} Solar OK`}
+          value={formatNumber(contattiSummary.l1_30d)}
+          hint={`30gg · ${formatNumber(contattiSummary.l1)} totali`}
           tone="neutral"
         />
         <KpiChipCard

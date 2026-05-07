@@ -47,6 +47,10 @@ export interface ContattoListResult {
 
 export interface ContattiSummary {
   l1: number;
+  l1_30d: number;          // L1 candidates created in the last 30 days —
+                           // used by the Panoramica KPI chip so the
+                           // "Scansionati" number aligns with the other
+                           // 30d-windowed KPIs next to it.
   l2: number;
   l3: number;
   l4_qualified: number;    // solar_verdict = 'accepted'
@@ -207,6 +211,20 @@ export async function getContattiSummary(): Promise<ContattiSummary> {
     return count ?? 0;
   };
 
+  const since30d = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const countGteSince = async (
+    minStage: number,
+    sinceIso: string,
+  ): Promise<number> => {
+    const { count, error } = await sb
+      .from('scan_candidates')
+      .select('id', { count: 'exact', head: true })
+      .gte('stage', minStage)
+      .gte('created_at', sinceIso);
+    if (error) return 0;
+    return count ?? 0;
+  };
+
   // Stage semantics in production:
   //   stage 4 = just-after L4 (Solar verdict written, before L5 scoring)
   //   stage 5 = after L5 Haiku scoring (typical terminal stage for accepted)
@@ -325,6 +343,7 @@ export async function getContattiSummary(): Promise<ContattiSummary> {
 
   const [
     l1,
+    l1_30d,
     l2,
     l3,
     l4_rejected,
@@ -333,6 +352,7 @@ export async function getContattiSummary(): Promise<ContattiSummary> {
     aggregates,
   ] = await Promise.all([
     countGte(1),
+    countGteSince(1, since30d),
     countGte(2),
     countGte(3),
     countVerdict('rejected_tech'),
@@ -349,6 +369,7 @@ export async function getContattiSummary(): Promise<ContattiSummary> {
 
   return {
     l1,
+    l1_30d,
     l2,
     l3,
     l4_qualified: convalidati_count,
