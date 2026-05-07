@@ -425,6 +425,7 @@ async def hunter_funnel_v3_task(_ctx: dict[str, Any], payload: dict[str, Any]) -
         "hunter_funnel_v3_task.entry",
         tenant_id=tenant_id,
         max_l1_candidates=payload.get("max_l1_candidates"),
+        max_phase=payload.get("max_phase"),
     )
     try:
         config = await get_tenant_config(tenant_id)
@@ -433,6 +434,7 @@ async def hunter_funnel_v3_task(_ctx: dict[str, Any], payload: dict[str, Any]) -
             config=config,
             emitter=None,
             max_l1_candidates=int(payload.get("max_l1_candidates") or 2000),
+            max_phase=int(payload.get("max_phase") or 6),
         )
     except Exception as exc:
         # Re-raise so ARQ marks the job failed, but log the type+message

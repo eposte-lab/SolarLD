@@ -30,16 +30,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Install pnpm
-RUN npm install -g pnpm@latest --quiet
+# Pin pnpm: 10.x defaults `confirmModulesPurge=true` and exits non-zero on
+# ignored build scripts in CI. `pnpm.onlyBuiltDependencies` in package.json
+# whitelists ffmpeg + esbuild; pinning the version keeps the contract stable.
+RUN npm install -g pnpm@10.26.1 --quiet
 
 # Copy manifests first so Docker layer-caches the install step.
 COPY package.json pnpm-lock.yaml* ./
 
-# --frozen-lockfile when possible; --no-frozen as fallback during deps
-# churn. ignore-scripts is safe: @ffmpeg-installer's postinstall just
-# unpacks a prebuilt binary into node_modules — but since we re-pull
-# at install time the prebuilt is already on disk via npm tarball.
+# --frozen-lockfile when possible; --no-frozen as fallback during deps churn.
+# Build scripts for the packages listed in package.json `pnpm.onlyBuiltDependencies`
+# run automatically; everything else stays sandboxed.
 RUN pnpm install --frozen-lockfile 2>/dev/null || \
     pnpm install --no-frozen-lockfile
 
