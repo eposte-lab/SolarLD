@@ -6,10 +6,10 @@
   "scripts": {
     "dev": "uvicorn src.main:app --reload --host 0.0.0.0 --port 8000",
     "start": "uvicorn src.main:app --host 0.0.0.0 --port ${PORT:-8000}",
-    "test": "pytest",
-    "lint": "ruff check src tests",
+    "test": "echo 'Python tests run in the API CI job (pytest)'",
+    "lint": "echo 'Python lint runs in the API CI job (ruff)'",
     "format": "ruff format src tests",
-    "typecheck": "mypy src",
+    "typecheck": "echo 'Python typecheck runs in the API CI job (mypy)'",
     "build": "echo 'No build step for Python API'"
   }
 }

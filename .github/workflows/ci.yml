@@ -175,6 +175,11 @@ jobs:
               email text,
               created_at timestamptz DEFAULT now()
             );
+            -- Stub Supabase auth helpers used in RLS policies
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid
+              LANGUAGE sql STABLE AS $$ SELECT '00000000-0000-0000-0000-000000000000'::uuid $$;
+            CREATE OR REPLACE FUNCTION auth.role() RETURNS text
+              LANGUAGE sql STABLE AS $$ SELECT 'anon' $$;
             CREATE SCHEMA IF NOT EXISTS storage;
             CREATE SCHEMA IF NOT EXISTS realtime;
           SQL
