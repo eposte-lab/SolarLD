@@ -79,9 +79,14 @@ export type LeadFetchResult =
   | { kind: 'gone' }; // 410 when the lead has opted out
 
 export async function fetchPublicLead(slug: string): Promise<LeadFetchResult> {
+  // `no-store` instead of revalidate=3600 because rendering URLs
+  // (image/gif/video) and `pipeline_status` flip mid-day and we want
+  // the operator + lead to see the latest snapshot immediately.
+  // Stale-for-1h would mean "I just clicked Rigenera but the portal
+  // still says 'Rendering in preparazione'" — exactly the bug we hit.
   const res = await fetch(
     `${API_URL}/v1/public/lead/${encodeURIComponent(slug)}`,
-    { next: { revalidate: 3600 } },
+    { cache: 'no-store' },
   );
   if (res.status === 404) return { kind: 'not_found' };
   if (res.status === 410) return { kind: 'gone' };
