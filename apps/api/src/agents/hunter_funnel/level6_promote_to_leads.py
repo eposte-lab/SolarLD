@@ -36,18 +36,21 @@ if TYPE_CHECKING:
 log = get_logger(__name__)
 
 
-# Threshold above which a recommended candidate is considered "qualified"
-# for the warehouse → ready_to_send pipeline. Mirrors the v2 scoring
-# convention: hot ≥ 75, warm ≥ 60, cold otherwise.
-QUALIFY_SCORE = 60
-
-# Geocentric pilot cap — never insert more than this many funnel_v3 leads
-# per tenant. The /territorio autopilot UX is built around the operator
-# manually triggering render + outreach for each lead, so an unbounded
-# pool would just be noise (and burn render credits). When the cap is
-# reached, L6 silently stops; the operator can call /v1/territory/reset
-# to wipe and re-run.
-MAX_FUNNEL_V3_LEADS_PER_TENANT = 10
+# Hard quality bar for L6 promotion. The customer never sees scartati
+# in /contatti — anything below this bar stays as a `scan_candidates`
+# row but is NOT promoted to a `leads` row.
+#
+#   * `score ≥ MIN_SCORE`: Haiku ranked the candidate as warm/hot.
+#   * `solar_verdict='accepted'`: roof passed the Solar API gate.
+#   * `email present`: at least one usable contact email after L2 + extraction.
+#   * `predicted_sector` in tenant.target_wizard_groups: actually inside the
+#     sector mix the operator chose during onboarding.
+#
+# The cap on total funnel-v3 leads per tenant uses
+# `tenants.daily_target_send_cap` (default 10) as the upper bound — set
+# during onboarding, mirrors the daily warehouse refill ceiling.
+MIN_SCORE = 70
+DEFAULT_LEAD_CAP_PER_TENANT = 10
 
 
 def _tier_for(score: int) -> str:
@@ -86,14 +89,60 @@ async def run_level6_promote_to_leads(
     skipped = 0
     failed = 0
 
-    recommended = [s for s in scored if s.recommended_for_rendering]
+    # Resolve the lead cap from the tenant config (daily_target_send_cap).
+    # Falls back to DEFAULT_LEAD_CAP_PER_TENANT when the column is null.
+    tenant_res = (
+        sb.table("tenants")
+        .select("daily_target_send_cap")
+        .eq("id", ctx.tenant_id)
+        .maybe_single()
+        .execute()
+    )
+    tenant_cap_raw = (tenant_res.data or {}).get("daily_target_send_cap")
+    lead_cap = int(tenant_cap_raw) if tenant_cap_raw else DEFAULT_LEAD_CAP_PER_TENANT
+
+    # Resolve the tenant's targeted wizard groups from the Sorgente module
+    # config so we can drop "out of target" predictions before promotion.
+    target_groups: set[str] = set()
+    try:
+        mod_res = (
+            sb.table("tenant_modules")
+            .select("config")
+            .eq("tenant_id", ctx.tenant_id)
+            .eq("module_key", "sorgente")
+            .maybe_single()
+            .execute()
+        )
+        cfg = (mod_res.data or {}).get("config") or {}
+        target_groups = set(cfg.get("target_wizard_groups") or [])
+    except Exception:  # noqa: BLE001
+        target_groups = set()
+
+    # Hard quality bar — only the *perfect* candidates become leads.
+    def _is_perfect(c: ScoredV3Candidate) -> bool:
+        if not c.recommended_for_rendering:
+            return False
+        if (c.overall_score or 0) < MIN_SCORE:
+            return False
+        if c.solar_verdict != "accepted":
+            return False
+        if not (c.contact and c.contact.best_email):
+            return False
+        return not (target_groups and (c.record.predicted_sector or "") not in target_groups)
+
+    recommended = [s for s in scored if _is_perfect(s)]
     if not recommended:
-        log.info("level6_promote.no_recommended", tenant_id=ctx.tenant_id)
+        log.info(
+            "level6_promote.no_perfect_candidate",
+            tenant_id=ctx.tenant_id,
+            scored=len(scored),
+            recommended_pre_filter=sum(1 for s in scored if s.recommended_for_rendering),
+        )
         return 0
 
-    # Pre-cap check — count existing funnel_v3 leads for this tenant.
-    # We re-check inside the loop so concurrent runs can't both squeeze
-    # past the cap on the same iteration.
+    # Pre-cap check — count existing funnel_v3 leads for this tenant so
+    # subsequent runs (e.g. the daily cron after a partial wipe) don't
+    # squeeze past the cap.
     def _existing_v3_count() -> int:
         try:
             res = (
@@ -113,12 +162,12 @@ async def run_level6_promote_to_leads(
             return 0
 
     existing = _existing_v3_count()
-    if existing >= MAX_FUNNEL_V3_LEADS_PER_TENANT:
+    if existing >= lead_cap:
         log.info(
             "level6_promote.cap_reached_pre_loop",
             tenant_id=ctx.tenant_id,
             existing=existing,
-            cap=MAX_FUNNEL_V3_LEADS_PER_TENANT,
+            cap=lead_cap,
         )
         return 0
 
@@ -127,13 +176,13 @@ async def run_level6_promote_to_leads(
     recommended.sort(key=lambda c: int(c.overall_score), reverse=True)
 
     for cand in recommended:
-        if existing + inserted >= MAX_FUNNEL_V3_LEADS_PER_TENANT:
+        if existing + inserted >= lead_cap:
             log.info(
                 "level6_promote.cap_reached_mid_loop",
                 tenant_id=ctx.tenant_id,
                 inserted=inserted,
                 existing=existing,
-                cap=MAX_FUNNEL_V3_LEADS_PER_TENANT,
+                cap=lead_cap,
             )
             break
         try:
@@ -266,10 +315,12 @@ async def run_level6_promote_to_leads(
                     "overall": score,
                     "source": "funnel_v3_haiku",
                 },
-                # Geocentric pilot: keep every lead in 'new' so the daily cron
-                # never auto-renders or auto-sends. The operator triggers both
-                # manually from the /territorio per-row buttons.
-                "pipeline_status": "new",
+                # Promote to ready_to_send so the standard daily warehouse
+                # picker (`daily_pipeline_cron`) routes the lead through the
+                # production rendering + outreach chain. The customer-facing
+                # demo is protected from real sends by `tenants.outreach_blocked`
+                # (migration 0115), not by leaving the lead stuck in 'new'.
+                "pipeline_status": "ready_to_send",
                 # leads.source CHECK only allows
                 # {cta_click, email_reply, whatsapp_reply, b2c_meta_ads, b2c_post_engagement}
                 # or NULL. Proactively-discovered leads (this funnel) have no

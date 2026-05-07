@@ -109,6 +109,12 @@ export interface ContattiFilter {
   stage?: number;
   territory_id?: string;
   solar_verdict?: SolarVerdict;
+  /**
+   * When true, returns ALL scan_candidates (also rejected / mid-funnel /
+   * not yet promoted to a lead). Used by the operator-facing "mostra
+   * anche scartati" toggle on /contatti — never the default.
+   */
+  include_unpromoted?: boolean;
 }
 
 /** Paginated list of scan_candidates. */
@@ -129,12 +135,9 @@ export async function listContatti(opts: {
   if (opts.filter?.territory_id) q = q.eq('territory_id', opts.filter.territory_id);
   if (opts.filter?.solar_verdict) {
     q = q.eq('solar_verdict', opts.filter.solar_verdict);
-  } else {
-    // Default: only show candidates with a verified suitable roof
-    // (`solar_verdict='accepted'`). The operator should not see rejected
-    // rows (rejected_tech / no_building / api_error / skipped_below_gate)
-    // nor rows still mid-funnel (verdict NULL pre-L4). The full waterfall
-    // (including rejects) stays accessible via the KPI strip + /funnel.
+  } else if (!opts.filter?.include_unpromoted) {
+    // Default: only candidates that passed Solar API. The promoted-to-lead
+    // filter happens after the resolve step below.
     q = q.eq('solar_verdict', 'accepted');
   }
 
@@ -144,15 +147,14 @@ export async function listContatti(opts: {
 
   if (error) throw new Error(`listContatti: ${error.message}`);
 
-  const rows = (data ?? []) as unknown as ContattoRow[];
+  let rows = (data ?? []) as unknown as ContattoRow[];
 
-  // Resolve lead_id for each contact via roof_id. Allows the table
-  // to expose an "Apri" link to the lead detail when the candidate
-  // has been promoted to a lead by L6 (subjects+leads created).
+  // Resolve lead_id for each contact via roof_id. The Apri button + the
+  // promoted-vs-scarti distinction depend on this resolution.
   const roofIds = rows
     .map((r) => r.roof_id)
     .filter((v): v is string => typeof v === 'string');
-  let roofToLead = new Map<string, string>();
+  const roofToLead = new Map<string, string>();
   if (roofIds.length > 0) {
     const { data: leadRows } = await sb
       .from('leads')
@@ -171,10 +173,28 @@ export async function listContatti(opts: {
     }
   }
 
-  return { rows, total: count ?? 0 };
+  // Default view: only rows that have been promoted to a lead are shown
+  // (perfect contacts). Scartati pre-L6 stay invisible unless the operator
+  // flips include_unpromoted.
+  if (!opts.filter?.include_unpromoted) {
+    rows = rows.filter(
+      (r) =>
+        (r as ContattoRow & { lead_id?: string | null }).lead_id != null,
+    );
+  }
+
+  // The header `count` is the SQL row count *before* the lead-id post-filter,
+  // so we override with the post-filter length to keep the page chip consistent.
+  const totalShown = opts.filter?.include_unpromoted ? (count ?? 0) : rows.length;
+  return { rows, total: totalShown };
 }
 
-/** Stage counts + v3 quality aggregates for the header summary strip. */
+/** Stage counts + v3 quality aggregates for the header summary strip.
+ *
+ * The "convalidati" KPI counts only candidates that passed Solar API
+ * AND have been promoted to a `leads` row (the same rows the table
+ * shows by default). This keeps KPI ↔ table strictly coherent.
+ */
 export async function getContattiSummary(): Promise<ContattiSummary> {
   const sb = await createSupabaseServerClient();
 
@@ -197,25 +217,54 @@ export async function getContattiSummary(): Promise<ContattiSummary> {
     return count ?? 0;
   };
 
-  // Single-pass aggregate over `accepted` rows — needed for the new
-  // KPI strip (kWp totali, score AI medio, email valida). Bounded by
-  // l4_qualified, which is typically <500 per tenant. We select only
-  // the 3 columns that feed the aggregates.
-  const fetchQualifiedAggregates = async (): Promise<{
-    total_kwp_installable: number;
-    avg_overall_score: number | null;
-    valid_email_count: number;
-  }> => {
+  // Compute the set of accepted candidate roofs that have been promoted
+  // to a lead. Both KPI counts and aggregates filter by this set so the
+  // strip never claims "0 convalidati" while the table renders rows.
+  const fetchPromotedAcceptedRows = async (): Promise<
+    Array<{
+      solar_kw_installable: number | null;
+      proxy_score_data: Record<string, unknown> | null;
+      contact_extraction: Record<string, unknown> | null;
+    }>
+  > => {
+    const { data: leadRoofs } = await sb
+      .from('leads')
+      .select('roof_id')
+      .not('roof_id', 'is', null);
+    const promotedRoofIds = (leadRoofs ?? [])
+      .map((l) => (l as { roof_id: string | null }).roof_id)
+      .filter((v): v is string => typeof v === 'string');
+    if (promotedRoofIds.length === 0) return [];
+
     const { data, error } = await sb
       .from('scan_candidates')
       .select('solar_kw_installable, proxy_score_data, contact_extraction')
       .eq('stage', 4)
-      .eq('solar_verdict', 'accepted');
-    if (error || !data) {
+      .eq('solar_verdict', 'accepted')
+      .in('roof_id', promotedRoofIds);
+    if (error || !data) return [];
+    return data as Array<{
+      solar_kw_installable: number | null;
+      proxy_score_data: Record<string, unknown> | null;
+      contact_extraction: Record<string, unknown> | null;
+    }>;
+  };
+
+  // Single-pass aggregate over the promoted accepted rows — feeds the
+  // KPI strip (kWp totali, score AI medio, email valida).
+  const fetchQualifiedAggregates = async (): Promise<{
+    total_kwp_installable: number;
+    avg_overall_score: number | null;
+    valid_email_count: number;
+    convalidati_count: number;
+  }> => {
+    const data = await fetchPromotedAcceptedRows();
+    if (data.length === 0) {
       return {
         total_kwp_installable: 0,
         avg_overall_score: null,
         valid_email_count: 0,
+        convalidati_count: 0,
       };
     }
 
@@ -261,6 +310,7 @@ export async function getContattiSummary(): Promise<ContattiSummary> {
       total_kwp_installable: Math.round(kwpSum),
       avg_overall_score: scoreCount > 0 ? Math.round(scoreSum / scoreCount) : null,
       valid_email_count: validEmail,
+      convalidati_count: data.length,
     };
   };
 
@@ -268,7 +318,6 @@ export async function getContattiSummary(): Promise<ContattiSummary> {
     l1,
     l2,
     l3,
-    l4_qualified,
     l4_rejected,
     l4_no_building,
     l4_skipped,
@@ -277,23 +326,28 @@ export async function getContattiSummary(): Promise<ContattiSummary> {
     countGte(1),
     countGte(2),
     countGte(3),
-    countVerdict('accepted'),
     countVerdict('rejected_tech'),
     countVerdict('no_building'),
     countVerdict('skipped_below_gate'),
     fetchQualifiedAggregates(),
   ]);
 
+  // KPI "convalidati" = candidates that passed Solar API AND were
+  // promoted to a lead. Same set the table shows by default. The raw
+  // `_l4_qualified_raw` count (still computed for the chip strip) only
+  // matters when the operator flips the "scartati" toggle on.
+  const { convalidati_count, ...kpiAggregates } = aggregates;
+
   return {
     l1,
     l2,
     l3,
-    l4_qualified,
+    l4_qualified: convalidati_count,
     l4_rejected,
     l4_no_building,
     l4_skipped,
     total: l1,
-    ...aggregates,
+    ...kpiAggregates,
   };
 }
 

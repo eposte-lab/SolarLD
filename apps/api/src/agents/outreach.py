@@ -69,7 +69,7 @@ from ..services.claude_service import complete as claude_complete
 from ..services.content_validator import ValidationResult, validate_email_content
 from ..services.dialog360_service import WA_COST_PER_MESSAGE_CENTS
 from ..services.email_providers import get_provider
-from ..services.email_providers.base import ProviderError
+from ..services.email_providers.base import ProviderError, SendResult
 from ..services.email_template_service import (
     OutreachContext,
     default_subject_for,
@@ -225,6 +225,8 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
                 "email_from_domain_verified_at, tier, settings, "
                 "legal_name, vat_number, legal_address, "
                 "daily_target_send_cap, "
+                # Migration 0115 — kill-switch for customer demos.
+                "outreach_blocked, "
                 # Sprint 9 Fase C: custom template + template family
                 "email_template_family, custom_email_template_active, "
                 "custom_email_template_path"
@@ -1308,63 +1310,87 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
         provider = get_provider(provider_name, sb=sb)
         provider_inbox_row: dict[str, Any] = selected_inbox or {"id": None}
 
-        try:
-            send_result = await provider.send(send_input, inbox=provider_inbox_row)
-        except ProviderError as exc:
-            log.warning(
-                "outreach.provider_failed",
+        # Tenant-level kill-switch (migration 0115). When the operator
+        # toggles `tenants.outreach_blocked = TRUE`, every step of the
+        # pipeline runs identically (rendering, A/B selection, template
+        # render, lead status transition, follow-up scheduling) but the
+        # provider is never contacted. The send is recorded with a
+        # `blocked_demo:` message-id prefix so it is trivially
+        # filterable in /invii queries and downstream analytics.
+        # Default FALSE: zero impact on real tenants.
+        if tenant_row.get("outreach_blocked"):
+            log.info(
+                "outreach.kill_switch_active",
+                tenant_id=payload.tenant_id,
                 lead_id=payload.lead_id,
                 provider=provider_name,
-                err=str(exc),
-                kind=exc.kind,
-                status_code=exc.status_code,
-                inbox_id=inbox_id,
+                recipient=recipient,
             )
-            # Auto-pause the inbox on sender-side errors so other inboxes
-            # can continue. Recipient-side permanent errors (bad address,
-            # suppression hit) leave the inbox healthy.
-            if inbox_id:
-                if exc.kind == "rate_limited":
-                    await inbox_service.pause_inbox(
-                        sb,
-                        inbox_id,
-                        hours=PAUSE_HOURS_429,
-                        reason=f"{provider_name}_rate_limited",
-                        tenant_id=payload.tenant_id,
-                    )
-                elif exc.kind == "server_error":
-                    await inbox_service.pause_inbox(
-                        sb,
-                        inbox_id,
-                        hours=PAUSE_HOURS_5XX,
-                        reason=f"{provider_name}_{exc.status_code}",
-                        tenant_id=payload.tenant_id,
-                    )
-                # auth_failed is terminal — the GmailProvider already
-                # flipped ``active=false`` and recorded the error on the
-                # inbox row. Don't pile an extra pause on top.
-            return await self._record_failure(
-                payload=payload,
-                lead=lead,
-                tenant_row=tenant_row,
-                subject=subject,
-                failure_reason=f"{provider_name}_{exc.kind}: {str(exc)[:200]}",
+            from uuid import uuid4 as _kill_switch_uuid
+
+            send_result = SendResult(
+                message_id=f"blocked_demo:{_kill_switch_uuid()}",
+                provider=provider_name,
+                meta={"intercepted": True, "kill_switch": "outreach_blocked"},
             )
-        except ResendError as exc:  # defensive: legacy callsites may still raise
-            log.warning(
-                "outreach.resend_failed",
-                lead_id=payload.lead_id,
-                err=str(exc),
-                status_code=exc.status_code,
-                inbox_id=inbox_id,
-            )
-            return await self._record_failure(
-                payload=payload,
-                lead=lead,
-                tenant_row=tenant_row,
-                subject=subject,
-                failure_reason=f"resend_error: {str(exc)[:200]}",
-            )
+        else:
+            try:
+                send_result = await provider.send(send_input, inbox=provider_inbox_row)
+            except ProviderError as exc:
+                log.warning(
+                    "outreach.provider_failed",
+                    lead_id=payload.lead_id,
+                    provider=provider_name,
+                    err=str(exc),
+                    kind=exc.kind,
+                    status_code=exc.status_code,
+                    inbox_id=inbox_id,
+                )
+                # Auto-pause the inbox on sender-side errors so other inboxes
+                # can continue. Recipient-side permanent errors (bad address,
+                # suppression hit) leave the inbox healthy.
+                if inbox_id:
+                    if exc.kind == "rate_limited":
+                        await inbox_service.pause_inbox(
+                            sb,
+                            inbox_id,
+                            hours=PAUSE_HOURS_429,
+                            reason=f"{provider_name}_rate_limited",
+                            tenant_id=payload.tenant_id,
+                        )
+                    elif exc.kind == "server_error":
+                        await inbox_service.pause_inbox(
+                            sb,
+                            inbox_id,
+                            hours=PAUSE_HOURS_5XX,
+                            reason=f"{provider_name}_{exc.status_code}",
+                            tenant_id=payload.tenant_id,
+                        )
+                    # auth_failed is terminal — the GmailProvider already
+                    # flipped ``active=false`` and recorded the error on the
+                    # inbox row. Don't pile an extra pause on top.
+                return await self._record_failure(
+                    payload=payload,
+                    lead=lead,
+                    tenant_row=tenant_row,
+                    subject=subject,
+                    failure_reason=f"{provider_name}_{exc.kind}: {str(exc)[:200]}",
+                )
+            except ResendError as exc:  # defensive: legacy callsites may still raise
+                log.warning(
+                    "outreach.resend_failed",
+                    lead_id=payload.lead_id,
+                    err=str(exc),
+                    status_code=exc.status_code,
+                    inbox_id=inbox_id,
+                )
+                return await self._record_failure(
+                    payload=payload,
+                    lead=lead,
+                    tenant_row=tenant_row,
+                    subject=subject,
+                    failure_reason=f"resend_error: {str(exc)[:200]}",
+                )
 
         # ------------------------------------------------------------------
         # 10) Persist campaign + advance lead pipeline
