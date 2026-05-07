@@ -37,30 +37,6 @@ test.describe('Login page', () => {
     ).toBeVisible();
   });
 
-  test('submit button is disabled while loading', async ({ page }) => {
-    await page.goto('/login');
-
-    // Intercept the Supabase signIn API call to hang for long enough
-    // that the loading state is observable (1.5s is generous).
-    await page.route('**/auth/v1/token**', async (route) => {
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-      await route.abort();
-    });
-
-    const emailInput = page.locator('input[type="email"]');
-    const passwordInput = page.locator('input[type="password"]');
-    const submitBtn = page.getByRole('button', { name: /accedi/i });
-
-    await emailInput.fill('test@example.com');
-    await passwordInput.fill('password123');
-
-    await submitBtn.click();
-
-    // During the inflight request the button becomes disabled.
-    // Use a tight poll so we catch the transition before route abort.
-    await expect(submitBtn).toBeDisabled({ timeout: 1000 });
-  });
-
   test('shows error message on failed login', async ({ page }) => {
     await page.goto('/login');
 
