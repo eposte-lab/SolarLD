@@ -12,12 +12,14 @@ The types are in-memory views; persistence goes through `scan_candidates`
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
-from uuid import UUID
+from typing import TYPE_CHECKING, Any
 
-from ...services.italian_business_service import AtokaProfile
-from ...services.scan_cost_tracker import ScanCostAccumulator
-from ...services.tenant_config_service import TenantConfig
+if TYPE_CHECKING:
+    from uuid import UUID
+
+    from ...services.italian_business_service import AtokaProfile
+    from ...services.scan_cost_tracker import ScanCostAccumulator
+    from ...services.tenant_config_service import TenantConfig
 
 
 @dataclass(slots=True)

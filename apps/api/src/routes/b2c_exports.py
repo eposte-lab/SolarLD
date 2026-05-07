@@ -31,8 +31,7 @@ from __future__ import annotations
 
 import io
 from datetime import date
-from typing import Any
-from uuid import UUID
+from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import Response
@@ -42,6 +41,9 @@ from ..core.security import CurrentUser, require_tenant
 from ..core.supabase_client import get_service_client
 from ..services.b2c_audience_service import get_audience
 from ..services.tenant_module_service import get_module
+
+if TYPE_CHECKING:
+    from uuid import UUID
 
 router = APIRouter()
 log = get_logger(__name__)
@@ -148,11 +150,11 @@ async def export_audience_pdf(
     # occasional endpoint.
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4
-    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
     from reportlab.lib.units import mm
     from reportlab.platypus import (
-        SimpleDocTemplate,
         Paragraph,
+        SimpleDocTemplate,
         Spacer,
         Table,
         TableStyle,

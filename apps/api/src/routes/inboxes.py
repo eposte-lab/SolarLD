@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import secrets
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import urlencode
 
@@ -34,7 +34,8 @@ from ..core.logging import get_logger
 from ..core.security import CurrentUser, require_tenant
 from ..core.supabase_client import get_service_client
 from ..services import inbox_service
-from ..services.encryption_service import encrypt, is_configured as enc_configured
+from ..services.encryption_service import encrypt
+from ..services.encryption_service import is_configured as enc_configured
 
 router = APIRouter()
 log = get_logger(__name__)
@@ -107,14 +108,14 @@ async def list_inboxes(ctx: CurrentUser) -> dict[str, Any]:
         return {"inboxes": [], "total": 0}
 
     rows = res.data or []
-    today = datetime.now(timezone.utc).date().isoformat()
+    today = datetime.now(UTC).date().isoformat()
 
     # Annotate each inbox with derived fields for the UI.
     for row in rows:
         # If sent_date is not today, the counter is stale — show 0.
         if row.get("sent_date") != today:
             row["total_sent_today"] = 0
-        now_utc = datetime.now(timezone.utc).isoformat()
+        now_utc = datetime.now(UTC).isoformat()
         paused_until = row.get("paused_until")
         row["is_paused"] = bool(paused_until and paused_until > now_utc)
         remaining = max(0, int(row.get("daily_cap", 50)) - int(row.get("total_sent_today", 0)))
@@ -136,8 +137,8 @@ async def get_inbox_quota(ctx: CurrentUser) -> dict[str, Any]:
     """
     tenant_id = require_tenant(ctx)
     sb = get_service_client()
-    today = datetime.now(timezone.utc).date().isoformat()
-    now_utc = datetime.now(timezone.utc).isoformat()
+    today = datetime.now(UTC).date().isoformat()
+    now_utc = datetime.now(UTC).isoformat()
 
     try:
         res = (
@@ -251,7 +252,7 @@ async def update_inbox(
     sb = get_service_client()
 
     update_data: dict[str, Any] = {
-        "updated_at": datetime.now(timezone.utc).isoformat()
+        "updated_at": datetime.now(UTC).isoformat()
     }
     if body.display_name is not None:
         update_data["display_name"] = body.display_name.strip()
@@ -512,7 +513,7 @@ async def gmail_oauth_callback(
 
     try:
         state_payload = _verify_oauth_state(state)
-    except HTTPException as exc:
+    except HTTPException:
         return RedirectResponse(
             f"{settings_page}?oauth_error=invalid_state",
             status_code=status.HTTP_302_FOUND,
@@ -577,7 +578,7 @@ async def gmail_oauth_callback(
         except Exception:  # noqa: BLE001
             pass
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     expires_at = now + timedelta(seconds=expires_in)
 
     sb = get_service_client()
@@ -658,7 +659,7 @@ async def oauth_disconnect(
                     "oauth_connected_at": None,
                     "oauth_last_error": None,
                     "oauth_last_error_at": None,
-                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                    "updated_at": datetime.now(UTC).isoformat(),
                 }
             )
             .eq("id", inbox_id)

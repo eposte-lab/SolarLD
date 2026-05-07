@@ -189,7 +189,7 @@ async def _enrich_candidate(
             signals.site_signals = await _scan_website(
                 signals.website, client=client, keywords=keywords
             )
-        except (httpx.HTTPError, asyncio.TimeoutError, UnicodeDecodeError) as exc:
+        except (TimeoutError, httpx.HTTPError, UnicodeDecodeError) as exc:
             log.debug(
                 "l2_site_fetch_failed",
                 extra={"vat": profile.vat_number, "err": str(exc)},

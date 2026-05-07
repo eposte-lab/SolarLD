@@ -44,31 +44,36 @@ def test_filter_accepts_good_roof() -> None:
 def test_filter_rejects_tiny_area() -> None:
     v = apply_technical_filters(_insight(area_sqm=10.0))
     assert v.accepted is False
-    assert v.reason is not None and "area" in v.reason
+    assert v.reason is not None
+    assert "area" in v.reason
 
 
 def test_filter_rejects_low_kwp() -> None:
     v = apply_technical_filters(_insight(estimated_kwp=1.0))
     assert v.accepted is False
-    assert v.reason is not None and "kwp" in v.reason
+    assert v.reason is not None
+    assert "kwp" in v.reason
 
 
 def test_filter_rejects_heavy_shading() -> None:
     v = apply_technical_filters(_insight(shading_score=0.1))
     assert v.accepted is False
-    assert v.reason is not None and "shading" in v.reason
+    assert v.reason is not None
+    assert "shading" in v.reason
 
 
 def test_filter_rejects_north_exposure() -> None:
     v = apply_technical_filters(_insight(dominant_exposure="N"))
     assert v.accepted is False
-    assert v.reason is not None and "exposure" in v.reason
+    assert v.reason is not None
+    assert "exposure" in v.reason
 
 
 def test_filter_rejects_extreme_pitch() -> None:
     v = apply_technical_filters(_insight(pitch_degrees=75.0))
     assert v.accepted is False
-    assert v.reason is not None and "pitch" in v.reason
+    assert v.reason is not None
+    assert "pitch" in v.reason
 
 
 def test_filter_accepts_flat_roof() -> None:

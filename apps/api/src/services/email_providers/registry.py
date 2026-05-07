@@ -18,12 +18,16 @@ register in ``_FACTORIES``.
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any
 
 from ...core.logging import get_logger
-from .base import EmailProvider, ProviderName
 from .gmail_provider import GmailProvider
 from .resend_provider import ResendProvider
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from .base import EmailProvider, ProviderName
 
 log = get_logger(__name__)
 

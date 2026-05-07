@@ -26,7 +26,7 @@ spike (bad list hygiene, shared domain abuse, etc.) before resuming.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from ..core.logging import get_logger
@@ -74,7 +74,7 @@ async def run_enforcement(sb: Any) -> EnforcementResult:
         sb: Supabase service-role client (sync, as used elsewhere in the codebase).
     """
     result = EnforcementResult()
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_iso = datetime.now(UTC).isoformat()
 
     # Pull all active domains with fresh reputation data.
     # We join domain_reputation on the most recent row per domain name.
@@ -194,7 +194,7 @@ async def check_realtime_complaint_cluster(
     exists). If ≥ REALTIME_COMPLAINT_CLUSTER_SIZE → pause immediately.
     """
     window_start = (
-        datetime.now(timezone.utc)
+        datetime.now(UTC)
         - timedelta(minutes=REALTIME_COMPLAINT_WINDOW_MINUTES)
     ).isoformat()
 
@@ -231,7 +231,7 @@ async def check_realtime_complaint_cluster(
                 .execute()
             )
             domain_rows = dom_res.data or []
-        except Exception as exc:  # noqa: BLE001
+        except Exception:  # noqa: BLE001
             domain_rows = []
     else:
         try:
@@ -243,7 +243,7 @@ async def check_realtime_complaint_cluster(
                 .execute()
             )
             domain_rows = dom_res.data or []
-        except Exception as exc:  # noqa: BLE001
+        except Exception:  # noqa: BLE001
             domain_rows = []
 
     if not domain_rows:
@@ -290,9 +290,9 @@ async def _pause_domain_and_inboxes(
     domain_id: str = domain_row["id"]
     tenant_id: str = domain_row["tenant_id"]
     domain_name: str = domain_row.get("domain") or ""
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_iso = datetime.now(UTC).isoformat()
     until = (
-        datetime.now(timezone.utc) + timedelta(hours=PAUSE_HOURS_ON_ALARM)
+        datetime.now(UTC) + timedelta(hours=PAUSE_HOURS_ON_ALARM)
     ).isoformat()
 
     # 1. Pause the domain.
@@ -397,7 +397,7 @@ async def check_realtime_bounce_spike(
     7-day window and a 5 % threshold).
     """
     window_start = (
-        datetime.now(timezone.utc)
+        datetime.now(UTC)
         - timedelta(hours=REALTIME_BOUNCE_WINDOW_HOURS)
     ).isoformat()
 
@@ -528,7 +528,7 @@ async def check_realtime_complaint_rate(
     """
     MIN_SENDS_FOR_RATE_CHECK = 5
     window_start = (
-        datetime.now(timezone.utc)
+        datetime.now(UTC)
         - timedelta(hours=24)
     ).isoformat()
 
@@ -623,7 +623,7 @@ async def check_realtime_complaint_rate(
     domain_row = domain_rows[0]
 
     # Skip if already paused (cluster check may have fired first).
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_iso = datetime.now(UTC).isoformat()
     existing_pause = domain_row.get("paused_until")
     if existing_pause and str(existing_pause) > now_iso:
         return False  # Already handled.

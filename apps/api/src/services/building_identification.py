@@ -51,13 +51,15 @@ from __future__ import annotations
 import asyncio
 import math
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import httpx
 
 from ..core.logging import get_logger
 from ..core.supabase_client import get_service_client
-from ..services.italian_business_service import AtokaProfile
+
+if TYPE_CHECKING:
+    from ..services.italian_business_service import AtokaProfile
 
 log = get_logger(__name__)
 
@@ -166,7 +168,7 @@ class BuildingMatch:
     picker_candidates: list[dict] = field(default_factory=list)
 
     @classmethod
-    def empty(cls) -> "BuildingMatch":
+    def empty(cls) -> BuildingMatch:
         return cls(
             lat=None,
             lng=None,
@@ -405,8 +407,8 @@ async def _load_sector_signal_hints(
     if not predicted_sector:
         return []
     try:
-        from . import sector_target_service
         from ..core.supabase_client import get_service_client as _sc
+        from . import sector_target_service
 
         sb = _sc()
         mapping = await sector_target_service.get_sector_config_by_wizard_group(
@@ -611,14 +613,13 @@ async def identify_building(
     # Lazy import — these modules pull in heavy deps (Anthropic SDK,
     # PIL) and we don't want to slow down `routes/demo.py` import time
     # for callers that don't reach the cascade.
-    from . import google_places_service
-    from .operating_site_resolver import resolve_operating_site
-
     # Probe API-key availability up-front so diagnostics distinguish
     # "Places returned 0" (genuine miss) from "Places skipped" (key
     # not configured) — the user-facing copy under each scenario is
     # very different.
     from ..core.config import settings as _settings
+    from . import google_places_service
+    from .operating_site_resolver import resolve_operating_site
 
     candidates: list[BuildingCandidate] = []
     diagnostics: dict[str, Any] = {
@@ -963,7 +964,7 @@ async def identify_building(
 # ---------------------------------------------------------------------------
 
 
-def match_to_operating_site(match: "BuildingMatch") -> Any:
+def match_to_operating_site(match: BuildingMatch) -> Any:
     """Project a BuildingMatch onto the legacy ``OperatingSite`` dataclass.
 
     Production call sites (level4_solar_gate, hunter cron, etc.) still

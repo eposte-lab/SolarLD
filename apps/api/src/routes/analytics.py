@@ -12,7 +12,7 @@ The functions are ``SECURITY DEFINER`` and scoped to a single
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
@@ -73,7 +73,7 @@ async def analytics_funnel(
     days: int = Query(default=30, ge=1, le=365),
 ) -> dict[str, Any]:
     tenant_id = require_tenant(ctx)
-    now = datetime.now(timezone.utc).replace(microsecond=0)
+    now = datetime.now(UTC).replace(microsecond=0)
     from datetime import timedelta
 
     p_from = now - timedelta(days=days)

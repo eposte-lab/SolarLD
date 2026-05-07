@@ -29,8 +29,7 @@ Auth: same pattern as ``quotes.py`` — ``CurrentUser`` Depends, then
 
 from __future__ import annotations
 
-from typing import Any
-from uuid import UUID
+from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, Response, UploadFile, status
 from fastapi.responses import RedirectResponse
@@ -62,6 +61,9 @@ from ..services.practice_service import (
     update_document_status,
 )
 from ..services.storage_service import sign_url
+
+if TYPE_CHECKING:
+    from uuid import UUID
 
 router = APIRouter()
 log = get_logger(__name__)
@@ -138,7 +140,7 @@ class PracticeResponse(BaseModel):
     updated_at: str
 
     @classmethod
-    def from_dataclass(cls, p: Practice) -> "PracticeResponse":
+    def from_dataclass(cls, p: Practice) -> PracticeResponse:
         return cls(
             id=p.id,
             tenant_id=p.tenant_id,
@@ -181,7 +183,7 @@ class PracticeDocumentResponse(BaseModel):
     updated_at: str
 
     @classmethod
-    def from_dataclass(cls, d: PracticeDocument) -> "PracticeDocumentResponse":
+    def from_dataclass(cls, d: PracticeDocument) -> PracticeDocumentResponse:
         return cls(
             id=d.id,
             practice_id=d.practice_id,

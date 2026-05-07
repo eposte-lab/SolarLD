@@ -23,7 +23,7 @@ Degradation:
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import BaseModel
@@ -144,7 +144,7 @@ class RepliesAgent(AgentBase[RepliesInput, RepliesOutput]):
         # ------------------------------------------------------------------
         # 4) Persist analysis result
         # ------------------------------------------------------------------
-        now_iso = datetime.now(timezone.utc).isoformat()
+        now_iso = datetime.now(UTC).isoformat()
         sb.table("lead_replies").update(
             {
                 "sentiment": sentiment,

@@ -13,7 +13,6 @@ import pytest
 
 from src.services import sector_target_service as sts
 
-
 # ---------------------------------------------------------------------------
 # Fake Supabase
 # ---------------------------------------------------------------------------
@@ -23,7 +22,7 @@ class _FakeSelect:
     def __init__(self, rows: list[dict[str, Any]]) -> None:
         self._rows = rows
 
-    def select(self, _columns: str) -> "_FakeSelect":
+    def select(self, _columns: str) -> _FakeSelect:
         return self
 
     def execute(self) -> Any:
@@ -113,7 +112,7 @@ def _reset_cache():
     sts._reset_cache_for_tests()
 
 
-@pytest.fixture()
+@pytest.fixture
 def fake_sb():
     return _FakeSupabase(_seed_rows())
 

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Header, HTTPException, Query, Request, status
 from fastapi.responses import PlainTextResponse, Response
@@ -237,7 +237,7 @@ async def email_inbound_webhook(
     ).strip()
     reply_subject = (payload.get("subject") or "").strip() or None
 
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_iso = datetime.now(UTC).isoformat()
     insert_res = (
         sb.table("lead_replies")
         .insert(
@@ -594,7 +594,7 @@ async def whatsapp_webhook(
         # ------------------------------------------------------------------
         # 4) Enqueue ConversationAgent
         # ------------------------------------------------------------------
-        job_id = f"conversation:{tenant_id}:{wa_phone}:{message_id or datetime.now(timezone.utc).isoformat()}"
+        job_id = f"conversation:{tenant_id}:{wa_phone}:{message_id or datetime.now(UTC).isoformat()}"
         await enqueue(
             "conversation_task",
             {
@@ -776,7 +776,7 @@ async def meta_leads_webhook(
     # Upsert each leadgen event. We store the Meta lead id so the
     # follow-up Graph API field-fetch task can enrich the row.
     # ----------------------------------------------------------------
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_iso = datetime.now(UTC).isoformat()
     accepted = 0
     for entry in entries:
         if str(entry.get("id") or "") != first_page_id:

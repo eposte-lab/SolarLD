@@ -64,7 +64,7 @@ class _Result:
 
 
 class _Chain:
-    def __init__(self, sb: "_LockFakeSupabase", table: str) -> None:
+    def __init__(self, sb: _LockFakeSupabase, table: str) -> None:
         self._sb = sb
         self._table = table
         self._op = "select"
@@ -73,60 +73,60 @@ class _Chain:
         self._is_maybe_single = False
 
     # terminal ops
-    def select(self, *_a: Any, **_k: Any) -> "_Chain":
+    def select(self, *_a: Any, **_k: Any) -> _Chain:
         self._op = "select"
         return self
 
-    def insert(self, row: dict[str, Any]) -> "_Chain":
+    def insert(self, row: dict[str, Any]) -> _Chain:
         self._op = "insert"
         self._payload = row
         return self
 
-    def update(self, row: dict[str, Any]) -> "_Chain":
+    def update(self, row: dict[str, Any]) -> _Chain:
         self._op = "update"
         self._payload = row
         return self
 
-    def upsert(self, row: dict[str, Any], **_k: Any) -> "_Chain":
+    def upsert(self, row: dict[str, Any], **_k: Any) -> _Chain:
         self._op = "upsert"
         self._payload = row
         return self
 
-    def delete(self) -> "_Chain":
+    def delete(self) -> _Chain:
         self._op = "delete"
         return self
 
     # filters — eq tracked, rest no-op
-    def eq(self, field_name: str, value: Any, *_a: Any, **_k: Any) -> "_Chain":
+    def eq(self, field_name: str, value: Any, *_a: Any, **_k: Any) -> _Chain:
         self._filters[field_name] = value
         return self
 
-    def neq(self, *_a: Any, **_k: Any) -> "_Chain":
+    def neq(self, *_a: Any, **_k: Any) -> _Chain:
         return self
 
-    def in_(self, *_a: Any, **_k: Any) -> "_Chain":
+    def in_(self, *_a: Any, **_k: Any) -> _Chain:
         return self
 
-    def is_(self, *_a: Any, **_k: Any) -> "_Chain":
+    def is_(self, *_a: Any, **_k: Any) -> _Chain:
         return self
 
-    def or_(self, *_a: Any, **_k: Any) -> "_Chain":
+    def or_(self, *_a: Any, **_k: Any) -> _Chain:
         return self
 
-    def order(self, *_a: Any, **_k: Any) -> "_Chain":
+    def order(self, *_a: Any, **_k: Any) -> _Chain:
         return self
 
-    def limit(self, *_a: Any, **_k: Any) -> "_Chain":
+    def limit(self, *_a: Any, **_k: Any) -> _Chain:
         return self
 
-    def range(self, *_a: Any, **_k: Any) -> "_Chain":
+    def range(self, *_a: Any, **_k: Any) -> _Chain:
         return self
 
-    def maybe_single(self, *_a: Any, **_k: Any) -> "_Chain":
+    def maybe_single(self, *_a: Any, **_k: Any) -> _Chain:
         self._is_maybe_single = True
         return self
 
-    def single(self, *_a: Any, **_k: Any) -> "_Chain":
+    def single(self, *_a: Any, **_k: Any) -> _Chain:
         return self
 
     def execute(self) -> _Result:
@@ -267,11 +267,10 @@ def _patch_service_clients(
     The service module and each route import ``get_service_client`` at
     import time, so we have to patch each bound name individually.
     """
-    from src.services import territory_lock_service
-    from src.routes import territories as territories_route
     from src.routes import admin as admin_route
     from src.routes import onboarding as onboarding_route
-    from src.services import tenant_module_service
+    from src.routes import territories as territories_route
+    from src.services import tenant_module_service, territory_lock_service
 
     monkeypatch.setattr(
         territory_lock_service, "get_service_client", lambda: fake

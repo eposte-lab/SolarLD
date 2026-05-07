@@ -32,7 +32,7 @@ cron can unit-test the selector without hitting Supabase.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from ..models.enums import CampaignStatus, LeadStatus, OutreachChannel
@@ -78,7 +78,7 @@ class FollowUpCandidate:
     outreach_channel: str | None
     outreach_sent_at: datetime | None  # day-0 initial send time
     # One entry per historical campaign row for this lead.
-    campaigns: tuple["CampaignSummary", ...] = ()
+    campaigns: tuple[CampaignSummary, ...] = ()
 
 
 @dataclass(slots=True, frozen=True)
@@ -216,16 +216,16 @@ def _find_step(
     if not matches:
         return None
     # Prefer the latest by sent_at (falls back to list order if not set).
-    matches.sort(key=lambda c: c.sent_at or datetime.min.replace(tzinfo=timezone.utc))
+    matches.sort(key=lambda c: c.sent_at or datetime.min.replace(tzinfo=UTC))
     return matches[-1]
 
 
 def _days_between(earlier: datetime, later: datetime) -> float:
     """Floating-point day delta. Handles naive vs aware defensively."""
     if earlier.tzinfo is None:
-        earlier = earlier.replace(tzinfo=timezone.utc)
+        earlier = earlier.replace(tzinfo=UTC)
     if later.tzinfo is None:
-        later = later.replace(tzinfo=timezone.utc)
+        later = later.replace(tzinfo=UTC)
     delta: timedelta = later - earlier
     return delta.total_seconds() / 86_400.0
 
@@ -259,7 +259,7 @@ def _parse_ts(raw: Any) -> datetime | None:
     if raw is None:
         return None
     if isinstance(raw, datetime):
-        return raw if raw.tzinfo else raw.replace(tzinfo=timezone.utc)
+        return raw if raw.tzinfo else raw.replace(tzinfo=UTC)
     s = str(raw).strip()
     if not s:
         return None
@@ -270,4 +270,4 @@ def _parse_ts(raw: Any) -> datetime | None:
         dt = datetime.fromisoformat(s)
     except ValueError:
         return None
-    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    return dt if dt.tzinfo else dt.replace(tzinfo=UTC)

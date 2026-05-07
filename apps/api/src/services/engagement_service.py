@@ -47,7 +47,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from ..core.logging import get_logger
@@ -158,7 +158,7 @@ async def run_engagement_rollup(
     "hot right now" threshold).
     """
     sb = get_service_client()
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     window_start = now - timedelta(days=ROLLUP_WINDOW_DAYS)
 
     # ------------------------------------------------------------------
@@ -308,7 +308,7 @@ async def get_hot_leads_now(
     through the API for every page load.
     """
     sb = get_service_client()
-    since = (datetime.now(timezone.utc) - timedelta(minutes=minutes)).isoformat()
+    since = (datetime.now(UTC) - timedelta(minutes=minutes)).isoformat()
     res = (
         sb.table("portal_events")
         .select("lead_id")

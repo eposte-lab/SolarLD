@@ -25,8 +25,8 @@ Surface area:
 from __future__ import annotations
 
 import hashlib
-from datetime import datetime, timezone
-from typing import Any, Literal
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any, Literal
 
 import geohash  # type: ignore[import-untyped]
 from fastapi import APIRouter, HTTPException, Query, status
@@ -37,10 +37,12 @@ from ..agents.outreach import OutreachAgent, OutreachInput
 from ..agents.scoring import ScoringAgent, ScoringInput
 from ..core.logging import get_logger
 from ..core.queue import enqueue  # noqa: F401 — retained for non-test admin paths
-from ..core.security import CurrentUser
 from ..core.supabase_client import get_service_client
 from ..models.enums import OutreachChannel, RoofDataSource, RoofStatus, SubjectType
 from ..services.territory_lock_service import unlock as territory_unlock
+
+if TYPE_CHECKING:
+    from ..core.security import CurrentUser
 
 log = get_logger(__name__)
 router = APIRouter()
@@ -435,7 +437,7 @@ async def seed_test_candidate(
     _require_super_admin(ctx)
 
     sb = get_service_client()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     ov = body.solar_override
 
     # ── 1. Upsert roof row ────────────────────────────────────────────────

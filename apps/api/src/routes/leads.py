@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import csv
 import io
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query
@@ -150,7 +150,7 @@ async def list_leads(
         from datetime import timedelta
 
         cutoff = (
-            datetime.now(timezone.utc)
+            datetime.now(UTC)
             - timedelta(days=days_since_outreach_min)
         ).isoformat()
         query = query.not_.is_("outreach_sent_at", "null").lte(
@@ -211,7 +211,7 @@ async def list_hot_leads(
     from datetime import timedelta
 
     cutoff = (
-        datetime.now(timezone.utc) - timedelta(hours=since_hours)
+        datetime.now(UTC) - timedelta(hours=since_hours)
     ).isoformat()
 
     # Pipeline statuses that mean the lead has *already* moved past
@@ -313,7 +313,7 @@ async def export_leads_csv(
             writer.writerow(_flatten(row))
             yield buf.getvalue()
 
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     filename = f"solarlead-leads-{stamp}.csv"
     return StreamingResponse(
         _generate(),
@@ -1101,7 +1101,7 @@ async def send_draft(
     max_step = (steps_res.data or [{"sequence_step": 1}])[0].get("sequence_step") or 1
     next_step = max(2, max_step + 1)
 
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_iso = datetime.now(UTC).isoformat()
     camp_res = (
         sb.table("outreach_sends")
         .insert(

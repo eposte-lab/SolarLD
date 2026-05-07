@@ -39,7 +39,7 @@ import random
 import sys
 import textwrap
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 # ---------------------------------------------------------------------------
@@ -271,7 +271,7 @@ def _simulate_phase3(lead: LeadState, rng: random.Random) -> bool:
         "confidence": lead.email_confidence if lead.email_found else None,
         "cost_cents": ATOKA_COST_PER_CALL_CENTS,
         "raw_response": {"email_found": lead.email_found, "source": lead.email_source},
-        "occurred_at": datetime.now(tz=timezone.utc).isoformat(),
+        "occurred_at": datetime.now(tz=UTC).isoformat(),
     }
 
     if not lead.email_found:
@@ -694,8 +694,7 @@ def print_report(result: SimulationResult, gdpr: GdprValidationResult) -> None:
     sent = result.sent
     v1_total = result.total_v1_cents
     v2_total = result.total_v2_cents
-    saving_cents = v1_total - v2_total
-    saving_pct = result.cost_reduction_pct
+    v1_total - v2_total
 
     print()
     print("╔" + "═" * (_WIDTH - 2) + "╗")
@@ -716,7 +715,6 @@ def print_report(result: SimulationResult, gdpr: GdprValidationResult) -> None:
         pct = survivors / n * 100 if n > 0 else 0.0
         bar = _bar(survivors, n)
         phase_label = _PHASE_NAMES.get(ph, f"Phase {ph}")
-        marker = " ✉" if ph == 7 else "  "
         drop = prev - survivors if ph > 1 else 0
         drop_str = f"(−{drop:3d})" if drop > 0 else "       "
         print(
@@ -850,7 +848,7 @@ def print_report(result: SimulationResult, gdpr: GdprValidationResult) -> None:
         ("Funnel from 100 → sent ≥ 25", sent >= 25),
         ("GDPR audit trail 100% valid", gdpr.all_valid),
         ("Failed extractions still logged", gdpr.rows_without_email > 0),
-        (f"Cost reduction ≥ 40% (target −46%)", delta_pct_calc >= 40.0),
+        ("Cost reduction ≥ 40% (target −46%)", delta_pct_calc >= 40.0),
         ("Open rate ≥ 25%", result.opened >= sent * 0.25 if sent else False),
         ("Delivery rate ≥ 90%", result.delivered >= sent * 0.90 if sent else False),
     ]
@@ -883,7 +881,7 @@ def to_json_report(result: SimulationResult, gdpr: GdprValidationResult) -> dict
     return {
         "meta": {
             "n_candidates": n,
-            "generated_at": datetime.now(tz=timezone.utc).isoformat(),
+            "generated_at": datetime.now(tz=UTC).isoformat(),
         },
         "funnel": {
             ph: {

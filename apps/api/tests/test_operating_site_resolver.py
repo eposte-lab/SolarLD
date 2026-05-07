@@ -31,7 +31,6 @@ from src.services.operating_site_resolver import (
     resolve_operating_site,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixtures and stubs
 # ---------------------------------------------------------------------------
@@ -78,25 +77,25 @@ class _StubPlace:
 
 def _profile(**overrides) -> AtokaProfile:
     """Build a minimal AtokaProfile with optional sede_operativa coords."""
-    base: dict = dict(
-        vat_number="01234567890",
-        legal_name="Stub Spa",
-        ateco_code=None,
-        ateco_description=None,
-        yearly_revenue_cents=None,
-        employees=None,
-        website_domain=None,
-        decision_maker_name=None,
-        decision_maker_role=None,
-        linkedin_url=None,
-        phone=None,
-        hq_address="Via Roma 1, 00100 Roma",
-        hq_cap="00100",
-        hq_city="Roma",
-        hq_province="RM",
-        hq_lat=41.9,
-        hq_lng=12.5,
-    )
+    base: dict = {
+        "vat_number": "01234567890",
+        "legal_name": "Stub Spa",
+        "ateco_code": None,
+        "ateco_description": None,
+        "yearly_revenue_cents": None,
+        "employees": None,
+        "website_domain": None,
+        "decision_maker_name": None,
+        "decision_maker_role": None,
+        "linkedin_url": None,
+        "phone": None,
+        "hq_address": "Via Roma 1, 00100 Roma",
+        "hq_cap": "00100",
+        "hq_city": "Roma",
+        "hq_province": "RM",
+        "hq_lat": 41.9,
+        "hq_lng": 12.5,
+    }
     base.update(overrides)
     return AtokaProfile(**base)
 
@@ -332,7 +331,8 @@ async def test_all_tiers_fail_returns_empty() -> None:
 
     assert site.source == "unresolved"
     assert site.confidence == "none"
-    assert site.lat is None and site.lng is None
+    assert site.lat is None
+    assert site.lng is None
     assert isinstance(site, OperatingSite)
 
 

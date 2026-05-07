@@ -25,11 +25,13 @@ from __future__ import annotations
 
 import hashlib
 import secrets
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ...core.logging import get_logger
 from ...core.supabase_client import get_service_client
-from .types_v3 import FunnelV3Context, ScoredV3Candidate
+
+if TYPE_CHECKING:
+    from .types_v3 import FunnelV3Context, ScoredV3Candidate
 
 log = get_logger(__name__)
 

@@ -18,7 +18,7 @@ which mode produced them.
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 import geohash  # type: ignore[import-untyped]
@@ -28,29 +28,27 @@ from ...core.logging import get_logger
 from ...core.queue import enqueue
 from ...core.supabase_client import get_service_client
 from ...models.enums import RoofDataSource, RoofStatus
+from ...services.building_identification import (
+    identify_building,
+    match_to_operating_site,
+)
 from ...services.google_solar_service import (
     COST_PER_CALL_CENTS as SOLAR_COST_PER_CALL_CENTS,
+)
+from ...services.google_solar_service import (
     RoofInsight,
     SolarApiError,
     SolarApiNotFound,
     fetch_building_insight,
 )
 from ...services.hunter import classify_roof
-from ...services.mapbox_service import (
-    ForwardGeocodeResult,
-    MapboxError,
-    forward_geocode,
-)
-from ...services.building_identification import (
-    identify_building,
-    match_to_operating_site,
-)
 from ...services.operating_site_resolver import (
     OperatingSite,
-    resolve_operating_site,
 )
-from ...services.tenant_config_service import TechnicalFilters
-from .types import FunnelContext, ScoredCandidate
+
+if TYPE_CHECKING:
+    from ...services.tenant_config_service import TechnicalFilters
+    from .types import FunnelContext, ScoredCandidate
 
 log = get_logger(__name__)
 

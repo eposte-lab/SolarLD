@@ -68,19 +68,21 @@ end-to-end "all sources fail" path that verifies we land on the
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable
-
-import httpx
+from typing import TYPE_CHECKING, Any
 
 from ..core.logging import get_logger
-from ..services.italian_business_service import AtokaProfile
 from . import email_extractor, google_places_service, mapbox_service
 from .google_solar_service import (
-    SolarApiError,
     SolarApiNotFound,
     fetch_building_insight,
 )
+
+if TYPE_CHECKING:
+    import httpx
+
+    from ..services.italian_business_service import AtokaProfile
 
 log = get_logger(__name__)
 
@@ -119,7 +121,7 @@ class OperatingSite:
     confidence: str         # 'high' | 'medium' | 'low' | 'none'
 
     @classmethod
-    def empty(cls) -> "OperatingSite":
+    def empty(cls) -> OperatingSite:
         return cls(
             lat=None,
             lng=None,

@@ -35,12 +35,14 @@ Read-only — no writes happen here. Snapshotting into
 
 from __future__ import annotations
 
-from typing import Any
-from uuid import UUID
+from typing import TYPE_CHECKING, Any
 
 from ..core.logging import get_logger
 from ..core.supabase_client import get_service_client
 from .roi_service import compute_roi
+
+if TYPE_CHECKING:
+    from uuid import UUID
 
 log = get_logger(__name__)
 

@@ -24,7 +24,7 @@ Usage::
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from typing import Any, Literal, TypedDict
 
 # ---------------------------------------------------------------------------
@@ -42,7 +42,7 @@ TIER_LABEL: dict[TenantTier, str] = {
 }
 
 
-class Capability(str, Enum):
+class Capability(StrEnum):
     """Every gated feature must be represented here."""
 
     EMAIL_OUTREACH = "email_outreach"
@@ -58,7 +58,7 @@ class Capability(str, Enum):
     BULK_EXPORT = "bulk_export"
 
 
-class Budget(str, Enum):
+class Budget(StrEnum):
     """Monthly budget knobs (cents, or None=unlimited)."""
 
     MONTHLY_SCAN_BUDGET_CENTS = "monthly_scan_budget_cents"

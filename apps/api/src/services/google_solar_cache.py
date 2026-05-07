@@ -35,11 +35,9 @@ Cache invariants
 from __future__ import annotations
 
 import asyncio
-from dataclasses import asdict
-from datetime import datetime, timezone
-from typing import Any
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any
 
-import httpx
 import structlog
 
 from ..core.config import settings
@@ -54,6 +52,9 @@ from .google_solar_service import (
     fetch_building_insight,
     fetch_data_layers,
 )
+
+if TYPE_CHECKING:
+    import httpx
 
 log = structlog.get_logger(__name__)
 
@@ -281,8 +282,8 @@ async def _read_cache(
                 str(expires_raw).replace("Z", "+00:00")
             )
             if expires_at.tzinfo is None:
-                expires_at = expires_at.replace(tzinfo=timezone.utc)
-            if expires_at <= datetime.now(tz=timezone.utc):
+                expires_at = expires_at.replace(tzinfo=UTC)
+            if expires_at <= datetime.now(tz=UTC):
                 return None
         except ValueError:
             pass

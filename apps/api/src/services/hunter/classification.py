@@ -17,8 +17,12 @@ Sprint 2.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from ...models.enums import SubjectType
-from ..google_solar_service import RoofInsight
+
+if TYPE_CHECKING:
+    from ..google_solar_service import RoofInsight
 
 COMMERCIAL_AREA_THRESHOLD_SQM = 300.0
 LARGE_MIXED_AREA_SQM = 120.0
@@ -47,6 +51,4 @@ def is_likely_b2b_context(
     """
     if insight.area_sqm >= COMMERCIAL_AREA_THRESHOLD_SQM:
         return True
-    if insight.area_sqm >= LARGE_MIXED_AREA_SQM and neighbour_count_within_100m <= 2:
-        return True
-    return False
+    return bool(insight.area_sqm >= LARGE_MIXED_AREA_SQM and neighbour_count_within_100m <= 2)

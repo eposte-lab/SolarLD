@@ -7,9 +7,12 @@ resolve the current user + tenant context in one call.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from fastapi import APIRouter
 
-from ..core.security import CurrentUser
+if TYPE_CHECKING:
+    from ..core.security import CurrentUser
 
 router = APIRouter()
 

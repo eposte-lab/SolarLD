@@ -203,7 +203,7 @@ def build_overpass_query(
 
     # ISO 3166-2 codes for Italian provinces are formatted IT-XX (e.g. IT-MI).
     # Overpass `["ISO3166-2"~"^IT-(MI|BG|BS)$"]` matches the area boundary.
-    province_regex = "|".join(sorted(set(p.upper() for p in province_codes)))
+    province_regex = "|".join(sorted({p.upper() for p in province_codes}))
 
     landuse_clause = ""
     if landuse_values:
@@ -547,7 +547,7 @@ async def map_target_areas_for_tenant(
     matched = [c for c in classified if c.matched_sectors]
     persisted = await _persist_zones(supabase, tenant_id=tenant_id, classified=matched)
 
-    sectors_covered = sorted(set(s for c in matched for s in c.matched_sectors))
+    sectors_covered = sorted({s for c in matched for s in c.matched_sectors})
     elapsed = asyncio.get_event_loop().time() - started
 
     log.info(

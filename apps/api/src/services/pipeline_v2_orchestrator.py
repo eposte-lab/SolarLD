@@ -38,12 +38,11 @@ Public API
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import structlog
 
-from .consumption_estimator import stima_potenza_FV
 from .email_extractor import ExtractionResult, extract_email
 from .offline_filters import FilterResult, apply_offline_filters
 
@@ -261,7 +260,7 @@ async def log_rejection(
         "rule": filter_result.rule,
         "rule_threshold": filter_result.rule_threshold,
         "candidate_value": filter_result.candidate_value,
-        "rejected_at": datetime.now(tz=timezone.utc).isoformat(),
+        "rejected_at": datetime.now(tz=UTC).isoformat(),
     }
     try:
         await asyncio.to_thread(
@@ -299,7 +298,7 @@ async def log_extraction(
         "confidence": float(result.confidence) if result.confidence is not None else None,
         "cost_cents": result.cost_cents,
         "raw_response": result.raw_response or {},
-        "occurred_at": datetime.now(tz=timezone.utc).isoformat(),
+        "occurred_at": datetime.now(tz=UTC).isoformat(),
     }
     try:
         await asyncio.to_thread(

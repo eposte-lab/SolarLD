@@ -35,13 +35,17 @@ test verifies the application code *passes the right arguments*.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any
 
-import pytest
 from fastapi.testclient import TestClient
 
 from src.core.security import AuthContext, get_current_user
 from src.main import app
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    import pytest
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -91,7 +95,7 @@ class _FilterChain:
     real tenant-scoped filtering.
     """
 
-    def __init__(self, sb: "_FilterFakeSupabase", table: str) -> None:
+    def __init__(self, sb: _FilterFakeSupabase, table: str) -> None:
         self._sb = sb
         self._table = table
         self._op: str = "select"
@@ -100,58 +104,58 @@ class _FilterChain:
 
     # --- terminal ops ---
 
-    def select(self, *_a: Any, **_k: Any) -> "_FilterChain":
+    def select(self, *_a: Any, **_k: Any) -> _FilterChain:
         self._op = "select"
         return self
 
-    def insert(self, row: dict[str, Any]) -> "_FilterChain":
+    def insert(self, row: dict[str, Any]) -> _FilterChain:
         self._op = "insert"
         self._payload = row
         return self
 
-    def update(self, row: dict[str, Any]) -> "_FilterChain":
+    def update(self, row: dict[str, Any]) -> _FilterChain:
         self._op = "update"
         self._payload = row
         return self
 
-    def delete(self) -> "_FilterChain":
+    def delete(self) -> _FilterChain:
         self._op = "delete"
         return self
 
     # --- filters — eq is tracked, rest are no-ops ---
 
-    def eq(self, field: str, value: Any, *_a: Any, **_k: Any) -> "_FilterChain":
+    def eq(self, field: str, value: Any, *_a: Any, **_k: Any) -> _FilterChain:
         self.filters[field] = value
         return self
 
-    def neq(self, *_a: Any, **_k: Any) -> "_FilterChain":
+    def neq(self, *_a: Any, **_k: Any) -> _FilterChain:
         return self
 
-    def in_(self, *_a: Any, **_k: Any) -> "_FilterChain":
+    def in_(self, *_a: Any, **_k: Any) -> _FilterChain:
         return self
 
-    def is_(self, *_a: Any, **_k: Any) -> "_FilterChain":
+    def is_(self, *_a: Any, **_k: Any) -> _FilterChain:
         return self
 
-    def or_(self, *_a: Any, **_k: Any) -> "_FilterChain":
+    def or_(self, *_a: Any, **_k: Any) -> _FilterChain:
         return self
 
-    def gte(self, *_a: Any, **_k: Any) -> "_FilterChain":
+    def gte(self, *_a: Any, **_k: Any) -> _FilterChain:
         return self
 
-    def lte(self, *_a: Any, **_k: Any) -> "_FilterChain":
+    def lte(self, *_a: Any, **_k: Any) -> _FilterChain:
         return self
 
-    def order(self, *_a: Any, **_k: Any) -> "_FilterChain":
+    def order(self, *_a: Any, **_k: Any) -> _FilterChain:
         return self
 
-    def limit(self, *_a: Any, **_k: Any) -> "_FilterChain":
+    def limit(self, *_a: Any, **_k: Any) -> _FilterChain:
         return self
 
-    def range(self, *_a: Any, **_k: Any) -> "_FilterChain":
+    def range(self, *_a: Any, **_k: Any) -> _FilterChain:
         return self
 
-    def maybe_single(self, *_a: Any, **_k: Any) -> "_FilterChain":
+    def maybe_single(self, *_a: Any, **_k: Any) -> _FilterChain:
         return self
 
     def execute(self) -> _FakeResult:

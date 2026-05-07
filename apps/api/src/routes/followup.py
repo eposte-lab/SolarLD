@@ -13,14 +13,15 @@ Covers:
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from ..core.logging import get_logger
 from ..core.security import CurrentUser, require_tenant
 from ..core.supabase_client import get_service_client
-from ..core.logging import get_logger
 
 log = get_logger(__name__)
 
@@ -317,7 +318,7 @@ async def _send_followup(
     sb: Any,
 ) -> None:
     """Internal helper: send a drafted follow-up email via Resend."""
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     from ..services.resend_service import SendEmailInput, send_email
 
@@ -372,7 +373,7 @@ async def _send_followup(
     )
     max_step = (steps_res.data or [{"sequence_step": 1}])[0].get("sequence_step") or 1
     next_step = max(2, max_step + 1)
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_iso = datetime.now(UTC).isoformat()
 
     sb.table("outreach_sends").insert({
         "lead_id": lead_id,

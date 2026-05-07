@@ -15,7 +15,7 @@ super-admin flips them on from the console.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from ..core.logging import get_logger
@@ -214,7 +214,7 @@ async def _send_digest_to_tenant(
     if not recipient:
         return {"tenant_id": tenant_id, "skipped": "no_contact_email"}
 
-    since = datetime.now(timezone.utc) - timedelta(days=window_days)
+    since = datetime.now(UTC) - timedelta(days=window_days)
     stats = await _compute_stats(
         tenant_id=tenant_id,
         tenant_name=tenant.get("business_name") or "Installer",

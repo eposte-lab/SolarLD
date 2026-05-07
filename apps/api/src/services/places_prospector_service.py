@@ -140,10 +140,7 @@ async def resolve_anchor(
     """
     if comune:
         bias = comune.strip()
-        if province_code:
-            bias = f"{bias}, {province_code.upper()}, Italia"
-        else:
-            bias = f"{bias}, Italia"
+        bias = f"{bias}, {province_code.upper()}, Italia" if province_code else f"{bias}, Italia"
         latlng = await _geocode_text(query=bias, client=client, api_key=api_key)
         if latlng is not None:
             return latlng

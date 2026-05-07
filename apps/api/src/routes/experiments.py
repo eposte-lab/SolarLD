@@ -18,7 +18,7 @@ Routes:
 from __future__ import annotations
 
 import random as _random
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Response, status
@@ -145,7 +145,7 @@ async def create_experiment(
             ),
         )
 
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_iso = datetime.now(UTC).isoformat()
     insert_res = (
         sb.table("template_experiments")
         .insert(
@@ -194,7 +194,7 @@ async def patch_experiment(
     sb = get_service_client()
     _load_experiment(sb, experiment_id, tenant_id)  # ownership check
 
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_iso = datetime.now(UTC).isoformat()
     update: dict[str, Any] = {}
 
     if body.ended_at is not None:

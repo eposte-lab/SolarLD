@@ -100,8 +100,6 @@ jobs:
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
-        with:
-          version: 10
 
       - name: Setup Node 20
         uses: actions/setup-node@v4
@@ -166,6 +164,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Bootstrap Supabase-specific schemas
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d solarlead_mig <<'SQL'
+            CREATE SCHEMA IF NOT EXISTS auth;
+            CREATE TABLE IF NOT EXISTS auth.users (
+              id uuid PRIMARY KEY,
+              email text,
+              created_at timestamptz DEFAULT now()
+            );
+            CREATE SCHEMA IF NOT EXISTS storage;
+            CREATE SCHEMA IF NOT EXISTS realtime;
+          SQL
+
       - name: Apply migrations
         env:
           PGPASSWORD: postgres
@@ -186,8 +199,6 @@ jobs:
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
-        with:
-          version: 10
 
       - name: Setup Node 20
         uses: actions/setup-node@v4

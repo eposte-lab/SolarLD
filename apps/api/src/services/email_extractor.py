@@ -64,7 +64,7 @@ import re
 import unicodedata
 from dataclasses import dataclass, field
 from typing import Any
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urlparse
 
 import httpx
 import structlog
@@ -110,7 +110,7 @@ _PLAIN_PHONE_RE = re.compile(
 _ROLE_PREFIXES = frozenset({
     "info", "info.", "contatti", "contatto", "contact", "hello", "hola",
     "support", "supporto", "assistenza", "help", "noreply", "no-reply",
-    "noreply", "no.reply", "mail", "email", "newsletter", "news",
+    "no.reply", "mail", "email", "newsletter", "news",
     "marketing", "press", "stampa", "media", "hr", "risorse.umane",
     "recruiting", "jobs", "careers", "lavora.con.noi", "postmaster",
     "webmaster", "admin", "amministrazione", "segreteria", "reception",

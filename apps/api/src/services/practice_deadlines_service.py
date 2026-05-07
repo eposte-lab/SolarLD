@@ -27,9 +27,8 @@ Public API:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
-from typing import Any
-from uuid import UUID
+from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING, Any
 
 from ..core.logging import get_logger
 from ..core.supabase_client import get_service_client
@@ -40,12 +39,14 @@ from .practice_events_service import (
     EVT_DEADLINE_SATISFIED,
     EVT_DOCUMENT_ACCEPTED,
     EVT_DOCUMENT_COMPLETED,
-    EVT_DOCUMENT_REJECTED,
     EVT_DOCUMENT_SENT,
     EVT_PRACTICE_CANCELLED,
     PracticeEvent,
     record_event,
 )
+
+if TYPE_CHECKING:
+    from uuid import UUID
 
 log = get_logger(__name__)
 
@@ -320,7 +321,7 @@ def mark_overdue_and_notify(now: datetime | None = None) -> dict[str, Any]:
 
     Returns ``{"newly_overdue": N, "errors": M}``.
     """
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     sb = get_service_client()
 
     # 1. Find open deadlines that have aged past due_at.  We use the
@@ -451,7 +452,7 @@ def _parse_iso(value: str) -> datetime:
         return datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
         # Last-resort: treat as UTC noon to avoid TZ surprises.
-        return datetime.now(timezone.utc)
+        return datetime.now(UTC)
 
 
 def _days_between(iso_value: str, now: datetime) -> int:

@@ -10,8 +10,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
-from collections.abc import Iterator
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from fastapi.testclient import TestClient
@@ -19,13 +18,15 @@ from fastapi.testclient import TestClient
 from src.main import app
 from src.routes import webhooks as webhooks_module
 
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture()
+@pytest.fixture
 def recorded_enqueue(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[dict]]:
     """Replace ``enqueue`` inside the webhooks module with a recorder."""
     calls: list[dict] = []
@@ -34,7 +35,7 @@ def recorded_enqueue(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[dict]]:
         calls.append({"function": function, "payload": payload, "kwargs": kwargs})
 
     monkeypatch.setattr(webhooks_module, "enqueue", _fake_enqueue)
-    yield calls
+    return calls
 
 
 def _sign(body: bytes, secret: str) -> str:

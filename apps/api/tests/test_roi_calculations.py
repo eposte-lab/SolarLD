@@ -122,7 +122,8 @@ def test_compute_roi_incentive_percent_matches_subject_tier() -> None:
     b2b = compute_roi(
         estimated_kwp=10.0, estimated_yearly_kwh=13_000.0, subject_type="b2b"
     )
-    assert b2c is not None and b2b is not None
+    assert b2c is not None
+    assert b2b is not None
     b2c_pct = b2c.incentive_eur / b2c.gross_capex_eur
     b2b_pct = b2b.incentive_eur / b2b.gross_capex_eur
     assert abs(b2c_pct - INCENTIVE_PCT_B2C) < 1e-6

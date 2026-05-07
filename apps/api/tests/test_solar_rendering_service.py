@@ -30,7 +30,6 @@ from src.services.solar_rendering_service import (
     render_before_after,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -361,7 +360,6 @@ async def test_render_before_after_falls_back_when_tiff_lacks_georef_tags() -> N
 @pytest.mark.asyncio
 async def test_render_before_after_raises_on_solar_not_found() -> None:
     """SolarApiNotFound from fetch_data_layers should become SolarRenderingError."""
-    from src.services.google_solar_service import SolarApiNotFound
 
     lat, lng = 0.0, 0.0
     insight = _make_insight(lat=lat, lng=lng)
@@ -370,7 +368,6 @@ async def test_render_before_after_raises_on_solar_not_found() -> None:
         patch(
             "src.services.solar_rendering_service.fetch_data_layers",
             new=AsyncMock(side_effect=SolarApiNotFound("no data")),
-        ),
+        ),pytest.raises(SolarRenderingError, match="no imagery")
     ):
-        with pytest.raises(SolarRenderingError, match="no imagery"):
-            await render_before_after(lat, lng, insight, api_key="fake-key")
+        await render_before_after(lat, lng, insight, api_key="fake-key")

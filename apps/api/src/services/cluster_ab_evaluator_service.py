@@ -23,7 +23,7 @@ All writes are service-role scoped (no RLS restriction).
 from __future__ import annotations
 
 import math
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from typing import Any
 
 from ..core.logging import get_logger
@@ -234,7 +234,7 @@ async def _evaluate_one_cluster(
         winner_var = var_map[winner_label]
         loser_var = var_map[loser_label]
 
-        now_iso = datetime.now(timezone.utc).isoformat()
+        now_iso = datetime.now(UTC).isoformat()
         await sb.table("cluster_copy_variants") \
             .update({"status": "winner", "promoted_at": now_iso}) \
             .eq("id", winner_var["id"]) \
@@ -268,7 +268,7 @@ async def _evaluate_one_cluster(
 
     elif total_sent >= MAX_SAMPLES:
         # No significant difference after MAX_SAMPLES — call it no_difference.
-        now_iso = datetime.now(timezone.utc).isoformat()
+        now_iso = datetime.now(UTC).isoformat()
         for v in (va, vb):
             await sb.table("cluster_copy_variants") \
                 .update({"status": "no_difference", "promoted_at": now_iso}) \
@@ -300,7 +300,7 @@ async def _aggregate_variant(sb: Any, variant_id: str) -> tuple[int, int]:
     from datetime import timedelta
 
     since = (
-        datetime.now(timezone.utc) - timedelta(days=WINDOW_DAYS)
+        datetime.now(UTC) - timedelta(days=WINDOW_DAYS)
     ).isoformat()
 
     resp = await sb.table("outreach_sends") \
@@ -374,7 +374,7 @@ async def manually_promote_variant(
     round_number = winner["round_number"]
     loser_label = "B" if winner["variant_label"] == "A" else "A"
 
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_iso = datetime.now(UTC).isoformat()
 
     # Promote winner.
     await sb.table("cluster_copy_variants") \

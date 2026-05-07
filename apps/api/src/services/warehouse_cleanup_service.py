@@ -16,7 +16,7 @@ queue insert cleanly idempotents on re-runs (UNIQUE (tenant_id, lead_id)).
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from ..core.logging import get_logger
@@ -38,7 +38,7 @@ async def expire_stale_warehouse_leads(*, batch_size: int = 1000) -> dict[str, A
     the scan is O(stale rows) regardless of warehouse depth.
     """
     sb = get_service_client()
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
 
     # 1) Pick the candidates. We avoid an UPDATE … RETURNING that
     # would scale poorly under contention with the orchestrator's

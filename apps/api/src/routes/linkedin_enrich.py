@@ -16,8 +16,6 @@ expensive Proxycurl call.
 
 from __future__ import annotations
 
-from typing import Any
-
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 

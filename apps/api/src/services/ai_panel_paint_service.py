@@ -66,6 +66,7 @@ afternoon.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 from typing import Any
 
@@ -379,10 +380,8 @@ async def paint_panels_on_aerial(
             retry_after_s = 30.0
             ra_header = resp.headers.get("Retry-After")
             if ra_header:
-                try:
+                with contextlib.suppress(ValueError):
                     retry_after_s = float(ra_header)
-                except ValueError:
-                    pass
             log.warning(
                 "ai_paint.rate_limited",
                 retry_after_s=retry_after_s,

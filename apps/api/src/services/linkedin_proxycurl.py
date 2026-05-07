@@ -18,7 +18,7 @@ scraping legality. We pay; they deliver. ToS-compliant.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -68,7 +68,7 @@ def _is_cache_fresh(cached_at: str | None) -> bool:
         ts = datetime.fromisoformat(cached_at.replace("Z", "+00:00"))
     except (TypeError, ValueError):
         return False
-    return datetime.now(timezone.utc) - ts < timedelta(days=CACHE_TTL_DAYS)
+    return datetime.now(UTC) - ts < timedelta(days=CACHE_TTL_DAYS)
 
 
 def _parse_company(payload: dict[str, Any]) -> LinkedInCompany:
@@ -212,7 +212,7 @@ async def lookup_company_cached(
                 "linkedin_data": {
                     "found": found.found,
                     "raw": found.raw or {},
-                    "cached_at": datetime.now(timezone.utc).isoformat(),
+                    "cached_at": datetime.now(UTC).isoformat(),
                 }
             }
         ).eq("id", subject_id).execute()

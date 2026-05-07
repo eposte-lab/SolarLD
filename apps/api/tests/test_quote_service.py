@@ -8,11 +8,11 @@ up Postgres or WeasyPrint.
 
 from __future__ import annotations
 
+from datetime import UTC
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -228,7 +228,7 @@ def test_build_auto_fields_404_when_lead_missing() -> None:
 
 
 def test_next_preventivo_number_formats_year_and_seq() -> None:
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     from src.services import quote_service
 
@@ -238,7 +238,7 @@ def test_next_preventivo_number_formats_year_and_seq() -> None:
             "22222222-2222-2222-2222-222222222222"
         )
 
-    expected_year = datetime.now(timezone.utc).year
+    expected_year = datetime.now(UTC).year
     assert number == f"{expected_year}/PV/0042"
     assert seq == 42
 

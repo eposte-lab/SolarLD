@@ -67,8 +67,6 @@ async def complete_json(
     (``` or ```json) or with leading/trailing prose. Extracts the first
     JSON object found; returns {} only if nothing parseable exists.
     """
-    import json
-    import re
 
     full_system = (
         (system or "")

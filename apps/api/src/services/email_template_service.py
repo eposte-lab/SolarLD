@@ -378,7 +378,6 @@ def default_subject_for(
     Step 2/3/4 lines differ so Gmail doesn't collapse the thread.
     """
     st = (subject_type or "").lower()
-    sender = sender_first_name or tenant_name
 
     if email_style == "premium":
         # Premium subjects are crisp and informative — delegate to B2B visual
@@ -387,9 +386,9 @@ def default_subject_for(
         if st == "b2b":
             subjects_premium = {
                 1: f"{tenant_name} — analisi fotovoltaica per la vostra sede",
-                2: f"Re: analisi fotovoltaica — i numeri chiave",
-                3: f"Un caso reale nel vostro settore",
-                4: f"Chiudo il vostro caso — buon lavoro",
+                2: "Re: analisi fotovoltaica — i numeri chiave",
+                3: "Un caso reale nel vostro settore",
+                4: "Chiudo il vostro caso — buon lavoro",
             }
             return subjects_premium.get(sequence_step, subjects_premium[1])
         return f"{tenant_name} — analisi fotovoltaica personalizzata"
@@ -417,7 +416,7 @@ def default_subject_for(
         if step == 3:
             return f"{tenant_name} — ultima occasione di rivedere i numeri"
         if step == 4:
-            return f"Re: fotovoltaico per la vostra sede"
+            return "Re: fotovoltaico per la vostra sede"
         return base
     if st == "b2c":
         base = (
@@ -429,7 +428,7 @@ def default_subject_for(
         if step == 3:
             return f"{tenant_name} — ultimo promemoria sul rendering del tetto"
         if step == 4:
-            return f"Re: fotovoltaico per la vostra casa"
+            return "Re: fotovoltaico per la vostra casa"
         return base
     return f"{tenant_name} — simulazione fotovoltaica"
 
@@ -651,10 +650,7 @@ def _template_stem_for(
 
     # ── Premium family (Sprint 9) ──────────────────────────────────────
     if email_style == "premium":
-        if step == 1:
-            cand = "outreach_solarld_premium"
-        else:
-            cand = f"outreach_solarld_premium_step{step}"
+        cand = "outreach_solarld_premium" if step == 1 else f"outreach_solarld_premium_step{step}"
         if f"{cand}.html.j2" in env.list_templates():
             return cand
         # Step N missing → fall back to step 1 premium.

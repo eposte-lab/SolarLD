@@ -16,14 +16,16 @@ semantics and error shape.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from typing import Any
-from uuid import UUID
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any
 
 from fastapi import HTTPException, status
 
 from ..core.logging import get_logger
 from ..core.supabase_client import get_service_client
+
+if TYPE_CHECKING:
+    from uuid import UUID
 
 log = get_logger(__name__)
 
@@ -93,7 +95,7 @@ def lock(tenant_id: UUID | str, *, user_id: UUID | str | None) -> dict[str, Any]
         log.info("territory_lock.noop", tenant_id=tid, reason="already_locked")
         return row
 
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_iso = datetime.now(UTC).isoformat()
     upd = (
         sb.table("tenants")
         .update(

@@ -19,7 +19,7 @@ POST   /v1/email-templates/validate     Validate HTML without saving (syntax + G
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, status
@@ -282,7 +282,7 @@ async def update_template(
         )
         return res.data[0]
 
-    patch["updated_at"] = datetime.now(timezone.utc).isoformat()
+    patch["updated_at"] = datetime.now(UTC).isoformat()
     res = (
         sb.table("email_templates")
         .update(patch)
@@ -489,9 +489,7 @@ def render_template_for_lead(
 
     # Build context from lead data.
     place_blob = (subject_row.get("raw_data") or {}).get("enrichment_places") or {}
-    scraped = {}
     # Try contact extraction
-    contact = {}
 
     # Resolve address pieces — prefer scan_candidate enrichment data via raw_data,
     # fall back to subject fields.

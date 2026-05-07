@@ -12,7 +12,7 @@ produce user-visible duplicate effects.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 from fastapi import (
@@ -297,7 +297,7 @@ async def _bolletta_rate_allows(slug: str) -> bool:
     """
     try:
         r = get_redis()
-        key = f"bolletta:upload:{slug}:{datetime.now(timezone.utc):%Y%m%d%H}"
+        key = f"bolletta:upload:{slug}:{datetime.now(UTC):%Y%m%d%H}"
         pipe = r.pipeline()
         pipe.incr(key, 1)
         pipe.expire(key, _BOLLETTA_RATE_KEY_TTL)
@@ -457,7 +457,7 @@ async def upload_bolletta(
     # ---- 7. Stamp lead + emit events
     try:
         sb.table("leads").update(
-            {"bolletta_uploaded_at": datetime.now(timezone.utc).isoformat()}
+            {"bolletta_uploaded_at": datetime.now(UTC).isoformat()}
         ).eq("id", lead["id"]).execute()
     except Exception as exc:  # noqa: BLE001
         log.warning("bolletta.lead_stamp_failed", err=str(exc))
@@ -518,7 +518,7 @@ async def upload_bolletta(
                     ),
                 },
                 "elapsed_ms": 0,
-                "occurred_at": datetime.now(timezone.utc).isoformat(),
+                "occurred_at": datetime.now(UTC).isoformat(),
             }
         ).execute()
     except Exception as exc:  # noqa: BLE001
@@ -613,7 +613,7 @@ async def upload_bolletta_manual(
 
     try:
         sb.table("leads").update(
-            {"bolletta_uploaded_at": datetime.now(timezone.utc).isoformat()}
+            {"bolletta_uploaded_at": datetime.now(UTC).isoformat()}
         ).eq("id", lead["id"]).execute()
     except Exception as exc:  # noqa: BLE001
         log.warning("bolletta.lead_stamp_failed", err=str(exc))
@@ -897,7 +897,7 @@ async def portal_track(event: PortalTrackEvent) -> Response:
                 "event_kind": event.event_kind,
                 "metadata": event.metadata,
                 "elapsed_ms": event.elapsed_ms,
-                "occurred_at": datetime.now(timezone.utc).isoformat(),
+                "occurred_at": datetime.now(UTC).isoformat(),
             }
         ).execute()
     except Exception as exc:  # noqa: BLE001
@@ -945,7 +945,7 @@ async def _beacon_rate_allows(session_id: str, slug: str) -> bool:
     """
     try:
         r = get_redis()
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         key = (
             f"beacon:portal:{slug}:{session_id}:"
             f"{now.strftime('%Y%m%d%H%M')}"
@@ -1072,7 +1072,7 @@ async def _upsert_conversion(
     if lead is None:
         return False
 
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_iso = datetime.now(UTC).isoformat()
     row: dict[str, Any] = {
         "tenant_id": lead["tenant_id"],
         "lead_id": lead["id"],

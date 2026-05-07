@@ -18,7 +18,7 @@ Design rules:
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from ..core.logging import get_logger
@@ -67,7 +67,7 @@ async def log_action(
                 "target_table": target_table,
                 "target_id": str(target_id) if target_id is not None else None,
                 "diff": diff,
-                "at": datetime.now(timezone.utc).isoformat(),
+                "at": datetime.now(UTC).isoformat(),
             }
         ).execute()
     except Exception as exc:  # noqa: BLE001

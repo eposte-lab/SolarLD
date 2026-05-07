@@ -20,11 +20,13 @@ tests will segment on `reddito_bucket` directly.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
-from uuid import UUID
+from typing import TYPE_CHECKING, Any
 
 from ..core.logging import get_logger
 from ..core.supabase_client import get_service_client
+
+if TYPE_CHECKING:
+    from uuid import UUID
 
 log = get_logger(__name__)
 
@@ -88,7 +90,7 @@ class AudienceFilters:
     case_unifamiliari_pct_min: int = 40
 
     @classmethod
-    def from_config(cls, cfg: dict[str, Any] | None) -> "AudienceFilters":
+    def from_config(cls, cfg: dict[str, Any] | None) -> AudienceFilters:
         cfg = cfg or {}
         return cls(
             reddito_min_eur=int(cfg.get("reddito_min_eur") or 0),

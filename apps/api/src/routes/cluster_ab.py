@@ -29,6 +29,7 @@ All routes require authentication; data is RLS-scoped to the tenant.
 from __future__ import annotations
 
 import random as _random
+from datetime import UTC
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, status
@@ -250,8 +251,8 @@ async def regenerate_cluster(cluster_signature: str, user: CurrentUser) -> dict[
     current_round = max(v["round_number"] for v in current)
 
     # Archive existing active variants.
-    from datetime import datetime, timezone
-    now_iso = datetime.now(timezone.utc).isoformat()
+    from datetime import datetime
+    now_iso = datetime.now(UTC).isoformat()
     ids = [v["id"] for v in current]
     for vid in ids:
         await sb.table("cluster_copy_variants") \

@@ -18,7 +18,7 @@ Docs: https://developers.neverbounce.com/v4.2/reference/single-check
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 import httpx
@@ -37,7 +37,7 @@ class NeverBounceError(Exception):
     pass
 
 
-class VerificationResult(str, Enum):
+class VerificationResult(StrEnum):
     VALID = "valid"
     INVALID = "invalid"
     DISPOSABLE = "disposable"

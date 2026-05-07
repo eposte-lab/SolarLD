@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import io
 from dataclasses import dataclass, field
+from datetime import UTC
 from pathlib import PurePosixPath
 from typing import Any
 
@@ -230,8 +231,8 @@ async def save_custom_template(supabase: Any, tenant_id: str, html: str) -> str:
         raise RuntimeError(f"Storage upload failed: {upload_resp.error.message}")
 
     # Update tenant metadata.
-    from datetime import datetime, timezone
-    now_iso = datetime.now(timezone.utc).isoformat()
+    from datetime import datetime
+    now_iso = datetime.now(UTC).isoformat()
     await supabase.table("tenants").update({
         "custom_email_template_path": path,
         "custom_email_template_uploaded_at": now_iso,

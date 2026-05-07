@@ -128,7 +128,7 @@ def _subject_from_lead(
 
     import hashlib
 
-    hash_src = f"{(first+last).lower()}|{cap or ''}".encode("utf-8")
+    hash_src = f"{(first+last).lower()}|{cap or ''}".encode()
     pii_hash = hashlib.sha256(hash_src).hexdigest()
 
     return {

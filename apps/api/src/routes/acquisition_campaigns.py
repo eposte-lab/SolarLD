@@ -17,7 +17,7 @@ POST   /v1/acquisition-campaigns/{id}/pause     → status='paused'
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, status
@@ -232,7 +232,7 @@ async def update_acquisition_campaign(
     sb = get_service_client()
 
     update_data: dict[str, Any] = {
-        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(UTC).isoformat(),
     }
     if body.name is not None:
         update_data["name"] = body.name.strip()
@@ -341,7 +341,7 @@ async def archive_acquisition_campaign(
         sb.table("acquisition_campaigns").update(
             {
                 "status": "archived",
-                "updated_at": datetime.now(timezone.utc).isoformat(),
+                "updated_at": datetime.now(UTC).isoformat(),
             }
         ).eq("id", campaign_id).eq("tenant_id", tenant_id).execute()
     except Exception as exc:  # noqa: BLE001
@@ -367,7 +367,7 @@ async def activate_acquisition_campaign(
     """Move a campaign from draft/paused to active."""
     tenant_id = require_tenant(ctx)
     sb = get_service_client()
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_iso = datetime.now(UTC).isoformat()
     try:
         res = (
             sb.table("acquisition_campaigns")
@@ -396,7 +396,7 @@ async def pause_acquisition_campaign(
     """Pause an active campaign."""
     tenant_id = require_tenant(ctx)
     sb = get_service_client()
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_iso = datetime.now(UTC).isoformat()
     try:
         res = (
             sb.table("acquisition_campaigns")
@@ -473,7 +473,7 @@ async def list_campaign_overrides(
         .order("start_at", desc=True)
     )
     if active_only:
-        now_iso = datetime.now(timezone.utc).isoformat()
+        now_iso = datetime.now(UTC).isoformat()
         q = q.lte("start_at", now_iso).gte("end_at", now_iso)
 
     res = q.execute()

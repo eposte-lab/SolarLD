@@ -24,7 +24,7 @@ Resend subdomain per tenant still attribute correctly.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from ..core.logging import get_logger
@@ -70,10 +70,10 @@ async def run_reputation_digest(
     Returns ``{"rows": N, "alarms": M}`` for logging.
     """
     sb = get_service_client()
-    today = as_of or datetime.now(timezone.utc).date()
+    today = as_of or datetime.now(UTC).date()
     window_start = today - timedelta(days=WINDOW_DAYS - 1)
     window_start_iso = datetime.combine(
-        window_start, datetime.min.time(), tzinfo=timezone.utc
+        window_start, datetime.min.time(), tzinfo=UTC
     ).isoformat()
 
     # ------------------------------------------------------------------

@@ -56,11 +56,9 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import sys
-import time
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from typing import Any
 
 import httpx
@@ -391,7 +389,7 @@ async def sync_warmup_to_db(
                 )
                 if res.data and res.data[0].get("warmup_started_at") is None:
                     update_payload["warmup_started_at"] = datetime.now(
-                        tz=timezone.utc
+                        tz=UTC
                     ).isoformat()
 
             # Persist health score in a JSON metadata blob if the column exists.

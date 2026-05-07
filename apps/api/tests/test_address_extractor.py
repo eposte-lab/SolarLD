@@ -23,7 +23,6 @@ from src.services.email_extractor import (
     scan_website_for_address,
 )
 
-
 JSON_LD_FIXTURE = """
 <html><head>
 <script type="application/ld+json">

@@ -37,12 +37,14 @@ Unit testable pieces are kept pure at the bottom of the file:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Any, Literal
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any, Literal
 
 from ..core.logging import get_logger
 from ..core.redis import get_redis
-from ..core.tier import TenantTier
+
+if TYPE_CHECKING:
+    from ..core.tier import TenantTier
 
 log = get_logger(__name__)
 
@@ -157,7 +159,7 @@ async def acquire_email_quota(tenant_row: dict[str, Any]) -> RateLimitDecision:
     settings_obj = tenant_row.get("settings") or {}
     verified_at = _parse_verified_at(tenant_row.get("email_from_domain_verified_at"))
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     warming = is_warming_up(verified_at=verified_at, now=now)
 
     if warming:
@@ -196,7 +198,7 @@ async def peek_email_quota(tenant_row: dict[str, Any]) -> RateLimitDecision:
     tier: TenantTier = tenant_row.get("tier") or "founding"
     settings_obj = tenant_row.get("settings") or {}
     verified_at = _parse_verified_at(tenant_row.get("email_from_domain_verified_at"))
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     try:
         r = get_redis()
@@ -308,7 +310,7 @@ def inbox_effective_daily_cap(inbox: dict[str, Any]) -> int:
     Returns:
         Effective daily cap (integer ≥ 1).
     """
-    from datetime import date, datetime, timezone
+    from datetime import date, datetime
 
     daily_cap = int(inbox.get("daily_cap") or STEADY_STATE_OUTREACH_CAP)
     style = inbox.get("email_style") or "visual_preventivo"
@@ -446,11 +448,11 @@ def _parse_verified_at(value: Any) -> datetime | None:
     if value is None:
         return None
     if isinstance(value, datetime):
-        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        return value if value.tzinfo else value.replace(tzinfo=UTC)
     if isinstance(value, str):
         try:
             dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
-            return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+            return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
         except ValueError:
             return None
     return None

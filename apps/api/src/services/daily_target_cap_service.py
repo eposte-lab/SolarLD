@@ -33,7 +33,7 @@ gets exercised in integration tests with a fakeredis instance.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
@@ -115,7 +115,7 @@ def redis_key_for(tenant_id: str, *, now_utc: datetime | None = None) -> str:
     should leave it None to use the wall clock.
     """
     if now_utc is None:
-        now_utc = datetime.now(timezone.utc)
+        now_utc = datetime.now(UTC)
     rome_date = now_utc.astimezone(TZ_ROME).strftime("%Y-%m-%d")
     return f"daily_target_cap:{tenant_id}:{rome_date}"
 
@@ -202,7 +202,7 @@ def campaign_redis_key_for(
 ) -> str:
     """Build the Redis sub-cap key for one campaign + Rome calendar date."""
     if now_utc is None:
-        now_utc = datetime.now(timezone.utc)
+        now_utc = datetime.now(UTC)
     rome_date = now_utc.astimezone(TZ_ROME).strftime("%Y-%m-%d")
     return f"daily_campaign_cap:{tenant_id}:{list_id}:{rome_date}"
 

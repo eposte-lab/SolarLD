@@ -13,9 +13,8 @@ from __future__ import annotations
 import secrets
 from typing import Any
 
-from fastapi import Response as _Response
-
 from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import Response as _Response
 from pydantic import BaseModel, Field, HttpUrl
 
 from ..core.security import CurrentUser, require_tenant

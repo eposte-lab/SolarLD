@@ -14,7 +14,7 @@ Usage:
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from arq import create_pool
@@ -77,13 +77,13 @@ async def fire_crm_event(
     same logical event collapse to one job. Callers should pass a
     stable ``data["id"]`` (e.g. lead_id) so the job_id stays stable.
     """
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     subject_id = data.get("id") or data.get("lead_id") or data.get("subject_id") or ""
     payload = {
         "tenant_id": tenant_id,
         "event_type": event_type,
-        "occurred_at": occurred_at or datetime.now(timezone.utc).isoformat(),
+        "occurred_at": occurred_at or datetime.now(UTC).isoformat(),
         "data": data,
     }
     return await enqueue(

@@ -127,10 +127,7 @@ def build_unsubscribe_url(
     """
 
     token = generate_token(lead_id, tenant_id, email_hash)
-    if tracking_host:
-        base = f"https://{tracking_host.strip('/')}"
-    else:
-        base = (api_base or "").rstrip("/")
+    base = f"https://{tracking_host.strip('/')}" if tracking_host else (api_base or "").rstrip("/")
     return f"{base}/v1/unsubscribe?t={token}"
 
 

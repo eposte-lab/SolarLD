@@ -7,14 +7,12 @@ builder, classifier and persistence flow.
 
 from __future__ import annotations
 
-import math
 from typing import Any
 
 import pytest
 
 from src.services import industrial_zones_mapper as izm
 from src.services.sector_target_service import OsmTagHint, SectorAreaMapping
-
 
 # ---------------------------------------------------------------------------
 # Geometry helpers

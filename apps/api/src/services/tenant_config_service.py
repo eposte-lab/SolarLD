@@ -66,7 +66,7 @@ class TechnicalFilters:
     min_exposure_score: float
 
     @classmethod
-    def from_tecnico(cls, tecnico_cfg: dict[str, Any]) -> "TechnicalFilters":
+    def from_tecnico(cls, tecnico_cfg: dict[str, Any]) -> TechnicalFilters:
         """Project a `tecnico` module's config dict onto TechnicalFilters."""
         return cls(
             min_area_sqm=float(tecnico_cfg.get("min_area_sqm") or 0.0),

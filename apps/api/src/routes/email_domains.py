@@ -13,7 +13,7 @@ POST   /v1/email-domains/{id}/unpause     Unpause
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, status
@@ -109,7 +109,7 @@ async def list_email_domains(ctx: CurrentUser) -> dict[str, Any]:
         return {"domains": [], "total": 0}
 
     rows = res.data or []
-    now_utc = datetime.now(timezone.utc).isoformat()
+    now_utc = datetime.now(UTC).isoformat()
     for row in rows:
         paused_until = row.get("paused_until")
         row["is_paused"] = bool(paused_until and paused_until > now_utc)
@@ -186,7 +186,7 @@ async def update_email_domain(
     sb = get_service_client()
 
     update_data: dict[str, Any] = {
-        "updated_at": datetime.now(timezone.utc).isoformat()
+        "updated_at": datetime.now(UTC).isoformat()
     }
     if body.tracking_host is not None:
         update_data["tracking_host"] = (
@@ -323,7 +323,7 @@ async def run_dns_check(domain_id: str, ctx: CurrentUser) -> dict[str, Any]:
         tracking_host=tracking_host,
     )
 
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_iso = datetime.now(UTC).isoformat()
     update_fields: dict[str, Any] = {"last_dns_check_at": now_iso, "updated_at": now_iso}
 
     if verification.spf.ok:
@@ -363,8 +363,8 @@ async def pause_email_domain(
     """Pause all outreach sends from this domain for ``hours`` hours."""
     tenant_id = require_tenant(ctx)
     sb = get_service_client()
-    until = (datetime.now(timezone.utc) + timedelta(hours=hours)).isoformat()
-    now_iso = datetime.now(timezone.utc).isoformat()
+    until = (datetime.now(UTC) + timedelta(hours=hours)).isoformat()
+    now_iso = datetime.now(UTC).isoformat()
     try:
         res = (
             sb.table("tenant_email_domains")
@@ -390,7 +390,7 @@ async def unpause_email_domain(domain_id: str, ctx: CurrentUser) -> dict[str, An
     """Manually clear the pause on a domain."""
     tenant_id = require_tenant(ctx)
     sb = get_service_client()
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_iso = datetime.now(UTC).isoformat()
     try:
         res = (
             sb.table("tenant_email_domains")

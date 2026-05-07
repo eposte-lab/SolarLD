@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
-from .enums import TerritoryType
+if TYPE_CHECKING:
+    from datetime import datetime
+
+    from .enums import TerritoryType
 
 
 class TerritoryCreate(BaseModel):

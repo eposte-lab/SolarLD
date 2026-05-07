@@ -34,12 +34,12 @@ from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from ..core.logging import get_logger
+from ..core.queue import enqueue
 from ..core.security import CurrentUser, require_tenant
 from ..core.supabase_client import get_service_client
 from ..services import prospector_service
 from ..services.places_prospector_service import search_places
 from ..services.places_to_sector import _SECTOR_TO_INCLUDED_TYPES
-from ..core.queue import enqueue
 
 router = APIRouter()
 log = get_logger(__name__)

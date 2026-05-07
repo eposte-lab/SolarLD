@@ -36,31 +36,31 @@ included so duplicates are visible in Sentry).
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from ..core.config import settings
 from ..core.logging import get_logger
 from ..core.queue import enqueue
 from ..core.supabase_client import get_service_client
 from ..models.enums import LeadStatus, OutreachChannel
+from ..services.deliverability_monitor_service import run_hourly_monitor
 from ..services.digest_service import send_daily_digests, send_weekly_digests
+from ..services.engagement_service import run_engagement_rollup
+from ..services.followup_scenario_service import (
+    FollowupSnapshot,
+    evaluate_followup_scenario,
+)
 from ..services.followup_service import (
     STEP_2_DELAY_DAYS,
     STEP_4_DELAY_DAYS,
     build_candidate_from_rows,
     select_next_step,
 )
-from ..services.followup_scenario_service import (
-    FollowupSnapshot,
-    evaluate_followup_scenario,
-)
 from ..services.notifications_service import notify as _notify_inapp
-from ..services.deliverability_monitor_service import run_hourly_monitor
-from ..services.engagement_service import run_engagement_rollup
-from ..services.reputation_service import run_reputation_digest
 from ..services.reputation_enforcement_service import run_enforcement
+from ..services.reputation_service import run_reputation_digest
 from ..services.send_time_service import pick_next_send_time, run_send_time_rollup
-from ..core.config import settings
 
 log = get_logger(__name__)
 
@@ -85,7 +85,7 @@ async def follow_up_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
          double-runs of the cron collapse cleanly.
     """
     sb = get_service_client()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     cutoff = (now - timedelta(days=STEP_2_DELAY_DAYS)).isoformat()
     # 24h cooldown — if the operator manually sent a follow-up to a
     # lead in the last 24 hours, the cron skips that lead to avoid
@@ -349,7 +349,7 @@ async def sla_first_touch_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
     deduplication-by-day guard would add DB state we don't need yet.
     """
     sb = get_service_client()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     # 1. Load CRM module configs for all tenants.
     mods_res = (
@@ -444,7 +444,7 @@ async def retention_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
     """
     sb = get_service_client()
     cutoff = (
-        datetime.now(timezone.utc) - timedelta(days=RETENTION_DAYS)
+        datetime.now(UTC) - timedelta(days=RETENTION_DAYS)
     ).isoformat()
 
     # Look up the victims first so we can emit a count (the Supabase
@@ -715,7 +715,7 @@ async def weekly_cluster_refresh_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
     sb = get_service_client()
 
     # Find candidate clusters: active variant rows older than the threshold.
-    cutoff = (datetime.now(timezone.utc) - timedelta(days=STALE_VARIANT_AGE_DAYS)).isoformat()
+    cutoff = (datetime.now(UTC) - timedelta(days=STALE_VARIANT_AGE_DAYS)).isoformat()
     res = (
         sb.table("cluster_copy_variants")
         .select(
@@ -915,7 +915,7 @@ async def engagement_followup_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
     cron the same day yields no duplicates.
     """
     sb = get_service_client()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     cold_cutoff = (now - timedelta(days=STEP_4_DELAY_DAYS + 1)).isoformat()
     manual_cooldown = (now - timedelta(hours=24)).isoformat()
 
@@ -1084,7 +1084,7 @@ async def engagement_followup_for_tenant(tenant_id: str) -> dict[str, Any]:
     and callable on-demand (used by POST /v1/followup/trigger).
     """
     sb = get_service_client()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     cold_cutoff = (now - timedelta(days=STEP_4_DELAY_DAYS + 1)).isoformat()
     terminal = [
         LeadStatus.CLOSED_WON.value,
@@ -1206,7 +1206,7 @@ def _parse_ts(raw: Any) -> datetime | None:
     if raw is None:
         return None
     if isinstance(raw, datetime):
-        return raw if raw.tzinfo else raw.replace(tzinfo=timezone.utc)
+        return raw if raw.tzinfo else raw.replace(tzinfo=UTC)
     s = str(raw).strip()
     if not s:
         return None
@@ -1216,7 +1216,7 @@ def _parse_ts(raw: Any) -> datetime | None:
         dt = datetime.fromisoformat(s)
     except ValueError:
         return None
-    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
 
 
 # ---------------------------------------------------------------------------

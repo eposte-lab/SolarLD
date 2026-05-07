@@ -51,7 +51,7 @@ Degradation:
 from __future__ import annotations
 
 import random as _random
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -64,29 +64,28 @@ from ..core.logging import get_logger
 from ..core.supabase_client import get_service_client
 from ..core.tier import Capability, TierGateError, can_tenant_use, require_capability
 from ..models.enums import CampaignStatus, LeadStatus, OutreachChannel, SubjectType
+from ..services import daily_target_cap_service, dialog360_service, inbox_service
 from ..services.claude_service import complete as claude_complete
+from ..services.content_validator import ValidationResult, validate_email_content
+from ..services.dialog360_service import WA_COST_PER_MESSAGE_CENTS
+from ..services.email_providers import get_provider
+from ..services.email_providers.base import ProviderError
 from ..services.email_template_service import (
     OutreachContext,
     default_subject_for,
-    render_outreach_email,
     render_outreach_email_with_fallback,
 )
-from ..services import dialog360_service
-from ..services.dialog360_service import WA_COST_PER_MESSAGE_CENTS
+from ..services.inbox_service import (
+    PAUSE_HOURS_5XX,
+    PAUSE_HOURS_429,
+    get_domain_purpose,
+    get_tracking_host,
+)
 from ..services.pixart_service import (
     LetterCampaignRequest,
     build_copy_overrides,
     resolve_template_id,
     submit_letter_campaign,
-)
-from ..services import daily_target_cap_service, inbox_service
-from ..services.email_providers import get_provider
-from ..services.email_providers.base import ProviderError
-from ..services.inbox_service import (
-    PAUSE_HOURS_429,
-    PAUSE_HOURS_5XX,
-    get_domain_purpose,
-    get_tracking_host,
 )
 from ..services.rate_limit_service import acquire_email_quota
 from ..services.resend_service import (
@@ -94,9 +93,8 @@ from ..services.resend_service import (
     ResendError,
     SendEmailInput,
 )
-from ..services.content_validator import validate_email_content, ValidationResult
-from ..services.send_window_service import is_within_send_window
 from ..services.runtime_preflight import check_preflight
+from ..services.send_window_service import is_within_send_window
 from .base import AgentBase
 
 log = get_logger(__name__)
@@ -929,11 +927,12 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
                 # No variants yet — generate a pair async (non-blocking).
                 # The current send uses default copy; next send in this cluster
                 # will have variants ready.
+                import asyncio
+
                 from .variant_generator_service import (
                     generate_variant_pair,
                     persist_variant_pair,
                 )
-                import asyncio
 
                 async def _gen_and_persist() -> None:
                     try:
@@ -1143,8 +1142,8 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
         # the standard sequence_step chain. Sector news + scenario flags
         # are populated in copy_overrides by the cron.
         elif payload.engagement_scenario:
-            from ..services.email_template_service import render_followup_email
             from ..services import sector_news_service
+            from ..services.email_template_service import render_followup_email
 
             sector_news = await sector_news_service.pick_news(
                 sb,
@@ -1388,7 +1387,7 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
         # ------------------------------------------------------------------
         # 10) Persist campaign + advance lead pipeline
         # ------------------------------------------------------------------
-        now_iso = datetime.now(timezone.utc).isoformat()
+        now_iso = datetime.now(UTC).isoformat()
         campaign_insert: dict[str, Any] = {
             "tenant_id": payload.tenant_id,
             "lead_id": payload.lead_id,
@@ -1587,7 +1586,7 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
     ) -> OutreachOutput:
         """Insert a campaigns row with status=failed for dashboard visibility."""
         sb = get_service_client()
-        now_iso = datetime.now(timezone.utc).isoformat()
+        now_iso = datetime.now(UTC).isoformat()
         subject_type = subject.get("type") or SubjectType.UNKNOWN.value
         failure_insert = {
             "tenant_id": payload.tenant_id,
@@ -1626,11 +1625,11 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
     async def _execute_postal(
         self,
         *,
-        payload: "OutreachInput",
+        payload: OutreachInput,
         lead: dict[str, Any],
         subject: dict[str, Any],
         tenant_row: dict[str, Any],
-    ) -> "OutreachOutput":
+    ) -> OutreachOutput:
         """Postal path — B2C residential letter via Pixart.
 
         Pixart's product model is per-CAP distribution: we submit the
@@ -1700,7 +1699,7 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
                 failure_reason=f"pixart_submit_error: {str(exc)[:200]}",
             )
 
-        now_iso = datetime.now(timezone.utc).isoformat()
+        now_iso = datetime.now(UTC).isoformat()
         campaign_insert: dict[str, Any] = {
             "tenant_id": payload.tenant_id,
             "lead_id": payload.lead_id,
@@ -1777,11 +1776,11 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
     async def _execute_whatsapp(
         self,
         *,
-        payload: "OutreachInput",
+        payload: OutreachInput,
         lead: dict[str, Any],
         subject: dict[str, Any],
         tenant_row: dict[str, Any],
-    ) -> "OutreachOutput":
+    ) -> OutreachOutput:
         """WA follow-up path (sequence_step ≥ 2, reply-path only).
 
         We deliberately block step 1 (cold outbound) because Meta's
@@ -1859,7 +1858,7 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
             )
 
         # Persist campaign row — reuse email_message_id for the wamid
-        now_iso = datetime.now(timezone.utc).isoformat()
+        now_iso = datetime.now(UTC).isoformat()
         campaign_insert: dict[str, Any] = {
             "tenant_id": payload.tenant_id,
             "lead_id": payload.lead_id,
@@ -2318,16 +2317,15 @@ async def _check_neverbounce(
     email: str,
     tenant_id: str,
     lead_id: str,
-) -> "EmailVerification | None":
+) -> EmailVerification | None:
     """Run NeverBounce single-email check; return None on any error.
 
     Errors are swallowed so NeverBounce downtime never blocks legitimate
     sends. The result is logged to api_usage_log for reputation analytics.
     """
     from ..services.neverbounce_service import (
-        EmailVerification,
-        NeverBounceError,
         NEVERBOUNCE_COST_PER_CALL_CENTS,
+        NeverBounceError,
         verify_email,
     )
 
@@ -2565,7 +2563,7 @@ async def _log_content_quarantine(
     rendered: Any,          # RenderedEmail
     email_style: str,
     sequence_step: int,
-    val_result: "ValidationResult",
+    val_result: ValidationResult,
 ) -> None:
     """Persist a quarantine_emails row so ops can review and approve/reject.
 

@@ -50,9 +50,8 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
-import httpx
 import structlog
 
 # Reach into email_extractor's private helpers on purpose — see the
@@ -62,9 +61,12 @@ import structlog
 from .email_extractor import (
     ExtractionResult,
     _check_blacklists,  # type: ignore[reportPrivateUsage]
-    _from_atoka,        # type: ignore[reportPrivateUsage]
+    _from_atoka,  # type: ignore[reportPrivateUsage]
     extract_email,
 )
+
+if TYPE_CHECKING:
+    import httpx
 
 log = structlog.get_logger(__name__)
 

@@ -31,7 +31,7 @@ in ``workers/cron.py`` so this file stays unit-testable.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Literal
 
 Scenario = Literal[
@@ -180,7 +180,7 @@ def _gated(
 def _aware(ts: datetime) -> datetime:
     """Force-tz-aware (UTC) for safe arithmetic."""
     if ts.tzinfo is None:
-        return ts.replace(tzinfo=timezone.utc)
+        return ts.replace(tzinfo=UTC)
     return ts
 
 

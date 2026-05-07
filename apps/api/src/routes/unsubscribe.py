@@ -38,16 +38,16 @@ import asyncio
 from typing import Any
 
 import structlog
-from fastapi import APIRouter, Form, HTTPException, Query, Response
+from fastapi import APIRouter, Form, HTTPException, Query
 from fastapi.responses import RedirectResponse
 
 from ..core.config import settings
+from ..core.queue import enqueue
 from ..core.supabase_client import get_service_client
 from ..services.unsubscribe_token_service import (
     InvalidUnsubscribeToken,
     verify_token,
 )
-from ..core.queue import enqueue
 
 log = structlog.get_logger(__name__)
 

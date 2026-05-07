@@ -7,7 +7,7 @@ that run with service role credentials.
 
 from __future__ import annotations
 
-from collections.abc import AsyncGenerator
+from typing import TYPE_CHECKING
 
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -17,6 +17,9 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from .config import settings
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
 
 
 def _async_url(url: str) -> str:

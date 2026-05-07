@@ -43,7 +43,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from ..core.logging import get_logger
@@ -93,7 +93,7 @@ async def run_hourly_monitor(sb: Any) -> MonitorResult:
     from .reputation_enforcement_service import pause_domain_for_alarm
 
     result = MonitorResult()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     window_start = (now - timedelta(hours=WINDOW_HOURS)).isoformat()
 
     # 1. Load all non-paused tenant_email_domains that had recent sends.

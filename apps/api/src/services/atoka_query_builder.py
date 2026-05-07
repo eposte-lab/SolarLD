@@ -56,10 +56,8 @@ Sprint 11 orchestrator; legacy call-sites can migrate at their own pace.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any
-
-import httpx
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
 
 from ..core.logging import get_logger
 from .italian_business_service import (
@@ -67,6 +65,9 @@ from .italian_business_service import (
     EnrichmentUnavailable,
     atoka_search_by_criteria,
 )
+
+if TYPE_CHECKING:
+    import httpx
 
 log = get_logger(__name__)
 

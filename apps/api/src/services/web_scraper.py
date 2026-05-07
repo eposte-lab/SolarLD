@@ -45,7 +45,6 @@ from __future__ import annotations
 import asyncio
 import re
 from dataclasses import dataclass, field
-from typing import Any
 
 import httpx
 

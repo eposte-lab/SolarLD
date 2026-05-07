@@ -34,7 +34,6 @@ from __future__ import annotations
 
 from dataclasses import asdict
 from typing import Any
-from uuid import UUID
 
 from ..core.logging import get_logger
 from ..core.supabase_client import get_service_client

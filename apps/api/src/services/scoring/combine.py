@@ -58,7 +58,7 @@ class ScoringWeights:
     distance: float
 
     @classmethod
-    def from_jsonb(cls, data: dict[str, Any] | None) -> "ScoringWeights":
+    def from_jsonb(cls, data: dict[str, Any] | None) -> ScoringWeights:
         """Build weights from the `scoring_weights.weights` JSON blob.
 
         Falls back to the PRD V1 default when fields are missing.

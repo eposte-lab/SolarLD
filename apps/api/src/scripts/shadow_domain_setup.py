@@ -53,10 +53,8 @@ import json
 import os
 import sys
 import textwrap
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date
-from typing import Literal
-
 
 # ---------------------------------------------------------------------------
 # Domain topology — edit here when domains/mailboxes change
@@ -294,7 +292,7 @@ def _rule(char: str = "─", width: int = 72) -> str:
 
 
 def _table_row(cols: list[str], widths: list[int]) -> str:
-    parts = [str(c).ljust(w) for c, w in zip(cols, widths)]
+    parts = [str(c).ljust(w) for c, w in zip(cols, widths, strict=False)]
     return "│ " + " │ ".join(parts) + " │"
 
 
@@ -331,7 +329,7 @@ def _dns_section(sd: ShadowDomain) -> str:
     lines.append("```\n")
 
     # DKIM
-    dkim = dkim_placeholder(sd)
+    dkim_placeholder(sd)
     lines.append(f"**DKIM TXT** (host: `google._domainkey.{sd.domain}`)\n")
     lines.append("```")
     lines.append("v=DKIM1; k=rsa; p=<PASTE_KEY_FROM_GOOGLE_ADMIN_CONSOLE>")
@@ -349,7 +347,7 @@ def _dns_section(sd: ShadowDomain) -> str:
     lines.append("```\n")
 
     # Tracking CNAME
-    cname = tracking_cname(sd)
+    tracking_cname(sd)
     lines.append(f"**Tracking CNAME** (host: `go.{sd.domain}`)\n")
     lines.append("```")
     lines.append(f"go.{sd.domain}  CNAME  {TRACKING_CNAME_TARGET}.")

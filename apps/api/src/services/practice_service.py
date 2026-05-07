@@ -32,9 +32,8 @@ from __future__ import annotations
 import asyncio
 import re
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Any
-from uuid import UUID
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any
 
 from ..core.logging import get_logger
 from ..core.queue import enqueue
@@ -55,6 +54,9 @@ from .practice_events_service import (
 )
 from .practice_pdf_renderer import SUPPORTED_TEMPLATE_CODES, render_practice_pdf
 from .storage_service import upload_bytes
+
+if TYPE_CHECKING:
+    from uuid import UUID
 
 log = get_logger(__name__)
 
@@ -149,7 +151,7 @@ class Practice:
     updated_at: str
 
     @classmethod
-    def from_row(cls, row: dict[str, Any]) -> "Practice":
+    def from_row(cls, row: dict[str, Any]) -> Practice:
         return cls(
             id=str(row["id"]),
             tenant_id=str(row["tenant_id"]),
@@ -197,7 +199,7 @@ class PracticeDocument:
     updated_at: str
 
     @classmethod
-    def from_row(cls, row: dict[str, Any]) -> "PracticeDocument":
+    def from_row(cls, row: dict[str, Any]) -> PracticeDocument:
         return cls(
             id=str(row["id"]),
             practice_id=str(row["practice_id"]),
@@ -257,7 +259,7 @@ def next_practice_number(tenant_id: str | UUID) -> tuple[str, int]:
             f"next_practice_seq returned non-positive seq: {res.data!r}"
         )
 
-    year = datetime.now(timezone.utc).year
+    year = datetime.now(UTC).year
     return f"{abbr}/{year}/{seq:04d}", seq
 
 
@@ -372,7 +374,7 @@ def get_draft_preview(
     )
     last_seq = (counter_res.data or [{"last_seq": 0}])[0]["last_seq"] or 0
     abbr = _tenant_abbr(t.get("business_name") or "")
-    year = datetime.now(timezone.utc).year
+    year = datetime.now(UTC).year
     suggested_number = f"{abbr}/{year}/{(last_seq + 1):04d}"
 
     # 6. Prefill from quote.manual_fields (tech_*) when available; the
@@ -725,7 +727,7 @@ def render_practice_document(
 
     # 4. UPSERT the document row. ``generated_at`` set fresh on each
     #    render so re-generation timestamps are visible in the UI.
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_iso = datetime.now(UTC).isoformat()
     upsert_payload = {
         "practice_id": str(practice_id),
         "tenant_id": str(tenant_id),
@@ -810,7 +812,7 @@ def update_document_status(
     if status:
         update["status"] = status
         # Set the appropriate timestamp column when transitioning.
-        now_iso = datetime.now(timezone.utc).isoformat()
+        now_iso = datetime.now(UTC).isoformat()
         if status == "sent":
             update["sent_at"] = now_iso
         elif status == "accepted":

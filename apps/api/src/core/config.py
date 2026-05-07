@@ -245,7 +245,7 @@ class Settings(BaseSettings):
     _DEV_JWT_DEFAULT = "development-secret-change-me-min-32-chars"
 
     @model_validator(mode="after")
-    def _validate_non_dev_env_secrets(self) -> "Settings":
+    def _validate_non_dev_env_secrets(self) -> Settings:
         if self.app_env not in {"staging", "production"}:
             return self
 

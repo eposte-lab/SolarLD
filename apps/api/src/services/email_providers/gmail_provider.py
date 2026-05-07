@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import base64
 import email.utils
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from email.message import EmailMessage
 from typing import Any
 
@@ -181,7 +181,7 @@ class GmailProvider(EmailProvider):
             if (
                 expiry_dt
                 and expiry_dt
-                > datetime.now(timezone.utc) + timedelta(seconds=REFRESH_BUFFER_SECONDS)
+                > datetime.now(UTC) + timedelta(seconds=REFRESH_BUFFER_SECONDS)
             ):
                 try:
                     return decrypt(encrypted_access)
@@ -273,7 +273,7 @@ class GmailProvider(EmailProvider):
                 retryable=True,
             )
 
-        expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
+        expires_at = datetime.now(UTC) + timedelta(seconds=expires_in)
         await self._persist_access_token(inbox, access_token, expires_at)
         return access_token
 
@@ -322,7 +322,7 @@ class GmailProvider(EmailProvider):
                     {
                         "active": False,
                         "oauth_last_error": reason[:500],
-                        "oauth_last_error_at": datetime.now(timezone.utc).isoformat(),
+                        "oauth_last_error_at": datetime.now(UTC).isoformat(),
                     }
                 )
                 .eq("id", inbox["id"])
@@ -395,7 +395,7 @@ def _html_to_text_fallback(html: str) -> str:
 def _parse_ts(value: Any) -> datetime | None:
     """Parse a PostgREST timestamptz into aware datetime. None on failure."""
     if isinstance(value, datetime):
-        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        return value if value.tzinfo else value.replace(tzinfo=UTC)
     if isinstance(value, str):
         try:
             # PostgREST emits e.g. "2026-04-24T10:15:32+00:00"

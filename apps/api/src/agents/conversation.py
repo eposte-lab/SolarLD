@@ -29,7 +29,7 @@ Operator sees the conversation thread and continues manually on WhatsApp.
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -84,7 +84,7 @@ class ConversationAgent(AgentBase[ConversationInput, ConversationOutput]):
 
     async def execute(self, payload: ConversationInput) -> ConversationOutput:  # noqa: C901
         sb = get_service_client()
-        now_iso = datetime.now(timezone.utc).isoformat()
+        now_iso = datetime.now(UTC).isoformat()
 
         # ------------------------------------------------------------------
         # 1) Load or create conversation row
@@ -389,7 +389,7 @@ class ConversationAgent(AgentBase[ConversationInput, ConversationOutput]):
             messages.append({
                 "role": "ai",
                 "content": ai_reply,
-                "ts": datetime.now(timezone.utc).isoformat(),
+                "ts": datetime.now(UTC).isoformat(),
             })
 
         new_auto_replies = auto_replies + (1 if sent else 0)

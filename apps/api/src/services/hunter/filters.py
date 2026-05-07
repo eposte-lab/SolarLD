@@ -12,8 +12,10 @@ later via `scoring_weights` overrides.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
-from ..google_solar_service import RoofInsight
+if TYPE_CHECKING:
+    from ..google_solar_service import RoofInsight
 
 # Reject roofs smaller than 20 m² — can't host a profitable plant.
 MIN_AREA_SQM = 20.0

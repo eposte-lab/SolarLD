@@ -31,15 +31,17 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Any
-from uuid import UUID
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any
 
 from ..core.logging import get_logger
 from ..core.supabase_client import get_service_client
 from .quote_pdf_renderer import render_quote_pdf
 from .roi_service import compute_roi
 from .storage_service import upload_bytes
+
+if TYPE_CHECKING:
+    from uuid import UUID
 
 log = get_logger(__name__)
 
@@ -70,7 +72,7 @@ class LeadQuote:
     updated_at: str
 
     @classmethod
-    def from_row(cls, row: dict[str, Any]) -> "LeadQuote":
+    def from_row(cls, row: dict[str, Any]) -> LeadQuote:
         return cls(
             id=str(row["id"]),
             tenant_id=str(row["tenant_id"]),
@@ -200,7 +202,7 @@ def build_auto_fields(lead_id: str | UUID, tenant_id: str | UUID) -> dict[str, A
     # 6. Build the bag. Keep every key present (use empty string
     #    rather than None) — the template renders friendlier when
     #    a placeholder shows blank vs. literal "None".
-    today_iso = datetime.now(timezone.utc).date().isoformat()
+    today_iso = datetime.now(UTC).date().isoformat()
 
     auto: dict[str, Any] = {
         # Tenant / installer block ----------------------------------------
@@ -451,7 +453,7 @@ def next_preventivo_number(tenant_id: str | UUID) -> tuple[str, int]:
         # Defensive: if the RPC returned 0/null we'd silently mint
         # duplicate numbers. Hard-fail instead so the route surfaces it.
         raise RuntimeError(f"next_quote_seq returned non-positive seq: {res.data!r}")
-    year = datetime.now(timezone.utc).year
+    year = datetime.now(UTC).year
     return f"{year}/PV/{seq:04d}", seq
 
 

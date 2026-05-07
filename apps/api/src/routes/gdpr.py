@@ -15,7 +15,7 @@ chiedere i suoi dati indipendentemente dal tenant — l'API normalmente
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -138,7 +138,7 @@ async def gdpr_export(
         subjects=subjects,
         contact_extraction_log=cel.data or [],
         outreach_sends=os_res.data or [],
-        exported_at=datetime.now(timezone.utc).isoformat(),
+        exported_at=datetime.now(UTC).isoformat(),
     )
 
 
@@ -158,7 +158,7 @@ async def gdpr_erase(
     """
     sb = get_service_client()
     email = body.email
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
 
     # 1) Subjects: blank il PII
     subj_res = (

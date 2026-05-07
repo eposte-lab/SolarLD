@@ -209,11 +209,11 @@ async def atoka_lookup_by_vat(
     company = items[0]
 
     financials = company.get("financials") or {}
-    revenue_eur = financials.get("revenue")
-    ateco = (company.get("ateco") or [{}])[0] if company.get("ateco") else {}
+    financials.get("revenue")
+    (company.get("ateco") or [{}])[0] if company.get("ateco") else {}
     contacts = company.get("decisionMakers") or []
-    primary_contact = contacts[0] if contacts else {}
-    web = (company.get("web") or [{}])[0] if company.get("web") else {}
+    contacts[0] if contacts else {}
+    (company.get("web") or [{}])[0] if company.get("web") else {}
 
     return _atoka_company_to_profile(company, fallback_vat=vat_number)
 

@@ -2,41 +2,41 @@
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 
 
-class TenantTier(str, Enum):
+class TenantTier(StrEnum):
     FOUNDING = "founding"
     PRO = "pro"
     ENTERPRISE = "enterprise"
 
 
-class TenantStatus(str, Enum):
+class TenantStatus(StrEnum):
     ONBOARDING = "onboarding"
     ACTIVE = "active"
     PAUSED = "paused"
     CHURNED = "churned"
 
 
-class TerritoryType(str, Enum):
+class TerritoryType(StrEnum):
     CAP = "cap"
     COMUNE = "comune"
     PROVINCIA = "provincia"
     REGIONE = "regione"
 
 
-class RoofDataSource(str, Enum):
+class RoofDataSource(StrEnum):
     GOOGLE_SOLAR = "google_solar"
     MAPBOX_AI_FALLBACK = "mapbox_ai_fallback"
 
 
-class SubjectType(str, Enum):
+class SubjectType(StrEnum):
     B2B = "b2b"
     B2C = "b2c"
     UNKNOWN = "unknown"
 
 
-class RoofStatus(str, Enum):
+class RoofStatus(StrEnum):
     DISCOVERED = "discovered"
     IDENTIFIED = "identified"
     SCORED = "scored"
@@ -48,14 +48,14 @@ class RoofStatus(str, Enum):
     REJECTED = "rejected"
 
 
-class LeadScoreTier(str, Enum):
+class LeadScoreTier(StrEnum):
     HOT = "hot"
     WARM = "warm"
     COLD = "cold"
     REJECTED = "rejected"
 
 
-class LeadStatus(str, Enum):
+class LeadStatus(StrEnum):
     NEW = "new"
     SENT = "sent"
     DELIVERED = "delivered"
@@ -69,13 +69,13 @@ class LeadStatus(str, Enum):
     BLACKLISTED = "blacklisted"
 
 
-class OutreachChannel(str, Enum):
+class OutreachChannel(StrEnum):
     EMAIL = "email"
     POSTAL = "postal"
     WHATSAPP = "whatsapp"
 
 
-class InstallerFeedback(str, Enum):
+class InstallerFeedback(StrEnum):
     QUALIFIED = "qualified"
     NOT_INTERESTED = "not_interested"
     NOT_REACHABLE = "not_reachable"
@@ -83,7 +83,7 @@ class InstallerFeedback(str, Enum):
     WRONG_DATA = "wrong_data"
 
 
-class CampaignStatus(str, Enum):
+class CampaignStatus(StrEnum):
     PENDING = "pending"
     SENT = "sent"
     DELIVERED = "delivered"
@@ -91,7 +91,7 @@ class CampaignStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
-class BlacklistReason(str, Enum):
+class BlacklistReason(StrEnum):
     USER_OPTOUT = "user_optout"
     MANUAL = "manual"
     REGULATORY = "regulatory"

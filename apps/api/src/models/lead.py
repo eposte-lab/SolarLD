@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
-from .enums import InstallerFeedback
+if TYPE_CHECKING:
+    from .enums import InstallerFeedback
 
 
 class LeadFeedback(BaseModel):

@@ -26,7 +26,7 @@ def test_supported_template_codes_match_sprint_2_set() -> None:
     """
     from src.services.practice_pdf_renderer import SUPPORTED_TEMPLATE_CODES
 
-    assert SUPPORTED_TEMPLATE_CODES == frozenset(
+    assert frozenset(
         {
             "dm_37_08",
             "comunicazione_comune",
@@ -39,7 +39,7 @@ def test_supported_template_codes_match_sprint_2_set() -> None:
             "transizione_50_ex_post",
             "transizione_50_attestazione",
         }
-    )
+    ) == SUPPORTED_TEMPLATE_CODES
 
 
 def test_render_practice_pdf_rejects_unknown_template_code() -> None:

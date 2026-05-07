@@ -201,9 +201,7 @@ def project_resend_lead_update(
         current_rank = _PIPELINE_RANK.get(current_status or "", 0)
         new_rank = _PIPELINE_RANK.get(new_status, 0)
         # Blacklist is terminal — always wins.
-        if new_status == LeadStatus.BLACKLISTED.value:
-            update["pipeline_status"] = new_status
-        elif new_rank > current_rank:
+        if new_status == LeadStatus.BLACKLISTED.value or new_rank > current_rank:
             update["pipeline_status"] = new_status
 
     return update
@@ -733,7 +731,7 @@ class TrackingAgent(AgentBase[TrackingInput, TrackingOutput]):
 
         try:
             await asyncio.wait_for(_do_write(), timeout=5.0)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             log.warning(
                 "tracking.email_blacklist_immediate_timeout",
                 tenant_id=tenant_id,

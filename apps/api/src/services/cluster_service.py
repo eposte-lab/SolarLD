@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import re
 
-
 # ── Employee buckets ──────────────────────────────────────────────────
 # Thresholds chosen to match common Atoka employee range breakpoints.
 _EMPLOYEE_THRESHOLDS = (

@@ -41,7 +41,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import geohash  # type: ignore[import-untyped]
@@ -52,20 +52,18 @@ from pydantic import BaseModel, Field
 from ..agents.creative import CreativeAgent, CreativeInput
 from ..agents.outreach import OutreachAgent, OutreachInput
 from ..agents.scoring import ScoringAgent, ScoringInput
-from ..core.config import settings
 from ..core.logging import get_logger
 from ..core.security import CurrentUser, require_tenant
 from ..core.supabase_client import get_service_client
 from ..models.enums import OutreachChannel, RoofDataSource, RoofStatus, SubjectType
-from ..services.italian_business_service import AtokaProfile
-from ..services.mapbox_service import MapboxError, forward_geocode
 from ..services.building_identification import (
     identify_building,
     match_to_operating_site,
 )
+from ..services.italian_business_service import AtokaProfile
+from ..services.mapbox_service import MapboxError, forward_geocode
 from ..services.operating_site_resolver import (
     OperatingSite,
-    resolve_operating_site,
 )
 
 log = get_logger(__name__)
@@ -734,7 +732,7 @@ async def demo_test_pipeline(
     #    `seed_test_candidate` so any change to the pipeline runner
     #    propagates here without code duplication.
     sb = get_service_client()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     # Resolve the operating site (sede operativa) — Sprint Demo Polish
     # Phase B. The cascade is identical to the production one in
@@ -897,7 +895,7 @@ async def demo_test_pipeline(
             lng=roof_lng,
             note="falling back to median Italian defaults",
         )
-    except (asyncio.TimeoutError, SolarApiError) as exc:
+    except (TimeoutError, SolarApiError) as exc:
         log.warning(
             "demo.solar_failed",
             vat_number=body.vat_number,
@@ -1654,7 +1652,7 @@ async def demo_identify_building(
                 ),
                 timeout=22.0,
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             log.warning(
                 "demo.identify_building.cascade_timeout",
                 vat_number=body.vat_number,
@@ -1712,7 +1710,7 @@ async def demo_identify_building(
     # generation here — N may be 30+ and we'd waste round-trips
     # building thumbnails for buildings the user won't click.
     if match.picker_candidates and match.confidence in ("low", "none"):
-        for j, pc in enumerate(match.picker_candidates):
+        for _j, pc in enumerate(match.picker_candidates):
             lat = float(pc["lat"])
             lng = float(pc["lng"])
             if _coord_key(lat, lng) in seen_coords:

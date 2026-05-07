@@ -14,12 +14,11 @@ Things we deliberately do **not** test here:
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Tiny fake of supabase-py's chained query builder.
@@ -150,7 +149,7 @@ def _make_event(
     event_type: str,
     template_code: str | None = None,
     occurred_at: str = "2026-04-30T10:00:00+00:00",
-) -> "Any":
+) -> Any:
     """Build a PracticeEvent dataclass with the minimum required fields."""
     from src.services.practice_events_service import PracticeEvent
 
@@ -182,7 +181,7 @@ def test_document_sent_tica_opens_60d_deadline(
     opened = [d for d in summary["opened"] if d["kind"] == "tica_response_60d"]
     assert len(opened) == 1
     # +60 calendar days from the trigger.
-    expected_due = datetime(2026, 6, 29, 10, 0, tzinfo=timezone.utc)
+    expected_due = datetime(2026, 6, 29, 10, 0, tzinfo=UTC)
     assert opened[0]["due_at"] == expected_due.isoformat()
 
 

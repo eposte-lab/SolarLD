@@ -315,7 +315,7 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
                                 ),
                                 timeout=15.0,
                             )
-                        except (asyncio.TimeoutError, Exception) as snap_exc:  # noqa: BLE001
+                        except (TimeoutError, Exception) as snap_exc:  # noqa: BLE001
                             log.warning(
                                 "creative.osm_snap_failed",
                                 lead_id=payload.lead_id,

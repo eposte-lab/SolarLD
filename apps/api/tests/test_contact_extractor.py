@@ -31,7 +31,6 @@ from src.services.contact_extractor import (
 )
 from src.services.email_extractor import ExtractionResult
 
-
 # ---------------------------------------------------------------------------
 # Fakes
 # ---------------------------------------------------------------------------
@@ -390,7 +389,7 @@ async def test_cascade_exhausted_returns_failed_sentinel(
 
 
 @pytest.mark.parametrize(
-    "raw,expected",
+    ("raw", "expected"),
     [
         ("+39 333 123 4567", "+393331234567"),
         ("39 333 1234567", "+393331234567"),

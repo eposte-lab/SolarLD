@@ -26,6 +26,7 @@ See migration `0031_scan_candidates.sql` for the schema.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import UTC
 
 from ..core.logging import get_logger
 from ..core.supabase_client import get_service_client
@@ -143,9 +144,9 @@ class ScanCostAccumulator:
             # Supabase uses `now()` server-side via the default, but we set
             # it explicitly here to satisfy the UPSERT (UPDATE path doesn't
             # re-run column defaults).
-            from datetime import datetime, timezone
+            from datetime import datetime
 
-            row["completed_at"] = datetime.now(timezone.utc).isoformat()
+            row["completed_at"] = datetime.now(UTC).isoformat()
 
         try:
             sb.table("scan_cost_log").upsert(

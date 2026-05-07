@@ -15,7 +15,7 @@ Cost: zero (all sources free / public).
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -147,7 +147,7 @@ async def _log_contact_extractions(
     rolling deploy.
     """
     rows: list[dict[str, Any]] = []
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
 
     for email in signals.website_emails:
         rows.append(

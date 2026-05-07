@@ -18,6 +18,7 @@ from ..agents.conversation import ConversationAgent, ConversationInput
 from ..agents.creative import CreativeAgent, CreativeInput
 from ..agents.email_extraction import EmailExtractionAgent, EmailExtractionInput
 from ..agents.hunter import HunterAgent, HunterInput
+from ..agents.hunter_funnel.orchestrator_v3 import run_funnel_v3
 from ..agents.outreach import OutreachAgent, OutreachInput
 from ..agents.replies import RepliesAgent, RepliesInput
 from ..agents.scoring import ScoringAgent, ScoringInput
@@ -31,7 +32,6 @@ from ..services.industrial_zones_mapper import map_target_areas_for_tenant
 from ..services.prospect_list_outreach import launch_outreach_for_list
 from ..services.prospect_list_validation import validate_prospect_list
 from ..services.tenant_config_service import get_for_tenant as get_tenant_config
-from ..agents.hunter_funnel.orchestrator_v3 import run_funnel_v3
 from .cron import (
     cluster_ab_evaluation_cron,
     daily_digest_cron,

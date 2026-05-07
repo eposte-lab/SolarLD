@@ -58,7 +58,7 @@ provenance — bad both for fairness and for our success rate.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any
 
 from .consumption_estimator import (
     MIN_QUALIFYING_KWP,
@@ -66,6 +66,8 @@ from .consumption_estimator import (
     stima_potenza_FV,
 )
 
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 # ---------------------------------------------------------------------------
 # Result type

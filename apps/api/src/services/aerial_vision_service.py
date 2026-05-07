@@ -200,7 +200,7 @@ async def _run_vision_call(
             ),
             timeout=_VISION_API_TIMEOUT_S,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         log.warning(
             "vision.api_timeout",
             timeout_s=_VISION_API_TIMEOUT_S,
@@ -237,12 +237,12 @@ async def identify_company_building_in_zone(
     *,
     legal_name: str,
     vat_number: str,
-    candidate_buildings: "list[BuildingCandidate]",
+    candidate_buildings: list[BuildingCandidate],
     zone_anchor: tuple[float, float],
     ateco_description: str | None = None,
     city: str | None = None,
     model: str = DEFAULT_MODEL,  # legacy kwarg, ignored by the cascade below
-) -> "BuildingCandidate | None":
+) -> BuildingCandidate | None:
     """Identify the company's building via a Haiku-first → Sonnet cascade.
 
     Strategy:

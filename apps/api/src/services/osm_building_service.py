@@ -179,7 +179,7 @@ async def find_buildings_in_zone(
     client: httpx.AsyncClient | None = None,
     endpoints: tuple[str, ...] = _OVERPASS_ENDPOINTS,
     timeout_s: float = 18.0,
-) -> "list[Any]":
+) -> list[Any]:
     """Return BIC ``BuildingCandidate``s for every OSM building near (lat, lng).
 
     Used as Stage 4 of the Building Identification Cascade: when the

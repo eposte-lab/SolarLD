@@ -225,7 +225,7 @@ def verify_webhook_signature(
     except Exception:  # noqa: BLE001
         key_bytes = key.encode("utf-8")
 
-    signed_payload = f"{svix_id}.{svix_timestamp}.".encode("utf-8") + body
+    signed_payload = f"{svix_id}.{svix_timestamp}.".encode() + body
     expected = hmac.new(key_bytes, signed_payload, hashlib.sha256).digest()
     expected_b64 = base64.b64encode(expected).decode("ascii")
 

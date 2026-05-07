@@ -40,7 +40,8 @@ def test_build_canonical_payload_assigns_fields() -> None:
     assert env["occurred_at"] == "2026-04-18T12:00:00+00:00"
     assert env["data"] == {"lead_id": "L1", "score": 87}
     # id is a UUID string when no delivery_id given.
-    assert isinstance(env["id"], str) and len(env["id"]) >= 8
+    assert isinstance(env["id"], str)
+    assert len(env["id"]) >= 8
 
 
 def test_signature_matches_manual_hmac() -> None:

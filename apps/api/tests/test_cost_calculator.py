@@ -18,13 +18,12 @@ from src.services.cost_calculator import (
     ATOKA_PURCHASE_CREDITS,
     ATOKA_PURCHASE_PRICE_EUR,
     ATOKA_PURCHASE_RUNWAY_WORKING_DAYS,
-    MonthlyCostBreakdown,
     PIPELINE_SURVIVAL_RATE_V2,
+    MonthlyCostBreakdown,
     cost_constants_snapshot,
     estimate_atoka_runway_days,
     estimate_monthly_costs,
 )
-
 
 # ---------------------------------------------------------------------------
 # Atoka pricing — pin the contract terms.
@@ -35,8 +34,8 @@ def test_atoka_unit_cost_matches_purchase_invoice() -> None:
     """ADR-005 fixes Atoka at €3000 / 8000 credits = €0.375 each.
     If this drifts, projections silently lie."""
     expected = ATOKA_PURCHASE_PRICE_EUR / ATOKA_PURCHASE_CREDITS
-    assert ATOKA_COST_PER_CALL_EUR == pytest.approx(expected)
-    assert ATOKA_COST_PER_CALL_EUR == pytest.approx(0.375)
+    assert pytest.approx(expected) == ATOKA_COST_PER_CALL_EUR
+    assert pytest.approx(0.375) == ATOKA_COST_PER_CALL_EUR
 
 
 def test_atoka_runway_default_matches_invoice() -> None:
@@ -176,7 +175,9 @@ def test_estimate_monthly_costs_as_dict_serialises_correctly() -> None:
     out = estimate_monthly_costs(100).as_dict()
     assert out["daily_cap"] == 100
     assert out["monthly_email_target"] == 2_200
-    assert "variable" in out and "fixed" in out and "totals" in out
+    assert "variable" in out
+    assert "fixed" in out
+    assert "totals" in out
     # Numbers are rounded for display — sanity-check rounding precision.
     assert out["totals"]["cost_per_delivered_email_eur"] == round(
         out["totals"]["cost_per_delivered_email_eur"], 4

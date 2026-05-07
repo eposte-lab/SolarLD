@@ -12,7 +12,6 @@ These tests ensure:
 from __future__ import annotations
 
 import pytest
-from jinja2 import UndefinedError
 
 from src.services.email_template_service import (
     OutreachContext,
@@ -92,7 +91,7 @@ def test_default_subject_for_case_insensitive() -> None:
 
 
 @pytest.mark.parametrize(
-    "value,expected",
+    ("value", "expected"),
     [
         (0, "0"),
         (5, "5"),

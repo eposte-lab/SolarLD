@@ -45,6 +45,7 @@ Degraded paths:
 from __future__ import annotations
 
 import secrets
+from datetime import UTC
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -183,11 +184,12 @@ class ScoringAgent(AgentBase[ScoringInput, ScoringOutput]):
         # Rejected-tier leads are inserted in their pre-existing `new`
         # state so the dashboard can still surface them; OutreachAgent
         # skips them on tier.
-        from datetime import datetime, timedelta, timezone as _tz
+        from datetime import datetime, timedelta
+
         from ..services.warehouse_policy import policy_for as _policy_for
 
         is_qualified = final_tier != LeadScoreTier.REJECTED
-        warehouse_now = datetime.now(_tz.utc)
+        warehouse_now = datetime.now(UTC)
         warehouse_policy = _policy_for(tenant_row)
         warehouse_expires = (
             warehouse_now + timedelta(days=warehouse_policy.lead_expiration_days)

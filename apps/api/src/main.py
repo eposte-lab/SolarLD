@@ -5,8 +5,8 @@ Wires routers, middleware, exception handlers, and lifespan events.
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import TYPE_CHECKING
 
 import sentry_sdk
 from fastapi import FastAPI, Request
@@ -37,9 +37,11 @@ from .routes import (
     events,
     experiments,
     followup,
+    gdpr,
     health,
     inboxes,
     leads,
+    linkedin_enrich,
     modules,
     notifications,
     onboarding,
@@ -49,8 +51,6 @@ from .routes import (
     public,
     quarantine,
     quotes,
-    gdpr,
-    linkedin_enrich,
     sector_news,
     sectors,
     tenants,
@@ -61,6 +61,9 @@ from .routes import (
     warehouse,
     webhooks,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
 
 configure_logging()
 log = get_logger(__name__)

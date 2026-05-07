@@ -20,11 +20,13 @@ here — but we list the constants in EVENT_TYPES so they're discoverable.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
-from uuid import UUID
+from typing import TYPE_CHECKING, Any
 
 from ..core.logging import get_logger
 from ..core.supabase_client import get_service_client
+
+if TYPE_CHECKING:
+    from uuid import UUID
 
 log = get_logger(__name__)
 
@@ -95,7 +97,7 @@ class PracticeEvent:
     created_at: str
 
     @classmethod
-    def from_row(cls, row: dict[str, Any]) -> "PracticeEvent":
+    def from_row(cls, row: dict[str, Any]) -> PracticeEvent:
         return cls(
             id=str(row["id"]),
             tenant_id=str(row["tenant_id"]),

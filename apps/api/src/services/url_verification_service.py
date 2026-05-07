@@ -32,14 +32,10 @@ Special cases (treated as ``True``):
 from __future__ import annotations
 
 import hashlib
-from typing import TYPE_CHECKING
 
 import httpx
 
 from ..core.logging import get_logger
-
-if TYPE_CHECKING:
-    pass
 
 log = get_logger(__name__)
 

@@ -16,7 +16,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-
 # Defaults mirror the column defaults in migration 0072. Kept here as
 # a safety net for unit tests or stale rows; if you change a default,
 # change it in both places.

@@ -12,12 +12,11 @@ E2E (SC-31 in the plan).
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
 from src.services import daily_target_cap_service as svc
-
 
 # ---------------------------------------------------------------------------
 # Pure helpers — no Redis needed
@@ -59,12 +58,12 @@ class TestRedisKey:
     def test_uses_rome_date(self) -> None:
         # 2026-04-25 23:30 UTC → 2026-04-26 01:30 Rome (CEST, +2)
         # so the key date should already be the next Rome day.
-        late = datetime(2026, 4, 25, 23, 30, tzinfo=timezone.utc)
+        late = datetime(2026, 4, 25, 23, 30, tzinfo=UTC)
         key = svc.redis_key_for("tenant-abc", now_utc=late)
         assert key == "daily_target_cap:tenant-abc:2026-04-26"
 
     def test_morning_utc_matches_rome_today(self) -> None:
-        morning = datetime(2026, 4, 25, 8, 0, tzinfo=timezone.utc)
+        morning = datetime(2026, 4, 25, 8, 0, tzinfo=UTC)
         key = svc.redis_key_for("tenant-abc", now_utc=morning)
         assert key == "daily_target_cap:tenant-abc:2026-04-25"
 
@@ -105,7 +104,7 @@ class FakeRedis:
         return str(v) if v is not None else None
 
 
-@pytest.fixture()
+@pytest.fixture
 def fake_redis(monkeypatch: pytest.MonkeyPatch) -> FakeRedis:
     fake = FakeRedis()
     monkeypatch.setattr(svc, "get_redis", lambda: fake)

@@ -37,7 +37,7 @@ Why mode and not mean/median:
 from __future__ import annotations
 
 from collections import Counter
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from ..core.logging import get_logger
@@ -95,8 +95,8 @@ def compute_best_hour_from_timestamps(
         # Normalize to UTC — events.occurred_at is TIMESTAMPTZ so
         # this is a cheap re-anchoring, not a timezone conversion.
         if ts.tzinfo is None:
-            ts = ts.replace(tzinfo=timezone.utc)
-        counter[ts.astimezone(timezone.utc).hour] += 1
+            ts = ts.replace(tzinfo=UTC)
+        counter[ts.astimezone(UTC).hour] += 1
     if not counter:
         return None
     # Counter.most_common breaks ties by insertion order; sort by
@@ -131,7 +131,7 @@ def pick_next_send_time(
         or _coerce_hour(_tenant_default_hour(tenant_row))
         or DEFAULT_SEND_HOUR_UTC
     )
-    now_utc = now.astimezone(timezone.utc)
+    now_utc = now.astimezone(UTC)
     target_today = now_utc.replace(
         hour=hour, minute=0, second=0, microsecond=0
     )
@@ -195,7 +195,7 @@ async def run_send_time_rollup(
     Returns ``{"leads_updated": N, "leads_cleared": M}`` for logging.
     """
     sb = get_service_client()
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     window_start = now - timedelta(days=lookback_days)
 
     # PostgREST "in" filter keeps this single-shot — the event types

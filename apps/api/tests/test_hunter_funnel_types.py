@@ -33,7 +33,6 @@ from src.agents.hunter_funnel.types import (
 from src.services.italian_business_service import AtokaProfile
 from src.services.scan_cost_tracker import ScanCostAccumulator
 
-
 # ---------------------------------------------------------------------------
 # L1 — _derive_geo_filters
 # ---------------------------------------------------------------------------
@@ -111,7 +110,7 @@ def test_parse_batch_response_rejects_missing_results_key():
 
 
 @pytest.mark.parametrize(
-    "raw,expected",
+    ("raw", "expected"),
     [
         (50, 50),
         (-10, 0),
@@ -237,7 +236,6 @@ def test_solar_gate_math_respects_min_floor():
     """Tiny scans still send at least solar_gate_min_candidates to Solar."""
     # With 5 candidates and 20% gate, naive math = 1. Floor should lift it
     # to solar_gate_min_candidates (default 20) — capped to population.
-    from src.agents.hunter_funnel.types import FunnelContext
     # Pure math, no real FunnelContext needed — we compute manually using
     # the same formula as run_level4.
     total = 5

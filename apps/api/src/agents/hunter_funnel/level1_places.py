@@ -26,7 +26,6 @@ until the demolition lands.
 
 from __future__ import annotations
 
-import asyncio
 from typing import Any
 
 from ...core.logging import get_logger
@@ -174,7 +173,7 @@ async def run_level1_places(ctx: FunnelV3Context) -> list[PlaceCandidateRecord]:
     #    legacy scan_candidates schema will accept these as additional
     #    columns once 0102 (which keeps roof_id around) is applied.
     rows = []
-    for place_id, (cand, zone) in all_candidates.items():
+    for _place_id, (cand, _zone) in all_candidates.items():
         rows.append(
             {
                 "tenant_id": ctx.tenant_id,

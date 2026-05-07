@@ -142,10 +142,7 @@ def compute_savings_compare(
     tariff = bolletta_eur_yearly / bolletta_kwh_yearly
 
     st = (subject_type or "unknown").lower()
-    if st == "b2b":
-        self_ratio = SELF_CONSUMPTION_RATIO_B2B
-    else:
-        self_ratio = SELF_CONSUMPTION_RATIO_B2C
+    self_ratio = SELF_CONSUMPTION_RATIO_B2B if st == "b2b" else SELF_CONSUMPTION_RATIO_B2C
 
     self_kwh = predicted_yearly_kwh * self_ratio
     export_kwh = predicted_yearly_kwh * (1.0 - self_ratio)

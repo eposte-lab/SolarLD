@@ -23,7 +23,6 @@ some items processed will only retry the remaining `pending` ones.
 
 from __future__ import annotations
 
-import asyncio
 import uuid
 from dataclasses import dataclass
 from datetime import datetime

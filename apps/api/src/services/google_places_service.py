@@ -421,7 +421,7 @@ async def search_text_multi_query(
     http_client: httpx.AsyncClient | None = None,
     location_bias_centre: tuple[float, float] | None = None,
     api_key: str | None = None,
-) -> "list[Any]":
+) -> list[Any]:
     """Stage 2 of the BIC: fan out 4-6 query variants → BuildingCandidate list.
 
     Returns a list of ``BuildingCandidate`` (one per unique ``place_id``)
@@ -560,7 +560,7 @@ async def search_text_multi_query(
     # Project into BuildingCandidates. Weight = base 0.3 per match,
     # boosted by per-result confidence. A place that surfaced in 3+
     # variants and has formatted_address with a CAP gets up to ~0.9.
-    out: "list[Any]" = []
+    out: list[Any] = []
     for hit in by_place.values():
         # Each variant adds ~0.2 weight (capped to avoid runaway).
         variant_score = min(0.6, 0.2 * len(hit.matched_variants))

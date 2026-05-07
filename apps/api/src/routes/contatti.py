@@ -115,7 +115,6 @@ async def contatti_summary(ctx: CurrentUser) -> dict[str, Any]:
     try:
         # Stage counts — we count per stage using .eq().count("exact").
         # Four parallel lightweight head-only queries.
-        import asyncio  # noqa: PLC0415 (local import for clarity)
 
         def _count(stage_val: int) -> int:
             r = (

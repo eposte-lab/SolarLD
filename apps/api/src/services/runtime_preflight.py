@@ -52,7 +52,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from ..core.logging import get_logger
@@ -110,7 +110,7 @@ async def check_preflight(
     )
 
     gate_labels = ("blacklist", "email_blacklist", "inbox", "domain")
-    for label, result in zip(gate_labels, checks):
+    for label, result in zip(gate_labels, checks, strict=False):
         if isinstance(result, Exception):
             # Fail-open: log the error but let the send proceed.
             log.debug(
@@ -225,7 +225,7 @@ async def _check_inbox_health(
     if not inbox_id:
         return PreflightResult(ok=True)  # Legacy path: no inbox to verify.
 
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_iso = datetime.now(UTC).isoformat()
 
     try:
         res = await asyncio.to_thread(
@@ -278,7 +278,7 @@ async def _check_domain_health(
     if not domain_id:
         return PreflightResult(ok=True)
 
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_iso = datetime.now(UTC).isoformat()
 
     try:
         res = await asyncio.to_thread(

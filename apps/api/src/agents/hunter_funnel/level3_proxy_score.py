@@ -411,14 +411,13 @@ def _fallback_score(c: EnrichedCandidate) -> ScoredCandidate:
         score += min(10, len(c.enrichment.site_signals) * 3)
 
     sector_match: int | None = None
-    if c.predicted_sector:
-        if c.sector_confidence is not None:
-            if c.sector_confidence >= 0.9:
-                sector_match = 75
-            elif c.sector_confidence >= 0.6:
-                sector_match = 55
-            else:
-                sector_match = 40
+    if c.predicted_sector and c.sector_confidence is not None:
+        if c.sector_confidence >= 0.9:
+            sector_match = 75
+        elif c.sector_confidence >= 0.6:
+            sector_match = 55
+        else:
+            sector_match = 40
 
     return ScoredCandidate(
         candidate_id=c.candidate_id,

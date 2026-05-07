@@ -10,17 +10,17 @@ from src.services.digest_service import (
 
 
 def _stats(**overrides: object) -> DigestStats:
-    defaults = dict(
-        tenant_name="Solare Srl",
-        window_label="ultime 24 ore",
-        new_leads=5,
-        new_hot=2,
-        outreach_sent=4,
-        outreach_opened=3,
-        outreach_clicked=1,
-        contracts_signed=1,
-        total_cost_eur=12.34,
-    )
+    defaults = {
+        "tenant_name": "Solare Srl",
+        "window_label": "ultime 24 ore",
+        "new_leads": 5,
+        "new_hot": 2,
+        "outreach_sent": 4,
+        "outreach_opened": 3,
+        "outreach_clicked": 1,
+        "contracts_signed": 1,
+        "total_cost_eur": 12.34,
+    }
     defaults.update(overrides)
     return DigestStats(**defaults)  # type: ignore[arg-type]
 
@@ -46,7 +46,8 @@ def test_html_embeds_tenant_name_and_window_label() -> None:
 
 def test_text_variant_is_plain_and_complete() -> None:
     text = format_digest_text(_stats(new_leads=10, contracts_signed=3))
-    assert "<" not in text and "</" not in text  # no HTML leaked in
+    assert "<" not in text
+    assert "</" not in text
     assert "Nuovi lead:" in text
     assert "Contratti firmati:  3" in text
     assert "€12.34" in text

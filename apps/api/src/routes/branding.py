@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
 
 import httpx
@@ -425,7 +425,7 @@ async def get_domain_status(ctx: CurrentUser) -> DomainStatusResponse:
     # Stamp verification timestamp on first success
     if result.status == "verified" and not already_verified_at:
         sb.table("tenants").update(
-            {"email_from_domain_verified_at": datetime.now(timezone.utc).isoformat()}
+            {"email_from_domain_verified_at": datetime.now(UTC).isoformat()}
         ).eq("id", tenant_id).execute()
         log.info("branding.domain_verified", tenant_id=tenant_id, domain=result.domain)
 
