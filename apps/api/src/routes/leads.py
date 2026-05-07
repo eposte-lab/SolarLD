@@ -631,11 +631,7 @@ async def send_test_outreach(
 
     # Tenant must be in demo / kill-switch mode for this path to make sense.
     tenant_res = (
-        sb.table("tenants")
-        .select("id, outreach_blocked")
-        .eq("id", tenant_id)
-        .single()
-        .execute()
+        sb.table("tenants").select("id, outreach_blocked").eq("id", tenant_id).single().execute()
     )
     if not tenant_res.data:
         raise HTTPException(status_code=404, detail="Tenant non trovato.")
@@ -662,9 +658,7 @@ async def send_test_outreach(
     if not lead_res.data:
         raise HTTPException(status_code=404, detail="Lead non trovato.")
     real_email = (
-        ((lead_res.data[0].get("subjects") or {}).get("decision_maker_email") or "")
-        .strip()
-        .lower()
+        ((lead_res.data[0].get("subjects") or {}).get("decision_maker_email") or "").strip().lower()
     )
     if real_email and real_email == override:
         raise HTTPException(

@@ -1356,7 +1356,9 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
         # explicitly supplies a `recipient_override` we DO want the email
         # to go out — they're sending it to themselves to verify the
         # template renders correctly. Bypass the switch in that case.
-        kill_switch_active = bool(tenant_row.get("outreach_blocked")) and not payload.recipient_override
+        kill_switch_active = (
+            bool(tenant_row.get("outreach_blocked")) and not payload.recipient_override
+        )
         if kill_switch_active:
             log.info(
                 "outreach.kill_switch_active",
