@@ -787,45 +787,48 @@ _BEACON_KEY_TTL = 90  # seconds
 # ---------------------------------------------------------------------------
 #
 # Per-event score deltas applied via the ``bump_engagement_score``
-# Postgres function (migration 0066). Anything not listed contributes
-# 0 (heartbeat, leave) — those are signals for the nightly rollup but
-# not strong enough to deserve a real-time bump.
+# Postgres function (migration 0066). Cumulative, clamped to [0, 100]
+# inside the RPC.
 #
-# ``portal.view`` is a small (+5) bump rather than zero: landing on
-# the portal IS an action (the lead clicked the email CTA) and the
-# operator wants to see the score move immediately, not wait for the
-# nightly rollup. The nightly rollup still adds +20 per distinct
-# session on top, so a single visit ends up worth ~25 once both
-# layers reconcile.
+# Calibration philosophy (post-demo recalibration with operator):
+#   * Landing alone is HUGE intent — the lead opened the cold email,
+#     clicked the CTA, AND landed on the portal. That single chain
+#     should put them at "warm" (50) immediately.
+#   * Bolletta upload is the next big step (deliberate action with
+#     time investment) → should push to ~70.
+#   * A direct contact click (WhatsApp / appointment) is the goal
+#     state → should push to 90-100.
+#   * Email reply click is similar (the lead is engaging in the
+#     conversation) → 100.
+#   * Mid-funnel signals (scroll, ROI viewed, video play) stay smaller
+#     because they're attention proxies, not intent.
+#
+# Anything not listed contributes 0 (heartbeats, leaves).
 #
 # Keep these in lockstep with the ground-truth weights in
-# ``apps/api/src/services/engagement_service.py`` — they intentionally
-# mirror the cron formula so the realtime score never diverges by
-# more than the daily decay step.
-#
-# Multiple firings of the same kind in one session are softly
-# bounded by the per-session rate limiter (60/min) and harder
-# bounded by the nightly rollup's idempotent recompute.
+# ``apps/api/src/services/engagement_service.py`` — they mirror the
+# cron formula so the realtime score never diverges by more than
+# the daily decay step.
 
 _EVENT_DELTA: dict[str, int] = {
-    # Landing
-    "portal.view": 5,
-    # Curiosity signals
+    # Landing — opening the cold email + clicking CTA + arriving here
+    # is a real intent chain. One bump pushes the lead to "warm".
+    "portal.view": 50,
+    # Curiosity signals (mid-funnel attention proxies)
     "portal.scroll_50": 3,
     "portal.scroll_90": 7,
     "portal.roi_viewed": 10,
     "portal.cta_hover": 2,
-    # Strong intent signals
+    # Engagement signals
     "portal.video_play": 15,
     "portal.video_complete": 25,
-    # CTA clicks
-    "portal.whatsapp_click": 40,
-    "portal.appointment_click": 60,
-    # Sprint 8 high-intent additions
     "portal.audio_on": 8,
     "portal.video_fullscreen": 8,
-    "portal.email_reply_click": 35,
-    "portal.bolletta_uploaded": 50,
+    # High-intent actions (these complete the funnel)
+    "portal.bolletta_uploaded": 20,  # 50 (view) + 20 = 70
+    "portal.whatsapp_click": 20,  # 50 (view) + 20 = 70 (or 90 with bolletta)
+    "portal.appointment_click": 30,  # 50 (view) + 30 = 80 (or 100 with bolletta)
+    "portal.email_reply_click": 30,  # equivalent intent to appointment
 }
 
 

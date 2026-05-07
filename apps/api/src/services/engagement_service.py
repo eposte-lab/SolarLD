@@ -9,20 +9,28 @@ last N minutes of ``portal_events`` — we don't trigger-update the
 score on every heartbeat because it'd cause write amplification on
 ``leads`` (dozens of updates per portal visit).
 
-Formula (v1 — tunable, keep in sync with UI copy in /settings):
+Formula (v2 — recalibrated post-demo with operator):
 
-    +20   per distinct portal session in the last 30 days
+    +50   per distinct portal session in the last 30 days
     + 3   per portal.scroll_50 event
     + 7   per portal.scroll_90 event
     +10   per portal.roi_viewed event
     + 2   per portal.cta_hover event (capped at 10 total)
     +15   per portal.video_play event
     +25   per portal.video_complete event
-    +40   per portal.whatsapp_click
-    +60   per portal.appointment_click
+    +20   per portal.bolletta_uploaded
+    +20   per portal.whatsapp_click
+    +30   per portal.appointment_click
     + 1   per 30s of time-on-page (capped at 20)
     + 5   if outreach_opened_at is set         (email open, lifetime)
     +15   if outreach_clicked_at is set        (email click, lifetime)
+
+The session weight (50) is the dominant signal: opening the cold
+email + clicking the CTA + landing on the portal is a chain of
+intentional actions that already qualifies a lead as "warm". A
+single bolletta upload on top brings them to ~70; a contact CTA
+takes them to 90-100. Mid-funnel signals (scroll, video, ROI viewed)
+stay smaller because they're attention proxies, not intent.
 
 Clamped to [0, 100]. Inputs outside the 30-day window are dropped to
 keep the score sensitive — a lead who was hot in January shouldn't
@@ -64,9 +72,11 @@ ROLLUP_WINDOW_DAYS = 30
 # heartbeat count → time-on-page seconds.
 HEARTBEAT_INTERVAL_SEC = 15
 
-# Weights — see module docstring. Change these in lockstep with the
-# /settings page copy so what the operator sees matches what they get.
-W_SESSION = 20
+# Weights — see module docstring. Keep in sync with _EVENT_DELTA in
+# apps/api/src/routes/public.py (the real-time bump path) and with
+# the /settings page copy so what the operator sees matches what
+# they get.
+W_SESSION = 50
 W_SCROLL_50 = 3
 W_SCROLL_90 = 7
 W_ROI_VIEWED = 10
@@ -74,8 +84,9 @@ W_CTA_HOVER = 2
 W_CTA_HOVER_CAP = 10
 W_VIDEO_PLAY = 15
 W_VIDEO_COMPLETE = 25
-W_WHATSAPP_CLICK = 40
-W_APPOINTMENT_CLICK = 60
+W_BOLLETTA_UPLOADED = 20
+W_WHATSAPP_CLICK = 20
+W_APPOINTMENT_CLICK = 30
 W_TIME_PER_30S = 1
 W_TIME_CAP = 20
 W_EMAIL_OPENED = 5
@@ -98,6 +109,7 @@ class LeadEngagementStats:
     cta_hover: int = 0
     video_play: int = 0
     video_complete: int = 0
+    bolletta_uploaded: int = 0
     whatsapp_click: int = 0
     appointment_click: int = 0
     heartbeats: int = 0
@@ -128,6 +140,7 @@ def compute_score(stats: LeadEngagementStats) -> int:
     score += min(W_CTA_HOVER * stats.cta_hover, W_CTA_HOVER_CAP)
     score += W_VIDEO_PLAY * stats.video_play
     score += W_VIDEO_COMPLETE * stats.video_complete
+    score += W_BOLLETTA_UPLOADED * stats.bolletta_uploaded
     score += W_WHATSAPP_CLICK * stats.whatsapp_click
     score += W_APPOINTMENT_CLICK * stats.appointment_click
 
@@ -203,6 +216,8 @@ async def run_engagement_rollup(
             stats.whatsapp_click += 1
         elif kind == "portal.appointment_click":
             stats.appointment_click += 1
+        elif kind == "portal.bolletta_uploaded":
+            stats.bolletta_uploaded += 1
         elif kind == "portal.heartbeat":
             stats.heartbeats += 1
         # portal.view / portal.leave contribute only via session count
