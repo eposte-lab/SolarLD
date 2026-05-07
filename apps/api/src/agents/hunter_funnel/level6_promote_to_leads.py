@@ -2,9 +2,12 @@
 
 Reads ``scan_candidates`` rows where:
   * ``funnel_version = 3``
-  * ``recommended_for_rendering = true``
-  * ``stage = 5``
-  * a ``roof_id`` was assigned at L4 (Solar accepted)
+  * ``solar_verdict = 'accepted'`` (passed L4 Solar gate, has roof_id)
+  * a usable ``best_email`` survived L2 + extraction
+
+The L5 score (``recommended_for_rendering``, ``overall_score``) is
+recorded on the lead but does NOT gate promotion — the operator inspects
+it on the detail page and decides per-lead whether to render/send.
 
 For each candidate:
   1. Builds a ``subject`` row from the scraped business signals + Places
@@ -36,20 +39,23 @@ if TYPE_CHECKING:
 log = get_logger(__name__)
 
 
-# Hard quality bar for L6 promotion. The customer never sees scartati
-# in /contatti — anything below this bar stays as a `scan_candidates`
-# row but is NOT promoted to a `leads` row.
+# Quality bar for L6 promotion. Anything below this bar stays as a
+# `scan_candidates` row but is NOT promoted to a `leads` row.
 #
-#   * `score ≥ MIN_SCORE`: Haiku ranked the candidate as warm/hot.
 #   * `solar_verdict='accepted'`: roof passed the Solar API gate.
 #   * `email present`: at least one usable contact email after L2 + extraction.
-#   * `predicted_sector` in tenant.target_wizard_groups: actually inside the
-#     sector mix the operator chose during onboarding.
+#
+# Score and predicted_sector were previously hard gates (score≥70, sector
+# in tenant.target_wizard_groups). We dropped them because the demo flow
+# needs every Solar-accepted+email candidate to be a clickable `leads`
+# row — the operator opens it, inspects the score on the lead detail
+# page, and decides whether to render/send manually. The L4 Solar gate
+# is already a strong filter; gating again at L6 hides perfectly usable
+# leads behind a "show scartati" toggle and confuses operators.
 #
 # The cap on total funnel-v3 leads per tenant uses
 # `tenants.daily_target_send_cap` (default 10) as the upper bound — set
 # during onboarding, mirrors the daily warehouse refill ceiling.
-MIN_SCORE = 70
 DEFAULT_LEAD_CAP_PER_TENANT = 10
 
 
@@ -101,34 +107,14 @@ async def run_level6_promote_to_leads(
     tenant_cap_raw = (tenant_res.data or {}).get("daily_target_send_cap")
     lead_cap = int(tenant_cap_raw) if tenant_cap_raw else DEFAULT_LEAD_CAP_PER_TENANT
 
-    # Resolve the tenant's targeted wizard groups from the Sorgente module
-    # config so we can drop "out of target" predictions before promotion.
-    target_groups: set[str] = set()
-    try:
-        mod_res = (
-            sb.table("tenant_modules")
-            .select("config")
-            .eq("tenant_id", ctx.tenant_id)
-            .eq("module_key", "sorgente")
-            .maybe_single()
-            .execute()
-        )
-        cfg = (mod_res.data or {}).get("config") or {}
-        target_groups = set(cfg.get("target_wizard_groups") or [])
-    except Exception:  # noqa: BLE001
-        target_groups = set()
-
-    # Hard quality bar — only the *perfect* candidates become leads.
+    # Quality bar — promote every Solar-accepted candidate that has at
+    # least one usable email. Score and sector match are NOT gates; the
+    # operator inspects them on the lead detail page and decides per-lead
+    # whether to render/send. See module docstring for rationale.
     def _is_perfect(c: ScoredV3Candidate) -> bool:
-        if not c.recommended_for_rendering:
-            return False
-        if (c.overall_score or 0) < MIN_SCORE:
-            return False
         if c.solar_verdict != "accepted":
             return False
-        if not (c.contact and c.contact.best_email):
-            return False
-        return not (target_groups and (c.record.predicted_sector or "") not in target_groups)
+        return bool(c.contact and c.contact.best_email)
 
     recommended = [s for s in scored if _is_perfect(s)]
     if not recommended:

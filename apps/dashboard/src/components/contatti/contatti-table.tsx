@@ -53,95 +53,6 @@ const VERDICT_ORDER: Record<string, number> = {
   skipped_below_gate: 4,
 };
 
-// ---------------------------------------------------------------------------
-// Anti-spam flags mini-component
-// ---------------------------------------------------------------------------
-
-const ANTISPAM_FLAG_META: Record<
-  string,
-  { label: string; tone: string; title: string }
-> = {
-  disposable_email: {
-    label: '🚫 Email usa e getta',
-    tone: 'bg-rose-100 text-rose-700',
-    title: 'Indirizzo email usa e getta — lead scartato automaticamente',
-  },
-  free_email_provider_b2b: {
-    label: '⚠ Email consumer',
-    tone: 'bg-amber-100 text-amber-700',
-    title: 'Email su dominio consumer (Gmail/Yahoo/Libero) — score ridotto',
-  },
-  role_account_email: {
-    label: '⚠ Account generico',
-    tone: 'bg-amber-100 text-amber-700',
-    title: 'Email di ruolo (info@/admin@/...) — score ridotto',
-  },
-  invalid_vat_checksum: {
-    label: '🚫 P.IVA non valida',
-    tone: 'bg-rose-100 text-rose-700',
-    title: 'La Partita IVA non supera il checksum italiano — lead scartato',
-  },
-  phone_country_mismatch: {
-    label: '⚠ Telefono estero',
-    tone: 'bg-amber-100 text-amber-700',
-    title: 'Numero di telefono non italiano (+39) — score ridotto',
-  },
-};
-
-function AntiSpamBadges({ flags }: { flags?: string[] | null }) {
-  if (!flags || flags.length === 0) return null;
-  const known = flags.filter((f) => f in ANTISPAM_FLAG_META);
-  if (known.length === 0) return null;
-  return (
-    <div className="mt-1.5 flex flex-wrap gap-1">
-      {known.map((f) => {
-        const meta = ANTISPAM_FLAG_META[f]!;
-        return (
-          <span
-            key={f}
-            className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${meta.tone}`}
-            title={meta.title}
-          >
-            {meta.label}
-          </span>
-        );
-      })}
-    </div>
-  );
-}
-
-const EMAIL_TYPE_BADGE: Record<
-  string,
-  { label: string; tone: string; title: string }
-> = {
-  inferred_pattern: {
-    label: 'inferita',
-    tone: 'bg-amber-100 text-amber-700',
-    title:
-      'Email inferita dal pattern info@<dominio> con MX validato. Indirizzo non scrappato esplicitamente — possibile catch-all del provider.',
-  },
-  privacy_dpo: {
-    label: 'DPO',
-    tone: 'bg-violet-100 text-violet-700',
-    title:
-      'Email del DPO/Titolare del Trattamento estratta dalla privacy/cookie page. Inbox reale ma destinata a richieste GDPR.',
-  },
-};
-
-function EmailSourceBadge({ type }: { type?: string | null }) {
-  if (!type) return null;
-  const meta = EMAIL_TYPE_BADGE[type];
-  if (!meta) return null;
-  return (
-    <span
-      className={`shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${meta.tone}`}
-      title={meta.title}
-    >
-      {meta.label}
-    </span>
-  );
-}
-
 type SortKey =
   | 'name'
   | 'sector'
@@ -279,20 +190,22 @@ export function ContattiTable({ rows }: { rows: ContattoRow[] }) {
                   )}
                 </td>
 
-                {/* Contatto: email + telefono + anti-spam flags */}
+                {/* Contatto: email + telefono. Email-quality and anti-spam
+                    flags are intentionally NOT rendered here — by the time
+                    a contact reaches this table the L6 quality bar has
+                    already filtered out anything below the demo threshold,
+                    so per-row warnings ("inferita", "Account generico",
+                    "Email consumer") add visual noise without actionable
+                    signal. The flags still live on the row for a future
+                    debug view if needed. */}
                 <td className="px-5 py-4 text-xs">
                   {email ? (
-                    <div className="flex items-center gap-1.5">
-                      <a
-                        href={`mailto:${email}`}
-                        className="text-primary hover:underline"
-                      >
-                        {email}
-                      </a>
-                      <EmailSourceBadge
-                        type={c.contact_extraction?.best_email_type}
-                      />
-                    </div>
+                    <a
+                      href={`mailto:${email}`}
+                      className="text-primary hover:underline"
+                    >
+                      {email}
+                    </a>
                   ) : null}
                   {phone ? (
                     <a
@@ -305,7 +218,6 @@ export function ContattiTable({ rows }: { rows: ContattoRow[] }) {
                   {!email && !phone ? (
                     <span className="text-on-surface-variant">—</span>
                   ) : null}
-                  <AntiSpamBadges flags={c.proxy_score_data?.flags} />
                 </td>
 
                 {/* Scan */}
