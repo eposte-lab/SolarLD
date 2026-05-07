@@ -60,6 +60,13 @@ ALL_VARS: list[dict[str, str]] = [
     {"slug": "sender_first_name", "label": "Nome mittente", "example": "Alfonso"},
     {"slug": "tenant_name", "label": "Nome brand/azienda", "example": "SolarTech"},
     {"slug": "brand_logo_url", "label": "Logo brand (URL)", "example": "https://..."},
+    # Hero (rendering pipeline)
+    {"slug": "hero_gif_url", "label": "GIF rendering tetto (URL)", "example": "https://..."},
+    {
+        "slug": "hero_image_url",
+        "label": "Immagine statica fallback (URL)",
+        "example": "https://...",
+    },
     # GDPR (required)
     {"slug": "unsubscribe_url", "label": "Link disiscrizione ✱", "example": "https://..."},
     {"slug": "tenant_legal_name", "label": "Ragione sociale ✱", "example": "SolarTech S.r.l."},
@@ -139,6 +146,8 @@ _PREVIEW_CONTEXT: dict[str, Any] = {
     "sender_first_name": "Alfonso",
     "tenant_name": "SolarTech",
     "brand_logo_url": "",
+    "hero_gif_url": "https://solarld.app/preview/hero.gif",
+    "hero_image_url": "https://solarld.app/preview/hero.jpg",
     "unsubscribe_url": "https://solarld.app/optout/preview",
     "tenant_legal_name": "SolarTech S.r.l.",
     "tenant_vat_number": "IT12345678901",
@@ -526,6 +535,11 @@ def render_template_for_lead(
         "tenant_vat_number": tenant_row.get("vat_number") or "",
         "tenant_legal_address": tenant_row.get("legal_address") or "",
         "tracking_pixel_url": tracking_pixel_url or "",
+        # Hero from the rendering pipeline (Remotion → Supabase). Same
+        # priority chain used by OutreachAgent for the built-in Solar
+        # template family — see agents/outreach.py.
+        "hero_gif_url": (lead.get("rendering_gif_cdn_url") or lead.get("rendering_gif_url") or ""),
+        "hero_image_url": lead.get("rendering_image_url") or "",
     }
 
     env = Environment(autoescape=False, undefined=Undefined)
