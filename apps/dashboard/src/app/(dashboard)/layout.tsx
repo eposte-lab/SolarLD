@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation';
 import { IdleLogout } from '@/components/auth/idle-logout';
 import { RealtimeToaster } from '@/components/realtime-toaster';
 import { BackButton } from '@/components/ui/back-button';
+import { NavigationProgress } from '@/components/ui/navigation-progress';
 import { NotificationsBell } from '@/components/ui/notifications-bell';
 import { SideNav, type NavSection } from '@/components/ui/side-nav';
 import { getTopHotLead } from '@/lib/data/leads';
@@ -123,6 +124,7 @@ export default async function DashboardLayout({
 
   return (
     <div className="flex min-h-screen bg-surface">
+      <NavigationProgress />
       <SideNav
         sections={visibleSections}
         tenant={{ business_name: ctx.tenant.business_name }}

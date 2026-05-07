@@ -82,7 +82,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
       ? Promise.resolve({ rows: [], total: 0 })
       : listLeads({ page, filter }),
     isHotMode
-      ? listHotLeadsAwaitingResponse({ sinceHours: 72, minScore: 60, limit: 50 })
+      ? listHotLeadsAwaitingResponse({ sinceHours: 72, limit: 50 })
       : Promise.resolve([]),
     getContattiSummary(),
   ]);
