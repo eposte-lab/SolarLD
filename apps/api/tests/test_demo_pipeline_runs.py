@@ -24,9 +24,6 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import patch
 
-import pytest
-
-
 # ---------------------------------------------------------------------------
 # Stub Supabase client that records calls for assertion
 # ---------------------------------------------------------------------------
@@ -42,29 +39,29 @@ class _StubQuery:
     ``.update(payload).eq(col, val).execute()`` /
     ``.select(cols).eq(col, val).maybe_single().execute()``."""
 
-    def __init__(self, parent: "_StubTable") -> None:
+    def __init__(self, parent: _StubTable) -> None:
         self._parent = parent
 
-    def insert(self, payload: dict[str, Any]) -> "_StubQuery":
+    def insert(self, payload: dict[str, Any]) -> _StubQuery:
         self._parent.last_insert = payload
         # demo_pipeline_runs INSERT returns the new row.
         self._parent._next_data = [{"id": "RUN-UUID-123", **payload}]
         return self
 
-    def update(self, payload: dict[str, Any]) -> "_StubQuery":
+    def update(self, payload: dict[str, Any]) -> _StubQuery:
         self._parent.last_update = payload
         return self
 
-    def select(self, _cols: str) -> "_StubQuery":
+    def select(self, _cols: str) -> _StubQuery:
         return self
 
-    def eq(self, _col: str, _val: Any) -> "_StubQuery":
+    def eq(self, _col: str, _val: Any) -> _StubQuery:
         return self
 
-    def limit(self, _n: int) -> "_StubQuery":
+    def limit(self, _n: int) -> _StubQuery:
         return self
 
-    def maybe_single(self) -> "_StubQuery":
+    def maybe_single(self) -> _StubQuery:
         return self
 
     def execute(self) -> _StubExecute:
@@ -220,12 +217,12 @@ class _MockEnrichmentTable(_StubTable):
         self._map = vat_to_data
         self._pending_vat: str | None = None
 
-    def select(self, cols: str) -> "_StubQuery":
+    def select(self, cols: str) -> _StubQuery:
         return _MockEnrichmentQuery(self)
 
 
 class _MockEnrichmentQuery(_StubQuery):
-    def eq(self, col: str, val: Any) -> "_MockEnrichmentQuery":
+    def eq(self, col: str, val: Any) -> _MockEnrichmentQuery:
         if col == "vat_number":
             assert isinstance(self._parent, _MockEnrichmentTable)
             data = self._parent._map.get(str(val))

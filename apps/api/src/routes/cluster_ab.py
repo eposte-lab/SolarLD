@@ -29,6 +29,7 @@ All routes require authentication; data is RLS-scoped to the tenant.
 from __future__ import annotations
 
 import random as _random
+from datetime import UTC
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, status
@@ -81,9 +82,7 @@ def _variant_row_to_dict(v: dict[str, Any]) -> dict[str, Any]:
         "sent_count": v.get("sent_count", 0),
         "replied_count": v.get("replied_count", 0),
         "reply_rate": (
-            round(v["replied_count"] / v["sent_count"], 4)
-            if v.get("sent_count", 0) > 0
-            else None
+            round(v["replied_count"] / v["sent_count"], 4) if v.get("sent_count", 0) > 0 else None
         ),
     }
 
@@ -97,17 +96,19 @@ async def list_active_clusters(user: CurrentUser) -> dict[str, Any]:
     tenant_id = require_tenant(user)
     sb = get_service_client()
 
-    resp = await sb.table("cluster_copy_variants") \
+    resp = (
+        await sb.table("cluster_copy_variants")
         .select(
             "id, tenant_id, cluster_signature, round_number, variant_label, "
             "copy_subject, copy_opening_line, copy_proposition_line, cta_primary_label, "
             "status, generated_by, sent_count, replied_count, generated_at, promoted_at"
-        ) \
-        .eq("tenant_id", tenant_id) \
-        .eq("status", "active") \
-        .order("cluster_signature") \
-        .order("variant_label") \
+        )
+        .eq("tenant_id", tenant_id)
+        .eq("status", "active")
+        .order("cluster_signature")
+        .order("variant_label")
         .execute()
+    )
 
     rows = resp.data or []
 
@@ -130,8 +131,10 @@ async def list_active_clusters(user: CurrentUser) -> dict[str, Any]:
         vb = next((v for v in cluster["variants"] if v["variant_label"] == "B"), None)
         if va and vb:
             cluster["prob_a_wins"] = _prob_a_wins(
-                va["replied_count"], va["sent_count"],
-                vb["replied_count"], vb["sent_count"],
+                va["replied_count"],
+                va["sent_count"],
+                vb["replied_count"],
+                vb["sent_count"],
             )
         result.append(cluster)
 
@@ -144,17 +147,19 @@ async def get_cluster_detail(cluster_signature: str, user: CurrentUser) -> dict[
     tenant_id = require_tenant(user)
     sb = get_service_client()
 
-    variants_resp = await sb.table("cluster_copy_variants") \
+    variants_resp = (
+        await sb.table("cluster_copy_variants")
         .select(
             "id, variant_label, round_number, status, generated_by, "
             "copy_subject, copy_opening_line, copy_proposition_line, cta_primary_label, "
             "sent_count, replied_count, generated_at, promoted_at"
-        ) \
-        .eq("tenant_id", tenant_id) \
-        .eq("cluster_signature", cluster_signature) \
-        .order("round_number", desc=True) \
-        .order("variant_label") \
+        )
+        .eq("tenant_id", tenant_id)
+        .eq("cluster_signature", cluster_signature)
+        .order("round_number", desc=True)
+        .order("variant_label")
         .execute()
+    )
 
     variants = variants_resp.data or []
     if not variants:
@@ -164,13 +169,15 @@ async def get_cluster_detail(cluster_signature: str, user: CurrentUser) -> dict[
         )
 
     # Last 30 days of daily metrics.
-    metrics_resp = await sb.table("ab_test_metrics_daily") \
-        .select("round_number, variant_label, date, sent_count, replied_count, reply_rate") \
-        .eq("tenant_id", tenant_id) \
-        .eq("cluster_signature", cluster_signature) \
-        .order("date", desc=True) \
-        .limit(60) \
+    metrics_resp = (
+        await sb.table("ab_test_metrics_daily")
+        .select("round_number, variant_label, date, sent_count, replied_count, reply_rate")
+        .eq("tenant_id", tenant_id)
+        .eq("cluster_signature", cluster_signature)
+        .order("date", desc=True)
+        .limit(60)
         .execute()
+    )
 
     # Active variants for Bayesian estimate.
     active = [v for v in variants if v["status"] == "active"]
@@ -179,8 +186,10 @@ async def get_cluster_detail(cluster_signature: str, user: CurrentUser) -> dict[
     prob_a_wins = None
     if va and vb:
         prob_a_wins = _prob_a_wins(
-            va["replied_count"], va["sent_count"],
-            vb["replied_count"], vb["sent_count"],
+            va["replied_count"],
+            va["sent_count"],
+            vb["replied_count"],
+            vb["sent_count"],
         )
 
     return {
@@ -233,12 +242,14 @@ async def regenerate_cluster(cluster_signature: str, user: CurrentUser) -> dict[
     sb = get_service_client()
 
     # Find current active variants.
-    resp = await sb.table("cluster_copy_variants") \
-        .select("id, round_number") \
-        .eq("tenant_id", tenant_id) \
-        .eq("cluster_signature", cluster_signature) \
-        .eq("status", "active") \
+    resp = (
+        await sb.table("cluster_copy_variants")
+        .select("id, round_number")
+        .eq("tenant_id", tenant_id)
+        .eq("cluster_signature", cluster_signature)
+        .eq("status", "active")
         .execute()
+    )
 
     current = resp.data or []
     if not current:
@@ -250,17 +261,21 @@ async def regenerate_cluster(cluster_signature: str, user: CurrentUser) -> dict[
     current_round = max(v["round_number"] for v in current)
 
     # Archive existing active variants.
-    from datetime import datetime, timezone
-    now_iso = datetime.now(timezone.utc).isoformat()
+    from datetime import datetime
+
+    now_iso = datetime.now(UTC).isoformat()
     ids = [v["id"] for v in current]
     for vid in ids:
-        await sb.table("cluster_copy_variants") \
-            .update({"status": "archived", "promoted_at": now_iso}) \
-            .eq("id", vid) \
+        await (
+            sb.table("cluster_copy_variants")
+            .update({"status": "archived", "promoted_at": now_iso})
+            .eq("id", vid)
             .execute()
+        )
 
     # Generate new round from scratch (no baseline).
     from ..services.cluster_ab_evaluator_service import _generate_new_round
+
     new_round = current_round + 1
     await _generate_new_round(sb, tenant_id, cluster_signature, new_round, previous_winner=None)
 

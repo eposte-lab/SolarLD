@@ -74,7 +74,7 @@ async def run_funnel(
         event_type="scan.l1_complete",
         payload={
             "scan_id": scan_id,
-            "territory_id": payload.territory_id,   # needed by dashboard scan-summary
+            "territory_id": payload.territory_id,  # needed by dashboard scan-summary
             "candidates": len(l1),
             "atoka_cost_cents": costs.atoka_cost_cents,
         },
@@ -123,9 +123,7 @@ async def run_funnel(
             "scan_id": scan_id,
             "scored": len(l3),
             "claude_cost_cents": costs.claude_cost_cents,
-            "score_avg": (
-                sum(s.score for s in l3) / len(l3) if l3 else 0
-            ),
+            "score_avg": (sum(s.score for s in l3) / len(l3) if l3 else 0),
         },
         tenant_id=payload.tenant_id,
     )
@@ -171,9 +169,7 @@ async def run_funnel(
     return out
 
 
-async def _finalise(
-    ctx: FunnelContext, out: HunterOutput, agent: HunterAgent
-) -> None:
+async def _finalise(ctx: FunnelContext, out: HunterOutput, agent: HunterAgent) -> None:
     """Write total cost into the HunterOutput + emit terminal event."""
     await ctx.costs.flush(completed=True)
     out.api_cost_cents = ctx.costs.total_cost_cents
@@ -185,7 +181,7 @@ async def _finalise(
         event_type="scan.completed",
         payload={
             "scan_id": ctx.scan_id,
-            "territory_id": ctx.territory_id,        # needed by dashboard scan-summary
+            "territory_id": ctx.territory_id,  # needed by dashboard scan-summary
             "total_cost_cents": ctx.costs.total_cost_cents,
             "leads_qualified": ctx.costs.leads_qualified,
             "breakdown": {

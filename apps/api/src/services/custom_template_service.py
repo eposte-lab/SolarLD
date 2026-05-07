@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import io
 from dataclasses import dataclass, field
+from datetime import UTC
 from pathlib import PurePosixPath
 from typing import Any
 
@@ -43,73 +44,108 @@ log = get_logger(__name__)
 # The tenant's template MUST reference all of these variables; if any
 # are missing the upload is rejected with a clear error message.
 
-REQUIRED_VARIABLES: frozenset[str] = frozenset({
-    "unsubscribe_url",       # RFC 8058 one-click opt-out link
-    "tracking_pixel_url",    # 1×1 pixel for open tracking
-    "tenant_legal_name",     # e.g. "SolarTech S.r.l."
-    "tenant_vat_number",     # P.IVA per GDPR footer
-    "tenant_legal_address",  # Registered address per GDPR footer
-})
+REQUIRED_VARIABLES: frozenset[str] = frozenset(
+    {
+        "unsubscribe_url",  # RFC 8058 one-click opt-out link
+        "tracking_pixel_url",  # 1×1 pixel for open tracking
+        "tenant_legal_name",  # e.g. "SolarTech S.r.l."
+        "tenant_vat_number",  # P.IVA per GDPR footer
+        "tenant_legal_address",  # Registered address per GDPR footer
+    }
+)
 
 # Optional variables documented in the upload UI — tenants can use
 # any subset; the renderer passes all of them as Jinja context.
-OPTIONAL_VARIABLES: frozenset[str] = frozenset({
-    "copy_subject",
-    "copy_opening_line",
-    "copy_proposition_line",
-    "cta_primary_label",
-    "greeting_name",
-    "lead_url",
-    "tenant_name",
-    "business_name",
-    "ateco_description",
-    "hero_gif_url",
-    "hero_image_url",
-    "brand_primary_color",
-    "brand_color_accent",
-    "brand_logo_url",
-    "roi",
-    "sequence_step",
-    "sender_first_name",
-    "hq_province",
-    "recipient_email",
-    "video_landing_url",
-    "similar_province",
-})
+OPTIONAL_VARIABLES: frozenset[str] = frozenset(
+    {
+        "copy_subject",
+        "copy_opening_line",
+        "copy_proposition_line",
+        "cta_primary_label",
+        "greeting_name",
+        "lead_url",
+        "tenant_name",
+        "business_name",
+        "ateco_description",
+        "hero_gif_url",
+        "hero_image_url",
+        "brand_primary_color",
+        "brand_color_accent",
+        "brand_logo_url",
+        "roi",
+        "sequence_step",
+        "sender_first_name",
+        "hq_province",
+        "recipient_email",
+        "video_landing_url",
+        "similar_province",
+    }
+)
 
 # bleach allowlist — generous for email HTML but strips anything risky.
 _ALLOWED_TAGS: list[str] = [
-    "html", "head", "body", "meta", "title", "style", "link",
-    "p", "br", "hr",
-    "h1", "h2", "h3", "h4", "h5", "h6",
-    "a", "img",
-    "table", "thead", "tbody", "tfoot", "tr", "td", "th",
-    "span", "div", "section", "header", "footer", "main",
-    "strong", "b", "em", "i", "u", "s", "small",
-    "ul", "ol", "li",
-    "pre", "code",
-    "center",    # legacy email layout
-    "font",      # legacy email layout
+    "html",
+    "head",
+    "body",
+    "meta",
+    "title",
+    "style",
+    "link",
+    "p",
+    "br",
+    "hr",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "a",
+    "img",
+    "table",
+    "thead",
+    "tbody",
+    "tfoot",
+    "tr",
+    "td",
+    "th",
+    "span",
+    "div",
+    "section",
+    "header",
+    "footer",
+    "main",
+    "strong",
+    "b",
+    "em",
+    "i",
+    "u",
+    "s",
+    "small",
+    "ul",
+    "ol",
+    "li",
+    "pre",
+    "code",
+    "center",  # legacy email layout
+    "font",  # legacy email layout
     "blockquote",
 ]
 _ALLOWED_ATTRIBUTES: dict[str, list[str]] = {
     "*": ["class", "id", "style"],
     "a": ["href", "target", "rel", "title"],
     "img": ["src", "alt", "width", "height", "border"],
-    "td": ["colspan", "rowspan", "align", "valign", "width", "height",
-           "bgcolor", "background"],
-    "th": ["colspan", "rowspan", "align", "valign", "width", "height",
-           "bgcolor"],
+    "td": ["colspan", "rowspan", "align", "valign", "width", "height", "bgcolor", "background"],
+    "th": ["colspan", "rowspan", "align", "valign", "width", "height", "bgcolor"],
     "tr": ["align", "valign", "bgcolor"],
-    "table": ["align", "width", "border", "cellpadding", "cellspacing",
-              "bgcolor", "background"],
+    "table": ["align", "width", "border", "cellpadding", "cellspacing", "bgcolor", "background"],
     "div": ["align"],
     "center": [],
     "font": ["size", "color", "face"],
     "meta": ["charset", "name", "content", "http-equiv"],
     "link": ["rel", "href", "type"],
 }
-_MAX_SIZE_BYTES: int = 200 * 1024   # 200 KB post-sanitize
+_MAX_SIZE_BYTES: int = 200 * 1024  # 200 KB post-sanitize
 
 # Path in Supabase Storage branding bucket.
 _STORAGE_BUCKET = "branding"
@@ -121,7 +157,7 @@ class ValidationResult:
     missing_variables: list[str] = field(default_factory=list)
     syntax_error: str | None = None
     size_error: str | None = None
-    sanitized_html: str | None = None   # only set when valid=True
+    sanitized_html: str | None = None  # only set when valid=True
 
 
 # ── Public API ────────────────────────────────────────────────────────
@@ -173,7 +209,7 @@ def validate_custom_html(html: str) -> ValidationResult:
         tags=_ALLOWED_TAGS,
         attributes=_ALLOWED_ATTRIBUTES,
         strip=True,
-        strip_comments=False,   # keep <!-- comments --> (used for MSO conditional code)
+        strip_comments=False,  # keep <!-- comments --> (used for MSO conditional code)
     )
 
     # Step 5 — size check.
@@ -230,13 +266,21 @@ async def save_custom_template(supabase: Any, tenant_id: str, html: str) -> str:
         raise RuntimeError(f"Storage upload failed: {upload_resp.error.message}")
 
     # Update tenant metadata.
-    from datetime import datetime, timezone
-    now_iso = datetime.now(timezone.utc).isoformat()
-    await supabase.table("tenants").update({
-        "custom_email_template_path": path,
-        "custom_email_template_uploaded_at": now_iso,
-        "custom_email_template_active": True,
-    }).eq("id", tenant_id).execute()
+    from datetime import datetime
+
+    now_iso = datetime.now(UTC).isoformat()
+    await (
+        supabase.table("tenants")
+        .update(
+            {
+                "custom_email_template_path": path,
+                "custom_email_template_uploaded_at": now_iso,
+                "custom_email_template_active": True,
+            }
+        )
+        .eq("id", tenant_id)
+        .execute()
+    )
 
     log.info(
         "custom_template.saved",
@@ -249,9 +293,16 @@ async def save_custom_template(supabase: Any, tenant_id: str, html: str) -> str:
 
 async def deactivate_custom_template(supabase: Any, tenant_id: str) -> None:
     """Set custom_email_template_active=False without deleting the file."""
-    await supabase.table("tenants").update({
-        "custom_email_template_active": False,
-    }).eq("id", tenant_id).execute()
+    await (
+        supabase.table("tenants")
+        .update(
+            {
+                "custom_email_template_active": False,
+            }
+        )
+        .eq("id", tenant_id)
+        .execute()
+    )
     log.info("custom_template.deactivated", tenant_id=tenant_id)
 
 
@@ -370,8 +421,9 @@ def _jinja_env() -> Environment:
     global _jinja_env_instance
     if _jinja_env_instance is None:
         from jinja2 import Environment as Env
+
         _jinja_env_instance = Env(
-            autoescape=False,   # templates already sanitized via bleach
+            autoescape=False,  # templates already sanitized via bleach
             undefined=Undefined,
         )
     return _jinja_env_instance

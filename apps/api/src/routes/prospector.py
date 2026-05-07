@@ -34,12 +34,12 @@ from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from ..core.logging import get_logger
+from ..core.queue import enqueue
 from ..core.security import CurrentUser, require_tenant
 from ..core.supabase_client import get_service_client
 from ..services import prospector_service
 from ..services.places_prospector_service import search_places
 from ..services.places_to_sector import _SECTOR_TO_INCLUDED_TYPES
-from ..core.queue import enqueue
 
 router = APIRouter()
 log = get_logger(__name__)
@@ -231,6 +231,7 @@ async def delete_list(list_id: str, ctx: CurrentUser) -> dict[str, Any]:
 
 class PatchListInput(BaseModel):
     """Body of PATCH /v1/prospector/lists/{id} — only writable fields."""
+
     email_template_id: str | None = Field(default=..., description="UUID or null to unlink")
 
 
@@ -326,10 +327,7 @@ async def validate_status(list_id: str, ctx: CurrentUser) -> dict[str, Any]:
     list_row = (list_res.data or [{}])[0]
 
     items = (
-        sb.table("prospect_list_items")
-        .select("validation_status")
-        .eq("list_id", list_id)
-        .execute()
+        sb.table("prospect_list_items").select("validation_status").eq("list_id", list_id).execute()
     )
 
     counts: dict[str, int] = {}

@@ -42,9 +42,7 @@ class SectorNewsCreate(BaseModel):
 
 
 class SectorNewsUpdate(BaseModel):
-    ateco_2digit: str | None = Field(
-        default=None, min_length=2, max_length=2, pattern=r"^\d{2}$"
-    )
+    ateco_2digit: str | None = Field(default=None, min_length=2, max_length=2, pattern=r"^\d{2}$")
     headline: str | None = Field(default=None, min_length=10, max_length=140)
     body: str | None = Field(default=None, min_length=20, max_length=600)
     source_url: str | None = None
@@ -61,9 +59,7 @@ async def list_sector_news(user: CurrentUser) -> dict[str, Any]:
 
 
 @router.post("/", status_code=status.HTTP_201_CREATED)
-async def create_sector_news(
-    payload: SectorNewsCreate, user: CurrentUser
-) -> dict[str, Any]:
+async def create_sector_news(payload: SectorNewsCreate, user: CurrentUser) -> dict[str, Any]:
     """Insert a new tenant-scoped sector-news row."""
     tenant_id = require_tenant(user)
     sb = get_service_client()
@@ -128,9 +124,7 @@ async def archive_sector_news(news_id: str, user: CurrentUser) -> Response:
     """Soft-archive a tenant-owned row. Global seeds cannot be deleted."""
     tenant_id = require_tenant(user)
     sb = get_service_client()
-    ok = await sector_news_service.archive_news(
-        sb, tenant_id=tenant_id, news_id=news_id
-    )
+    ok = await sector_news_service.archive_news(sb, tenant_id=tenant_id, news_id=news_id)
     if not ok:
         raise HTTPException(status_code=404, detail="not_found_or_global")
     return Response(status_code=status.HTTP_204_NO_CONTENT)

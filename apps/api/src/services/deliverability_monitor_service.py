@@ -43,7 +43,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from ..core.logging import get_logger
@@ -54,10 +54,10 @@ log = get_logger(__name__)
 # Thresholds — kept in sync with reputation_enforcement_service.py
 # ---------------------------------------------------------------------------
 
-WINDOW_HOURS: int = 4              # rolling window for hourly check
-MIN_SENDS_FOR_RATE: int = 5        # minimum sends to compute a meaningful rate
+WINDOW_HOURS: int = 4  # rolling window for hourly check
+MIN_SENDS_FOR_RATE: int = 5  # minimum sends to compute a meaningful rate
 
-HOURLY_BOUNCE_THRESHOLD: float = 0.05    # 5 %  (same as nightly)
+HOURLY_BOUNCE_THRESHOLD: float = 0.05  # 5 %  (same as nightly)
 HOURLY_COMPLAINT_THRESHOLD: float = 0.001  # 0.1 % (tighter than nightly 0.3%)
 
 PAUSE_HOURS: int = 48
@@ -93,26 +93,25 @@ async def run_hourly_monitor(sb: Any) -> MonitorResult:
     from .reputation_enforcement_service import pause_domain_for_alarm
 
     result = MonitorResult()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     window_start = (now - timedelta(hours=WINDOW_HOURS)).isoformat()
 
     # 1. Load all non-paused tenant_email_domains that had recent sends.
     try:
         domains_res = await asyncio.to_thread(
-            lambda: sb.table("tenant_email_domains")
-            .select("id, tenant_id, domain, paused_until")
-            .eq("purpose", "outreach")
-            .execute()
+            lambda: (
+                sb.table("tenant_email_domains")
+                .select("id, tenant_id, domain, paused_until")
+                .eq("purpose", "outreach")
+                .execute()
+            )
         )
     except Exception as exc:  # noqa: BLE001
         log.error("deliverability_monitor.domain_load_failed", err=str(exc))
         result.errors.append(f"domain_load: {exc}")
         return result
 
-    domains = [
-        row for row in (domains_res.data or [])
-        if _is_active(row, now)
-    ]
+    domains = [row for row in (domains_res.data or []) if _is_active(row, now)]
 
     if not domains:
         log.debug("deliverability_monitor.no_active_domains")
@@ -242,11 +241,13 @@ async def _compute_domain_stats(
     # tenant_inboxes via the inbox_id column (set at send time).
     try:
         sends_res = await asyncio.to_thread(
-            lambda: sb.table("outreach_sends")
-            .select("id", count="exact")
-            .gte("sent_at", window_start)
-            .eq("inbox_domain_id", domain_id)   # denorm column added below
-            .execute()
+            lambda: (
+                sb.table("outreach_sends")
+                .select("id", count="exact")
+                .gte("sent_at", window_start)
+                .eq("inbox_domain_id", domain_id)  # denorm column added below
+                .execute()
+            )
         )
         # Fallback: if inbox_domain_id column doesn't exist yet, use a
         # join-based sub-query via a function call.  The graceful fallback
@@ -293,11 +294,13 @@ async def _compute_domain_stats_fallback(
     # Inbox IDs on this domain.
     try:
         inboxes_res = await asyncio.to_thread(
-            lambda: sb.table("tenant_inboxes")
-            .select("id")
-            .eq("domain_id", domain_id)
-            .eq("active", True)
-            .execute()
+            lambda: (
+                sb.table("tenant_inboxes")
+                .select("id")
+                .eq("domain_id", domain_id)
+                .eq("active", True)
+                .execute()
+            )
         )
         inbox_ids = [r["id"] for r in (inboxes_res.data or [])]
     except Exception:  # noqa: BLE001
@@ -309,12 +312,14 @@ async def _compute_domain_stats_fallback(
     # Sends
     try:
         sends_res = await asyncio.to_thread(
-            lambda: sb.table("outreach_sends")
-            .select("id, email_message_id")
-            .in_("inbox_id", inbox_ids)
-            .gte("sent_at", window_start)
-            .limit(2000)   # safety cap — if a domain is sending >2000/4h we have bigger problems
-            .execute()
+            lambda: (
+                sb.table("outreach_sends")
+                .select("id, email_message_id")
+                .in_("inbox_id", inbox_ids)
+                .gte("sent_at", window_start)
+                .limit(2000)  # safety cap — if a domain is sending >2000/4h we have bigger problems
+                .execute()
+            )
         )
     except Exception:  # noqa: BLE001
         return 0, 0, 0
@@ -331,12 +336,14 @@ async def _compute_domain_stats_fallback(
     # Events for those sends
     try:
         events_res = await asyncio.to_thread(
-            lambda: sb.table("events")
-            .select("event_type")
-            .in_("email_message_id", email_ids[:1000])  # Supabase .in_() has a limit
-            .in_("event_type", ["bounced", "complained"])
-            .gte("occurred_at", window_start)
-            .execute()
+            lambda: (
+                sb.table("events")
+                .select("event_type")
+                .in_("email_message_id", email_ids[:1000])  # Supabase .in_() has a limit
+                .in_("event_type", ["bounced", "complained"])
+                .gte("occurred_at", window_start)
+                .execute()
+            )
         )
         event_rows = events_res.data or []
     except Exception:  # noqa: BLE001
@@ -353,7 +360,5 @@ async def _count_events_fallback(
     window_start: str,
 ) -> tuple[int, int]:
     """Fallback: count events without the RPC function."""
-    _total, bounces, complaints = await _compute_domain_stats_fallback(
-        sb, domain_id, window_start
-    )
+    _total, bounces, complaints = await _compute_domain_stats_fallback(sb, domain_id, window_start)
     return bounces, complaints

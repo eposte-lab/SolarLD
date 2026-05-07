@@ -12,7 +12,6 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-
 # ---------------------------------------------------------------------------
 # Static module-level constants — exercised without instantiating the class.
 # ---------------------------------------------------------------------------
@@ -53,9 +52,7 @@ def test_template_requirements_cover_dm_37_08_and_comunicazione() -> None:
     assert "tenant.responsabile_tecnico_nome" in dm_paths
     assert "tenant.responsabile_tecnico_iscrizione_albo" in dm_paths
 
-    cc_paths = [
-        path for path, _ in _TEMPLATE_REQUIREMENTS["comunicazione_comune"]
-    ]
+    cc_paths = [path for path, _ in _TEMPLATE_REQUIREMENTS["comunicazione_comune"]]
     # The communication is addressed "Al Sig. Sindaco del Comune di {comune}".
     assert "ubicazione.comune" in cc_paths
 
@@ -92,17 +89,8 @@ def test_resolve_path_returns_none_when_missing_or_empty() -> None:
 def test_resolve_path_walks_nested_dicts() -> None:
     from src.services.practice_data_mapper import _resolve_path
 
-    ctx = {
-        "installatore": {
-            "responsabile_tecnico": {"nome_completo": "Mario Rossi"}
-        }
-    }
-    assert (
-        _resolve_path(
-            ctx, "installatore.responsabile_tecnico.nome_completo"
-        )
-        == "Mario Rossi"
-    )
+    ctx = {"installatore": {"responsabile_tecnico": {"nome_completo": "Mario Rossi"}}}
+    assert _resolve_path(ctx, "installatore.responsabile_tecnico.nome_completo") == "Mario Rossi"
 
 
 # ---------------------------------------------------------------------------
@@ -204,12 +192,8 @@ def test_validate_dm_37_08_flags_missing_responsabile_tecnico(
         "legal_address": "Via Milano 5",
     }
 
-    mock_client.return_value = _build_sb(
-        practice_row=practice_row, tenant_row=tenant_row
-    )
-    mapper = PracticeDataMapper(
-        practice_id=practice_row["id"], tenant_id=tenant_row["id"]
-    )
+    mock_client.return_value = _build_sb(practice_row=practice_row, tenant_row=tenant_row)
+    mapper = PracticeDataMapper(practice_id=practice_row["id"], tenant_id=tenant_row["id"])
     missing = mapper.validate_for_template("dm_37_08")
 
     # Should flag at least the 4 required tenant-level fields.
@@ -281,12 +265,8 @@ def test_validate_comunicazione_comune_passes_with_minimal_data(
         "legal_address": "Via Milano 5",
     }
 
-    mock_client.return_value = _build_sb(
-        practice_row=practice_row, tenant_row=tenant_row
-    )
-    mapper = PracticeDataMapper(
-        practice_id=practice_row["id"], tenant_id=tenant_row["id"]
-    )
+    mock_client.return_value = _build_sb(practice_row=practice_row, tenant_row=tenant_row)
+    mapper = PracticeDataMapper(practice_id=practice_row["id"], tenant_id=tenant_row["id"])
     missing = mapper.validate_for_template("comunicazione_comune")
     assert missing == []
 
@@ -344,10 +324,6 @@ def test_validate_unknown_template_does_not_crash(
         "legal_address": None,
     }
 
-    mock_client.return_value = _build_sb(
-        practice_row=practice_row, tenant_row=tenant_row
-    )
-    mapper = PracticeDataMapper(
-        practice_id=practice_row["id"], tenant_id=tenant_row["id"]
-    )
+    mock_client.return_value = _build_sb(practice_row=practice_row, tenant_row=tenant_row)
+    mapper = PracticeDataMapper(practice_id=practice_row["id"], tenant_id=tenant_row["id"])
     assert mapper.validate_for_template("nonexistent_doc") == []

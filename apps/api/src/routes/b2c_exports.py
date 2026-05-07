@@ -52,9 +52,7 @@ log = get_logger(__name__)
 # ---------------------------------------------------------------------------
 
 
-async def _load_dossier_data(
-    audience_id: UUID, tenant_id: UUID
-) -> dict[str, Any]:
+async def _load_dossier_data(audience_id: UUID, tenant_id: UUID) -> dict[str, Any]:
     """Resolve the audience + its ISTAT stats + outreach copy into one
     dict. Raises 404 if the audience doesn't exist for the tenant.
     """
@@ -70,8 +68,7 @@ async def _load_dossier_data(
     geo_res = (
         sb.table("geo_income_stats")
         .select(
-            "cap, provincia, regione, comune, reddito_medio_eur, "
-            "popolazione, case_unifamiliari_pct"
+            "cap, provincia, regione, comune, reddito_medio_eur, popolazione, case_unifamiliari_pct"
         )
         .eq("cap", cap)
         .limit(1)
@@ -86,8 +83,7 @@ async def _load_dossier_data(
     return {
         "audience": audience,
         "geo": geo,
-        "cta_primary": ocfg.get("cta_primary")
-        or "Prenota un sopralluogo gratuito",
+        "cta_primary": ocfg.get("cta_primary") or "Prenota un sopralluogo gratuito",
         "tone": ocfg.get("tone") or "cordiale, competente, non invasivo",
         "generated_on": date.today().isoformat(),
     }
@@ -119,8 +115,7 @@ def _talk_track(data: dict[str, Any]) -> list[str]:
         f"fotovoltaico rende di più.",
         "Un impianto tipico per una famiglia qui recupera il costo in "
         "circa 5-7 anni, poi produce energia gratis per altri 20.",
-        f"Contesto zona: {bucket_label}. Target conversazionale: "
-        f"{data['tone']}.",
+        f"Contesto zona: {bucket_label}. Target conversazionale: {data['tone']}.",
         f"Chiusura: {data['cta_primary']}.",
     ]
 
@@ -131,9 +126,7 @@ def _talk_track(data: dict[str, Any]) -> list[str]:
 
 
 @router.get("/audiences/{audience_id}/export.pdf")
-async def export_audience_pdf(
-    ctx: CurrentUser, audience_id: UUID
-) -> Response:
+async def export_audience_pdf(ctx: CurrentUser, audience_id: UUID) -> Response:
     """A4 dossier PDF for one audience.
 
     Generated in memory with reportlab — we don't persist the file;
@@ -148,11 +141,11 @@ async def export_audience_pdf(
     # occasional endpoint.
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4
-    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
     from reportlab.lib.units import mm
     from reportlab.platypus import (
-        SimpleDocTemplate,
         Paragraph,
+        SimpleDocTemplate,
         Spacer,
         Table,
         TableStyle,
@@ -170,23 +163,15 @@ async def export_audience_pdf(
     )
 
     styles = getSampleStyleSheet()
-    h_style = ParagraphStyle(
-        "H", parent=styles["Heading1"], spaceAfter=6 * mm, fontSize=18
-    )
+    h_style = ParagraphStyle("H", parent=styles["Heading1"], spaceAfter=6 * mm, fontSize=18)
     body_style = styles["BodyText"]
-    small = ParagraphStyle(
-        "Small", parent=body_style, fontSize=9, textColor=colors.grey
-    )
+    small = ParagraphStyle("Small", parent=body_style, fontSize=9, textColor=colors.grey)
 
     a = data["audience"]
     g = data["geo"]
     story: list[Any] = []
 
-    story.append(
-        Paragraph(
-            f"Dossier Door-to-Door — CAP {a.get('cap')}", h_style
-        )
-    )
+    story.append(Paragraph(f"Dossier Door-to-Door — CAP {a.get('cap')}", h_style))
     story.append(
         Paragraph(
             f"{g.get('comune') or '—'} ({g.get('provincia') or '—'}) · "
@@ -275,11 +260,7 @@ async def export_audience_pdf(
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={
-            "Content-Disposition": (
-                f'attachment; filename="dossier_CAP_{a.get("cap")}.pdf"'
-            )
-        },
+        headers={"Content-Disposition": (f'attachment; filename="dossier_CAP_{a.get("cap")}.pdf"')},
     )
 
 
@@ -289,9 +270,7 @@ async def export_audience_pdf(
 
 
 @router.get("/audiences/{audience_id}/export.xlsx")
-async def export_audience_xlsx(
-    ctx: CurrentUser, audience_id: UUID
-) -> Response:
+async def export_audience_xlsx(ctx: CurrentUser, audience_id: UUID) -> Response:
     """Workbook export — ``Dossier`` + blank ``Contatti`` sheet.
 
     The Contatti sheet is intentionally empty — it's the form the
@@ -317,18 +296,13 @@ async def export_audience_xlsx(
 
     header_font = Font(bold=True, size=14)
     label_font = Font(bold=True)
-    header_fill = PatternFill(
-        "solid", fgColor="EEF2FF"
-    )  # pale indigo — matches dashboard brand
+    header_fill = PatternFill("solid", fgColor="EEF2FF")  # pale indigo — matches dashboard brand
 
     ws["A1"] = f"Dossier Door-to-Door — CAP {a.get('cap')}"
     ws["A1"].font = header_font
     ws.merge_cells("A1:B1")
 
-    ws["A2"] = (
-        f"{g.get('comune') or '—'} ({g.get('provincia') or '—'}) · "
-        f"{g.get('regione') or '—'}"
-    )
+    ws["A2"] = f"{g.get('comune') or '—'} ({g.get('provincia') or '—'}) · {g.get('regione') or '—'}"
     ws.merge_cells("A2:B2")
     ws["A3"] = f"Generato: {data['generated_on']}"
     ws.merge_cells("A3:B3")
@@ -402,13 +376,8 @@ async def export_audience_xlsx(
     )
     return Response(
         content=xlsx_bytes,
-        media_type=(
-            "application/vnd.openxmlformats-officedocument."
-            "spreadsheetml.sheet"
-        ),
+        media_type=("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
         headers={
-            "Content-Disposition": (
-                f'attachment; filename="dossier_CAP_{a.get("cap")}.xlsx"'
-            )
+            "Content-Disposition": (f'attachment; filename="dossier_CAP_{a.get("cap")}.xlsx"')
         },
     )

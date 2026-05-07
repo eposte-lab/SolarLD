@@ -24,9 +24,8 @@ across all (zone, sector) pairs and persists into ``scan_candidates``.
 
 from __future__ import annotations
 
-import asyncio
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 from tenacity import retry, stop_after_attempt, wait_exponential
@@ -34,7 +33,9 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 from ..core.config import settings
 from ..core.logging import get_logger
 from .places_to_sector import included_types_for_sector
-from .sector_target_service import SectorAreaMapping
+
+if TYPE_CHECKING:
+    from .sector_target_service import SectorAreaMapping
 
 log = get_logger(__name__)
 
@@ -343,9 +344,7 @@ async def fetch_place_details(
     if client is None:
         client = httpx.AsyncClient(timeout=5.0)
     try:
-        resp = await client.get(
-            PLACES_DETAILS_URL.format(place_id=place_id), headers=headers
-        )
+        resp = await client.get(PLACES_DETAILS_URL.format(place_id=place_id), headers=headers)
     finally:
         if owns_client:
             await client.aclose()

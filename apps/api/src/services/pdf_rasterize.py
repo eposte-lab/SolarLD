@@ -20,9 +20,7 @@ DEFAULT_DPI = 200
 DEFAULT_SCALE = DEFAULT_DPI / 72  # pdfium uses 72 DPI as the unit baseline
 
 
-def rasterise_pdf_first_page(
-    pdf_bytes: bytes, *, scale: float = DEFAULT_SCALE
-) -> bytes | None:
+def rasterise_pdf_first_page(pdf_bytes: bytes, *, scale: float = DEFAULT_SCALE) -> bytes | None:
     """Render page 1 of a PDF to PNG bytes.
 
     Returns None on:

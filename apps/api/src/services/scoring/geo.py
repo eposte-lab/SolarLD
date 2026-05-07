@@ -16,56 +16,132 @@ import math
 
 PROVINCE_TO_REGION: dict[str, str] = {
     # Abruzzo
-    "CH": "Abruzzo", "AQ": "Abruzzo", "PE": "Abruzzo", "TE": "Abruzzo",
+    "CH": "Abruzzo",
+    "AQ": "Abruzzo",
+    "PE": "Abruzzo",
+    "TE": "Abruzzo",
     # Basilicata
-    "MT": "Basilicata", "PZ": "Basilicata",
+    "MT": "Basilicata",
+    "PZ": "Basilicata",
     # Calabria
-    "CZ": "Calabria", "CS": "Calabria", "KR": "Calabria", "RC": "Calabria", "VV": "Calabria",
+    "CZ": "Calabria",
+    "CS": "Calabria",
+    "KR": "Calabria",
+    "RC": "Calabria",
+    "VV": "Calabria",
     # Campania
-    "AV": "Campania", "BN": "Campania", "CE": "Campania", "NA": "Campania", "SA": "Campania",
+    "AV": "Campania",
+    "BN": "Campania",
+    "CE": "Campania",
+    "NA": "Campania",
+    "SA": "Campania",
     # Emilia-Romagna
-    "BO": "Emilia-Romagna", "FC": "Emilia-Romagna", "FE": "Emilia-Romagna",
-    "MO": "Emilia-Romagna", "PR": "Emilia-Romagna", "PC": "Emilia-Romagna",
-    "RA": "Emilia-Romagna", "RE": "Emilia-Romagna", "RN": "Emilia-Romagna",
+    "BO": "Emilia-Romagna",
+    "FC": "Emilia-Romagna",
+    "FE": "Emilia-Romagna",
+    "MO": "Emilia-Romagna",
+    "PR": "Emilia-Romagna",
+    "PC": "Emilia-Romagna",
+    "RA": "Emilia-Romagna",
+    "RE": "Emilia-Romagna",
+    "RN": "Emilia-Romagna",
     # Friuli-Venezia Giulia
-    "GO": "Friuli-Venezia Giulia", "PN": "Friuli-Venezia Giulia",
-    "TS": "Friuli-Venezia Giulia", "UD": "Friuli-Venezia Giulia",
+    "GO": "Friuli-Venezia Giulia",
+    "PN": "Friuli-Venezia Giulia",
+    "TS": "Friuli-Venezia Giulia",
+    "UD": "Friuli-Venezia Giulia",
     # Lazio
-    "FR": "Lazio", "LT": "Lazio", "RI": "Lazio", "RM": "Lazio", "VT": "Lazio",
+    "FR": "Lazio",
+    "LT": "Lazio",
+    "RI": "Lazio",
+    "RM": "Lazio",
+    "VT": "Lazio",
     # Liguria
-    "GE": "Liguria", "IM": "Liguria", "SP": "Liguria", "SV": "Liguria",
+    "GE": "Liguria",
+    "IM": "Liguria",
+    "SP": "Liguria",
+    "SV": "Liguria",
     # Lombardia
-    "BG": "Lombardia", "BS": "Lombardia", "CO": "Lombardia", "CR": "Lombardia",
-    "LC": "Lombardia", "LO": "Lombardia", "MN": "Lombardia", "MI": "Lombardia",
-    "MB": "Lombardia", "PV": "Lombardia", "SO": "Lombardia", "VA": "Lombardia",
+    "BG": "Lombardia",
+    "BS": "Lombardia",
+    "CO": "Lombardia",
+    "CR": "Lombardia",
+    "LC": "Lombardia",
+    "LO": "Lombardia",
+    "MN": "Lombardia",
+    "MI": "Lombardia",
+    "MB": "Lombardia",
+    "PV": "Lombardia",
+    "SO": "Lombardia",
+    "VA": "Lombardia",
     # Marche
-    "AN": "Marche", "AP": "Marche", "FM": "Marche", "MC": "Marche", "PU": "Marche",
+    "AN": "Marche",
+    "AP": "Marche",
+    "FM": "Marche",
+    "MC": "Marche",
+    "PU": "Marche",
     # Molise
-    "CB": "Molise", "IS": "Molise",
+    "CB": "Molise",
+    "IS": "Molise",
     # Piemonte
-    "AL": "Piemonte", "AT": "Piemonte", "BI": "Piemonte", "CN": "Piemonte",
-    "NO": "Piemonte", "TO": "Piemonte", "VB": "Piemonte", "VC": "Piemonte",
+    "AL": "Piemonte",
+    "AT": "Piemonte",
+    "BI": "Piemonte",
+    "CN": "Piemonte",
+    "NO": "Piemonte",
+    "TO": "Piemonte",
+    "VB": "Piemonte",
+    "VC": "Piemonte",
     # Puglia
-    "BA": "Puglia", "BT": "Puglia", "BR": "Puglia", "FG": "Puglia",
-    "LE": "Puglia", "TA": "Puglia",
+    "BA": "Puglia",
+    "BT": "Puglia",
+    "BR": "Puglia",
+    "FG": "Puglia",
+    "LE": "Puglia",
+    "TA": "Puglia",
     # Sardegna
-    "CA": "Sardegna", "NU": "Sardegna", "OR": "Sardegna", "SS": "Sardegna", "SU": "Sardegna",
+    "CA": "Sardegna",
+    "NU": "Sardegna",
+    "OR": "Sardegna",
+    "SS": "Sardegna",
+    "SU": "Sardegna",
     # Sicilia
-    "AG": "Sicilia", "CL": "Sicilia", "CT": "Sicilia", "EN": "Sicilia",
-    "ME": "Sicilia", "PA": "Sicilia", "RG": "Sicilia", "SR": "Sicilia", "TP": "Sicilia",
+    "AG": "Sicilia",
+    "CL": "Sicilia",
+    "CT": "Sicilia",
+    "EN": "Sicilia",
+    "ME": "Sicilia",
+    "PA": "Sicilia",
+    "RG": "Sicilia",
+    "SR": "Sicilia",
+    "TP": "Sicilia",
     # Toscana
-    "AR": "Toscana", "FI": "Toscana", "GR": "Toscana", "LI": "Toscana",
-    "LU": "Toscana", "MS": "Toscana", "PI": "Toscana", "PT": "Toscana",
-    "PO": "Toscana", "SI": "Toscana",
+    "AR": "Toscana",
+    "FI": "Toscana",
+    "GR": "Toscana",
+    "LI": "Toscana",
+    "LU": "Toscana",
+    "MS": "Toscana",
+    "PI": "Toscana",
+    "PT": "Toscana",
+    "PO": "Toscana",
+    "SI": "Toscana",
     # Trentino-Alto Adige
-    "BZ": "Trentino-Alto Adige", "TN": "Trentino-Alto Adige",
+    "BZ": "Trentino-Alto Adige",
+    "TN": "Trentino-Alto Adige",
     # Umbria
-    "PG": "Umbria", "TR": "Umbria",
+    "PG": "Umbria",
+    "TR": "Umbria",
     # Valle d'Aosta
     "AO": "Valle d'Aosta",
     # Veneto
-    "BL": "Veneto", "PD": "Veneto", "RO": "Veneto", "TV": "Veneto",
-    "VE": "Veneto", "VR": "Veneto", "VI": "Veneto",
+    "BL": "Veneto",
+    "PD": "Veneto",
+    "RO": "Veneto",
+    "TV": "Veneto",
+    "VE": "Veneto",
+    "VR": "Veneto",
+    "VI": "Veneto",
 }
 
 _EARTH_RADIUS_KM = 6371.0088
@@ -90,9 +166,6 @@ def haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
     phi2 = math.radians(lat2)
     dphi = math.radians(lat2 - lat1)
     dlambda = math.radians(lng2 - lng1)
-    a = (
-        math.sin(dphi / 2) ** 2
-        + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
-    )
+    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
     return _EARTH_RADIUS_KM * c

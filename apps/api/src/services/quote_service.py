@@ -31,15 +31,17 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Any
-from uuid import UUID
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any
 
 from ..core.logging import get_logger
 from ..core.supabase_client import get_service_client
 from .quote_pdf_renderer import render_quote_pdf
 from .roi_service import compute_roi
 from .storage_service import upload_bytes
+
+if TYPE_CHECKING:
+    from uuid import UUID
 
 log = get_logger(__name__)
 
@@ -70,7 +72,7 @@ class LeadQuote:
     updated_at: str
 
     @classmethod
-    def from_row(cls, row: dict[str, Any]) -> "LeadQuote":
+    def from_row(cls, row: dict[str, Any]) -> LeadQuote:
         return cls(
             id=str(row["id"]),
             tenant_id=str(row["tenant_id"]),
@@ -173,9 +175,7 @@ def build_auto_fields(lead_id: str | UUID, tenant_id: str | UUID) -> dict[str, A
         try:
             sb_client = get_service_client()
             before_path = f"{tenant_id}/{lead_id}/before.png"
-            hero_url = sb_client.storage.from_(RENDERINGS_BUCKET).get_public_url(
-                before_path
-            )
+            hero_url = sb_client.storage.from_(RENDERINGS_BUCKET).get_public_url(before_path)
         except Exception:  # noqa: BLE001 — best-effort fallback
             hero_url = None
     if not hero_url:
@@ -200,7 +200,7 @@ def build_auto_fields(lead_id: str | UUID, tenant_id: str | UUID) -> dict[str, A
     # 6. Build the bag. Keep every key present (use empty string
     #    rather than None) — the template renders friendlier when
     #    a placeholder shows blank vs. literal "None".
-    today_iso = datetime.now(timezone.utc).date().isoformat()
+    today_iso = datetime.now(UTC).date().isoformat()
 
     auto: dict[str, Any] = {
         # Tenant / installer block ----------------------------------------
@@ -222,9 +222,7 @@ def build_auto_fields(lead_id: str | UUID, tenant_id: str | UUID) -> dict[str, A
         "tenant_anni_esperienza": settings.get("anni_esperienza") or "",
         "tenant_impianti_installati": settings.get("impianti_installati") or "",
         # Cliente / azienda block -----------------------------------------
-        "azienda_ragione_sociale": subject.get("business_name")
-        or subject.get("legal_name")
-        or "",
+        "azienda_ragione_sociale": subject.get("business_name") or subject.get("legal_name") or "",
         "azienda_piva": subject.get("vat_number") or "",
         "azienda_sede_legale": _format_address(
             subject.get("hq_address"),
@@ -244,9 +242,7 @@ def build_auto_fields(lead_id: str | UUID, tenant_id: str | UUID) -> dict[str, A
             subject.get("hq_city"),
             subject.get("hq_province"),
         ),
-        "azienda_settore": subject.get("ateco_description")
-        or subject.get("ateco_code")
-        or "",
+        "azienda_settore": subject.get("ateco_description") or subject.get("ateco_code") or "",
         "azienda_decisore_nome": _full_name(
             subject.get("owner_first_name"), subject.get("owner_last_name")
         ),
@@ -302,12 +298,8 @@ def build_auto_fields(lead_id: str | UUID, tenant_id: str | UUID) -> dict[str, A
         "econ_risparmio_25_anni": _to_int(roi_jsonb.get("savings_25y_eur")),
         "econ_payback_anni": roi_jsonb.get("payback_years") or 0,
         "econ_irr_25_anni": _to_int(roi_jsonb.get("roi_pct_25y")),
-        "econ_co2_ton_anno": _to_round(
-            (roi_jsonb.get("co2_kg_per_year") or 0) / 1000.0, 1
-        ),
-        "econ_co2_25_anni": _to_round(
-            roi_jsonb.get("co2_tonnes_25_years") or 0, 1
-        ),
+        "econ_co2_ton_anno": _to_round((roi_jsonb.get("co2_kg_per_year") or 0) / 1000.0, 1),
+        "econ_co2_25_anni": _to_round(roi_jsonb.get("co2_tonnes_25_years") or 0, 1),
         "econ_alberi_equivalenti": int(roi_jsonb.get("trees_equivalent") or 0),
         # Render hero -----------------------------------------------------
         "render_after_url": hero_url or "",
@@ -355,11 +347,7 @@ def _resolve_grid_price_float(
             pass
 
     overrides = tenant.get("cost_assumptions") or {}
-    key = (
-        "grid_price_eur_per_kwh_b2b"
-        if subject_type == "b2b"
-        else "grid_price_eur_per_kwh_b2c"
-    )
+    key = "grid_price_eur_per_kwh_b2b" if subject_type == "b2b" else "grid_price_eur_per_kwh_b2c"
     if key in overrides:
         try:
             return float(overrides[key])
@@ -411,11 +399,7 @@ def _resolve_self_consumption_pct(
             pass
 
     overrides = tenant.get("cost_assumptions") or {}
-    key = (
-        "self_consumption_ratio_b2b"
-        if subject_type == "b2b"
-        else "self_consumption_ratio_b2c"
-    )
+    key = "self_consumption_ratio_b2b" if subject_type == "b2b" else "self_consumption_ratio_b2c"
     if key in overrides:
         try:
             return float(overrides[key]) * 100.0
@@ -451,7 +435,7 @@ def next_preventivo_number(tenant_id: str | UUID) -> tuple[str, int]:
         # Defensive: if the RPC returned 0/null we'd silently mint
         # duplicate numbers. Hard-fail instead so the route surfaces it.
         raise RuntimeError(f"next_quote_seq returned non-positive seq: {res.data!r}")
-    year = datetime.now(timezone.utc).year
+    year = datetime.now(UTC).year
     return f"{year}/PV/{seq:04d}", seq
 
 
@@ -495,9 +479,9 @@ async def save_quote(
 
     # Mark previously-issued versions as superseded so the UI's
     # "current vs. history" split is clean.
-    sb.table("lead_quotes").update({"status": "superseded"}).eq(
-        "lead_id", str(lead_id)
-    ).eq("status", "issued").execute()
+    sb.table("lead_quotes").update({"status": "superseded"}).eq("lead_id", str(lead_id)).eq(
+        "status", "issued"
+    ).execute()
 
     # Render PDF off the event loop. Errors propagate up to the route,
     # which translates them into a 500 with a clear log line.

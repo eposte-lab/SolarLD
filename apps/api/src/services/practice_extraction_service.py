@@ -69,9 +69,7 @@ _MAX_IMAGE_BYTES = 5 * 1024 * 1024
 # becomes enabled.
 MIN_CONFIDENCE = 0.60
 
-ACCEPTED_IMAGE_MIMES = frozenset(
-    {"image/jpeg", "image/png", "image/webp", "image/gif"}
-)
+ACCEPTED_IMAGE_MIMES = frozenset({"image/jpeg", "image/png", "image/webp", "image/gif"})
 
 
 # ---------------------------------------------------------------------------
@@ -393,9 +391,7 @@ async def extract_for_kind(
         )
 
     if not file_bytes:
-        return ExtractionResult(
-            success=False, upload_kind=upload_kind, error="empty_file"
-        )
+        return ExtractionResult(success=False, upload_kind=upload_kind, error="empty_file")
 
     # Branch on MIME: PDF → rasterise first page, image → use as-is.
     if mime_type == "application/pdf":
@@ -685,16 +681,12 @@ def build_apply_payload(
     elif upload_kind == "durc":
         # DURC data lives entirely in extras["durc"] — no dedicated columns.
         extras["durc"] = {
-            k: v
-            for k, v in fields.items()
-            if v is not None and v != "" and k != "confidence"
+            k: v for k, v in fields.items() if v is not None and v != "" and k != "confidence"
         }
     elif upload_kind == "ccnl":
         # CCNL data lives entirely in extras["ccnl"] — no dedicated columns.
         extras["ccnl"] = {
-            k: v
-            for k, v in fields.items()
-            if v is not None and v != "" and k != "confidence"
+            k: v for k, v in fields.items() if v is not None and v != "" and k != "confidence"
         }
     # 'altro' has no automatic targets — operator must transcribe.
 

@@ -53,7 +53,6 @@ import re
 from dataclasses import dataclass, field
 from typing import Literal
 
-
 # ---------------------------------------------------------------------------
 # Thresholds
 # ---------------------------------------------------------------------------
@@ -107,60 +106,60 @@ _OPTOUT_LINK_RE = re.compile(
 # Being in the subject is a stronger spam signal than in the body.
 SPAM_SUBJECT_PHRASES: list[tuple[str, Literal["block", "warn"]]] = [
     # Absolute giveaways — block immediately
-    ("hai vinto",            "block"),
-    ("vincitore",            "block"),
-    ("congratulazioni",      "block"),
+    ("hai vinto", "block"),
+    ("vincitore", "block"),
+    ("congratulazioni", "block"),
     ("soddisfatti o rimborsati", "block"),
-    ("garanzia 100%",        "block"),
-    ("garantito al 100%",    "block"),
-    ("gratis",               "block"),
-    ("gratuito",             "block"),
-    ("gratuita",             "block"),
+    ("garanzia 100%", "block"),
+    ("garantito al 100%", "block"),
+    ("gratis", "block"),
+    ("gratuito", "block"),
+    ("gratuita", "block"),
     # High-risk subjects — warn (accumulate score)
-    ("urgente",              "warn"),
-    ("solo oggi",            "warn"),
-    ("ultima chance",        "warn"),
-    ("ultima opportunità",   "warn"),
-    ("non perdere",          "warn"),
-    ("offerta speciale",     "warn"),
-    ("offerta limitata",     "warn"),
-    ("sconto esclusivo",     "warn"),
-    ("acquista ora",         "warn"),
-    ("clicca qui",           "warn"),
-    ("guadagna",             "warn"),
+    ("urgente", "warn"),
+    ("solo oggi", "warn"),
+    ("ultima chance", "warn"),
+    ("ultima opportunità", "warn"),
+    ("non perdere", "warn"),
+    ("offerta speciale", "warn"),
+    ("offerta limitata", "warn"),
+    ("sconto esclusivo", "warn"),
+    ("acquista ora", "warn"),
+    ("clicca qui", "warn"),
+    ("guadagna", "warn"),
     # English spam words (some Italian B2B mailers mix languages)
-    ("free",                 "block"),
-    ("you won",              "block"),
-    ("guaranteed",           "warn"),
-    ("click here",           "warn"),
+    ("free", "block"),
+    ("you won", "block"),
+    ("guaranteed", "warn"),
+    ("click here", "warn"),
 ]
 
 # Body-text triggers (applied to the plain-text version for speed).
 # The text body is stripped of HTML so regex doesn't catch tag attributes.
 SPAM_BODY_PHRASES: list[tuple[str, Literal["block", "warn"]]] = [
     # Hard blocks
-    ("hai vinto",               "block"),
-    ("vincitore",               "block"),
-    ("soddisfatti o rimborsati","block"),
-    ("garanzia 100%",           "block"),
-    ("garantito al 100%",       "block"),
-    ("soldi facili",            "block"),
-    ("reddito extra",           "block"),
-    ("guadagna subito",         "block"),
+    ("hai vinto", "block"),
+    ("vincitore", "block"),
+    ("soddisfatti o rimborsati", "block"),
+    ("garanzia 100%", "block"),
+    ("garantito al 100%", "block"),
+    ("soldi facili", "block"),
+    ("reddito extra", "block"),
+    ("guadagna subito", "block"),
     # Warns
-    ("clicca qui",              "warn"),
-    ("clicca adesso",           "warn"),
-    ("clicca subito",           "warn"),
-    ("acquista ora",            "warn"),
-    ("ordina subito",           "warn"),
-    ("offerta speciale",        "warn"),
-    ("offerta limitata",        "warn"),
-    ("solo oggi",               "warn"),
-    ("sconto del",              "warn"),
-    ("gratis",                  "warn"),
-    ("gratuito",                "warn"),
-    ("gratuita",                "warn"),
-    ("urgente",                 "warn"),
+    ("clicca qui", "warn"),
+    ("clicca adesso", "warn"),
+    ("clicca subito", "warn"),
+    ("acquista ora", "warn"),
+    ("ordina subito", "warn"),
+    ("offerta speciale", "warn"),
+    ("offerta limitata", "warn"),
+    ("solo oggi", "warn"),
+    ("sconto del", "warn"),
+    ("gratis", "warn"),
+    ("gratuito", "warn"),
+    ("gratuita", "warn"),
+    ("urgente", "warn"),
 ]
 
 # Phrases allowed unconditionally (body only, exact case-insensitive).
@@ -185,9 +184,9 @@ ValidationAction = Literal["allow", "quarantine"]
 class ValidationViolation:
     """One specific rule that was triggered."""
 
-    rule: str           # machine-readable rule name, e.g. "spam_trigger_subject"
-    field: str          # "subject" | "body" | "structure"
-    detail: str         # human-readable description for ops review
+    rule: str  # machine-readable rule name, e.g. "spam_trigger_subject"
+    field: str  # "subject" | "body" | "structure"
+    detail: str  # human-readable description for ops review
     severity: Severity  # "block" or "warn"
 
 
@@ -195,9 +194,9 @@ class ValidationViolation:
 class ValidationResult:
     """Outcome of running ``validate_email_content()``."""
 
-    passed: bool                        # True → send; False → quarantine
-    action: ValidationAction            # "allow" | "quarantine"
-    score: float                        # 0.0 = clean, ≥ 0.5 = quarantine
+    passed: bool  # True → send; False → quarantine
+    action: ValidationAction  # "allow" | "quarantine"
+    score: float  # 0.0 = clean, ≥ 0.5 = quarantine
     violations: list[ValidationViolation] = field(default_factory=list)
 
     @property
@@ -276,10 +275,7 @@ def _check_subject(subject: str, violations: list[ValidationViolation]) -> None:
             ValidationViolation(
                 rule="subject_too_long",
                 field="subject",
-                detail=(
-                    f"Oggetto di {len(subject)} caratteri (massimo "
-                    f"{MAX_SUBJECT_LENGTH})."
-                ),
+                detail=(f"Oggetto di {len(subject)} caratteri (massimo {MAX_SUBJECT_LENGTH})."),
                 severity="warn",
             )
         )
@@ -291,10 +287,7 @@ def _check_subject(subject: str, violations: list[ValidationViolation]) -> None:
             ValidationViolation(
                 rule="subject_all_caps",
                 field="subject",
-                detail=(
-                    "Parole in MAIUSCOLO nell'oggetto: "
-                    f"{', '.join(caps_words)}."
-                ),
+                detail=(f"Parole in MAIUSCOLO nell'oggetto: {', '.join(caps_words)}."),
                 severity="warn",
             )
         )

@@ -94,9 +94,7 @@ async def create_lead_campaign(
     )
 
 
-def _stub_result(
-    request: MetaCampaignRequest, *, reason: str
-) -> MetaCampaignResult:
+def _stub_result(request: MetaCampaignRequest, *, reason: str) -> MetaCampaignResult:
     cid = f"stub_campaign_{uuid4().hex[:10]}"
     asid = f"stub_adset_{uuid4().hex[:10]}"
     log.info(
@@ -130,10 +128,7 @@ def build_targeting_spec(
             # hardcode.
             "zips": [{"key": f"IT:{c}"} for c in caps],
         },
-        "interests": [
-            {"id": iid, "name": ""}
-            for iid in (interests or DEFAULT_B2C_INTERESTS)
-        ],
+        "interests": [{"id": iid, "name": ""} for iid in (interests or DEFAULT_B2C_INTERESTS)],
         "age_min": 35,
         "age_max": 70,
     }

@@ -37,12 +37,14 @@ Unit testable pieces are kept pure at the bottom of the file:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Any, Literal
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any, Literal
 
 from ..core.logging import get_logger
 from ..core.redis import get_redis
-from ..core.tier import TenantTier
+
+if TYPE_CHECKING:
+    from ..core.tier import TenantTier
 
 log = get_logger(__name__)
 
@@ -72,11 +74,29 @@ WARMUP_OUTREACH_DAYS = 21
 # Index 0 = day 1. len = 21.
 WARMUP_DAILY_CAPS_OUTREACH: tuple[int, ...] = (
     # Week 1 (days 1-7)
-    10, 10, 10, 10, 10, 10, 10,
+    10,
+    10,
+    10,
+    10,
+    10,
+    10,
+    10,
     # Week 2 (days 8-14)
-    25, 25, 25, 25, 25, 25, 25,
+    25,
+    25,
+    25,
+    25,
+    25,
+    25,
+    25,
     # Week 3 (days 15-21)
-    40, 40, 40, 40, 40, 40, 40,
+    40,
+    40,
+    40,
+    40,
+    40,
+    40,
+    40,
 )
 # After day 21, inbox sends at its configured daily_cap (default 50).
 STEADY_STATE_OUTREACH_CAP = 50
@@ -91,8 +111,8 @@ TIER_HOURLY_CAP: dict[TenantTier, int] = {
 
 # Redis key TTLs (seconds). A tiny buffer over the window length so a
 # clock drift doesn't give a stale counter a second life.
-_HOUR_KEY_TTL = 90 * 60        # 90 minutes
-_DAY_KEY_TTL = 48 * 60 * 60    # 48 hours
+_HOUR_KEY_TTL = 90 * 60  # 90 minutes
+_DAY_KEY_TTL = 48 * 60 * 60  # 48 hours
 
 
 # ---------------------------------------------------------------------------
@@ -157,7 +177,7 @@ async def acquire_email_quota(tenant_row: dict[str, Any]) -> RateLimitDecision:
     settings_obj = tenant_row.get("settings") or {}
     verified_at = _parse_verified_at(tenant_row.get("email_from_domain_verified_at"))
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     warming = is_warming_up(verified_at=verified_at, now=now)
 
     if warming:
@@ -196,7 +216,7 @@ async def peek_email_quota(tenant_row: dict[str, Any]) -> RateLimitDecision:
     tier: TenantTier = tenant_row.get("tier") or "founding"
     settings_obj = tenant_row.get("settings") or {}
     verified_at = _parse_verified_at(tenant_row.get("email_from_domain_verified_at"))
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     try:
         r = get_redis()
@@ -212,7 +232,9 @@ async def peek_email_quota(tenant_row: dict[str, Any]) -> RateLimitDecision:
                 window="day",
                 domain=domain,
             )
-        override = settings_obj.get("email_rate_per_hour") if isinstance(settings_obj, dict) else None
+        override = (
+            settings_obj.get("email_rate_per_hour") if isinstance(settings_obj, dict) else None
+        )
         cap = tier_hourly_cap(tier, override=override)
         key = f"ratelimit:email:hour:{domain}:{now.strftime('%Y-%m-%d-%H')}"
         used = int(await r.get(key) or 0)
@@ -308,7 +330,7 @@ def inbox_effective_daily_cap(inbox: dict[str, Any]) -> int:
     Returns:
         Effective daily cap (integer ≥ 1).
     """
-    from datetime import date, datetime, timezone
+    from datetime import date, datetime
 
     daily_cap = int(inbox.get("daily_cap") or STEADY_STATE_OUTREACH_CAP)
     style = inbox.get("email_style") or "visual_preventivo"
@@ -446,11 +468,11 @@ def _parse_verified_at(value: Any) -> datetime | None:
     if value is None:
         return None
     if isinstance(value, datetime):
-        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        return value if value.tzinfo else value.replace(tzinfo=UTC)
     if isinstance(value, str):
         try:
             dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
-            return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+            return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
         except ValueError:
             return None
     return None

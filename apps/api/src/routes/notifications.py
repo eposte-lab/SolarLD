@@ -68,9 +68,7 @@ class MarkReadPayload(BaseModel):
 
 
 @router.post("/mark-read")
-async def mark_read(
-    ctx: CurrentUser, payload: MarkReadPayload
-) -> dict[str, Any]:
+async def mark_read(ctx: CurrentUser, payload: MarkReadPayload) -> dict[str, Any]:
     """Mark a set of notifications read, or all of them at once."""
     tenant_id = require_tenant(ctx)
     sb = get_service_client()

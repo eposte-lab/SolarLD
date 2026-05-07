@@ -5,7 +5,6 @@ from __future__ import annotations
 from src.services.scoring import distance_score
 from src.services.scoring.geo import haversine_km, province_to_region
 
-
 # Napoli reference coords (roof)
 NAPOLI_LAT = 40.8518
 NAPOLI_LNG = 14.2681

@@ -23,7 +23,7 @@ Degradation:
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import BaseModel
@@ -144,7 +144,7 @@ class RepliesAgent(AgentBase[RepliesInput, RepliesOutput]):
         # ------------------------------------------------------------------
         # 4) Persist analysis result
         # ------------------------------------------------------------------
-        now_iso = datetime.now(timezone.utc).isoformat()
+        now_iso = datetime.now(UTC).isoformat()
         sb.table("lead_replies").update(
             {
                 "sentiment": sentiment,
@@ -163,16 +163,22 @@ class RepliesAgent(AgentBase[RepliesInput, RepliesOutput]):
             current_status = lead.get("pipeline_status") or ""
             # Only advance if the lead hasn't already moved past 'clicked'
             pipeline_hierarchy = [
-                "new", "sent", "delivered", "opened", "clicked",
-                "engaged", "whatsapp", "appointment",
+                "new",
+                "sent",
+                "delivered",
+                "opened",
+                "clicked",
+                "engaged",
+                "whatsapp",
+                "appointment",
             ]
             try:
                 current_idx = pipeline_hierarchy.index(current_status)
                 engaged_idx = pipeline_hierarchy.index("engaged")
                 if current_idx < engaged_idx:
-                    sb.table("leads").update(
-                        {"pipeline_status": "engaged"}
-                    ).eq("id", payload.lead_id).execute()
+                    sb.table("leads").update({"pipeline_status": "engaged"}).eq(
+                        "id", payload.lead_id
+                    ).execute()
             except ValueError:
                 pass  # status not in hierarchy (e.g. closed_won) — leave it
 
@@ -182,13 +188,9 @@ class RepliesAgent(AgentBase[RepliesInput, RepliesOutput]):
         #     (``b2c_meta_ads`` etc.) qualify here; B2B leads already
         #     had roofs at scan time.
         # ------------------------------------------------------------------
-        lead_source = (lead.get("source") or "")
+        lead_source = lead.get("source") or ""
         has_roof = bool(lead.get("roof_id"))
-        if (
-            lead_source.startswith("b2c_")
-            and not has_roof
-            and sentiment == "positive"
-        ):
+        if lead_source.startswith("b2c_") and not has_roof and sentiment == "positive":
             from ..core.queue import enqueue as _enqueue
 
             await _enqueue(
@@ -293,9 +295,7 @@ async def _analyse_with_claude(
     pipeline_status = lead.get("pipeline_status") or "unknown"
     roi = lead.get("roi_data") or {}
     annual_savings = roi.get("annual_savings_eur")
-    roi_line = (
-        f"ROI stimato: €{annual_savings:,.0f}/anno di risparmio" if annual_savings else ""
-    )
+    roi_line = f"ROI stimato: €{annual_savings:,.0f}/anno di risparmio" if annual_savings else ""
 
     prompt = (
         "Sei un assistente CRM per un installatore di pannelli solari italiano. "

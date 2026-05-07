@@ -108,15 +108,7 @@ export default async function DashboardLayout({
     redirect('/onboarding/territory-confirm');
   }
 
-  // Demo tenants don't see internal/admin surfaces. Right now we hide
-  // the entire Settings hub — once we ship a "customer-safe" settings
-  // page we'll switch this to a denylist of specific subpages.
-  const baseSections = ctx.tenant.is_demo
-    ? NAV_SECTIONS.map((s) => ({
-        ...s,
-        items: s.items.filter((i) => i.href !== '/settings'),
-      })).filter((s) => s.items.length > 0)
-    : NAV_SECTIONS;
+  const baseSections = NAV_SECTIONS;
 
   // The previous super-admin "Demo Runs" section was tied to the old
   // execution system. Now that v3 runs through the standard funnel

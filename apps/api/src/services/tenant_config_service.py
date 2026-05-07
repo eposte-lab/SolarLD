@@ -66,7 +66,7 @@ class TechnicalFilters:
     min_exposure_score: float
 
     @classmethod
-    def from_tecnico(cls, tecnico_cfg: dict[str, Any]) -> "TechnicalFilters":
+    def from_tecnico(cls, tecnico_cfg: dict[str, Any]) -> TechnicalFilters:
         """Project a `tecnico` module's config dict onto TechnicalFilters."""
         return cls(
             min_area_sqm=float(tecnico_cfg.get("min_area_sqm") or 0.0),
@@ -156,15 +156,9 @@ def _project_from_modules(
     # Local import to avoid circularity at module-load time.
     from .tenant_module_service import schema_for
 
-    sorgente = modules_by_key.get("sorgente") or schema_for("sorgente")().model_dump(
-        mode="json"
-    )
-    tecnico = modules_by_key.get("tecnico") or schema_for("tecnico")().model_dump(
-        mode="json"
-    )
-    economico = modules_by_key.get("economico") or schema_for("economico")().model_dump(
-        mode="json"
-    )
+    sorgente = modules_by_key.get("sorgente") or schema_for("sorgente")().model_dump(mode="json")
+    tecnico = modules_by_key.get("tecnico") or schema_for("tecnico")().model_dump(mode="json")
+    economico = modules_by_key.get("economico") or schema_for("economico")().model_dump(mode="json")
 
     mode: ScanMode = sorgente.get("mode") or "b2b_funnel_v2"
 

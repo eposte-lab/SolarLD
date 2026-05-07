@@ -18,7 +18,7 @@ Routes:
 from __future__ import annotations
 
 import random as _random
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Response, status
@@ -33,9 +33,9 @@ from ..services.audit_service import log_action as audit_log
 log = get_logger(__name__)
 router = APIRouter()
 
-MIN_SAMPLE_FOR_VERDICT = 20   # sends per variant before declaring a winner
-BAYESIAN_N_SAMPLES = 12_000   # Monte Carlo draws — accurate to ~1%
-WINNER_THRESHOLD = 0.95       # P(A > B) must exceed this to auto-declare
+MIN_SAMPLE_FOR_VERDICT = 20  # sends per variant before declaring a winner
+BAYESIAN_N_SAMPLES = 12_000  # Monte Carlo draws — accurate to ~1%
+WINNER_THRESHOLD = 0.95  # P(A > B) must exceed this to auto-declare
 
 
 # ---------------------------------------------------------------------------
@@ -51,7 +51,7 @@ class ExperimentCreate(BaseModel):
 
 
 class ExperimentPatch(BaseModel):
-    ended_at: str | None = None           # ISO timestamp or null
+    ended_at: str | None = None  # ISO timestamp or null
     winner: Literal["a", "b"] | None = None
 
 
@@ -113,11 +113,7 @@ async def create_experiment(
 
     # Tier gate
     tenant_res = (
-        sb.table("tenants")
-        .select("id, tier, settings")
-        .eq("id", tenant_id)
-        .single()
-        .execute()
+        sb.table("tenants").select("id, tier, settings").eq("id", tenant_id).single().execute()
     )
     tenant_row = tenant_res.data or {}
     # Let the global tier_gate_handler in main.py turn TierGateError
@@ -145,7 +141,7 @@ async def create_experiment(
             ),
         )
 
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_iso = datetime.now(UTC).isoformat()
     insert_res = (
         sb.table("template_experiments")
         .insert(
@@ -194,7 +190,7 @@ async def patch_experiment(
     sb = get_service_client()
     _load_experiment(sb, experiment_id, tenant_id)  # ownership check
 
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_iso = datetime.now(UTC).isoformat()
     update: dict[str, Any] = {}
 
     if body.ended_at is not None:
@@ -212,12 +208,7 @@ async def patch_experiment(
             detail="Nessun campo da aggiornare",
         )
 
-    res = (
-        sb.table("template_experiments")
-        .update(update)
-        .eq("id", experiment_id)
-        .execute()
-    )
+    res = sb.table("template_experiments").update(update).eq("id", experiment_id).execute()
     row = (res.data or [{}])[0]
 
     await audit_log(
@@ -330,9 +321,7 @@ async def experiment_stats(
             .in_("id", all_lead_ids)
             .execute()
         )
-        lead_signals: dict[str, dict[str, Any]] = {
-            r["id"]: r for r in (leads_res.data or [])
-        }
+        lead_signals: dict[str, dict[str, Any]] = {r["id"]: r for r in (leads_res.data or [])}
     else:
         lead_signals = {}
 
@@ -420,9 +409,7 @@ def load_active_experiment(tenant_id: str) -> dict[str, Any] | None:
         return None
 
 
-def _bayesian_prob_a_wins(
-    conv_a: int, sends_a: int, conv_b: int, sends_b: int
-) -> float:
+def _bayesian_prob_a_wins(conv_a: int, sends_a: int, conv_b: int, sends_b: int) -> float:
     """P(rate_A > rate_B) via Monte Carlo with Beta(1+conv, 1+non-conv) priors.
 
     Uses only Python's standard-library ``random.betavariate``. At 12 000
@@ -443,9 +430,7 @@ def _bayesian_prob_a_wins(
     return wins / BAYESIAN_N_SAMPLES
 
 
-def _verdict(
-    prob: float, min_sample: bool
-) -> Literal["a_wins", "b_wins", "in_corso", "no_data"]:
+def _verdict(prob: float, min_sample: bool) -> Literal["a_wins", "b_wins", "in_corso", "no_data"]:
     if not min_sample:
         return "no_data"
     if prob >= WINNER_THRESHOLD:

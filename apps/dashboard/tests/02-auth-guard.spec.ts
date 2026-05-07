@@ -36,7 +36,6 @@ const PROTECTED_ROUTES = [
   '/territories',
   '/settings',
   '/settings/modules',
-  '/analytics',
 ];
 
 test.describe('Auth guard redirects', () => {

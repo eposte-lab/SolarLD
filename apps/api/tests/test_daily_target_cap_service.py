@@ -12,12 +12,11 @@ E2E (SC-31 in the plan).
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
 from src.services import daily_target_cap_service as svc
-
 
 # ---------------------------------------------------------------------------
 # Pure helpers — no Redis needed
@@ -32,23 +31,14 @@ class TestCapForTenant:
         assert svc.cap_for_tenant({}) == svc.DEFAULT_DAILY_CAP
 
     def test_falls_back_on_none(self) -> None:
-        assert (
-            svc.cap_for_tenant({"daily_target_send_cap": None})
-            == svc.DEFAULT_DAILY_CAP
-        )
+        assert svc.cap_for_tenant({"daily_target_send_cap": None}) == svc.DEFAULT_DAILY_CAP
 
     def test_falls_back_on_zero(self) -> None:
         # 0 would silently "disable" the cap → guard against it.
-        assert (
-            svc.cap_for_tenant({"daily_target_send_cap": 0})
-            == svc.DEFAULT_DAILY_CAP
-        )
+        assert svc.cap_for_tenant({"daily_target_send_cap": 0}) == svc.DEFAULT_DAILY_CAP
 
     def test_falls_back_on_negative(self) -> None:
-        assert (
-            svc.cap_for_tenant({"daily_target_send_cap": -1})
-            == svc.DEFAULT_DAILY_CAP
-        )
+        assert svc.cap_for_tenant({"daily_target_send_cap": -1}) == svc.DEFAULT_DAILY_CAP
 
     def test_coerces_float(self) -> None:
         # Defensive: a JSONB read could surface a float.
@@ -59,12 +49,12 @@ class TestRedisKey:
     def test_uses_rome_date(self) -> None:
         # 2026-04-25 23:30 UTC → 2026-04-26 01:30 Rome (CEST, +2)
         # so the key date should already be the next Rome day.
-        late = datetime(2026, 4, 25, 23, 30, tzinfo=timezone.utc)
+        late = datetime(2026, 4, 25, 23, 30, tzinfo=UTC)
         key = svc.redis_key_for("tenant-abc", now_utc=late)
         assert key == "daily_target_cap:tenant-abc:2026-04-26"
 
     def test_morning_utc_matches_rome_today(self) -> None:
-        morning = datetime(2026, 4, 25, 8, 0, tzinfo=timezone.utc)
+        morning = datetime(2026, 4, 25, 8, 0, tzinfo=UTC)
         key = svc.redis_key_for("tenant-abc", now_utc=morning)
         assert key == "daily_target_cap:tenant-abc:2026-04-25"
 
@@ -105,7 +95,7 @@ class FakeRedis:
         return str(v) if v is not None else None
 
 
-@pytest.fixture()
+@pytest.fixture
 def fake_redis(monkeypatch: pytest.MonkeyPatch) -> FakeRedis:
     fake = FakeRedis()
     monkeypatch.setattr(svc, "get_redis", lambda: fake)
@@ -119,9 +109,7 @@ def fake_redis(monkeypatch: pytest.MonkeyPatch) -> FakeRedis:
 
 @pytest.mark.asyncio
 async def test_first_send_allowed_and_sets_ttl(fake_redis: FakeRedis) -> None:
-    decision = await svc.check_and_reserve(
-        {"id": "tenant-1", "daily_target_send_cap": 250}
-    )
+    decision = await svc.check_and_reserve({"id": "tenant-1", "daily_target_send_cap": 250})
     assert decision.allowed
     assert decision.verdict == "allowed"
     assert decision.used == 1
@@ -187,9 +175,7 @@ async def test_missing_tenant_id_fails_open(fake_redis: FakeRedis) -> None:
 @pytest.mark.asyncio
 async def test_redis_down_fails_open(fake_redis: FakeRedis) -> None:
     fake_redis.fail = True
-    decision = await svc.check_and_reserve(
-        {"id": "tenant-1", "daily_target_send_cap": 250}
-    )
+    decision = await svc.check_and_reserve({"id": "tenant-1", "daily_target_send_cap": 250})
     # Fail-open: we don't take the tenant's pipeline down because
     # Redis blipped — the inbox-level caps still bound blast radius.
     assert decision.allowed
@@ -212,9 +198,7 @@ async def test_uses_default_cap_when_column_missing(
 
 @pytest.mark.asyncio
 async def test_peek_returns_zero_when_no_sends(fake_redis: FakeRedis) -> None:
-    decision = await svc.peek_usage(
-        {"id": "tenant-1", "daily_target_send_cap": 250}
-    )
+    decision = await svc.peek_usage({"id": "tenant-1", "daily_target_send_cap": 250})
     assert decision.used == 0
     assert decision.verdict == "allowed"
     assert decision.remaining == 250
@@ -245,9 +229,7 @@ async def test_peek_says_cap_reached_at_limit(fake_redis: FakeRedis) -> None:
 @pytest.mark.asyncio
 async def test_peek_redis_down_fails_open(fake_redis: FakeRedis) -> None:
     fake_redis.fail = True
-    decision = await svc.peek_usage(
-        {"id": "tenant-1", "daily_target_send_cap": 250}
-    )
+    decision = await svc.peek_usage({"id": "tenant-1", "daily_target_send_cap": 250})
     # Same fail-open philosophy — UI shows 0/250 rather than crashing.
     assert decision.used == 0
     assert decision.verdict == "allowed"

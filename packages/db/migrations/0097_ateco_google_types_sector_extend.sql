@@ -18,6 +18,34 @@
 -- the new columns for the existing rows.
 --
 -- See plan: shimmying-painting-backus.md, Sprint A.
+--
+-- Reincarnation note: migration 0035 dropped `ateco_google_types`
+-- when v1 Hunter config was retired. Sprint A re-introduced the table
+-- for sector-aware funnel logic. Re-create the v1 base schema first
+-- (idempotent — only triggers on installs that ran 0035) so this
+-- migration is self-contained on fresh databases. Existing Supabase
+-- environments where the table was manually re-created skip the
+-- CREATE branch via IF NOT EXISTS.
+
+CREATE TABLE IF NOT EXISTS ateco_google_types (
+  ateco_code       TEXT PRIMARY KEY,
+  ateco_label      TEXT NOT NULL,
+  wizard_group     TEXT NOT NULL,
+  google_types     TEXT[] NOT NULL,
+  target_segment   TEXT NOT NULL DEFAULT 'b2b'
+    CHECK (target_segment IN ('b2b', 'b2c', 'mixed')),
+  priority_hint    INT NOT NULL DEFAULT 5
+    CHECK (priority_hint BETWEEN 1 AND 10),
+  notes            TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_ateco_google_group
+  ON ateco_google_types(wizard_group);
+
+ALTER TABLE ateco_google_types ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS ateco_google_read_all ON ateco_google_types;
+CREATE POLICY ateco_google_read_all ON ateco_google_types
+  FOR SELECT USING (true);
 
 ALTER TABLE ateco_google_types
   ADD COLUMN IF NOT EXISTS osm_landuse_hints       JSONB    NOT NULL DEFAULT '[]'::jsonb,

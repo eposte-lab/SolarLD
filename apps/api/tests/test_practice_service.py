@@ -18,7 +18,6 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-
 # ---------------------------------------------------------------------------
 # _tenant_abbr — pure formatting
 # ---------------------------------------------------------------------------
@@ -103,9 +102,7 @@ def test_next_practice_number_formats_correctly(mock_client: MagicMock) -> None:
     tenants_chain.select.return_value = tenants_chain
     tenants_chain.eq.return_value = tenants_chain
     tenants_chain.limit.return_value = tenants_chain
-    tenants_chain.execute.return_value = MagicMock(
-        data=[{"business_name": "Sole Energy SRL"}]
-    )
+    tenants_chain.execute.return_value = MagicMock(data=[{"business_name": "Sole Energy SRL"}])
     sb.table.return_value = tenants_chain
 
     # next_practice_seq RPC returns 42
@@ -122,7 +119,8 @@ def test_next_practice_number_formats_correctly(mock_client: MagicMock) -> None:
     parts = number.split("/")
     assert len(parts) == 3
     assert parts[0] == "SOLE"
-    assert parts[1].isdigit() and len(parts[1]) == 4  # year
+    assert parts[1].isdigit()
+    assert len(parts[1]) == 4
     assert parts[2] == "0042"
 
 
@@ -139,9 +137,7 @@ def test_next_practice_number_raises_on_zero_seq(mock_client: MagicMock) -> None
     tenants_chain.select.return_value = tenants_chain
     tenants_chain.eq.return_value = tenants_chain
     tenants_chain.limit.return_value = tenants_chain
-    tenants_chain.execute.return_value = MagicMock(
-        data=[{"business_name": "Acme"}]
-    )
+    tenants_chain.execute.return_value = MagicMock(data=[{"business_name": "Acme"}])
     sb.table.return_value = tenants_chain
 
     rpc_chain = MagicMock()

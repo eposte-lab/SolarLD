@@ -63,15 +63,15 @@ log = get_logger(__name__)
 
 
 class TrackingInput(BaseModel):
-    provider: str                        # resend | pixart | whatsapp
-    event_type: str                      # provider-native event type
+    provider: str  # resend | pixart | whatsapp
+    event_type: str  # provider-native event type
     raw_payload: dict[str, Any]
 
 
 class TrackingOutput(BaseModel):
     processed: bool = True
     lead_id: str | None = None
-    campaign_id: str | None = None    # outreach_sends row id
+    campaign_id: str | None = None  # outreach_sends row id
     new_status: str | None = None
     skipped: bool = False
     reason: str | None = None
@@ -201,9 +201,7 @@ def project_resend_lead_update(
         current_rank = _PIPELINE_RANK.get(current_status or "", 0)
         new_rank = _PIPELINE_RANK.get(new_status, 0)
         # Blacklist is terminal — always wins.
-        if new_status == LeadStatus.BLACKLISTED.value:
-            update["pipeline_status"] = new_status
-        elif new_rank > current_rank:
+        if new_status == LeadStatus.BLACKLISTED.value or new_rank > current_rank:
             update["pipeline_status"] = new_status
 
     return update
@@ -335,11 +333,7 @@ class TrackingAgent(AgentBase[TrackingInput, TrackingOutput]):
         # -------------------------------------------------------------
         if event.id:
             existing = (
-                sb.table("events")
-                .select("id")
-                .eq("payload->>svix_id", event.id)
-                .limit(1)
-                .execute()
+                sb.table("events").select("id").eq("payload->>svix_id", event.id).limit(1).execute()
             )
             if existing.data:
                 return TrackingOutput(
@@ -404,9 +398,7 @@ class TrackingAgent(AgentBase[TrackingInput, TrackingOutput]):
         # -------------------------------------------------------------
         campaign_update = project_resend_campaign_update(event.type)
         if campaign_update:
-            sb.table("outreach_sends").update(campaign_update).eq(
-                "id", campaign["id"]
-            ).execute()
+            sb.table("outreach_sends").update(campaign_update).eq("id", campaign["id"]).execute()
 
         # -------------------------------------------------------------
         # 5) Bounces / complaints → hand off to compliance agent
@@ -460,9 +452,7 @@ class TrackingAgent(AgentBase[TrackingInput, TrackingOutput]):
         # the webhook ACK is never delayed by a reputation check.
         # -------------------------------------------------------------
         if event.type in {"complained", "bounced"}:
-            domain_id, domain_name = _resolve_domain_for_inbox(
-                sb, campaign.get("inbox_id")
-            )
+            domain_id, domain_name = _resolve_domain_for_inbox(sb, campaign.get("inbox_id"))
             if event.type == "complained":
                 # 1) Cluster check (≥3 complaints in 60 min)
                 try:
@@ -545,22 +535,11 @@ class TrackingAgent(AgentBase[TrackingInput, TrackingOutput]):
         event_type = (payload.event_type or "").strip().lower()
 
         tracking_id = (
-            raw.get("tracking_number")
-            or raw.get("tracking_code")
-            or raw.get("trackingId")
-            or ""
+            raw.get("tracking_number") or raw.get("tracking_code") or raw.get("trackingId") or ""
         )
-        order_id = (
-            raw.get("order_id")
-            or raw.get("orderId")
-            or raw.get("provider_order_id")
-            or ""
-        )
+        order_id = raw.get("order_id") or raw.get("orderId") or raw.get("provider_order_id") or ""
         occurred_at = (
-            raw.get("occurred_at")
-            or raw.get("timestamp")
-            or raw.get("event_date")
-            or None
+            raw.get("occurred_at") or raw.get("timestamp") or raw.get("event_date") or None
         )
 
         if not tracking_id and not order_id:
@@ -568,9 +547,7 @@ class TrackingAgent(AgentBase[TrackingInput, TrackingOutput]):
                 event_type=f"tracking.pixart.no_identifier_{event_type or 'unknown'}",
                 payload={"keys": list(raw.keys())},
             )
-            return TrackingOutput(
-                processed=False, skipped=True, reason="no_tracking_identifier"
-            )
+            return TrackingOutput(processed=False, skipped=True, reason="no_tracking_identifier")
 
         sb = get_service_client()
 
@@ -605,9 +582,7 @@ class TrackingAgent(AgentBase[TrackingInput, TrackingOutput]):
                     "order_id": order_id or None,
                 },
             )
-            return TrackingOutput(
-                processed=False, skipped=True, reason="no_matching_campaign"
-            )
+            return TrackingOutput(processed=False, skipped=True, reason="no_matching_campaign")
 
         tenant_id = campaign["tenant_id"]
         lead_id = campaign["lead_id"]
@@ -616,11 +591,7 @@ class TrackingAgent(AgentBase[TrackingInput, TrackingOutput]):
         # 2) Apply lead-row update (if any)
         # ------------------------------------------------------------
         lead_res = (
-            sb.table("leads")
-            .select("id, pipeline_status")
-            .eq("id", lead_id)
-            .limit(1)
-            .execute()
+            sb.table("leads").select("id, pipeline_status").eq("id", lead_id).limit(1).execute()
         )
         lead_row = (lead_res.data or [None])[0]
         current_status = (lead_row or {}).get("pipeline_status")
@@ -638,9 +609,7 @@ class TrackingAgent(AgentBase[TrackingInput, TrackingOutput]):
         # ------------------------------------------------------------
         campaign_update = project_pixart_campaign_update(event_type)
         if campaign_update:
-            sb.table("outreach_sends").update(campaign_update).eq(
-                "id", campaign["id"]
-            ).execute()
+            sb.table("outreach_sends").update(campaign_update).eq("id", campaign["id"]).execute()
 
         # ------------------------------------------------------------
         # 4) Audit event
@@ -700,11 +669,13 @@ class TrackingAgent(AgentBase[TrackingInput, TrackingOutput]):
         # 5 s is generous: typical roundtrip is sub-200ms.
         async def _do_write() -> None:
             subj_res = await asyncio.to_thread(
-                lambda: sb.table("subjects")
-                .select("decision_maker_email, pii_hash")
-                .eq("id", subject_id)
-                .limit(1)
-                .execute()
+                lambda: (
+                    sb.table("subjects")
+                    .select("decision_maker_email, pii_hash")
+                    .eq("id", subject_id)
+                    .limit(1)
+                    .execute()
+                )
             )
             subj = (subj_res.data or [{}])[0]
             email = (subj.get("decision_maker_email") or "").strip().lower()
@@ -720,9 +691,9 @@ class TrackingAgent(AgentBase[TrackingInput, TrackingOutput]):
                 "source": source,
             }
             await asyncio.to_thread(
-                lambda: sb.table("email_blacklist")
-                .upsert(row, on_conflict="tenant_id,email")
-                .execute()
+                lambda: (
+                    sb.table("email_blacklist").upsert(row, on_conflict="tenant_id,email").execute()
+                )
             )
             log.info(
                 "tracking.email_blacklist_immediate_write",
@@ -733,7 +704,7 @@ class TrackingAgent(AgentBase[TrackingInput, TrackingOutput]):
 
         try:
             await asyncio.wait_for(_do_write(), timeout=5.0)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             log.warning(
                 "tracking.email_blacklist_immediate_timeout",
                 tenant_id=tenant_id,
@@ -763,15 +734,9 @@ class TrackingAgent(AgentBase[TrackingInput, TrackingOutput]):
         """Look up pii_hash for the subject and enqueue a compliance run."""
         try:
             subj_res = (
-                sb.table("subjects")
-                .select("pii_hash")
-                .eq("id", subject_id)
-                .limit(1)
-                .execute()
+                sb.table("subjects").select("pii_hash").eq("id", subject_id).limit(1).execute()
             )
-            pii_hash = (
-                (subj_res.data or [{}])[0].get("pii_hash") if subj_res.data else None
-            )
+            pii_hash = (subj_res.data or [{}])[0].get("pii_hash") if subj_res.data else None
             if not pii_hash:
                 return
             from ..core.queue import enqueue

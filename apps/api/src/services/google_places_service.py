@@ -162,9 +162,7 @@ async def search_text(
         # Surface as an error so the resolver can log and fall through.
         raise GooglePlacesError(f"places_403: {resp.text[:200]}")
     if resp.status_code >= 400:
-        raise GooglePlacesError(
-            f"places_http_{resp.status_code}: {resp.text[:200]}"
-        )
+        raise GooglePlacesError(f"places_http_{resp.status_code}: {resp.text[:200]}")
 
     data = resp.json() or {}
     places = data.get("places") or []
@@ -188,8 +186,9 @@ async def search_text(
     # (anchors the result to a real postal address rather than a POI
     # blob).
     confidence = 0.6
-    if any(part.strip().isdigit() and len(part.strip()) == 5
-           for part in formatted_address.split(",")):
+    if any(
+        part.strip().isdigit() and len(part.strip()) == 5 for part in formatted_address.split(",")
+    ):
         confidence = 0.8
 
     return PlacesResult(
@@ -246,11 +245,30 @@ def _strip_corporate_suffix(name: str) -> str:
     """Remove Italian corporate suffixes (S.P.A., S.R.L., …) for query building."""
     out = name.strip()
     for suffix in (
-        " S.P.A.", " S.p.A.", " SPA", " s.p.a.", " spa",
-        " S.R.L.", " S.r.l.", " SRL", " s.r.l.", " srl",
-        " S.A.S.", " S.a.s.", " SAS", " s.a.s.", " sas",
-        " S.N.C.", " S.n.c.", " SNC", " s.n.c.", " snc",
-        " & C.", " & C", " soc. coop.", " soc coop",
+        " S.P.A.",
+        " S.p.A.",
+        " SPA",
+        " s.p.a.",
+        " spa",
+        " S.R.L.",
+        " S.r.l.",
+        " SRL",
+        " s.r.l.",
+        " srl",
+        " S.A.S.",
+        " S.a.s.",
+        " SAS",
+        " s.a.s.",
+        " sas",
+        " S.N.C.",
+        " S.n.c.",
+        " SNC",
+        " s.n.c.",
+        " snc",
+        " & C.",
+        " & C",
+        " soc. coop.",
+        " soc coop",
     ):
         if out.endswith(suffix):
             out = out[: -len(suffix)].strip()
@@ -421,7 +439,7 @@ async def search_text_multi_query(
     http_client: httpx.AsyncClient | None = None,
     location_bias_centre: tuple[float, float] | None = None,
     api_key: str | None = None,
-) -> "list[Any]":
+) -> list[Any]:
     """Stage 2 of the BIC: fan out 4-6 query variants → BuildingCandidate list.
 
     Returns a list of ``BuildingCandidate`` (one per unique ``place_id``)
@@ -542,9 +560,7 @@ async def search_text_multi_query(
     queries_fired = 0
     for batch_start in range(0, len(queries), 2):
         batch = queries[batch_start : batch_start + 2]
-        await asyncio.gather(
-            *(_run_one(q) for q in batch), return_exceptions=False
-        )
+        await asyncio.gather(*(_run_one(q) for q in batch), return_exceptions=False)
         queries_fired += len(batch)
         if len(by_place) >= 2:
             log.info(
@@ -560,7 +576,7 @@ async def search_text_multi_query(
     # Project into BuildingCandidates. Weight = base 0.3 per match,
     # boosted by per-result confidence. A place that surfaced in 3+
     # variants and has formatted_address with a CAP gets up to ~0.9.
-    out: "list[Any]" = []
+    out: list[Any] = []
     for hit in by_place.values():
         # Each variant adds ~0.2 weight (capped to avoid runaway).
         variant_score = min(0.6, 0.2 * len(hit.matched_variants))

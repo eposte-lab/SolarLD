@@ -13,9 +13,8 @@ from __future__ import annotations
 import secrets
 from typing import Any
 
-from fastapi import Response as _Response
-
 from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import Response as _Response
 from pydantic import BaseModel, Field, HttpUrl
 
 from ..core.security import CurrentUser, require_tenant
@@ -43,10 +42,7 @@ class WebhookCreate(BaseModel):
         if bad:
             raise HTTPException(
                 status_code=400,
-                detail=(
-                    f"unsupported events: {bad}. "
-                    f"Allowed: {sorted(SUPPORTED_EVENTS)}"
-                ),
+                detail=(f"unsupported events: {bad}. Allowed: {sorted(SUPPORTED_EVENTS)}"),
             )
         return events
 
@@ -87,9 +83,7 @@ async def list_webhooks(ctx: CurrentUser) -> list[dict[str, Any]]:
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
-async def create_webhook(
-    ctx: CurrentUser, payload: WebhookCreate
-) -> dict[str, Any]:
+async def create_webhook(ctx: CurrentUser, payload: WebhookCreate) -> dict[str, Any]:
     """Register a new CRM webhook. Returns the secret ONCE."""
     tenant_id = require_tenant(ctx)
     events = payload.events or sorted(SUPPORTED_EVENTS)
@@ -211,9 +205,7 @@ async def list_deliveries(
 
     res = (
         sb.table("crm_webhook_deliveries")
-        .select(
-            "id, event_type, attempt, status_code, error, occurred_at"
-        )
+        .select("id, event_type, attempt, status_code, error, occurred_at")
         .eq("subscription_id", webhook_id)
         .order("occurred_at", desc=True)
         .limit(limit)

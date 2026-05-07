@@ -8,7 +8,7 @@ emits structured audit events to the `events` table.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, Generic, TypeVar
+from typing import Any, TypeVar
 
 from pydantic import BaseModel
 
@@ -21,7 +21,7 @@ TOut = TypeVar("TOut", bound=BaseModel)
 log = get_logger(__name__)
 
 
-class AgentBase(ABC, Generic[TIn, TOut]):
+class AgentBase[TIn: BaseModel, TOut: BaseModel](ABC):
     """Abstract agent base.
 
     Subclasses must set:

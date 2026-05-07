@@ -31,7 +31,7 @@ in ``workers/cron.py`` so this file stays unit-testable.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Literal
 
 Scenario = Literal[
@@ -58,11 +58,11 @@ RIATTIVAZIONE_SILENT_DAYS = 14
 
 # Per-scenario cooldowns (days between consecutive fires of same scenario)
 COOLDOWN_DAYS: dict[Scenario, int] = {
-    "cold": 30,           # cold leads: rare touch, once a month
-    "lukewarm": 14,       # 2-week cadence
-    "engaged": 10,        # weekly-ish, sector news rotates
-    "interessato": 7,     # tightest legitimate cadence
-    "hot": 30,            # operator does manual outreach; alert at most monthly
+    "cold": 30,  # cold leads: rare touch, once a month
+    "lukewarm": 14,  # 2-week cadence
+    "engaged": 10,  # weekly-ish, sector news rotates
+    "interessato": 7,  # tightest legitimate cadence
+    "hot": 30,  # operator does manual outreach; alert at most monthly
     "riattivazione": 30,  # one-shot reactivation, then back to cold cadence
 }
 
@@ -98,9 +98,7 @@ class ScenarioDecision:
     notify_only: bool = False
 
 
-def evaluate_followup_scenario(
-    snap: FollowupSnapshot, *, now: datetime
-) -> ScenarioDecision:
+def evaluate_followup_scenario(snap: FollowupSnapshot, *, now: datetime) -> ScenarioDecision:
     """Return the next follow-up action for this lead, or ``no_action``.
 
     Decision tree (first match wins, top-down):
@@ -152,17 +150,13 @@ def evaluate_followup_scenario(
         return ScenarioDecision(False, reason="cold_sequence_in_progress")
     if snap.initial_outreach_at is None:
         return ScenarioDecision(False, reason="no_initial_outreach")
-    cold_eligible_at = _aware(snap.initial_outreach_at) + timedelta(
-        days=14 + POST_COLD_QUIET_DAYS
-    )
+    cold_eligible_at = _aware(snap.initial_outreach_at) + timedelta(days=14 + POST_COLD_QUIET_DAYS)
     if cold_eligible_at > now:
         return ScenarioDecision(False, reason="cold_cooling_window")
     return _gated(snap, "cold", now)
 
 
-def _gated(
-    snap: FollowupSnapshot, scenario: Scenario, now: datetime
-) -> ScenarioDecision:
+def _gated(snap: FollowupSnapshot, scenario: Scenario, now: datetime) -> ScenarioDecision:
     """Apply per-scenario cooldown."""
     cooldown_days = COOLDOWN_DAYS[scenario]
     last = snap.last_followup_sent_at
@@ -180,7 +174,7 @@ def _gated(
 def _aware(ts: datetime) -> datetime:
     """Force-tz-aware (UTC) for safe arithmetic."""
     if ts.tzinfo is None:
-        return ts.replace(tzinfo=timezone.utc)
+        return ts.replace(tzinfo=UTC)
     return ts
 
 

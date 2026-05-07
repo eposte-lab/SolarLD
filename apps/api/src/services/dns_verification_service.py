@@ -69,11 +69,11 @@ _TIMEOUT = 5  # seconds per DNS query
 class RecordStatus:
     """Result for a single DNS record check."""
 
-    ok: bool                         # True = record found + valid
-    found: bool                      # True = record exists (even if wrong value)
-    value: str | None = None         # Raw value we found (or None)
-    expected: str | None = None      # What we expected to find
-    error: str | None = None         # Human-readable failure reason
+    ok: bool  # True = record found + valid
+    found: bool  # True = record exists (even if wrong value)
+    value: str | None = None  # Raw value we found (or None)
+    expected: str | None = None  # What we expected to find
+    error: str | None = None  # Human-readable failure reason
 
 
 @dataclass
@@ -85,8 +85,10 @@ class DnsVerificationResult:
     dkim_resend: RecordStatus = field(default_factory=lambda: RecordStatus(ok=False, found=False))
     dkim_google: RecordStatus = field(default_factory=lambda: RecordStatus(ok=False, found=False))
     dmarc: RecordStatus = field(default_factory=lambda: RecordStatus(ok=False, found=False))
-    tracking_cname: RecordStatus = field(default_factory=lambda: RecordStatus(ok=False, found=False))
-    dmarc_policy: str | None = None     # "none" | "quarantine" | "reject"
+    tracking_cname: RecordStatus = field(
+        default_factory=lambda: RecordStatus(ok=False, found=False)
+    )
+    dmarc_policy: str | None = None  # "none" | "quarantine" | "reject"
 
     @property
     def all_critical_ok(self) -> bool:
@@ -103,6 +105,7 @@ class DnsVerificationResult:
                 "expected": r.expected,
                 "error": r.error,
             }
+
         return {
             "domain": self.domain,
             "all_critical_ok": self.all_critical_ok,
@@ -140,9 +143,7 @@ async def verify_domain(
 
     # Run all lookups in parallel via asyncio.to_thread.
     spf_task = asyncio.create_task(_check_spf(domain))
-    dkim_resend_task = asyncio.create_task(
-        _check_dkim_resend(domain, dkim_resend_target)
-    )
+    dkim_resend_task = asyncio.create_task(_check_dkim_resend(domain, dkim_resend_target))
     dkim_google_task = asyncio.create_task(_check_dkim_google(domain))
     dmarc_task = asyncio.create_task(_check_dmarc(domain))
     tracking_task = asyncio.create_task(
@@ -192,8 +193,7 @@ async def _check_spf(domain: str) -> RecordStatus:
         spf_records = [r for r in answers if r.startswith("v=spf1")]
         if not spf_records:
             return RecordStatus(
-                ok=False, found=False,
-                error="no SPF TXT record (v=spf1) found at apex"
+                ok=False, found=False, error="no SPF TXT record (v=spf1) found at apex"
             )
         spf = spf_records[0]
         # Require at least one of the known include directives.
@@ -201,7 +201,9 @@ async def _check_spf(domain: str) -> RecordStatus:
             if f"include:{inc}" in spf:
                 return RecordStatus(ok=True, found=True, value=spf)
         return RecordStatus(
-            ok=False, found=True, value=spf,
+            ok=False,
+            found=True,
+            value=spf,
             expected="include:_spf.google.com or include:_spf.resend.com",
             error="SPF record found but missing required include directive",
         )
@@ -209,9 +211,7 @@ async def _check_spf(domain: str) -> RecordStatus:
     return await asyncio.to_thread(_query)
 
 
-async def _check_dkim_resend(
-    domain: str, expected_target: str | None
-) -> RecordStatus:
+async def _check_dkim_resend(domain: str, expected_target: str | None) -> RecordStatus:
     """Check CNAME at ``resend._domainkey.{domain}``."""
     selector = f"{_RESEND_DKIM_SELECTOR}._domainkey.{domain}"
 
@@ -220,7 +220,8 @@ async def _check_dkim_resend(
             targets = _cname_record(selector)
         except _NXDomain:
             return RecordStatus(
-                ok=False, found=False,
+                ok=False,
+                found=False,
                 expected=f"CNAME {selector} → {expected_target or 'resend DKIM target'}",
                 error="CNAME record not found",
             )
@@ -231,7 +232,9 @@ async def _check_dkim_resend(
         if expected_target:
             ok = target == expected_target.rstrip(".")
             return RecordStatus(
-                ok=ok, found=True, value=target,
+                ok=ok,
+                found=True,
+                value=target,
                 expected=expected_target.rstrip("."),
                 error=None if ok else "CNAME target mismatch",
             )
@@ -254,8 +257,7 @@ async def _check_dkim_google(domain: str) -> RecordStatus:
                     if answers:
                         val = answers[0]
                         return RecordStatus(
-                            ok=True, found=True, value=val,
-                            expected=f"{rtype} at {h}"
+                            ok=True, found=True, value=val, expected=f"{rtype} at {h}"
                         )
                 except (_NXDomain, _NoAnswer):
                     continue
@@ -268,11 +270,9 @@ async def _check_dkim_google(domain: str) -> RecordStatus:
             return res
 
     return RecordStatus(
-        ok=False, found=False,
-        error=(
-            f"No Google DKIM record found for selectors: "
-            f"{', '.join(_GMAIL_DKIM_SELECTORS)}"
-        ),
+        ok=False,
+        found=False,
+        error=(f"No Google DKIM record found for selectors: {', '.join(_GMAIL_DKIM_SELECTORS)}"),
     )
 
 
@@ -284,7 +284,8 @@ async def _check_dmarc(domain: str) -> RecordStatus:
             answers = _txt_records(hostname)
         except _NXDomain:
             return RecordStatus(
-                ok=False, found=False,
+                ok=False,
+                found=False,
                 expected="TXT v=DMARC1; p=none; rua=mailto:dmarc@...",
                 error="_dmarc TXT record not found",
             )
@@ -296,7 +297,8 @@ async def _check_dmarc(domain: str) -> RecordStatus:
         dmarc_records = [r for r in answers if "v=dmarc1" in r.lower()]
         if not dmarc_records:
             return RecordStatus(
-                ok=False, found=True,
+                ok=False,
+                found=True,
                 value=answers[0] if answers else None,
                 error="TXT record found but not a valid DMARC record",
             )
@@ -311,7 +313,8 @@ async def _check_tracking_cname(tracking_host: str) -> RecordStatus:
             targets = _cname_record(tracking_host)
         except _NXDomain:
             return RecordStatus(
-                ok=False, found=False,
+                ok=False,
+                found=False,
                 expected=f"CNAME → {TRACKING_CNAME_TARGET}",
                 error="CNAME record not found",
             )
@@ -321,7 +324,9 @@ async def _check_tracking_cname(tracking_host: str) -> RecordStatus:
         target = targets[0].rstrip(".")
         ok = target == TRACKING_CNAME_TARGET
         return RecordStatus(
-            ok=ok, found=True, value=target,
+            ok=ok,
+            found=True,
+            value=target,
             expected=TRACKING_CNAME_TARGET,
             error=None if ok else f"CNAME points to {target!r}, expected {TRACKING_CNAME_TARGET!r}",
         )
@@ -360,8 +365,7 @@ def _resolver() -> dns.resolver.Resolver:
 def _txt_records(hostname: str) -> list[str]:
     try:
         answers = _resolver().resolve(hostname, "TXT")
-        return [b"".join(rdata.strings).decode("utf-8", errors="replace")
-                for rdata in answers]
+        return [b"".join(rdata.strings).decode("utf-8", errors="replace") for rdata in answers]
     except dns.resolver.NXDOMAIN as exc:
         raise _NXDomain(f"NXDOMAIN: {hostname}") from exc
     except dns.resolver.NoAnswer as exc:
@@ -390,10 +394,8 @@ def _raw_records(hostname: str, rtype: str) -> list[str]:
     try:
         answers = _resolver().resolve(hostname, rtype)
         if rtype == "TXT":
-            return [b"".join(rd.strings).decode("utf-8", errors="replace")
-                    for rd in answers]
-        return [str(rd.target) if hasattr(rd, "target") else str(rd)
-                for rd in answers]
+            return [b"".join(rd.strings).decode("utf-8", errors="replace") for rd in answers]
+        return [str(rd.target) if hasattr(rd, "target") else str(rd) for rd in answers]
     except dns.resolver.NXDOMAIN as exc:
         raise _NXDomain(f"NXDOMAIN: {hostname}") from exc
     except dns.resolver.NoAnswer as exc:

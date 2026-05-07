@@ -15,7 +15,7 @@ Cost: zero (all sources free / public).
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -65,9 +65,12 @@ async def _scrape_one(
                 if last in {"it", "italia", "italy"} and len(parts) >= 2:
                     city_block = parts[-2].split()
                     if city_block:
-                        city = " ".join(
-                            t for t in city_block if not t.isdigit() and len(t) > 2
-                        ).strip() or None
+                        city = (
+                            " ".join(
+                                t for t in city_block if not t.isdigit() and len(t) > 2
+                            ).strip()
+                            or None
+                        )
                 else:
                     city = parts[-1] or None
         result = await scrape_all_for_candidate(
@@ -147,7 +150,7 @@ async def _log_contact_extractions(
     rolling deploy.
     """
     rows: list[dict[str, Any]] = []
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
 
     for email in signals.website_emails:
         rows.append(
@@ -265,9 +268,7 @@ async def run_level2_scraping(
     # untouched and just patches scraped_data + contact_extraction.
     if bulk_updates:
         try:
-            sb.table("scan_candidates").upsert(
-                bulk_updates, on_conflict="id"
-            ).execute()
+            sb.table("scan_candidates").upsert(bulk_updates, on_conflict="id").execute()
         except Exception as exc:  # noqa: BLE001
             # When migration 0100 hasn't shipped these columns will not exist
             # yet — log a warning but don't crash the scan.

@@ -58,9 +58,7 @@ SOLAR_COST_CENTS = 2
 # ---------------------------------------------------------------------------
 
 
-async def _check_solar_cache(
-    sb: Any, *, google_place_id: str
-) -> dict[str, Any] | None:
+async def _check_solar_cache(sb: Any, *, google_place_id: str) -> dict[str, Any] | None:
     """Return cached Solar data for this place_id, or None.
 
     Migration 0103 reformulates ``known_company_buildings`` with a
@@ -134,10 +132,7 @@ async def _persist_roof_and_link(
         "pitch_degrees": insight.pitch_degrees,
         "shading_score": insight.shading_score,
         "raw_data": insight.raw,
-        "address": (
-            (insight.locality or "") + " " + (insight.postal_code or "")
-        ).strip()
-        or None,
+        "address": ((insight.locality or "") + " " + (insight.postal_code or "")).strip() or None,
         "comune": insight.locality,
         "cap": insight.postal_code,
         "status": "identified",
@@ -157,7 +152,8 @@ async def _persist_roof_and_link(
             estimated_yearly_kwh=insight.estimated_yearly_kwh,
             roof_area_sqm=insight.area_sqm,
             panel_count=(
-                len(insight.panels) if getattr(insight, "panels", None)
+                len(insight.panels)
+                if getattr(insight, "panels", None)
                 else getattr(insight, "max_panel_count", None)
             ),
             panel_capacity_w=getattr(insight, "panel_capacity_w", None),
@@ -178,11 +174,7 @@ async def _persist_roof_and_link(
     try:
         # Upsert by (tenant_id, geohash) — same building rediscovered in
         # subsequent scans returns the existing roof_id rather than 23505.
-        res = (
-            sb.table("roofs")
-            .upsert(row, on_conflict="tenant_id,geohash")
-            .execute()
-        )
+        res = sb.table("roofs").upsert(row, on_conflict="tenant_id,geohash").execute()
         roof_id = res.data[0]["id"] if res.data else None
         if not roof_id:
             # PostgREST upsert sometimes returns empty data on UPDATE path;
@@ -260,9 +252,8 @@ async def run_level4_solar_qualify(
                 from ...services.google_solar_service import (
                     _parse_building_insight_payload,
                 )
-                insight = _parse_building_insight_payload(
-                    cached["solar_building_insights"]
-                )
+
+                insight = _parse_building_insight_payload(cached["solar_building_insights"])
             except Exception:  # noqa: BLE001
                 insight = None
 

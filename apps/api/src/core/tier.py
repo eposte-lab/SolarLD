@@ -24,7 +24,7 @@ Usage::
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from typing import Any, Literal, TypedDict
 
 # ---------------------------------------------------------------------------
@@ -42,7 +42,7 @@ TIER_LABEL: dict[TenantTier, str] = {
 }
 
 
-class Capability(str, Enum):
+class Capability(StrEnum):
     """Every gated feature must be represented here."""
 
     EMAIL_OUTREACH = "email_outreach"
@@ -58,7 +58,7 @@ class Capability(str, Enum):
     BULK_EXPORT = "bulk_export"
 
 
-class Budget(str, Enum):
+class Budget(StrEnum):
     """Monthly budget knobs (cents, or None=unlimited)."""
 
     MONTHLY_SCAN_BUDGET_CENTS = "monthly_scan_budget_cents"
@@ -121,9 +121,15 @@ CAPABILITIES: dict[TenantTier, dict[Capability, bool]] = {
 }
 
 BUDGETS: dict[TenantTier, dict[Budget, int | None]] = {
-    "founding":   {Budget.MONTHLY_SCAN_BUDGET_CENTS: 15_000, Budget.MONTHLY_OUTREACH_BUDGET_CENTS: 10_000},
-    "pro":        {Budget.MONTHLY_SCAN_BUDGET_CENTS: 50_000, Budget.MONTHLY_OUTREACH_BUDGET_CENTS: 40_000},
-    "enterprise": {Budget.MONTHLY_SCAN_BUDGET_CENTS: None,   Budget.MONTHLY_OUTREACH_BUDGET_CENTS: None},
+    "founding": {
+        Budget.MONTHLY_SCAN_BUDGET_CENTS: 15_000,
+        Budget.MONTHLY_OUTREACH_BUDGET_CENTS: 10_000,
+    },
+    "pro": {Budget.MONTHLY_SCAN_BUDGET_CENTS: 50_000, Budget.MONTHLY_OUTREACH_BUDGET_CENTS: 40_000},
+    "enterprise": {
+        Budget.MONTHLY_SCAN_BUDGET_CENTS: None,
+        Budget.MONTHLY_OUTREACH_BUDGET_CENTS: None,
+    },
 }
 
 

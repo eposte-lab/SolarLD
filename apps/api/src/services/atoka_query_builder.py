@@ -56,10 +56,8 @@ Sprint 11 orchestrator; legacy call-sites can migrate at their own pace.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any
-
-import httpx
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
 
 from ..core.logging import get_logger
 from .italian_business_service import (
@@ -67,6 +65,9 @@ from .italian_business_service import (
     EnrichmentUnavailable,
     atoka_search_by_criteria,
 )
+
+if TYPE_CHECKING:
+    import httpx
 
 log = get_logger(__name__)
 
@@ -135,14 +136,10 @@ class AtokaQueryBuilder:
     ) -> AtokaQueryBuilder:
         return _replace(self, province_code=province_code, region_code=region_code)
 
-    def employees(
-        self, mn: int | None = None, mx: int | None = None
-    ) -> AtokaQueryBuilder:
+    def employees(self, mn: int | None = None, mx: int | None = None) -> AtokaQueryBuilder:
         return _replace(self, employees_min=mn, employees_max=mx)
 
-    def revenue(
-        self, mn_eur: int | None = None, mx_eur: int | None = None
-    ) -> AtokaQueryBuilder:
+    def revenue(self, mn_eur: int | None = None, mx_eur: int | None = None) -> AtokaQueryBuilder:
         return _replace(self, revenue_min_eur=mn_eur, revenue_max_eur=mx_eur)
 
     def require_contact_methods(
@@ -180,9 +177,7 @@ class AtokaQueryBuilder:
     # Execution
     # ------------------------------------------------------------------
 
-    async def execute(
-        self, *, client: httpx.AsyncClient | None = None
-    ) -> DiscoveryResult:
+    async def execute(self, *, client: httpx.AsyncClient | None = None) -> DiscoveryResult:
         """Run the query, applying both Atoka-side and one-pass app-side filters.
 
         Atoka v2 supports many of these filters natively; for the ones it
@@ -202,9 +197,7 @@ class AtokaQueryBuilder:
         if self.drop_public_admin:
             ateco_eff = [c for c in ateco_eff if not c.startswith(_PA_ATECO_PREFIX)]
             if not ateco_eff:
-                return DiscoveryResult(
-                    [], 0, {"reason": "all_ateco_were_pa"}, None
-                )
+                return DiscoveryResult([], 0, {"reason": "all_ateco_were_pa"}, None)
 
         # Atoka-side filters via the existing wrapper (handles paging,
         # auth, mock mode, retry, billing logging).
@@ -280,12 +273,7 @@ class AtokaQueryBuilder:
             return "missing_website"
 
         if self.legal_forms:
-            form = (
-                raw.get("legalForm")
-                or raw.get("legal_form")
-                or raw.get("companyType")
-                or ""
-            )
+            form = raw.get("legalForm") or raw.get("legal_form") or raw.get("companyType") or ""
             if not _legal_form_matches(form, self.legal_forms):
                 return "wrong_legal_form"
 
@@ -300,14 +288,10 @@ class AtokaQueryBuilder:
 
         if self.drop_in_liquidation:
             status = (
-                raw.get("legalStatus")
-                or raw.get("legal_status")
-                or raw.get("status")
-                or ""
+                raw.get("legalStatus") or raw.get("legal_status") or raw.get("status") or ""
             ).lower()
             if any(
-                bad in status
-                for bad in ("liquidation", "liquidazione", "concordato", "fallimento")
+                bad in status for bad in ("liquidation", "liquidazione", "concordato", "fallimento")
             ):
                 return "in_liquidation"
 

@@ -43,9 +43,7 @@ _BATCH_SIZE = 10
 _BATCH_CONCURRENCY = 4
 _COST_PER_CANDIDATE_CENTS = 1
 
-_PROMPT_PATH = (
-    Path(__file__).resolve().parents[2] / "prompts" / "proxy_score_v3.md"
-)
+_PROMPT_PATH = Path(__file__).resolve().parents[2] / "prompts" / "proxy_score_v3.md"
 
 
 @lru_cache(maxsize=1)
@@ -74,10 +72,7 @@ async def run_level5_proxy_score(
     sb = get_service_client()
     await _warm_cache(sb)
 
-    batches = [
-        accepted[i : i + _BATCH_SIZE]
-        for i in range(0, len(accepted), _BATCH_SIZE)
-    ]
+    batches = [accepted[i : i + _BATCH_SIZE] for i in range(0, len(accepted), _BATCH_SIZE)]
 
     sem = asyncio.Semaphore(_BATCH_CONCURRENCY)
 
@@ -97,9 +92,7 @@ async def run_level5_proxy_score(
     scored = [s for sub in nested for s in sub]
 
     # Cost accounting
-    ctx.costs.add_claude(
-        scored=len(scored), cost_cents=len(scored) * _COST_PER_CANDIDATE_CENTS
-    )
+    ctx.costs.add_claude(scored=len(scored), cost_cents=len(scored) * _COST_PER_CANDIDATE_CENTS)
 
     # Anti-spam post-processing — runs deterministic checks on every
     # scored candidate, applies score penalties or hard-rejects (zero
@@ -118,9 +111,7 @@ async def run_level5_proxy_score(
         tenant_id=ctx.tenant_id,
         scored=len(scored),
         recommended=sum(1 for s in scored if s.recommended_for_rendering),
-        avg_score=round(
-            sum(s.overall_score for s in scored) / max(1, len(scored)), 1
-        ),
+        avg_score=round(sum(s.overall_score for s in scored) / max(1, len(scored)), 1),
     )
     return scored
 
@@ -195,9 +186,7 @@ async def _score_batch(
     return _parse_batch_response(text, batch=batch, ctx=ctx)
 
 
-def _build_batch_prompt(
-    *, batch: list[SolarQualified], ctx: FunnelV3Context
-) -> str:
+def _build_batch_prompt(*, batch: list[SolarQualified], ctx: FunnelV3Context) -> str:
     template = _load_prompt()
 
     candidates_payload: list[dict[str, Any]] = []
@@ -220,9 +209,7 @@ def _build_batch_prompt(
                     "website": {
                         "emails_count": len(c.scraped.website_emails),
                         "pec_present": bool(c.scraped.website_pec),
-                        "decision_maker_present": bool(
-                            c.scraped.website_decision_maker
-                        ),
+                        "decision_maker_present": bool(c.scraped.website_decision_maker),
                     },
                     "pagine_bianche_found": bool(c.scraped.pagine_bianche_phone),
                     "opencorporates": {
@@ -286,9 +273,7 @@ def _parse_batch_response(
     return out
 
 
-def _scored_from_payload(
-    c: SolarQualified, item: dict[str, Any]
-) -> ScoredV3Candidate:
+def _scored_from_payload(c: SolarQualified, item: dict[str, Any]) -> ScoredV3Candidate:
     icp = _clamp(item.get("icp_fit_score"))
     solar = _clamp(item.get("solar_potential_score"))
     contact = _clamp(item.get("contact_completeness_score"))
@@ -340,9 +325,7 @@ def _fallback_score(c: SolarQualified) -> ScoredV3Candidate:
     bqs_pct = (c.building_quality_score or 0) * 20  # 0-5 → 0-100
     solar_pct = min(100, int((c.solar_kw_installable or 0) / 3))
     contact_pct = (
-        100 if (c.contact.best_email and c.contact.pec)
-        else 70 if c.contact.best_email
-        else 30
+        100 if (c.contact.best_email and c.contact.pec) else 70 if c.contact.best_email else 30
     )
     icp_pct = 50  # neutral
     overall = round(icp_pct * 0.30 + bqs_pct * 0.30 + solar_pct * 0.25 + contact_pct * 0.15)

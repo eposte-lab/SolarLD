@@ -25,7 +25,7 @@ Surface area:
 from __future__ import annotations
 
 import hashlib
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 import geohash  # type: ignore[import-untyped]
@@ -78,17 +78,10 @@ async def system_stats(ctx: CurrentUser) -> dict[str, Any]:
 
     tenants = sb.table("tenants").select("id", count="exact", head=True).execute()
     active_tenants = (
-        sb.table("tenants")
-        .select("id", count="exact", head=True)
-        .eq("status", "active")
-        .execute()
+        sb.table("tenants").select("id", count="exact", head=True).eq("status", "active").execute()
     )
     leads = sb.table("leads").select("id", count="exact", head=True).execute()
-    users = (
-        sb.table("tenant_members")
-        .select("user_id", count="exact", head=True)
-        .execute()
-    )
+    users = sb.table("tenant_members").select("user_id", count="exact", head=True).execute()
     return {
         "tenants_total": tenants.count or 0,
         "tenants_active": active_tenants.count or 0,
@@ -107,11 +100,7 @@ async def list_blacklist(ctx: CurrentUser) -> list[dict[str, object]]:
     _require_super_admin(ctx)
     sb = get_service_client()
     res = (
-        sb.table("global_blacklist")
-        .select("*")
-        .order("created_at", desc=True)
-        .limit(500)
-        .execute()
+        sb.table("global_blacklist").select("*").order("created_at", desc=True).limit(500).execute()
     )
     return res.data or []
 
@@ -141,18 +130,10 @@ async def list_tenants(ctx: CurrentUser) -> list[dict[str, Any]]:
 async def get_tenant(ctx: CurrentUser, tenant_id: str) -> dict[str, Any]:
     _require_super_admin(ctx)
     sb = get_service_client()
-    t_res = (
-        sb.table("tenants")
-        .select("*")
-        .eq("id", tenant_id)
-        .limit(1)
-        .execute()
-    )
+    t_res = sb.table("tenants").select("*").eq("id", tenant_id).limit(1).execute()
     if not t_res.data:
         raise HTTPException(status_code=404, detail="tenant not found")
-    usage_res = sb.rpc(
-        "analytics_usage_mtd", {"p_tenant_id": tenant_id}
-    ).execute()
+    usage_res = sb.rpc("analytics_usage_mtd", {"p_tenant_id": tenant_id}).execute()
     members_res = (
         sb.table("tenant_members")
         .select("user_id, role, created_at")
@@ -170,9 +151,7 @@ class TenantAdminUpdate(BaseModel):
     """Super-admin editable tenant fields — distinct from tenant self-serve."""
 
     tier: Literal["founding", "growth", "enterprise"] | None = None
-    status: Literal[
-        "onboarding", "active", "paused", "churned", "trial"
-    ] | None = None
+    status: Literal["onboarding", "active", "paused", "churned", "trial"] | None = None
     monthly_rate_cents: int | None = Field(default=None, ge=0)
     contract_start_date: str | None = None
     contract_end_date: str | None = None
@@ -198,12 +177,7 @@ async def update_tenant(
     if not update:
         raise HTTPException(status_code=400, detail="no updatable fields")
     sb = get_service_client()
-    res = (
-        sb.table("tenants")
-        .update(update)
-        .eq("id", tenant_id)
-        .execute()
-    )
+    res = sb.table("tenants").update(update).eq("id", tenant_id).execute()
     if not res.data:
         raise HTTPException(status_code=404, detail="tenant not found")
     return res.data[0]
@@ -241,13 +215,7 @@ async def unlock_territory(ctx: CurrentUser, tenant_id: str) -> dict[str, Any]:
 async def get_feature_flags(ctx: CurrentUser, tenant_id: str) -> dict[str, Any]:
     _require_super_admin(ctx)
     sb = get_service_client()
-    res = (
-        sb.table("tenants")
-        .select("settings")
-        .eq("id", tenant_id)
-        .limit(1)
-        .execute()
-    )
+    res = sb.table("tenants").select("settings").eq("id", tenant_id).limit(1).execute()
     if not res.data:
         raise HTTPException(status_code=404, detail="tenant not found")
     settings_obj = res.data[0].get("settings") or {}
@@ -260,7 +228,7 @@ class FeatureFlagPatch(BaseModel):
     flags: dict[str, Any] = Field(
         description=(
             "Map of flag name → value. Null value removes the flag. "
-            "Example: {\"whatsapp_outreach\": true, \"legacy_scoring\": null}"
+            'Example: {"whatsapp_outreach": true, "legacy_scoring": null}'
         )
     )
 
@@ -272,13 +240,7 @@ async def patch_feature_flags(
     _require_super_admin(ctx)
     sb = get_service_client()
 
-    res = (
-        sb.table("tenants")
-        .select("settings")
-        .eq("id", tenant_id)
-        .limit(1)
-        .execute()
-    )
+    res = sb.table("tenants").select("settings").eq("id", tenant_id).limit(1).execute()
     if not res.data:
         raise HTTPException(status_code=404, detail="tenant not found")
 
@@ -293,12 +255,7 @@ async def patch_feature_flags(
     new_settings = dict(current)
     new_settings["feature_flags"] = flags
 
-    upd = (
-        sb.table("tenants")
-        .update({"settings": new_settings})
-        .eq("id", tenant_id)
-        .execute()
-    )
+    upd = sb.table("tenants").update({"settings": new_settings}).eq("id", tenant_id).execute()
     return {"tenant_id": tenant_id, "feature_flags": flags, "updated": bool(upd.data)}
 
 
@@ -435,7 +392,7 @@ async def seed_test_candidate(
     _require_super_admin(ctx)
 
     sb = get_service_client()
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     ov = body.solar_override
 
     # ── 1. Upsert roof row ────────────────────────────────────────────────
@@ -468,11 +425,7 @@ async def seed_test_candidate(
         },
     }
 
-    roof_res = (
-        sb.table("roofs")
-        .upsert(roof_payload, on_conflict="tenant_id,geohash")
-        .execute()
-    )
+    roof_res = sb.table("roofs").upsert(roof_payload, on_conflict="tenant_id,geohash").execute()
     if not roof_res.data:
         raise HTTPException(status_code=502, detail="Failed to upsert roof row")
     roof_id: str = roof_res.data[0]["id"]
@@ -509,9 +462,7 @@ async def seed_test_candidate(
     }
 
     subject_res = (
-        sb.table("subjects")
-        .upsert(subject_payload, on_conflict="tenant_id,roof_id")
-        .execute()
+        sb.table("subjects").upsert(subject_payload, on_conflict="tenant_id,roof_id").execute()
     )
     if not subject_res.data:
         raise HTTPException(status_code=502, detail="Failed to upsert subject row")
@@ -612,11 +563,7 @@ async def seed_test_candidate(
         if creative_job_id.startswith(("skipped:", "error:"))
         else f" Creative: {creative_job_id}."
     )
-    outreach_msg = (
-        f" Outreach: {outreach_result}."
-        if outreach_result
-        else " outreach skipped."
-    )
+    outreach_msg = f" Outreach: {outreach_result}." if outreach_result else " outreach skipped."
     return SeedTestCandidateResponse(
         roof_id=roof_id,
         subject_id=subject_id,
@@ -625,9 +572,7 @@ async def seed_test_candidate(
         outreach_job_id=outreach_job_id,
         outreach_result=outreach_result,
         message=(
-            f"Scored {scoring_out.score}/100 ({scoring_out.tier})."
-            + creative_warn
-            + outreach_msg
+            f"Scored {scoring_out.score}/100 ({scoring_out.tier})." + creative_warn + outreach_msg
         ),
     )
 
@@ -765,16 +710,16 @@ class DemoRunRow(BaseModel):
     # "Resend accepted the request" (sent) and "the recipient mailbox actually
     # received it" (delivered) — the gap that hid silent bounces and the
     # ``DEMO_EMAIL_RECIPIENT_OVERRIDE`` redirect from operators on demo calls.
-    email_status: str | None = None              # SCHEDULED|SENT|DELIVERED|FAILED|...
-    email_status_detail: str | None = None        # outreach_sends.failure_reason (bounce/complaint code)
-    email_message_id: str | None = None           # for cross-checking against Resend dashboard
-    email_sent_at: str | None = None              # ISO-8601, when status became SENT
-    email_recipient: str | None = None            # the address the email was actually sent to
+    email_status: str | None = None  # SCHEDULED|SENT|DELIVERED|FAILED|...
+    email_status_detail: str | None = None  # outreach_sends.failure_reason (bounce/complaint code)
+    email_message_id: str | None = None  # for cross-checking against Resend dashboard
+    email_sent_at: str | None = None  # ISO-8601, when status became SENT
+    email_recipient: str | None = None  # the address the email was actually sent to
     # Roof identification provenance — lets the dashboard render a badge
     # showing whether the rendered roof was confirmed by Atoka, scraped, or
     # is just an HQ centroid (low confidence → review before demoing).
-    roof_source: str | None = None                # subjects.sede_operativa_source
-    roof_confidence: str | None = None            # high|medium|low|none
+    roof_source: str | None = None  # subjects.sede_operativa_source
+    roof_confidence: str | None = None  # high|medium|low|none
 
 
 class DemoRunsResponse(BaseModel):
@@ -846,9 +791,7 @@ async def _admin_demo_runs_impl(
     # degrading gracefully.
     total: int = 0
     try:
-        count_q = sb.table("demo_pipeline_runs").select(
-            "id", count="exact", head=True
-        )
+        count_q = sb.table("demo_pipeline_runs").select("id", count="exact", head=True)
         if status:
             count_q = count_q.eq("status", status)
         if tenant_id:
@@ -958,10 +901,7 @@ async def _admin_demo_runs_impl(
             # joined above). We only project the send-level metadata here.
             sends_res = (
                 sb.table("outreach_sends")
-                .select(
-                    "lead_id, status, failure_reason, email_message_id, "
-                    "sent_at, created_at"
-                )
+                .select("lead_id, status, failure_reason, email_message_id, sent_at, created_at")
                 .in_("lead_id", lead_ids)
                 .order("created_at", desc=False)  # earliest first → demo send wins
                 .execute()
@@ -986,7 +926,9 @@ async def _admin_demo_runs_impl(
             DemoRunRow(
                 id=r["id"],
                 tenant_id=r["tenant_id"],
-                tenant_name=tenant_data.get("business_name") if isinstance(tenant_data, dict) else None,
+                tenant_name=tenant_data.get("business_name")
+                if isinstance(tenant_data, dict)
+                else None,
                 lead_id=r.get("lead_id"),
                 status=r["status"],
                 failed_step=r.get("failed_step"),

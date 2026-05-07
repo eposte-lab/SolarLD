@@ -63,8 +63,7 @@ CREATE TABLE IF NOT EXISTS immobiliare_listings_cache (
 );
 
 CREATE INDEX IF NOT EXISTS idx_immobiliare_cache_active
-    ON immobiliare_listings_cache (address_hash)
-    WHERE expires_at > now();
+    ON immobiliare_listings_cache (address_hash, expires_at);
 
 CREATE INDEX IF NOT EXISTS idx_immobiliare_cache_geo
     ON immobiliare_listings_cache (lat, lng)

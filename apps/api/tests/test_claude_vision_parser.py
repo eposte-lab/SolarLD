@@ -58,9 +58,7 @@ def test_parser_rejects_malformed_json() -> None:
 
 
 def test_parser_rejects_missing_fields() -> None:
-    partial = json.dumps(
-        {"has_building": True, "confidence": 0.9, "area_sqm": 100.0}
-    )
+    partial = json.dumps({"has_building": True, "confidence": 0.9, "area_sqm": 100.0})
     assert parse_vision_response(partial) is None
 
 

@@ -45,7 +45,6 @@ from __future__ import annotations
 import asyncio
 import re
 from dataclasses import dataclass, field
-from typing import Any
 
 import httpx
 
@@ -100,11 +99,7 @@ def extract_best_email(scraped_emails: list[str]) -> EmailCandidate | None:
     if not scraped_emails:
         return None
 
-    candidates = [
-        e
-        for e in scraped_emails
-        if not any(esc in e.lower() for esc in ESCLUSIONI_HARD)
-    ]
+    candidates = [e for e in scraped_emails if not any(esc in e.lower() for esc in ESCLUSIONI_HARD)]
     if not candidates:
         return None
 
@@ -113,8 +108,10 @@ def extract_best_email(scraped_emails: list[str]) -> EmailCandidate | None:
     main_pool: list[str] = []
     for email in candidates:
         local = email.split("@", 1)[0].lower()
-        if any(local == lp or local.startswith(f"{lp}.") or local.startswith(f"{lp}-")
-               for lp in LOW_PRIORITY_LOCAL_PARTS):
+        if any(
+            local == lp or local.startswith(f"{lp}.") or local.startswith(f"{lp}-")
+            for lp in LOW_PRIORITY_LOCAL_PARTS
+        ):
             privacy_pool.append(email)
         else:
             main_pool.append(email)
@@ -124,9 +121,7 @@ def extract_best_email(scraped_emails: list[str]) -> EmailCandidate | None:
         for email in main_pool:
             local_part = email.split("@", 1)[0].lower()
             if keyword in local_part:
-                return EmailCandidate(
-                    value=email, confidence="alta", type="named_role"
-                )
+                return EmailCandidate(value=email, confidence="alta", type="named_role")
 
     # No named-role hit in main pool: fall through to first generic.
     if main_pool:
@@ -134,9 +129,7 @@ def extract_best_email(scraped_emails: list[str]) -> EmailCandidate | None:
 
     # Only privacy/dpo/legal addresses survived — last-resort fallback.
     if privacy_pool:
-        return EmailCandidate(
-            value=privacy_pool[0], confidence="bassa", type="privacy_dpo"
-        )
+        return EmailCandidate(value=privacy_pool[0], confidence="bassa", type="privacy_dpo")
 
     return None
 
@@ -146,9 +139,7 @@ def extract_best_email(scraped_emails: list[str]) -> EmailCandidate | None:
 # ---------------------------------------------------------------------------
 
 
-_EMAIL_REGEX = re.compile(
-    r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}", re.IGNORECASE
-)
+_EMAIL_REGEX = re.compile(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}", re.IGNORECASE)
 _PEC_DOMAINS = (
     "pec.",
     "@pec.",
@@ -158,9 +149,7 @@ _PEC_DOMAINS = (
     "casellapec.com",
     "legalmail",
 )
-_PHONE_REGEX = re.compile(
-    r"(?:\+?39[\s\-.]?)?(?:0\d{1,4}|3\d{2})[\s\-.]?\d{3,4}[\s\-.]?\d{2,4}"
-)
+_PHONE_REGEX = re.compile(r"(?:\+?39[\s\-.]?)?(?:0\d{1,4}|3\d{2})[\s\-.]?\d{3,4}[\s\-.]?\d{2,4}")
 
 # Pages most likely to surface contact info on an Italian SME site.
 # Order matters: contact-first pages first (best human-readable signals),
@@ -203,9 +192,7 @@ class ScrapedSite:
     error: str | None = None
 
 
-async def _fetch_html(
-    url: str, *, client: httpx.AsyncClient, timeout: float = 8.0
-) -> str | None:
+async def _fetch_html(url: str, *, client: httpx.AsyncClient, timeout: float = 8.0) -> str | None:
     try:
         resp = await client.get(url, timeout=timeout, follow_redirects=True)
     except (httpx.HTTPError, httpx.TimeoutException) as exc:
@@ -351,6 +338,7 @@ def _has_mx_record(domain: str, *, timeout: float = 3.0) -> bool:
         return False
     try:
         import dns.resolver
+
         resolver = dns.resolver.Resolver()
         resolver.lifetime = timeout
         resolver.timeout = timeout
@@ -510,10 +498,7 @@ async def scrape_opencorporates(
             data = resp.json()
         except ValueError:
             return OpenCorporatesRecord()
-        results = (
-            data.get("results", {})
-            .get("companies") or []
-        )
+        results = data.get("results", {}).get("companies") or []
         if not results:
             return OpenCorporatesRecord()
         comp = results[0].get("company") or {}
@@ -574,7 +559,11 @@ async def scrape_all_for_candidate(
             scrape_opencorporates(business_name, client=client),
             return_exceptions=True,
         )
-        site = results[0] if isinstance(results[0], ScrapedSite) else ScrapedSite(url="", error="exception")
+        site = (
+            results[0]
+            if isinstance(results[0], ScrapedSite)
+            else ScrapedSite(url="", error="exception")
+        )
         pb = results[1] if isinstance(results[1], PagineBiancheRecord) else PagineBiancheRecord()
         oc = results[2] if isinstance(results[2], OpenCorporatesRecord) else OpenCorporatesRecord()
         return CombinedScrape(site=site, pb=pb, oc=oc)

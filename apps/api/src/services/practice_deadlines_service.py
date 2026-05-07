@@ -27,9 +27,8 @@ Public API:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
-from typing import Any
-from uuid import UUID
+from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING, Any
 
 from ..core.logging import get_logger
 from ..core.supabase_client import get_service_client
@@ -40,12 +39,14 @@ from .practice_events_service import (
     EVT_DEADLINE_SATISFIED,
     EVT_DOCUMENT_ACCEPTED,
     EVT_DOCUMENT_COMPLETED,
-    EVT_DOCUMENT_REJECTED,
     EVT_DOCUMENT_SENT,
     EVT_PRACTICE_CANCELLED,
     PracticeEvent,
     record_event,
 )
+
+if TYPE_CHECKING:
+    from uuid import UUID
 
 log = get_logger(__name__)
 
@@ -202,8 +203,7 @@ def project_event_to_deadlines(event: PracticeEvent) -> dict[str, Any]:
     # Walk rules looking for triggers.
     for rule in DEADLINE_RULES:
         if rule.trigger_event_type == event.event_type and (
-            rule.trigger_template is None
-            or rule.trigger_template == template_code
+            rule.trigger_template is None or rule.trigger_template == template_code
         ):
             occurred_dt = _parse_iso(event.occurred_at)
             due_at = occurred_dt + timedelta(days=rule.offset_days)
@@ -280,9 +280,7 @@ def project_event_to_deadlines(event: PracticeEvent) -> dict[str, Any]:
                 .execute()
             )
             for row in close_res.data or []:
-                summary["satisfied"].append(
-                    {"id": row["id"], "kind": rule.kind}
-                )
+                summary["satisfied"].append({"id": row["id"], "kind": rule.kind})
                 record_event(
                     tenant_id=event.tenant_id,
                     practice_id=event.practice_id,
@@ -320,7 +318,7 @@ def mark_overdue_and_notify(now: datetime | None = None) -> dict[str, Any]:
 
     Returns ``{"newly_overdue": N, "errors": M}``.
     """
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     sb = get_service_client()
 
     # 1. Find open deadlines that have aged past due_at.  We use the
@@ -340,9 +338,9 @@ def mark_overdue_and_notify(now: datetime | None = None) -> dict[str, Any]:
     errors = 0
     for row in rows:
         try:
-            sb.table("practice_deadlines").update(
-                {"status": "overdue"}
-            ).eq("id", row["id"]).execute()
+            sb.table("practice_deadlines").update({"status": "overdue"}).eq(
+                "id", row["id"]
+            ).execute()
 
             practice_number = (row.get("practices") or {}).get("practice_number")
             kind = row["deadline_kind"]
@@ -451,7 +449,7 @@ def _parse_iso(value: str) -> datetime:
         return datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
         # Last-resort: treat as UTC noon to avoid TZ surprises.
-        return datetime.now(timezone.utc)
+        return datetime.now(UTC)
 
 
 def _days_between(iso_value: str, now: datetime) -> int:

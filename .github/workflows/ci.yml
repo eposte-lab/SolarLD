@@ -100,8 +100,6 @@ jobs:
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
-        with:
-          version: 10
 
       - name: Setup Node 20
         uses: actions/setup-node@v4
@@ -150,7 +148,7 @@ jobs:
 
     services:
       postgres:
-        image: postgis/postgis:16-3.4
+        image: postgis/postgis:15-3.4
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -165,6 +163,66 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Bootstrap Supabase-specific schemas
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d solarlead_mig <<'SQL'
+            -- Required PostgreSQL extensions used by migrations
+            CREATE EXTENSION IF NOT EXISTS moddatetime;
+            CREATE EXTENSION IF NOT EXISTS pgcrypto;
+            CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+            -- Supabase roles
+            DO $$ BEGIN
+              CREATE ROLE anon NOLOGIN;
+              EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+            DO $$ BEGIN
+              CREATE ROLE authenticated NOLOGIN;
+              EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+            DO $$ BEGIN
+              CREATE ROLE service_role NOLOGIN BYPASSRLS;
+              EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+            GRANT anon TO postgres;
+            GRANT authenticated TO postgres;
+            GRANT service_role TO postgres;
+            CREATE SCHEMA IF NOT EXISTS auth;
+            CREATE TABLE IF NOT EXISTS auth.users (
+              id uuid PRIMARY KEY,
+              email text,
+              created_at timestamptz DEFAULT now()
+            );
+            -- Stub Supabase auth helpers used in RLS policies
+            CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid
+              LANGUAGE sql STABLE AS $$ SELECT '00000000-0000-0000-0000-000000000000'::uuid $$;
+            CREATE OR REPLACE FUNCTION auth.role() RETURNS text
+              LANGUAGE sql STABLE AS $$ SELECT 'anon' $$;
+            CREATE SCHEMA IF NOT EXISTS storage;
+            CREATE TABLE IF NOT EXISTS storage.buckets (
+              id text PRIMARY KEY,
+              name text NOT NULL,
+              public boolean DEFAULT false,
+              file_size_limit bigint,
+              allowed_mime_types text[],
+              created_at timestamptz DEFAULT now(),
+              updated_at timestamptz DEFAULT now()
+            );
+            CREATE TABLE IF NOT EXISTS storage.objects (
+              id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+              bucket_id text REFERENCES storage.buckets(id),
+              name text,
+              owner uuid,
+              created_at timestamptz DEFAULT now(),
+              updated_at timestamptz DEFAULT now(),
+              metadata jsonb
+            );
+            CREATE OR REPLACE FUNCTION storage.foldername(name text) RETURNS text[]
+              LANGUAGE sql AS $$ SELECT string_to_array(name, '/') $$;
+            CREATE SCHEMA IF NOT EXISTS realtime;
+            DO $$ BEGIN
+              CREATE PUBLICATION supabase_realtime;
+              EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+          SQL
 
       - name: Apply migrations
         env:
@@ -186,8 +244,6 @@ jobs:
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
-        with:
-          version: 10
 
       - name: Setup Node 20
         uses: actions/setup-node@v4

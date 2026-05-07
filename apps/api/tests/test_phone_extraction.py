@@ -22,14 +22,13 @@ from src.services.email_extractor import (
 )
 from src.services.italian_business_service import _extract_phone
 
-
 # ---------------------------------------------------------------------------
 # _normalise_phone
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
-    "raw,expected",
+    ("raw", "expected"),
     [
         ("+39 02 1234 5678", "+390212345678"),
         ("02 1234 5678", "+390212345678"),

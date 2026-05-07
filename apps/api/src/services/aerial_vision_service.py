@@ -114,14 +114,12 @@ def _build_user_prompt(
     ateco_description: str | None,
     city: str | None,
 ) -> str:
-    sector = (
-        f", settore: {ateco_description}" if ateco_description else ""
-    )
+    sector = f", settore: {ateco_description}" if ateco_description else ""
     location = f" nella zona industriale di {city}" if city else ""
     return (
         f"Devi identificare quale degli edifici mostrati nelle prossime "
         f"{n_candidates} immagini satellitari appartiene all'azienda "
-        f"\"{legal_name}\" (P.IVA {vat_number}{sector}){location}.\n\n"
+        f'"{legal_name}" (P.IVA {vat_number}{sector}){location}.\n\n'
         f"Le immagini sono numerate da 1 a {n_candidates}, in quest'ordine. "
         f"Cerca elementi visivi che leghino un singolo edificio a quel nome "
         f"d'azienda specifico: nome dell'azienda dipinto sul tetto o sulle "
@@ -130,9 +128,9 @@ def _build_user_prompt(
         f"baie di carico.\n\n"
         f"Rispondi SOLO con questo JSON, senza prosa né code fence:\n"
         f"{{\n"
-        f"  \"match_index\": <numero da 1 a {n_candidates} oppure null>,\n"
-        f"  \"confidence\": <numero da 0 a 1>,\n"
-        f"  \"reasoning\": \"<una o due frasi che citano gli elementi visivi osservati>\"\n"
+        f'  "match_index": <numero da 1 a {n_candidates} oppure null>,\n'
+        f'  "confidence": <numero da 0 a 1>,\n'
+        f'  "reasoning": "<una o due frasi che citano gli elementi visivi osservati>"\n'
         f"}}"
     )
 
@@ -200,7 +198,7 @@ async def _run_vision_call(
             ),
             timeout=_VISION_API_TIMEOUT_S,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         log.warning(
             "vision.api_timeout",
             timeout_s=_VISION_API_TIMEOUT_S,
@@ -237,12 +235,12 @@ async def identify_company_building_in_zone(
     *,
     legal_name: str,
     vat_number: str,
-    candidate_buildings: "list[BuildingCandidate]",
+    candidate_buildings: list[BuildingCandidate],
     zone_anchor: tuple[float, float],
     ateco_description: str | None = None,
     city: str | None = None,
     model: str = DEFAULT_MODEL,  # legacy kwarg, ignored by the cascade below
-) -> "BuildingCandidate | None":
+) -> BuildingCandidate | None:
     """Identify the company's building via a Haiku-first → Sonnet cascade.
 
     Strategy:
@@ -323,11 +321,7 @@ async def identify_company_building_in_zone(
     )
 
     haiku_match = haiku_parsed.get("match_index") if haiku_parsed else None
-    haiku_conf = (
-        float(haiku_parsed.get("confidence", 0.0) or 0.0)
-        if haiku_parsed
-        else 0.0
-    )
+    haiku_conf = float(haiku_parsed.get("confidence", 0.0) or 0.0) if haiku_parsed else 0.0
 
     if (
         haiku_parsed is not None
@@ -351,8 +345,10 @@ async def identify_company_building_in_zone(
             haiku_match=haiku_match,
             haiku_confidence=haiku_conf,
             reason=(
-                "haiku_failed" if haiku_parsed is None
-                else "haiku_no_match" if haiku_match is None
+                "haiku_failed"
+                if haiku_parsed is None
+                else "haiku_no_match"
+                if haiku_match is None
                 else "haiku_low_confidence"
             ),
         )

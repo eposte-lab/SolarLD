@@ -12,7 +12,7 @@ produce user-visible duplicate effects.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 from fastapi import (
@@ -196,9 +196,7 @@ class AppointmentRequest(BaseModel):
 
 
 @router.post("/lead/{slug}/appointment", status_code=status.HTTP_202_ACCEPTED)
-async def request_appointment(
-    slug: str, payload: AppointmentRequest
-) -> dict[str, object]:
+async def request_appointment(slug: str, payload: AppointmentRequest) -> dict[str, object]:
     """Lead submits the in-portal appointment form.
 
     We record an ``events`` row + advance the lead to
@@ -267,12 +265,14 @@ async def request_appointment(
 # We return the OCR readout so the BillUploadCard can offer an inline
 # edit form when ``manual_required=True`` (low confidence).
 
-_BOLLETTA_ALLOWED_MIME: frozenset[str] = frozenset({
-    "image/jpeg",
-    "image/png",
-    "image/webp",
-    "application/pdf",
-})
+_BOLLETTA_ALLOWED_MIME: frozenset[str] = frozenset(
+    {
+        "image/jpeg",
+        "image/png",
+        "image/webp",
+        "application/pdf",
+    }
+)
 _BOLLETTA_MAX_BYTES = 10 * 1024 * 1024  # 10 MB (matches the storage bucket cap)
 _BOLLETTA_RATE_PER_HOUR = 3
 _BOLLETTA_RATE_KEY_TTL = 60 * 60 + 60  # 1h + 1m grace
@@ -297,7 +297,7 @@ async def _bolletta_rate_allows(slug: str) -> bool:
     """
     try:
         r = get_redis()
-        key = f"bolletta:upload:{slug}:{datetime.now(timezone.utc):%Y%m%d%H}"
+        key = f"bolletta:upload:{slug}:{datetime.now(UTC):%Y%m%d%H}"
         pipe = r.pipeline()
         pipe.incr(key, 1)
         pipe.expire(key, _BOLLETTA_RATE_KEY_TTL)
@@ -426,11 +426,7 @@ async def upload_bolletta(
         )
 
     # ---- 6. Insert row
-    source = (
-        "upload_ocr"
-        if (ocr and ocr.success and not ocr.manual_required)
-        else "upload_manual"
-    )
+    source = "upload_ocr" if (ocr and ocr.success and not ocr.manual_required) else "upload_manual"
     row: dict[str, Any] = {
         "id": upload_id,
         "tenant_id": lead["tenant_id"],
@@ -450,15 +446,13 @@ async def upload_bolletta(
         sb.table("bolletta_uploads").insert(row).execute()
     except Exception as exc:  # noqa: BLE001
         log.error("bolletta.row_insert_failed", slug=slug, err=str(exc))
-        raise HTTPException(
-            status_code=500, detail="Salvataggio non riuscito"
-        ) from exc
+        raise HTTPException(status_code=500, detail="Salvataggio non riuscito") from exc
 
     # ---- 7. Stamp lead + emit events
     try:
-        sb.table("leads").update(
-            {"bolletta_uploaded_at": datetime.now(timezone.utc).isoformat()}
-        ).eq("id", lead["id"]).execute()
+        sb.table("leads").update({"bolletta_uploaded_at": datetime.now(UTC).isoformat()}).eq(
+            "id", lead["id"]
+        ).execute()
     except Exception as exc:  # noqa: BLE001
         log.warning("bolletta.lead_stamp_failed", err=str(exc))
 
@@ -513,12 +507,10 @@ async def upload_bolletta(
                 "event_kind": "portal.bolletta_uploaded",
                 "metadata": {
                     "upload_id": upload_id,
-                    "ocr_confidence": (
-                        ocr.confidence if ocr and ocr.success else None
-                    ),
+                    "ocr_confidence": (ocr.confidence if ocr and ocr.success else None),
                 },
                 "elapsed_ms": 0,
-                "occurred_at": datetime.now(timezone.utc).isoformat(),
+                "occurred_at": datetime.now(UTC).isoformat(),
             }
         ).execute()
     except Exception as exc:  # noqa: BLE001
@@ -554,9 +546,7 @@ class ManualBollettaBody(BaseModel):
     "/lead/{slug}/bolletta/manual",
     status_code=status.HTTP_200_OK,
 )
-async def upload_bolletta_manual(
-    slug: str, body: ManualBollettaBody
-) -> dict[str, Any]:
+async def upload_bolletta_manual(slug: str, body: ManualBollettaBody) -> dict[str, Any]:
     """Record manual kWh/€ values, with or without a prior OCR row."""
     sb = get_service_client()
     lead = _load_lead_by_slug(sb, slug)
@@ -580,9 +570,7 @@ async def upload_bolletta_manual(
             ).eq("id", body.upload_id).eq("lead_id", lead["id"]).execute()
         except Exception as exc:  # noqa: BLE001
             log.error("bolletta.manual_patch_failed", err=str(exc))
-            raise HTTPException(
-                status_code=500, detail="Salvataggio non riuscito"
-            ) from exc
+            raise HTTPException(status_code=500, detail="Salvataggio non riuscito") from exc
         upload_id = body.upload_id
         source = "upload_manual"
     else:
@@ -606,15 +594,13 @@ async def upload_bolletta_manual(
             ).execute()
         except Exception as exc:  # noqa: BLE001
             log.error("bolletta.manual_insert_failed", err=str(exc))
-            raise HTTPException(
-                status_code=500, detail="Salvataggio non riuscito"
-            ) from exc
+            raise HTTPException(status_code=500, detail="Salvataggio non riuscito") from exc
         source = "manual_only"
 
     try:
-        sb.table("leads").update(
-            {"bolletta_uploaded_at": datetime.now(timezone.utc).isoformat()}
-        ).eq("id", lead["id"]).execute()
+        sb.table("leads").update({"bolletta_uploaded_at": datetime.now(UTC).isoformat()}).eq(
+            "id", lead["id"]
+        ).execute()
     except Exception as exc:  # noqa: BLE001
         log.warning("bolletta.lead_stamp_failed", err=str(exc))
 
@@ -674,10 +660,7 @@ async def get_savings_compare(slug: str) -> dict[str, Any]:
     sb = get_service_client()
     lead_res = (
         sb.table("leads")
-        .select(
-            "id, tenant_id, pipeline_status, roi_data, "
-            "subjects(type)"
-        )
+        .select("id, tenant_id, pipeline_status, roi_data, subjects(type)")
         .eq("public_slug", slug)
         .limit(1)
         .execute()
@@ -709,7 +692,7 @@ async def get_savings_compare(slug: str) -> dict[str, Any]:
     if not kwh or not eur:
         return {"available": False, "reason": "bolletta_values_missing"}
 
-    subject_type = ((lead.get("subjects") or {}).get("type") or "unknown")
+    subject_type = (lead.get("subjects") or {}).get("type") or "unknown"
     result = compute_savings_compare(
         roi_data=lead.get("roi_data"),
         bolletta_kwh_yearly=float(kwh),
@@ -753,25 +736,27 @@ async def get_savings_compare(slug: str) -> dict[str, Any]:
 
 # Closed set — any new event kind requires a coordinated change in
 # engagement_service.py (score formula) and the lead-portal client.
-_ALLOWED_EVENT_KINDS: frozenset[str] = frozenset({
-    "portal.view",
-    "portal.scroll_50",
-    "portal.scroll_90",
-    "portal.roi_viewed",
-    "portal.cta_hover",
-    "portal.whatsapp_click",
-    "portal.appointment_click",
-    "portal.video_play",
-    "portal.video_complete",
-    "portal.heartbeat",
-    "portal.leave",
-    # Sprint 8 — high-intent portal interactions surfaced by the
-    # editorial redesign + bolletta upload + email reply CTA.
-    "portal.audio_on",          # user un-muted the hero video (intent signal)
-    "portal.video_fullscreen",  # entered fullscreen on hero video
-    "portal.email_reply_click", # clicked the secondary "Rispondi via email" CTA
-    "portal.bolletta_uploaded", # uploaded a bill (B-tier signal — score +50)
-})
+_ALLOWED_EVENT_KINDS: frozenset[str] = frozenset(
+    {
+        "portal.view",
+        "portal.scroll_50",
+        "portal.scroll_90",
+        "portal.roi_viewed",
+        "portal.cta_hover",
+        "portal.whatsapp_click",
+        "portal.appointment_click",
+        "portal.video_play",
+        "portal.video_complete",
+        "portal.heartbeat",
+        "portal.leave",
+        # Sprint 8 — high-intent portal interactions surfaced by the
+        # editorial redesign + bolletta upload + email reply CTA.
+        "portal.audio_on",  # user un-muted the hero video (intent signal)
+        "portal.video_fullscreen",  # entered fullscreen on hero video
+        "portal.email_reply_click",  # clicked the secondary "Rispondi via email" CTA
+        "portal.bolletta_uploaded",  # uploaded a bill (B-tier signal — score +50)
+    }
+)
 
 # Cap per (session, slug) per minute. 60 is generous for a human
 # (one heartbeat every 15s + a handful of scrolls = ~10/min) and
@@ -897,7 +882,7 @@ async def portal_track(event: PortalTrackEvent) -> Response:
                 "event_kind": event.event_kind,
                 "metadata": event.metadata,
                 "elapsed_ms": event.elapsed_ms,
-                "occurred_at": datetime.now(timezone.utc).isoformat(),
+                "occurred_at": datetime.now(UTC).isoformat(),
             }
         ).execute()
     except Exception as exc:  # noqa: BLE001
@@ -945,11 +930,8 @@ async def _beacon_rate_allows(session_id: str, slug: str) -> bool:
     """
     try:
         r = get_redis()
-        now = datetime.now(timezone.utc)
-        key = (
-            f"beacon:portal:{slug}:{session_id}:"
-            f"{now.strftime('%Y%m%d%H%M')}"
-        )
+        now = datetime.now(UTC)
+        key = f"beacon:portal:{slug}:{session_id}:{now.strftime('%Y%m%d%H%M')}"
         pipe = r.pipeline()
         pipe.incr(key, 1)
         pipe.expire(key, _BEACON_KEY_TTL)
@@ -983,13 +965,52 @@ async def _beacon_rate_allows(session_id: str, slug: str) -> bool:
 # (one row per lead × stage) and the table's partitioned indexes.
 
 # 1×1 transparent GIF (42 bytes) — pre-computed, no Pillow dependency.
-_PIXEL_GIF: bytes = bytes([
-    0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x01, 0x00, 0x01, 0x00,
-    0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x21,
-    0xF9, 0x04, 0x01, 0x00, 0x00, 0x00, 0x00, 0x2C, 0x00, 0x00,
-    0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x02, 0x01, 0x44,
-    0x00, 0x3B,
-])
+_PIXEL_GIF: bytes = bytes(
+    [
+        0x47,
+        0x49,
+        0x46,
+        0x38,
+        0x39,
+        0x61,
+        0x01,
+        0x00,
+        0x01,
+        0x00,
+        0x80,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0xFF,
+        0xFF,
+        0xFF,
+        0x21,
+        0xF9,
+        0x04,
+        0x01,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x2C,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+        0x01,
+        0x00,
+        0x01,
+        0x00,
+        0x00,
+        0x02,
+        0x01,
+        0x44,
+        0x00,
+        0x3B,
+    ]
+)
 
 _PIXEL_RESPONSE_HEADERS = {
     "Cache-Control": "no-cache, no-store, must-revalidate",
@@ -1032,9 +1053,7 @@ class ConversionBody(BaseModel):
 
 
 @router.post("/lead/{slug}/conversion", status_code=status.HTTP_202_ACCEPTED)
-async def record_conversion(
-    slug: str, body: ConversionBody
-) -> dict[str, object]:
+async def record_conversion(slug: str, body: ConversionBody) -> dict[str, object]:
     """Record / update a conversion stage from a CRM webhook or Zapier.
 
     Unlike the pixel endpoint, this endpoint **upserts** — a second
@@ -1072,7 +1091,7 @@ async def _upsert_conversion(
     if lead is None:
         return False
 
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_iso = datetime.now(UTC).isoformat()
     row: dict[str, Any] = {
         "tenant_id": lead["tenant_id"],
         "lead_id": lead["id"],
@@ -1085,9 +1104,7 @@ async def _upsert_conversion(
 
     try:
         if full_upsert:
-            sb.table("conversions").upsert(
-                row, on_conflict="lead_id,stage"
-            ).execute()
+            sb.table("conversions").upsert(row, on_conflict="lead_id,stage").execute()
         else:
             sb.table("conversions").insert(  # type: ignore[call-arg]
                 row, ignore_duplicates=True
@@ -1105,16 +1122,16 @@ async def _upsert_conversion(
     current_status = lead.get("pipeline_status", "")
     if stage == "won" and current_status != "closed_won":
         try:
-            sb.table("leads").update(
-                {"pipeline_status": "closed_won"}
-            ).eq("id", lead["id"]).execute()
+            sb.table("leads").update({"pipeline_status": "closed_won"}).eq(
+                "id", lead["id"]
+            ).execute()
         except Exception as exc:  # noqa: BLE001
             log.warning("conversion.status_advance_failed", err=str(exc))
     elif stage == "lost" and current_status not in {"closed_won", "closed_lost"}:
         try:
-            sb.table("leads").update(
-                {"pipeline_status": "closed_lost"}
-            ).eq("id", lead["id"]).execute()
+            sb.table("leads").update({"pipeline_status": "closed_lost"}).eq(
+                "id", lead["id"]
+            ).execute()
         except Exception as exc:  # noqa: BLE001
             log.warning("conversion.status_advance_failed", err=str(exc))
 
@@ -1151,10 +1168,7 @@ async def optout(slug: str) -> dict[str, object]:
     sb = get_service_client()
     lead = (
         sb.table("leads")
-        .select(
-            "id, tenant_id, subject_id, pipeline_status, "
-            "subjects(pii_hash)"
-        )
+        .select("id, tenant_id, subject_id, pipeline_status, subjects(pii_hash)")
         .eq("public_slug", slug)
         .limit(1)
         .execute()
@@ -1166,9 +1180,9 @@ async def optout(slug: str) -> dict[str, object]:
 
     already = row.get("pipeline_status") == LeadStatus.BLACKLISTED.value
     if not already:
-        sb.table("leads").update(
-            {"pipeline_status": LeadStatus.BLACKLISTED.value}
-        ).eq("id", row["id"]).execute()
+        sb.table("leads").update({"pipeline_status": LeadStatus.BLACKLISTED.value}).eq(
+            "id", row["id"]
+        ).execute()
 
     if pii_hash:
         await enqueue(
@@ -1211,8 +1225,7 @@ def _load_lead_by_slug(sb: Any, slug: str) -> dict[str, Any] | None:
     res = (
         sb.table("leads")
         .select(
-            "id, tenant_id, pipeline_status, dashboard_visited_at, "
-            "whatsapp_initiated_at, source"
+            "id, tenant_id, pipeline_status, dashboard_visited_at, whatsapp_initiated_at, source"
         )
         .eq("public_slug", slug)
         .limit(1)
@@ -1255,11 +1268,17 @@ async def _recompute_roi_after_bolletta(
 
     # Pull the lead row + roof + tenant cost_assumptions in a single
     # round-trip via embedded select.
-    res = sb.table("leads").select(
-        "id, subject_id, roof_id, "
-        "subjects(type), "
-        "roofs(id, estimated_kwp, estimated_yearly_kwh, area_sqm)"
-    ).eq("id", lead_id).limit(1).execute()
+    res = (
+        sb.table("leads")
+        .select(
+            "id, subject_id, roof_id, "
+            "subjects(type), "
+            "roofs(id, estimated_kwp, estimated_yearly_kwh, area_sqm)"
+        )
+        .eq("id", lead_id)
+        .limit(1)
+        .execute()
+    )
     rows = res.data or []
     if not rows:
         log.info(
@@ -1282,24 +1301,16 @@ async def _recompute_roi_after_bolletta(
     # self_consumption_ratio to reflect the customer's real
     # consumption-vs-production split.
     tenant_res = (
-        sb.table("tenants")
-        .select("cost_assumptions")
-        .eq("id", tenant_id)
-        .limit(1)
-        .execute()
+        sb.table("tenants").select("cost_assumptions").eq("id", tenant_id).limit(1).execute()
     )
-    tenant_cost = (
-        (tenant_res.data or [{}])[0].get("cost_assumptions") or {}
-    )
+    tenant_cost = (tenant_res.data or [{}])[0].get("cost_assumptions") or {}
 
     # Real self-consumption ratio: clip(consumption / production, 0, 1).
     # If consumption exceeds production the ratio is 1 (every kWh
     # produced gets self-consumed); the surplus is bought from grid.
     yearly_production = roof.get("estimated_yearly_kwh") or 0.0
     if yearly_production > 0:
-        real_ratio = min(
-            1.0, float(consumption_kwh_yearly) / float(yearly_production)
-        )
+        real_ratio = min(1.0, float(consumption_kwh_yearly) / float(yearly_production))
     else:
         real_ratio = 0.6  # fallback to default if production unknown
 
@@ -1330,28 +1341,20 @@ async def _recompute_roi_after_bolletta(
 
     # Annotate the snapshot so the dashboard can show "valori
     # ricalcolati su bolletta del cliente" provenance.
-    derivations["assumptions_resolved"] = derivations.get(
-        "assumptions_resolved", {}
-    )
+    derivations["assumptions_resolved"] = derivations.get("assumptions_resolved", {})
     derivations["assumptions_resolved"]["consumption_source"] = "bolletta_ocr"
-    derivations["assumptions_resolved"]["consumption_kwh_yearly"] = (
-        float(consumption_kwh_yearly)
-    )
+    derivations["assumptions_resolved"]["consumption_kwh_yearly"] = float(consumption_kwh_yearly)
     if consumption_eur_yearly is not None:
-        derivations["assumptions_resolved"]["consumption_eur_yearly"] = (
-            float(consumption_eur_yearly)
+        derivations["assumptions_resolved"]["consumption_eur_yearly"] = float(
+            consumption_eur_yearly
         )
-    derivations["assumptions_resolved"][
-        "consumption_source_upload_id"
-    ] = bolletta_upload_id
+    derivations["assumptions_resolved"]["consumption_source_upload_id"] = bolletta_upload_id
 
     # Persist on roof + lead. Keep both in sync so legacy readers
     # (still on roi_data) and new readers (on derivations) see the
     # same fresh numbers.
     try:
-        sb.table("roofs").update({"derivations": derivations}).eq(
-            "id", roof["id"]
-        ).execute()
+        sb.table("roofs").update({"derivations": derivations}).eq("id", roof["id"]).execute()
         # leads.roi_data is the lite-shape (compute_roi.to_jsonb), so
         # we keep a subset of derivations matching that schema. The
         # `_jsonb_subset_for_roi_data` filter strips the sizing/monthly
@@ -1377,9 +1380,7 @@ async def _recompute_roi_after_bolletta(
             )
             if k in derivations
         }
-        sb.table("leads").update({"roi_data": roi_data_subset}).eq(
-            "id", lead_id
-        ).execute()
+        sb.table("leads").update({"roi_data": roi_data_subset}).eq("id", lead_id).execute()
         log.info(
             "bolletta.roi_recomputed",
             lead_id=lead_id,
@@ -1451,9 +1452,7 @@ def _emit_public_event(
         except RuntimeError:
             # No running event loop (unlikely on a FastAPI route, but
             # defensive). Skip the notification rather than crash.
-            log.warning(
-                "public.operator_notify_no_loop", event_type=event_type
-            )
+            log.warning("public.operator_notify_no_loop", event_type=event_type)
         except Exception as exc:  # noqa: BLE001
             log.warning(
                 "public.operator_notify_schedule_failed",

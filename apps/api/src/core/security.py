@@ -19,9 +19,9 @@ from typing import Annotated
 
 import certifi
 import jwt
-from jwt import PyJWKClient
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from jwt import PyJWKClient
 from pydantic import BaseModel
 
 from .config import settings

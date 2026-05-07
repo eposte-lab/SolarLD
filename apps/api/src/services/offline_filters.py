@@ -58,7 +58,7 @@ provenance — bad both for fairness and for our success rate.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any
 
 from .consumption_estimator import (
     MIN_QUALIFYING_KWP,
@@ -66,6 +66,8 @@ from .consumption_estimator import (
     stima_potenza_FV,
 )
 
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 # ---------------------------------------------------------------------------
 # Result type
@@ -76,8 +78,8 @@ from .consumption_estimator import (
 class FilterResult:
     """Returned by a sub-filter when the candidate is rejected."""
 
-    rule: str                   # short stable label, used as DB key
-    reason: str                 # human-friendly explanation
+    rule: str  # short stable label, used as DB key
+    reason: str  # human-friendly explanation
     rule_threshold: dict[str, Any]
     candidate_value: dict[str, Any]
 
@@ -168,8 +170,7 @@ def filter_proprieta(azienda: dict[str, Any]) -> FilterResult | None:
             return FilterResult(
                 rule="building_not_owned",
                 reason=(
-                    "Atoka flagged property as not owned — install "
-                    "decision sits with landlord."
+                    "Atoka flagged property as not owned — install decision sits with landlord."
                 ),
                 rule_threshold={"required": "proprieta_immobile_sede=true"},
                 candidate_value={"proprieta_immobile_sede": False},
@@ -310,36 +311,28 @@ def filter_sede_operativa(
     allowed_provinces = {
         p.upper() for p in (territory.get("provinces") or []) if isinstance(p, str)
     }
-    allowed_caps = {
-        c.strip() for c in (territory.get("caps") or []) if isinstance(c, str)
-    }
+    allowed_caps = {c.strip() for c in (territory.get("caps") or []) if isinstance(c, str)}
 
     if not allowed_provinces and not allowed_caps:
         return None  # no restriction
 
-    op_province = (azienda.get("sede_operativa_province") or azienda.get("hq_province"))
+    op_province = azienda.get("sede_operativa_province") or azienda.get("hq_province")
     op_cap = azienda.get("sede_operativa_cap") or azienda.get("hq_cap")
 
     if op_province is None and op_cap is None:
         return None  # missing data — permissive
 
-    province_ok = (
-        not allowed_provinces
-        or (isinstance(op_province, str) and op_province.upper() in allowed_provinces)
+    province_ok = not allowed_provinces or (
+        isinstance(op_province, str) and op_province.upper() in allowed_provinces
     )
-    cap_ok = (
-        not allowed_caps
-        or (isinstance(op_cap, str) and op_cap.strip() in allowed_caps)
-    )
+    cap_ok = not allowed_caps or (isinstance(op_cap, str) and op_cap.strip() in allowed_caps)
 
     if province_ok and cap_ok:
         return None
 
     return FilterResult(
         rule="sede_operativa_out_of_territory",
-        reason=(
-            "Operational site sits outside the tenant's contracted territory."
-        ),
+        reason=("Operational site sits outside the tenant's contracted territory."),
         rule_threshold={
             "allowed_provinces": sorted(allowed_provinces),
             "allowed_caps": sorted(allowed_caps),
@@ -380,9 +373,7 @@ def filter_anti_uffici(azienda: dict[str, Any]) -> FilterResult | None:
         return None
 
     # Building explicitly owned → not multi-tenant, let it through.
-    ownership = (
-        azienda.get("building_ownership") or azienda.get("proprieta_immobile")
-    )
+    ownership = azienda.get("building_ownership") or azienda.get("proprieta_immobile")
     if isinstance(ownership, str) and ownership.strip().lower() in {
         "proprio",
         "owned",
@@ -422,10 +413,10 @@ def filter_anti_uffici(azienda: dict[str, Any]) -> FilterResult | None:
 # callables.
 _PURE_FILTERS: list[tuple[str, Callable[[dict[str, Any]], FilterResult | None]]] = [
     ("affidabilita", filter_affidabilita),
-    ("trend",        filter_trend),
-    ("proprieta",    filter_proprieta),
-    ("anti_uffici",  filter_anti_uffici),
-    ("consumi",      filter_consumi),
+    ("trend", filter_trend),
+    ("proprieta", filter_proprieta),
+    ("anti_uffici", filter_anti_uffici),
+    ("consumi", filter_consumi),
 ]
 
 

@@ -75,9 +75,7 @@ _WEBSITE_FETCH_TIMEOUT_S = 4.0
 _WEBSITE_MAX_BYTES = 64 * 1024
 
 
-async def run_level2(
-    ctx: FunnelContext, candidates: list[L1Candidate]
-) -> list[EnrichedCandidate]:
+async def run_level2(ctx: FunnelContext, candidates: list[L1Candidate]) -> list[EnrichedCandidate]:
     """Enrich L1 candidates in parallel, persist, return L2 set.
 
     Ordering is preserved — L3 doesn't care about order but tests do.
@@ -111,10 +109,7 @@ async def run_level2(
         follow_redirects=True,
         headers={
             # Some Italian SME sites 403 requests without a common UA.
-            "User-Agent": (
-                "Mozilla/5.0 (compatible; SolarLeadBot/1.0; "
-                "+https://solarlead.it/bot)"
-            )
+            "User-Agent": ("Mozilla/5.0 (compatible; SolarLeadBot/1.0; +https://solarlead.it/bot)")
         },
     ) as client:
 
@@ -125,9 +120,7 @@ async def run_level2(
                     sector_cache=sector_keywords_cache,
                     tenant_fallback=tenant_fallback_keywords,
                 )
-                signals = await _enrich_candidate(
-                    cand, client=client, keywords=keywords
-                )
+                signals = await _enrich_candidate(cand, client=client, keywords=keywords)
             return EnrichedCandidate(
                 candidate_id=cand.candidate_id,
                 profile=cand.profile,
@@ -151,9 +144,7 @@ async def run_level2(
             "scan_id": ctx.scan_id,
             "enriched": len(enriched),
             "with_website": sum(1 for e in enriched if e.enrichment.website),
-            "with_site_signals": sum(
-                1 for e in enriched if e.enrichment.site_signals
-            ),
+            "with_site_signals": sum(1 for e in enriched if e.enrichment.site_signals),
         },
     )
     return enriched
@@ -189,7 +180,7 @@ async def _enrich_candidate(
             signals.site_signals = await _scan_website(
                 signals.website, client=client, keywords=keywords
             )
-        except (httpx.HTTPError, asyncio.TimeoutError, UnicodeDecodeError) as exc:
+        except (TimeoutError, httpx.HTTPError, UnicodeDecodeError) as exc:
             log.debug(
                 "l2_site_fetch_failed",
                 extra={"vat": profile.vat_number, "err": str(exc)},
@@ -281,6 +272,7 @@ def _extract_phone_from_raw(raw: dict[str, Any]) -> str | None:
     share one code path.
     """
     from ...services.italian_business_service import _extract_phone  # local import to avoid cycle
+
     return _extract_phone(raw)
 
 

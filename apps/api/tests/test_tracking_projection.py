@@ -8,8 +8,6 @@ exercise those heavily here.
 
 from __future__ import annotations
 
-import pytest
-
 from src.agents.tracking import (
     project_pixart_campaign_update,
     project_pixart_lead_update,
@@ -17,7 +15,6 @@ from src.agents.tracking import (
     project_resend_lead_update,
 )
 from src.models.enums import CampaignStatus, LeadStatus
-
 
 # ---------------------------------------------------------------------------
 # Lead-row projection

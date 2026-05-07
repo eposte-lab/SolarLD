@@ -18,7 +18,7 @@ scraping legality. We pay; they deliver. ToS-compliant.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -30,16 +30,12 @@ log = get_logger(__name__)
 
 
 # Proxycurl endpoints (https://nubela.co/proxycurl/docs).
-PROXYCURL_COMPANY_URL = (
-    "https://nubela.co/proxycurl/api/linkedin/company/resolve/"
-)
-PROXYCURL_PERSON_URL = (
-    "https://nubela.co/proxycurl/api/linkedin/profile/resolve/"
-)
+PROXYCURL_COMPANY_URL = "https://nubela.co/proxycurl/api/linkedin/company/resolve/"
+PROXYCURL_PERSON_URL = "https://nubela.co/proxycurl/api/linkedin/profile/resolve/"
 
 # Per-call costs in cents.
-PROXYCURL_COMPANY_CENTS = 1   # ~$0.005
-PROXYCURL_PERSON_CENTS = 1    # ~$0.01
+PROXYCURL_COMPANY_CENTS = 1  # ~$0.005
+PROXYCURL_PERSON_CENTS = 1  # ~$0.01
 
 # Cache TTL: data drifts (employees, founder titles).
 CACHE_TTL_DAYS = 60
@@ -68,7 +64,7 @@ def _is_cache_fresh(cached_at: str | None) -> bool:
         ts = datetime.fromisoformat(cached_at.replace("Z", "+00:00"))
     except (TypeError, ValueError):
         return False
-    return datetime.now(timezone.utc) - ts < timedelta(days=CACHE_TTL_DAYS)
+    return datetime.now(UTC) - ts < timedelta(days=CACHE_TTL_DAYS)
 
 
 def _parse_company(payload: dict[str, Any]) -> LinkedInCompany:
@@ -85,15 +81,18 @@ def _parse_company(payload: dict[str, Any]) -> LinkedInCompany:
         employee_count_range=payload.get("company_size_on_linkedin")
         or (
             f"{payload['company_size'][0]}-{payload['company_size'][1]}"
-            if isinstance(payload.get("company_size"), list)
-            and len(payload["company_size"]) == 2
+            if isinstance(payload.get("company_size"), list) and len(payload["company_size"]) == 2
             else None
         ),
         employee_count=payload.get("company_size_on_linkedin"),
         industry=payload.get("industry"),
         founded_year=payload.get("founded_year"),
-        hq_country=(payload.get("hq") or {}).get("country") if isinstance(payload.get("hq"), dict) else None,
-        hq_city=(payload.get("hq") or {}).get("city") if isinstance(payload.get("hq"), dict) else None,
+        hq_country=(payload.get("hq") or {}).get("country")
+        if isinstance(payload.get("hq"), dict)
+        else None,
+        hq_city=(payload.get("hq") or {}).get("city")
+        if isinstance(payload.get("hq"), dict)
+        else None,
         website=payload.get("website"),
         raw=payload,
     )
@@ -136,9 +135,7 @@ async def lookup_company(
         client = httpx.AsyncClient(timeout=15.0)
     try:
         try:
-            resp = await client.get(
-                PROXYCURL_COMPANY_URL, params=params, headers=headers
-            )
+            resp = await client.get(PROXYCURL_COMPANY_URL, params=params, headers=headers)
         except (httpx.HTTPError, httpx.TimeoutException) as exc:
             log.warning(
                 "linkedin_proxycurl.network_error",
@@ -212,7 +209,7 @@ async def lookup_company_cached(
                 "linkedin_data": {
                     "found": found.found,
                     "raw": found.raw or {},
-                    "cached_at": datetime.now(timezone.utc).isoformat(),
+                    "cached_at": datetime.now(UTC).isoformat(),
                 }
             }
         ).eq("id", subject_id).execute()

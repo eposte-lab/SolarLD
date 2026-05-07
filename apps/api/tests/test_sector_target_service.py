@@ -13,7 +13,6 @@ import pytest
 
 from src.services import sector_target_service as sts
 
-
 # ---------------------------------------------------------------------------
 # Fake Supabase
 # ---------------------------------------------------------------------------
@@ -23,12 +22,13 @@ class _FakeSelect:
     def __init__(self, rows: list[dict[str, Any]]) -> None:
         self._rows = rows
 
-    def select(self, _columns: str) -> "_FakeSelect":
+    def select(self, _columns: str) -> _FakeSelect:
         return self
 
     def execute(self) -> Any:
         class _Res:
             data = self._rows
+
         return _Res()
 
 
@@ -113,7 +113,7 @@ def _reset_cache():
     sts._reset_cache_for_tests()
 
 
-@pytest.fixture()
+@pytest.fixture
 def fake_sb():
     return _FakeSupabase(_seed_rows())
 
@@ -125,9 +125,7 @@ def fake_sb():
 
 @pytest.mark.asyncio
 async def test_get_sector_config_merges_two_atecos_of_same_group(fake_sb):
-    mapping = await sts.get_sector_config_by_wizard_group(
-        fake_sb, wizard_group="industry_heavy"
-    )
+    mapping = await sts.get_sector_config_by_wizard_group(fake_sb, wizard_group="industry_heavy")
     assert mapping is not None
     assert mapping.wizard_group == "industry_heavy"
     # ATECO codes preserved in seed order, deduped
@@ -145,16 +143,14 @@ async def test_get_sector_config_merges_two_atecos_of_same_group(fake_sb):
 
 @pytest.mark.asyncio
 async def test_get_sector_config_unknown_returns_none(fake_sb):
-    assert await sts.get_sector_config_by_wizard_group(
-        fake_sb, wizard_group="does_not_exist"
-    ) is None
+    assert (
+        await sts.get_sector_config_by_wizard_group(fake_sb, wizard_group="does_not_exist") is None
+    )
 
 
 @pytest.mark.asyncio
 async def test_osm_hints_parsed(fake_sb):
-    mapping = await sts.get_sector_config_by_wizard_group(
-        fake_sb, wizard_group="logistics"
-    )
+    mapping = await sts.get_sector_config_by_wizard_group(fake_sb, wizard_group="logistics")
     assert mapping is not None
     assert len(mapping.osm_landuse_hints) == 1
     hint = mapping.osm_landuse_hints[0]
@@ -163,8 +159,7 @@ async def test_osm_hints_parsed(fake_sb):
     assert hint.weight == 1.0
     # Additional tag uses 'building' key
     assert any(
-        h.tag_key == "building" and h.tag_value == "warehouse"
-        for h in mapping.osm_additional_tags
+        h.tag_key == "building" and h.tag_value == "warehouse" for h in mapping.osm_additional_tags
     )
 
 
@@ -175,9 +170,7 @@ async def test_osm_hints_parsed(fake_sb):
 
 @pytest.mark.asyncio
 async def test_derive_whitelist_unions_groups(fake_sb):
-    wl = await sts.derive_ateco_whitelist(
-        fake_sb, wizard_groups=["industry_heavy", "logistics"]
-    )
+    wl = await sts.derive_ateco_whitelist(fake_sb, wizard_groups=["industry_heavy", "logistics"])
     assert set(wl) == {"25.11", "24.10", "52.10"}
 
 
@@ -269,12 +262,15 @@ async def test_predict_no_match_returns_none(fake_sb):
 
 @pytest.mark.asyncio
 async def test_predict_empty_enabled_groups_returns_none(fake_sb):
-    assert await sts.predict_sector_for_candidate(
-        fake_sb,
-        ateco_code="25.11",
-        business_name="X",
-        enabled_wizard_groups=[],
-    ) is None
+    assert (
+        await sts.predict_sector_for_candidate(
+            fake_sb,
+            ateco_code="25.11",
+            business_name="X",
+            enabled_wizard_groups=[],
+        )
+        is None
+    )
 
 
 # ---------------------------------------------------------------------------

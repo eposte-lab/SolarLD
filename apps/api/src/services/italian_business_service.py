@@ -98,7 +98,7 @@ async def visura_lookup_by_coords(
         raise EnrichmentUnavailable(f"visura_http_{resp.status_code}")
 
     data = resp.json()
-    owner = (data.get("intestatario") or {})
+    owner = data.get("intestatario") or {}
     is_company = bool(owner.get("partita_iva"))
 
     return VisuraOwner(
@@ -209,11 +209,11 @@ async def atoka_lookup_by_vat(
     company = items[0]
 
     financials = company.get("financials") or {}
-    revenue_eur = financials.get("revenue")
-    ateco = (company.get("ateco") or [{}])[0] if company.get("ateco") else {}
+    financials.get("revenue")
+    (company.get("ateco") or [{}])[0] if company.get("ateco") else {}
     contacts = company.get("decisionMakers") or []
-    primary_contact = contacts[0] if contacts else {}
-    web = (company.get("web") or [{}])[0] if company.get("web") else {}
+    contacts[0] if contacts else {}
+    (company.get("web") or [{}])[0] if company.get("web") else {}
 
     return _atoka_company_to_profile(company, fallback_vat=vat_number)
 
@@ -272,6 +272,7 @@ async def atoka_search_by_criteria(
         if not ateco_codes:
             raise ValueError("ateco_codes cannot be empty — would return entire Italian market")
         from .atoka_mock import generate_mock_atoka_profiles  # lazy import
+
         mock_province = province_code or (region_code[:2].upper() if region_code else "NA")
         mock_count = min(limit, settings.atoka_mock_count)
         log.info(
@@ -426,9 +427,7 @@ def _extract_phone(company: dict[str, Any]) -> str | None:
     return None
 
 
-def _atoka_company_to_profile(
-    company: dict[str, Any], *, fallback_vat: str
-) -> AtokaProfile:
+def _atoka_company_to_profile(company: dict[str, Any], *, fallback_vat: str) -> AtokaProfile:
     """Parse one Atoka company payload into our normalized AtokaProfile.
 
     Robust to field naming drift between Atoka's docs and actual responses:
@@ -437,11 +436,7 @@ def _atoka_company_to_profile(
     the caller already knows the VAT (e.g. single-lookup path).
     """
     financials = company.get("financials") or {}
-    revenue_eur = (
-        financials.get("revenue")
-        or company.get("revenue")
-        or company.get("revenues")
-    )
+    revenue_eur = financials.get("revenue") or company.get("revenue") or company.get("revenues")
     ateco_list = company.get("ateco") or []
     ateco = ateco_list[0] if ateco_list else {}
     contacts = company.get("decisionMakers") or []

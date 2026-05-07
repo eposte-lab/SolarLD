@@ -75,9 +75,9 @@ async def launch_outreach_for_list(
     """
     sb = get_service_client()
 
-    sb.table("prospect_lists").update(
-        {"outreach_started_at": datetime.utcnow().isoformat()}
-    ).eq("id", list_id).eq("tenant_id", tenant_id).execute()
+    sb.table("prospect_lists").update({"outreach_started_at": datetime.utcnow().isoformat()}).eq(
+        "id", list_id
+    ).eq("tenant_id", tenant_id).execute()
 
     # Load list metadata: campaign_type + email_template_id.
     list_res = (
@@ -197,9 +197,9 @@ async def launch_outreach_for_list(
                 err=type(exc).__name__,
             )
 
-    sb.table("prospect_lists").update(
-        {"outreach_completed_at": datetime.utcnow().isoformat()}
-    ).eq("id", list_id).execute()
+    sb.table("prospect_lists").update({"outreach_completed_at": datetime.utcnow().isoformat()}).eq(
+        "id", list_id
+    ).execute()
 
     log.info(
         "prospect_outreach.done",

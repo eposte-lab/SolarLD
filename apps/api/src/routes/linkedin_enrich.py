@@ -16,8 +16,6 @@ expensive Proxycurl call.
 
 from __future__ import annotations
 
-from typing import Any
-
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
@@ -73,9 +71,7 @@ def _to_response(
     )
 
 
-@router.post(
-    "/leads/{lead_id}/enrich/linkedin", response_model=LinkedInEnrichResponse
-)
+@router.post("/leads/{lead_id}/enrich/linkedin", response_model=LinkedInEnrichResponse)
 async def enrich_linkedin(
     ctx: CurrentUser,
     lead_id: str,
@@ -96,8 +92,7 @@ async def enrich_linkedin(
     lead_res = (
         sb.table("leads")
         .select(
-            "id, subject_id, tenant_id, "
-            "subjects:subjects(id, business_name, sede_operativa_city)"
+            "id, subject_id, tenant_id, subjects:subjects(id, business_name, sede_operativa_city)"
         )
         .eq("id", lead_id)
         .maybe_single()
@@ -116,9 +111,7 @@ async def enrich_linkedin(
 
     business_name = subject.get("business_name") or ""
     if not business_name:
-        raise HTTPException(
-            status_code=400, detail="subject has no business_name to resolve"
-        )
+        raise HTTPException(status_code=400, detail="subject has no business_name to resolve")
 
     # Best-effort domain extraction from website to make Proxycurl precise.
     website = (lead.get("subjects") or {}).get("website")

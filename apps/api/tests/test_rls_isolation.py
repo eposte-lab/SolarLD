@@ -35,13 +35,17 @@ test verifies the application code *passes the right arguments*.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any
 
-import pytest
 from fastapi.testclient import TestClient
 
 from src.core.security import AuthContext, get_current_user
 from src.main import app
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    import pytest
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -91,7 +95,7 @@ class _FilterChain:
     real tenant-scoped filtering.
     """
 
-    def __init__(self, sb: "_FilterFakeSupabase", table: str) -> None:
+    def __init__(self, sb: _FilterFakeSupabase, table: str) -> None:
         self._sb = sb
         self._table = table
         self._op: str = "select"
@@ -100,58 +104,58 @@ class _FilterChain:
 
     # --- terminal ops ---
 
-    def select(self, *_a: Any, **_k: Any) -> "_FilterChain":
+    def select(self, *_a: Any, **_k: Any) -> _FilterChain:
         self._op = "select"
         return self
 
-    def insert(self, row: dict[str, Any]) -> "_FilterChain":
+    def insert(self, row: dict[str, Any]) -> _FilterChain:
         self._op = "insert"
         self._payload = row
         return self
 
-    def update(self, row: dict[str, Any]) -> "_FilterChain":
+    def update(self, row: dict[str, Any]) -> _FilterChain:
         self._op = "update"
         self._payload = row
         return self
 
-    def delete(self) -> "_FilterChain":
+    def delete(self) -> _FilterChain:
         self._op = "delete"
         return self
 
     # --- filters — eq is tracked, rest are no-ops ---
 
-    def eq(self, field: str, value: Any, *_a: Any, **_k: Any) -> "_FilterChain":
+    def eq(self, field: str, value: Any, *_a: Any, **_k: Any) -> _FilterChain:
         self.filters[field] = value
         return self
 
-    def neq(self, *_a: Any, **_k: Any) -> "_FilterChain":
+    def neq(self, *_a: Any, **_k: Any) -> _FilterChain:
         return self
 
-    def in_(self, *_a: Any, **_k: Any) -> "_FilterChain":
+    def in_(self, *_a: Any, **_k: Any) -> _FilterChain:
         return self
 
-    def is_(self, *_a: Any, **_k: Any) -> "_FilterChain":
+    def is_(self, *_a: Any, **_k: Any) -> _FilterChain:
         return self
 
-    def or_(self, *_a: Any, **_k: Any) -> "_FilterChain":
+    def or_(self, *_a: Any, **_k: Any) -> _FilterChain:
         return self
 
-    def gte(self, *_a: Any, **_k: Any) -> "_FilterChain":
+    def gte(self, *_a: Any, **_k: Any) -> _FilterChain:
         return self
 
-    def lte(self, *_a: Any, **_k: Any) -> "_FilterChain":
+    def lte(self, *_a: Any, **_k: Any) -> _FilterChain:
         return self
 
-    def order(self, *_a: Any, **_k: Any) -> "_FilterChain":
+    def order(self, *_a: Any, **_k: Any) -> _FilterChain:
         return self
 
-    def limit(self, *_a: Any, **_k: Any) -> "_FilterChain":
+    def limit(self, *_a: Any, **_k: Any) -> _FilterChain:
         return self
 
-    def range(self, *_a: Any, **_k: Any) -> "_FilterChain":
+    def range(self, *_a: Any, **_k: Any) -> _FilterChain:
         return self
 
-    def maybe_single(self, *_a: Any, **_k: Any) -> "_FilterChain":
+    def maybe_single(self, *_a: Any, **_k: Any) -> _FilterChain:
         return self
 
     def execute(self) -> _FakeResult:
@@ -188,9 +192,7 @@ class _FilterFakeSupabase:
             return _FakeResult(data=[dict(chain._payload)])
         if chain._op == "update":
             assert chain._payload is not None
-            self.updates.append(
-                (chain._table, dict(chain._payload), dict(chain.filters))
-            )
+            self.updates.append((chain._table, dict(chain._payload), dict(chain.filters)))
             # Simulate: update returns the row only when both id AND tenant_id match.
             fn = self.selects.get(chain._table)
             if fn is not None:
@@ -286,8 +288,7 @@ async def test_list_leads_tenant_isolation(monkeypatch: pytest.MonkeyPatch) -> N
         assert r_b.status_code == 200
         body_b = r_b.json()
         assert body_b["pagination"]["total"] == 0, (
-            "Tenant-B must not see Tenant-A's leads — application-level "
-            "tenant isolation failed"
+            "Tenant-B must not see Tenant-A's leads — application-level tenant isolation failed"
         )
         assert body_b["data"] == []
     finally:
@@ -337,8 +338,7 @@ async def test_get_lead_cross_tenant_returns_404(
                 headers={"Authorization": "Bearer dummy-b"},
             )
         assert r_b.status_code == 404, (
-            f"Expected 404 for cross-tenant lead access, got {r_b.status_code}: "
-            f"{r_b.text}"
+            f"Expected 404 for cross-tenant lead access, got {r_b.status_code}: {r_b.text}"
         )
     finally:
         app.dependency_overrides.clear()
@@ -386,9 +386,8 @@ async def test_delete_lead_cross_tenant_returns_404(
             f"Expected 404 for cross-tenant delete, got {r.status_code}: {r.text}"
         )
         # The fake DB must not have received a delete for tenant-A's lead
-        assert not any(
-            filters.get("id") == lead_id
-            for (_, filters) in fake_sb.deletes
-        ), "Cross-tenant delete reached the DB layer — isolation bypassed"
+        assert not any(filters.get("id") == lead_id for (_, filters) in fake_sb.deletes), (
+            "Cross-tenant delete reached the DB layer — isolation bypassed"
+        )
     finally:
         app.dependency_overrides.clear()

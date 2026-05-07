@@ -58,15 +58,9 @@ def _appointment_template(
     if contact_name:
         rows.append(f"<strong>Persona:</strong> {contact_name}")
     if contact_phone:
-        rows.append(
-            f"<strong>Telefono:</strong> "
-            f'<a href="tel:{contact_phone}">{contact_phone}</a>'
-        )
+        rows.append(f'<strong>Telefono:</strong> <a href="tel:{contact_phone}">{contact_phone}</a>')
     if contact_email:
-        rows.append(
-            f"<strong>Email:</strong> "
-            f'<a href="mailto:{contact_email}">{contact_email}</a>'
-        )
+        rows.append(f'<strong>Email:</strong> <a href="mailto:{contact_email}">{contact_email}</a>')
     if message:
         rows.append(f"<strong>Messaggio:</strong><br>{message}")
     rows_html = "<br>".join(rows)
@@ -80,12 +74,12 @@ def _appointment_template(
         else ""
     )
     html = (
-        f"<div style=\"font-family:Arial,sans-serif;color:#0f172a\">"
-        f"<h2 style=\"margin:0 0 8px\">Richiesta di contatto dal portale</h2>"
-        f"<p style=\"color:#475569;margin:0 0 16px\">"
+        f'<div style="font-family:Arial,sans-serif;color:#0f172a">'
+        f'<h2 style="margin:0 0 8px">Richiesta di contatto dal portale</h2>'
+        f'<p style="color:#475569;margin:0 0 16px">'
         f"È il segnale d'intent più alto della pipeline — "
         f"il prospect ha compilato il form sulla scheda lead.</p>"
-        f"<div style=\"background:#f1f5f9;padding:16px;border-radius:12px\">"
+        f'<div style="background:#f1f5f9;padding:16px;border-radius:12px">'
         f"{rows_html}"
         f"</div>"
         f"{cta_html}"
@@ -124,9 +118,9 @@ def _bolletta_template(
         else ""
     )
     html = (
-        f"<div style=\"font-family:Arial,sans-serif;color:#0f172a\">"
-        f"<h2 style=\"margin:0 0 8px\">Bolletta caricata sul portale</h2>"
-        f"<p style=\"color:#475569;margin:0 0 16px\">"
+        f'<div style="font-family:Arial,sans-serif;color:#0f172a">'
+        f'<h2 style="margin:0 0 8px">Bolletta caricata sul portale</h2>'
+        f'<p style="color:#475569;margin:0 0 16px">'
         f"<strong>{business_name}</strong> ha caricato la bolletta. "
         f"Consumi rilevati: <strong>{metrics_html}</strong>.</p>"
         f"{cta}"
@@ -166,9 +160,7 @@ async def notify_operator(
     sb = get_service_client()
     tenant_res = (
         sb.table("tenants")
-        .select(
-            "id, business_name, contact_email, email_from_domain, email_from_name"
-        )
+        .select("id, business_name, contact_email, email_from_domain, email_from_name")
         .eq("id", tenant_id)
         .limit(1)
         .execute()
@@ -193,14 +185,13 @@ async def notify_operator(
     # We don't have a tenant-specific dashboard host today; the dashboard
     # is a single Next.js deployment per environment.
     from ..core.config import settings
+
     dashboard_link = None
     if settings.next_public_dashboard_url:
         from urllib.parse import urlparse, urlunparse
 
         parsed = urlparse(settings.next_public_dashboard_url)
-        origin = urlunparse(
-            (parsed.scheme or "https", parsed.netloc, "", "", "", "")
-        )
+        origin = urlunparse((parsed.scheme or "https", parsed.netloc, "", "", "", ""))
         dashboard_link = f"{origin.rstrip('/')}/leads/{lead_id}"
 
     subject_business = tenant.get("business_name") or "un'azienda"

@@ -39,7 +39,7 @@ import random
 import sys
 import textwrap
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 # ---------------------------------------------------------------------------
@@ -47,15 +47,15 @@ from typing import Any, Literal
 # (copied here to avoid importing the full service layer)
 # ---------------------------------------------------------------------------
 
-ATOKA_DISCOVERY_COST_PER_RECORD_CENTS: int = 1    # level1_discovery.py
-ATOKA_COST_PER_CALL_CENTS: int = 15               # italian_business_service.py
-VISURA_COST_PER_CALL_CENTS: int = 25              # italian_business_service.py (V1 only)
-HUNTER_COST_PER_CALL_CENTS: int = 10              # hunter_io_service.py (V1 only)
-NEVERBOUNCE_COST_PER_CALL_CENTS: int = 1          # neverbounce_service.py
-GOOGLE_SOLAR_COST_PER_CALL_CENTS: int = 2         # google_solar_service.py
-REPLICATE_RENDER_COST_PER_CALL_CENTS: int = 1     # replicate_service.py
-RESEND_COST_PER_EMAIL_CENTS: int = 1              # resend_service.py
-PROXY_SCORE_COST_PER_RECORD_CENTS: int = 1        # level3_proxy_score.py (V1 only)
+ATOKA_DISCOVERY_COST_PER_RECORD_CENTS: int = 1  # level1_discovery.py
+ATOKA_COST_PER_CALL_CENTS: int = 15  # italian_business_service.py
+VISURA_COST_PER_CALL_CENTS: int = 25  # italian_business_service.py (V1 only)
+HUNTER_COST_PER_CALL_CENTS: int = 10  # hunter_io_service.py (V1 only)
+NEVERBOUNCE_COST_PER_CALL_CENTS: int = 1  # neverbounce_service.py
+GOOGLE_SOLAR_COST_PER_CALL_CENTS: int = 2  # google_solar_service.py
+REPLICATE_RENDER_COST_PER_CALL_CENTS: int = 1  # replicate_service.py
+RESEND_COST_PER_EMAIL_CENTS: int = 1  # resend_service.py
+PROXY_SCORE_COST_PER_RECORD_CENTS: int = 1  # level3_proxy_score.py (V1 only)
 
 
 # ---------------------------------------------------------------------------
@@ -63,13 +63,13 @@ PROXY_SCORE_COST_PER_RECORD_CENTS: int = 1        # level3_proxy_score.py (V1 on
 # ---------------------------------------------------------------------------
 
 # Phase 2 — offline gates (sector/size/geo/territory filters)
-PHASE2_PASS_RATE: float = 0.70   # 30% rejected: wrong ATECO, too small, outside territory
+PHASE2_PASS_RATE: float = 0.70  # 30% rejected: wrong ATECO, too small, outside territory
 
 # Phase 3 — email extraction (Atoka + website scraping)
 PHASE3_EMAIL_FOUND_RATE: float = 0.74  # 26% no email found
 
 # Phase 4 — Google Solar viability + render
-PHASE4_SOLAR_PASS_RATE: float = 0.90   # 10% no usable building footprint or render fail
+PHASE4_SOLAR_PASS_RATE: float = 0.90  # 10% no usable building footprint or render fail
 
 # Phase 5 — MX + NeverBounce
 PHASE5_BOUNCE_PASS_RATE: float = 0.85  # 15% invalid MX or bounce-predicted
@@ -78,16 +78,16 @@ PHASE5_BOUNCE_PASS_RATE: float = 0.85  # 15% invalid MX or bounce-predicted
 PHASE6_CONTENT_PASS_RATE: float = 0.95  # 5% flagged by compliance rules
 
 # Phase 7 — send gate (send window + preflight: blacklist, inbox health)
-PHASE7_SEND_PASS_RATE: float = 0.90    # 10% blocked: outside window or preflight fail
+PHASE7_SEND_PASS_RATE: float = 0.90  # 10% blocked: outside window or preflight fail
 
 # Phase 8 — delivery tracking
-PHASE8_DELIVERY_RATE: float = 0.96     # 4% soft bounce / undelivered
-PHASE8_OPEN_RATE: float = 0.38         # 38% open rate (cold B2B, Italy average 2026)
-PHASE8_CLICK_RATE: float = 0.14        # 14% CTR of openers
+PHASE8_DELIVERY_RATE: float = 0.96  # 4% soft bounce / undelivered
+PHASE8_OPEN_RATE: float = 0.38  # 38% open rate (cold B2B, Italy average 2026)
+PHASE8_CLICK_RATE: float = 0.14  # 14% CTR of openers
 
 # V1 extras — costs that exist in legacy but NOT in V2
-V1_VISURA_HIT_RATE: float = 0.40       # 40% of identity-reached leads trigger Visura
-V1_NB_ON_ALL_CANDIDATES: bool = True   # V1 ran NB on all, even those without email
+V1_VISURA_HIT_RATE: float = 0.40  # 40% of identity-reached leads trigger Visura
+V1_NB_ON_ALL_CANDIDATES: bool = True  # V1 ran NB on all, even those without email
 
 
 # ---------------------------------------------------------------------------
@@ -95,31 +95,107 @@ V1_NB_ON_ALL_CANDIDATES: bool = True   # V1 ran NB on all, even those without em
 # ---------------------------------------------------------------------------
 
 _COMPANY_STEMS = [
-    "Rossi", "Ferrari", "Conti", "Esposito", "Ricci", "Colombo", "De Luca",
-    "Bianchi", "Fontana", "Russo", "Gallo", "Ferrara", "Caruso", "Sorrentino",
-    "Ferretti", "Martinelli", "Lombardi", "D'Angelo", "Bruno", "Barbieri",
+    "Rossi",
+    "Ferrari",
+    "Conti",
+    "Esposito",
+    "Ricci",
+    "Colombo",
+    "De Luca",
+    "Bianchi",
+    "Fontana",
+    "Russo",
+    "Gallo",
+    "Ferrara",
+    "Caruso",
+    "Sorrentino",
+    "Ferretti",
+    "Martinelli",
+    "Lombardi",
+    "D'Angelo",
+    "Bruno",
+    "Barbieri",
 ]
 _COMPANY_SUFFIXES = ["Srl", "Spa", "Sas", "Snc", "Srl", "Srl", "Sas"]
 _ATECO_CODES = [
-    "28.11", "25.11", "22.21", "43.12", "46.74", "52.10", "01.11",
-    "10.32", "20.11", "29.10", "23.61", "41.20", "38.11", "46.90",
+    "28.11",
+    "25.11",
+    "22.21",
+    "43.12",
+    "46.74",
+    "52.10",
+    "01.11",
+    "10.32",
+    "20.11",
+    "29.10",
+    "23.61",
+    "41.20",
+    "38.11",
+    "46.90",
 ]
 _PROVINCES = [
-    "NA", "SA", "AV", "BN", "CE", "CB", "IS", "CH", "PE", "TE",
-    "AQ", "FG", "BA", "LE", "BR", "TA", "MT", "CS", "KR", "VV",
+    "NA",
+    "SA",
+    "AV",
+    "BN",
+    "CE",
+    "CB",
+    "IS",
+    "CH",
+    "PE",
+    "TE",
+    "AQ",
+    "FG",
+    "BA",
+    "LE",
+    "BR",
+    "TA",
+    "MT",
+    "CS",
+    "KR",
+    "VV",
 ]
 _CAPS = ["80100", "80011", "84100", "82100", "80133", "80015", "84013", "83100"]
 _FIRST_NAMES = [
-    "Luigi", "Marco", "Luca", "Andrea", "Giovanni", "Alessandro", "Roberto",
-    "Matteo", "Davide", "Francesco", "Elena", "Sara", "Giulia", "Chiara",
+    "Luigi",
+    "Marco",
+    "Luca",
+    "Andrea",
+    "Giovanni",
+    "Alessandro",
+    "Roberto",
+    "Matteo",
+    "Davide",
+    "Francesco",
+    "Elena",
+    "Sara",
+    "Giulia",
+    "Chiara",
 ]
 _LAST_NAMES = [
-    "Rossi", "Bianchi", "Ferrari", "Russo", "Romano", "Colombo", "Ricci",
-    "De Luca", "Esposito", "Caruso", "Fontana", "Martini", "Conte",
+    "Rossi",
+    "Bianchi",
+    "Ferrari",
+    "Russo",
+    "Romano",
+    "Colombo",
+    "Ricci",
+    "De Luca",
+    "Esposito",
+    "Caruso",
+    "Fontana",
+    "Martini",
+    "Conte",
 ]
 _EMAIL_DOMAINS = [
-    "gmail.com", "libero.it", "outlook.it", "yahoo.it",
-    "tim.it", "virgilio.it", "alice.it", "hotmail.it",
+    "gmail.com",
+    "libero.it",
+    "outlook.it",
+    "yahoo.it",
+    "tim.it",
+    "virgilio.it",
+    "alice.it",
+    "hotmail.it",
 ]
 
 
@@ -147,26 +223,26 @@ def _gen_candidates(n: int, rng: random.Random) -> list[dict[str, Any]]:
         # 65% have an email in the Atoka record, 35% need website scraping
         has_email_in_atoka = rng.random() < 0.65
 
-        candidates.append({
-            "id": f"candidate-{i:04d}",
-            "legal_name": legal_name,
-            "ateco_code": ateco,
-            "hq_province": province,
-            "hq_cap": cap,
-            "employees": employees,
-            "revenue_keur": revenue_keur,
-            "decision_maker_first_name": first,
-            "decision_maker_last_name": last,
-            "decision_maker_email_raw": (
-                f"{first.lower()}.{last.lower()}@{domain}"
-                if has_email_in_atoka
-                else None
-            ),
-            "website_domain": domain,
-            # Coordinates for solar analysis
-            "lat": 40.8 + rng.uniform(-1.5, 1.5),
-            "lon": 14.2 + rng.uniform(-2.0, 2.0),
-        })
+        candidates.append(
+            {
+                "id": f"candidate-{i:04d}",
+                "legal_name": legal_name,
+                "ateco_code": ateco,
+                "hq_province": province,
+                "hq_cap": cap,
+                "employees": employees,
+                "revenue_keur": revenue_keur,
+                "decision_maker_first_name": first,
+                "decision_maker_last_name": last,
+                "decision_maker_email_raw": (
+                    f"{first.lower()}.{last.lower()}@{domain}" if has_email_in_atoka else None
+                ),
+                "website_domain": domain,
+                # Coordinates for solar analysis
+                "lat": 40.8 + rng.uniform(-1.5, 1.5),
+                "lon": 14.2 + rng.uniform(-2.0, 2.0),
+            }
+        )
 
     return candidates
 
@@ -183,11 +259,11 @@ class LeadState:
     """Tracks a single candidate through the 9-phase pipeline."""
 
     candidate: dict[str, Any]
-    phase: int = 0                       # last phase reached (0 = not started)
+    phase: int = 0  # last phase reached (0 = not started)
     outcome: PhaseOutcome = "pass"
     reject_reason: str = ""
     email_found: bool = False
-    email_source: str = ""               # "atoka" | "scraping" | "not_found"
+    email_source: str = ""  # "atoka" | "scraping" | "not_found"
     email_confidence: float = 0.0
     # Cost accumulated for this lead
     cost_v2_cents: int = 0
@@ -240,7 +316,7 @@ def _simulate_phase3(lead: LeadState, rng: random.Random) -> bool:
     raw_email = candidate["decision_maker_email_raw"]
 
     # Email in Atoka record
-    if raw_email and rng.random() < 0.95:   # 95% of Atoka emails are usable
+    if raw_email and rng.random() < 0.95:  # 95% of Atoka emails are usable
         lead.email_found = True
         lead.email_source = "atoka"
         lead.email_confidence = round(rng.uniform(0.75, 0.98), 2)
@@ -271,7 +347,7 @@ def _simulate_phase3(lead: LeadState, rng: random.Random) -> bool:
         "confidence": lead.email_confidence if lead.email_found else None,
         "cost_cents": ATOKA_COST_PER_CALL_CENTS,
         "raw_response": {"email_found": lead.email_found, "source": lead.email_source},
-        "occurred_at": datetime.now(tz=timezone.utc).isoformat(),
+        "occurred_at": datetime.now(tz=UTC).isoformat(),
     }
 
     if not lead.email_found:
@@ -343,6 +419,7 @@ def _simulate_phase8(lead: LeadState, rng: random.Random) -> None:
 # V1 legacy cost model
 # ---------------------------------------------------------------------------
 
+
 def _compute_v1_cost(lead: LeadState, reached_identity: bool, rng: random.Random) -> int:
     """Compute what this lead would have cost in the V1 legacy pipeline."""
 
@@ -384,6 +461,7 @@ def _compute_v1_cost(lead: LeadState, reached_identity: bool, rng: random.Random
 # ---------------------------------------------------------------------------
 # Main simulation runner
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class SimulationResult:
@@ -440,14 +518,32 @@ def simulate_pipeline(
 
     # Territory configuration (typical Campania B2B tenant)
     territory = {
-        "provinces": {"NA", "SA", "AV", "BN", "CE", "CB", "IS", "CH", "PE",
-                       "TE", "AQ", "FG", "BA", "LE", "BR", "TA", "MT", "CS"},
+        "provinces": {
+            "NA",
+            "SA",
+            "AV",
+            "BN",
+            "CE",
+            "CB",
+            "IS",
+            "CH",
+            "PE",
+            "TE",
+            "AQ",
+            "FG",
+            "BA",
+            "LE",
+            "BR",
+            "TA",
+            "MT",
+            "CS",
+        },
         "min_employees": 8,
-        "allowed_ateco_prefixes": set(),   # empty = allow all (most tenants)
+        "allowed_ateco_prefixes": set(),  # empty = allow all (most tenants)
     }
 
     result = SimulationResult(n_candidates=n_candidates)
-    result.survivors[1] = n_candidates   # everyone enters Phase 1
+    result.survivors[1] = n_candidates  # everyone enters Phase 1
 
     for candidate in candidates:
         lead = LeadState(candidate=candidate)
@@ -590,8 +686,14 @@ def simulate_pipeline(
 # ---------------------------------------------------------------------------
 
 REQUIRED_GDPR_FIELDS = {
-    "tenant_id", "lead_id", "company_name", "domain",
-    "source", "cost_cents", "raw_response", "occurred_at",
+    "tenant_id",
+    "lead_id",
+    "company_name",
+    "domain",
+    "source",
+    "cost_cents",
+    "raw_response",
+    "occurred_at",
 }
 # extracted_email and confidence may be NULL (failed extraction is still logged)
 GDPR_SOURCES = {"atoka", "scraping", "not_found", "hunter_io", "manual"}
@@ -604,7 +706,7 @@ class GdprValidationResult:
     invalid_rows: int
     missing_field_errors: list[str] = field(default_factory=list)
     invalid_source_errors: list[str] = field(default_factory=list)
-    rows_without_email: int = 0   # failed extractions — must be logged too
+    rows_without_email: int = 0  # failed extractions — must be logged too
 
     @property
     def all_valid(self) -> bool:
@@ -694,13 +796,18 @@ def print_report(result: SimulationResult, gdpr: GdprValidationResult) -> None:
     sent = result.sent
     v1_total = result.total_v1_cents
     v2_total = result.total_v2_cents
-    saving_cents = v1_total - v2_total
-    saving_pct = result.cost_reduction_pct
+    v1_total - v2_total
 
     print()
     print("╔" + "═" * (_WIDTH - 2) + "╗")
     print("║" + " SolarLead V2 Pipeline — E2E Simulation Report".center(_WIDTH - 2) + "║")
-    print("║" + f" N={n} candidates  ·  seed={result.leads[0].candidate['id'][:13] if result.leads else '?'}".center(_WIDTH - 2) + "║")
+    print(
+        "║"
+        + f" N={n} candidates  ·  seed={result.leads[0].candidate['id'][:13] if result.leads else '?'}".center(
+            _WIDTH - 2
+        )
+        + "║"
+    )
     print("╚" + "═" * (_WIDTH - 2) + "╝")
     print()
 
@@ -716,12 +823,9 @@ def print_report(result: SimulationResult, gdpr: GdprValidationResult) -> None:
         pct = survivors / n * 100 if n > 0 else 0.0
         bar = _bar(survivors, n)
         phase_label = _PHASE_NAMES.get(ph, f"Phase {ph}")
-        marker = " ✉" if ph == 7 else "  "
         drop = prev - survivors if ph > 1 else 0
         drop_str = f"(−{drop:3d})" if drop > 0 else "       "
-        print(
-            f"  {ph:<4}  {phase_label:<36}  {survivors:>5} {drop_str}  {pct:>5.1f}%  {bar}"
-        )
+        print(f"  {ph:<4}  {phase_label:<36}  {survivors:>5} {drop_str}  {pct:>5.1f}%  {bar}")
         if ph > 1:
             prev = survivors
 
@@ -733,9 +837,11 @@ def print_report(result: SimulationResult, gdpr: GdprValidationResult) -> None:
         print("  TRACKING EVENTS (of emails sent)")
         print("  " + _rule("-"))
         print(f"  {'Sent':>12} : {sent:>5}   100.0%")
-        print(f"  {'Delivered':>12} : {result.delivered:>5}   {result.delivered/sent*100:>5.1f}%")
-        print(f"  {'Opened':>12} : {result.opened:>5}   {result.opened/sent*100:>5.1f}%")
-        print(f"  {'Clicked':>12} : {result.clicked:>5}   {result.clicked/sent*100:>5.1f}%")
+        print(
+            f"  {'Delivered':>12} : {result.delivered:>5}   {result.delivered / sent * 100:>5.1f}%"
+        )
+        print(f"  {'Opened':>12} : {result.opened:>5}   {result.opened / sent * 100:>5.1f}%")
+        print(f"  {'Clicked':>12} : {result.clicked:>5}   {result.clicked / sent * 100:>5.1f}%")
         print()
 
     # ── Drop reason breakdown ─────────────────────────────────────────────────
@@ -773,7 +879,9 @@ def print_report(result: SimulationResult, gdpr: GdprValidationResult) -> None:
     hunter_v1 = result.survivors.get(2, 0) * HUNTER_COST_PER_CALL_CENTS
     hunter_v2 = 0
     # NeverBounce
-    nb_v1 = result.survivors.get(2, 0) * NEVERBOUNCE_COST_PER_CALL_CENTS  # V1: on all reaching identity
+    nb_v1 = (
+        result.survivors.get(2, 0) * NEVERBOUNCE_COST_PER_CALL_CENTS
+    )  # V1: on all reaching identity
     nb_v2 = result.survivors.get(4, 0) * NEVERBOUNCE_COST_PER_CALL_CENTS  # V2: only after solar
     # Render (Replicate)
     render_v1 = result.survivors.get(4, 0) * REPLICATE_RENDER_COST_PER_CALL_CENTS
@@ -798,8 +906,8 @@ def print_report(result: SimulationResult, gdpr: GdprValidationResult) -> None:
     for label, c_v1, c_v2 in rows_cost:
         calc_v1_total += c_v1
         calc_v2_total += c_v2
-        v1_str = f"{c_v1/100:.2f} €" if c_v1 else "    —   "
-        v2_str = f"{c_v2/100:.2f} €" if c_v2 else "    —   "
+        v1_str = f"{c_v1 / 100:.2f} €" if c_v1 else "    —   "
+        v2_str = f"{c_v2 / 100:.2f} €" if c_v2 else "    —   "
         delta = ""
         if c_v1 and not c_v2:
             delta = "  ← eliminated"
@@ -811,18 +919,15 @@ def print_report(result: SimulationResult, gdpr: GdprValidationResult) -> None:
     print(f"  {_rule('-', 60)}")
     print(
         f"  {'TOTAL (per ' + str(n) + ' candidates)':<40} "
-        f"{calc_v1_total/100:>9.2f}€ {calc_v2_total/100:>9.2f}€"
+        f"{calc_v1_total / 100:>9.2f}€ {calc_v2_total / 100:>9.2f}€"
     )
     delta_calc = calc_v1_total - calc_v2_total
     delta_pct_calc = delta_calc / calc_v1_total * 100 if calc_v1_total > 0 else 0.0
-    print(
-        f"\n  Gross savings: {delta_calc/100:.2f} € "
-        f"({delta_pct_calc:.1f}% reduction)"
-    )
+    print(f"\n  Gross savings: {delta_calc / 100:.2f} € ({delta_pct_calc:.1f}% reduction)")
     if sent > 0:
         print(
-            f"  Cost per email sent  →  V1: {calc_v1_total/sent/100:.2f} €  "
-            f"/ V2: {calc_v2_total/sent/100:.2f} €"
+            f"  Cost per email sent  →  V1: {calc_v1_total / sent / 100:.2f} €  "
+            f"/ V2: {calc_v2_total / sent / 100:.2f} €"
         )
     print()
 
@@ -832,7 +937,9 @@ def print_report(result: SimulationResult, gdpr: GdprValidationResult) -> None:
     print(f"  Phase-3 attempts logged : {gdpr.total_rows}")
     print(f"  Valid rows              : {gdpr.valid_rows}")
     print(f"  Invalid rows            : {gdpr.invalid_rows}")
-    print(f"  Rows with email=NULL    : {gdpr.rows_without_email}   (failed extractions — logged per spec)")
+    print(
+        f"  Rows with email=NULL    : {gdpr.rows_without_email}   (failed extractions — logged per spec)"
+    )
     if gdpr.all_valid:
         print("  GDPR trail              : ✅  ALL ROWS VALID")
     else:
@@ -850,7 +957,7 @@ def print_report(result: SimulationResult, gdpr: GdprValidationResult) -> None:
         ("Funnel from 100 → sent ≥ 25", sent >= 25),
         ("GDPR audit trail 100% valid", gdpr.all_valid),
         ("Failed extractions still logged", gdpr.rows_without_email > 0),
-        (f"Cost reduction ≥ 40% (target −46%)", delta_pct_calc >= 40.0),
+        ("Cost reduction ≥ 40% (target −46%)", delta_pct_calc >= 40.0),
         ("Open rate ≥ 25%", result.opened >= sent * 0.25 if sent else False),
         ("Delivery rate ≥ 90%", result.delivered >= sent * 0.90 if sent else False),
     ]
@@ -872,6 +979,7 @@ def print_report(result: SimulationResult, gdpr: GdprValidationResult) -> None:
 # JSON output mode
 # ---------------------------------------------------------------------------
 
+
 def to_json_report(result: SimulationResult, gdpr: GdprValidationResult) -> dict[str, Any]:
     """Return a machine-readable summary dict for CI / downstream tooling."""
 
@@ -883,7 +991,7 @@ def to_json_report(result: SimulationResult, gdpr: GdprValidationResult) -> dict
     return {
         "meta": {
             "n_candidates": n,
-            "generated_at": datetime.now(tz=timezone.utc).isoformat(),
+            "generated_at": datetime.now(tz=UTC).isoformat(),
         },
         "funnel": {
             ph: {
@@ -925,12 +1033,14 @@ def to_json_report(result: SimulationResult, gdpr: GdprValidationResult) -> dict
             "cost_reduction_ok": result.cost_reduction_pct >= 40.0,
             "open_rate_ok": result.opened >= sent * 0.25 if sent else False,
             "delivery_rate_ok": result.delivered >= sent * 0.90 if sent else False,
-            "all_pass": all([
-                sent >= 25,
-                gdpr.all_valid,
-                gdpr.rows_without_email > 0,
-                result.cost_reduction_pct >= 40.0,
-            ]),
+            "all_pass": all(
+                [
+                    sent >= 25,
+                    gdpr.all_valid,
+                    gdpr.rows_without_email > 0,
+                    result.cost_reduction_pct >= 40.0,
+                ]
+            ),
         },
     }
 
@@ -938,6 +1048,7 @@ def to_json_report(result: SimulationResult, gdpr: GdprValidationResult) -> dict
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
+
 
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
@@ -953,14 +1064,17 @@ def _parse_args() -> argparse.Namespace:
         ),
     )
     p.add_argument(
-        "--candidates", "-n",
-        type=int, default=100,
+        "--candidates",
+        "-n",
+        type=int,
+        default=100,
         metavar="N",
         help="Number of synthetic candidates to simulate (default: 100)",
     )
     p.add_argument(
         "--seed",
-        type=int, default=42,
+        type=int,
+        default=42,
         help="RNG seed for deterministic runs (default: 42)",
     )
     p.add_argument(

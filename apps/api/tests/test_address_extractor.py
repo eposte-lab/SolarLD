@@ -23,7 +23,6 @@ from src.services.email_extractor import (
     scan_website_for_address,
 )
 
-
 JSON_LD_FIXTURE = """
 <html><head>
 <script type="application/ld+json">
@@ -182,10 +181,12 @@ async def test_scan_website_short_circuits_on_json_ld() -> None:
 @pytest.mark.asyncio
 async def test_scan_website_picks_best_across_pages() -> None:
     """Address-tag on /contatti, JSON-LD on /chi-siamo → keeps JSON-LD."""
-    client = _FakeAsyncClient({
-        "/contatti": ADDRESS_TAG_FIXTURE,
-        "/chi-siamo": JSON_LD_FIXTURE,
-    })
+    client = _FakeAsyncClient(
+        {
+            "/contatti": ADDRESS_TAG_FIXTURE,
+            "/chi-siamo": JSON_LD_FIXTURE,
+        }
+    )
     result = await scan_website_for_address("stub.it", http_client=client)  # type: ignore[arg-type]
     assert result is not None
     # JSON-LD has the highest confidence (0.9); address_tag is 0.75.

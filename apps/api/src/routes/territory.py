@@ -146,9 +146,7 @@ class ScanResultsResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-def _resolve_sorgente_defaults(
-    sb: Any, tenant_id: str
-) -> tuple[list[str], list[str]]:
+def _resolve_sorgente_defaults(sb: Any, tenant_id: str) -> tuple[list[str], list[str]]:
     """Read the tenant's Sorgente module to fill missing wizard_groups / provinces.
 
     The Sorgente JSONB has ``target_wizard_groups[]`` (Sprint A) and
@@ -214,7 +212,9 @@ async def map_territory(
         job_id=f"map_target_areas:{tenant_id}",
     )
     return MapTerritoryResponse(
-        job_id=job.get("job_id", f"already_running:{tenant_id}") if job else f"already_running:{tenant_id}",
+        job_id=job.get("job_id", f"already_running:{tenant_id}")
+        if job
+        else f"already_running:{tenant_id}",
         tenant_id=tenant_id,
         wizard_groups=wgs,
         province_codes=provs,
@@ -292,7 +292,9 @@ async def run_funnel_manual(
         job_id=f"funnel_v3_manual:{tenant_id}:{int(time.time())}",
     )
     return RunFunnelResponse(
-        job_id=job.get("job_id", f"already_running:{tenant_id}") if job else f"already_running:{tenant_id}",
+        job_id=job.get("job_id", f"already_running:{tenant_id}")
+        if job
+        else f"already_running:{tenant_id}",
         tenant_id=tenant_id,
         zone_count=zone_count,
         max_l1_candidates=body.max_l1_candidates,
@@ -366,7 +368,9 @@ async def scan_results(ctx: CurrentUser) -> ScanResultsResponse:
     # ---- Live stage counts from scan_candidates ----
     cands_res = (
         sb.table("scan_candidates")
-        .select("stage, building_quality_score, solar_verdict, recommended_for_rendering, contact_extraction")
+        .select(
+            "stage, building_quality_score, solar_verdict, recommended_for_rendering, contact_extraction"
+        )
         .eq("tenant_id", tenant_id)
         .eq("funnel_version", 3)
         .execute()
@@ -374,17 +378,13 @@ async def scan_results(ctx: CurrentUser) -> ScanResultsResponse:
     rows = cands_res.data or []
 
     l1 = len(rows)
-    l2_with_email = sum(
-        1 for r in rows
-        if (r.get("contact_extraction") or {}).get("best_email")
-    )
+    l2_with_email = sum(1 for r in rows if (r.get("contact_extraction") or {}).get("best_email"))
     l3_accepted = sum(
-        1 for r in rows
+        1
+        for r in rows
         if r.get("building_quality_score") is not None and r["building_quality_score"] >= 3
     )
-    l4_solar = sum(
-        1 for r in rows if r.get("solar_verdict") == "accepted"
-    )
+    l4_solar = sum(1 for r in rows if r.get("solar_verdict") == "accepted")
     l5_recommended = sum(1 for r in rows if r.get("recommended_for_rendering"))
 
     # ---- L6 + downstream (creative + outreach) counts ----
@@ -416,11 +416,7 @@ async def scan_results(ctx: CurrentUser) -> ScanResultsResponse:
     except Exception:  # noqa: BLE001 — best-effort, panel still renders
         pass
 
-    is_running = bool(
-        cost_row
-        and cost_row.get("started_at")
-        and not cost_row.get("completed_at")
-    )
+    is_running = bool(cost_row and cost_row.get("started_at") and not cost_row.get("completed_at"))
 
     summary = ScanStageSummary(
         l1_candidates=l1,
@@ -454,7 +450,7 @@ async def scan_results(ctx: CurrentUser) -> ScanResultsResponse:
     )
 
     top_candidates: list[ScanCandidateOut] = []
-    for r in (top_res.data or []):
+    for r in top_res.data or []:
         place_blob = (r.get("enrichment") or {}).get("places") or {}
         score_blob = r.get("proxy_score_data") or {}
         contact_blob = r.get("contact_extraction") or {}

@@ -27,7 +27,7 @@ is a one-off load (`scripts/load_istat_income.py`), not per-tenant.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from ..core.logging import get_logger
@@ -35,9 +35,11 @@ from ..services.b2c_audience_service import (
     AudienceFilters,
     materialise_audiences,
 )
-from ..services.tenant_config_service import TenantConfig
 from ..services.tenant_module_service import get_module
 from .hunter import HunterAgent, HunterInput, HunterOutput
+
+if TYPE_CHECKING:
+    from ..services.tenant_config_service import TenantConfig
 
 log = get_logger(__name__)
 
@@ -98,9 +100,7 @@ async def run_b2c_residential(
             "channels_active": channels_active,
             # Rough reachable-household total across all CAPs — useful
             # for the dashboard tile headline.
-            "reachable_contacts": sum(
-                a.get("stima_contatti", 0) for a in audiences
-            ),
+            "reachable_contacts": sum(a.get("stima_contatti", 0) for a in audiences),
         },
         tenant_id=payload.tenant_id,
     )

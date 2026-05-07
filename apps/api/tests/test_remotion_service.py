@@ -83,9 +83,7 @@ def test_build_render_request_includes_optional_fields_when_set() -> None:
 
 
 def test_build_render_request_coerces_numerics_to_floats() -> None:
-    body = build_render_request(
-        _input(kwp=10, yearly_savings_eur=1500, payback_years=7)
-    )
+    body = build_render_request(_input(kwp=10, yearly_savings_eur=1500, payback_years=7))
     assert isinstance(body["kwp"], float)
     assert isinstance(body["yearlySavingsEur"], float)
     assert isinstance(body["paybackYears"], float)
@@ -125,9 +123,7 @@ def test_parse_render_response_empty_urls_raise() -> None:
 
 
 def test_parse_render_response_tolerates_missing_duration() -> None:
-    result = parse_render_response(
-        {"mp4Url": "https://x.mp4", "gifUrl": "https://x.gif"}
-    )
+    result = parse_render_response({"mp4Url": "https://x.mp4", "gifUrl": "https://x.gif"})
     assert result.duration_ms == 0
 
 

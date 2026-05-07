@@ -57,17 +57,17 @@ class OutreachContext:
     """
 
     tenant_name: str
-    brand_primary_color: str                  # hex
+    brand_primary_color: str  # hex
     greeting_name: str
     lead_url: str
     optout_url: str
-    subject_template: str                     # pre-rendered or static subject
-    subject_type: str                         # b2b | b2c | unknown
-    roi: dict[str, Any] | None = None         # leads.roi_data projection
+    subject_template: str  # pre-rendered or static subject
+    subject_type: str  # b2b | b2c | unknown
+    roi: dict[str, Any] | None = None  # leads.roi_data projection
     hero_image_url: str | None = None
     hero_gif_url: str | None = None
-    personalized_opener: str | None = None    # 1-sentence from Claude (optional)
-    business_name: str | None = None          # B2B only
+    personalized_opener: str | None = None  # 1-sentence from Claude (optional)
+    business_name: str | None = None  # B2B only
     ateco_code: str | None = None
     ateco_description: str | None = None
     # Follow-up step: 1 = initial, 2 = day-4 nudge, 3 = day-9 case-study,
@@ -75,12 +75,12 @@ class OutreachContext:
     sequence_step: int = 1
     # ---- Visual style & AI-generated copy overrides (B.14) ----
     # template_style selects the visual layout applied in _base.html.j2.
-    template_style: str = "classic"     # classic | bold | minimal
-    headline: str | None = None         # H1 override (AI-generated)
-    main_copy_1: str | None = None      # First body paragraph override
-    main_copy_2: str | None = None      # Second body paragraph override
-    cta_text: str | None = None         # CTA button label override
-    brand_logo_url: str | None = None   # Absolute URL to tenant logo
+    template_style: str = "classic"  # classic | bold | minimal
+    headline: str | None = None  # H1 override (AI-generated)
+    main_copy_1: str | None = None  # First body paragraph override
+    main_copy_2: str | None = None  # Second body paragraph override
+    cta_text: str | None = None  # CTA button label override
+    brand_logo_url: str | None = None  # Absolute URL to tenant logo
     # ---- Sprint 6.3 additions ----
     # email_style controls which template family to pick:
     #   "visual_preventivo"  — rich HTML with hero image + ROI card (default)
@@ -88,15 +88,15 @@ class OutreachContext:
     #   "premium"            — Sprint 9 single-column 600px premium template
     email_style: str = "visual_preventivo"
     # Extra context for conversational templates.
-    sender_first_name: str | None = None   # e.g. "Alfonso" (from inbox display_name)
-    hq_province: str | None = None         # e.g. "Napoli"
-    ateco_desc: str | None = None          # Short ATECO description for opener
-    recipient_email: str | None = None     # Used in GDPR footer
-    tenant_legal_name: str | None = None   # Legal entity name for GDPR footer
-    tenant_vat_number: str | None = None   # P.IVA for GDPR footer
+    sender_first_name: str | None = None  # e.g. "Alfonso" (from inbox display_name)
+    hq_province: str | None = None  # e.g. "Napoli"
+    ateco_desc: str | None = None  # Short ATECO description for opener
+    recipient_email: str | None = None  # Used in GDPR footer
+    tenant_legal_name: str | None = None  # Legal entity name for GDPR footer
+    tenant_vat_number: str | None = None  # P.IVA for GDPR footer
     tenant_legal_address: str | None = None  # Registered address for GDPR footer
-    similar_province: str | None = None    # Step-3 case study province hint
-    video_landing_url: str | None = None   # Sprint 4: /lead/[slug]/video page
+    similar_province: str | None = None  # Step-3 case study province hint
+    video_landing_url: str | None = None  # Sprint 4: /lead/[slug]/video page
     # ---- Sprint 9 additions ----
     # Accent brand color for premium template stat borders + CTA chip.
     brand_color_accent: str | None = None  # e.g. "#F4A300" (gold)
@@ -260,7 +260,7 @@ async def render_outreach_email_with_fallback(
                     "greeting_name": ctx.greeting_name,
                     "lead_url": ctx.lead_url,
                     "optout_url": ctx.optout_url,
-                    "unsubscribe_url": ctx.optout_url,   # alias used in GDPR footer
+                    "unsubscribe_url": ctx.optout_url,  # alias used in GDPR footer
                     "roi": _normalize_roi(ctx.roi),
                     "hero_image_url": ctx.hero_image_url,
                     "hero_gif_url": ctx.hero_gif_url,
@@ -332,6 +332,7 @@ async def render_outreach_email_with_fallback(
 
     if effective_style != ctx.email_style:
         import dataclasses
+
         ctx = dataclasses.replace(ctx, email_style=effective_style)
 
     return render_outreach_email(ctx)
@@ -378,7 +379,6 @@ def default_subject_for(
     Step 2/3/4 lines differ so Gmail doesn't collapse the thread.
     """
     st = (subject_type or "").lower()
-    sender = sender_first_name or tenant_name
 
     if email_style == "premium":
         # Premium subjects are crisp and informative — delegate to B2B visual
@@ -387,9 +387,9 @@ def default_subject_for(
         if st == "b2b":
             subjects_premium = {
                 1: f"{tenant_name} — analisi fotovoltaica per la vostra sede",
-                2: f"Re: analisi fotovoltaica — i numeri chiave",
-                3: f"Un caso reale nel vostro settore",
-                4: f"Chiudo il vostro caso — buon lavoro",
+                2: "Re: analisi fotovoltaica — i numeri chiave",
+                3: "Un caso reale nel vostro settore",
+                4: "Chiudo il vostro caso — buon lavoro",
             }
             return subjects_premium.get(sequence_step, subjects_premium[1])
         return f"{tenant_name} — analisi fotovoltaica personalizzata"
@@ -417,19 +417,16 @@ def default_subject_for(
         if step == 3:
             return f"{tenant_name} — ultima occasione di rivedere i numeri"
         if step == 4:
-            return f"Re: fotovoltaico per la vostra sede"
+            return "Re: fotovoltaico per la vostra sede"
         return base
     if st == "b2c":
-        base = (
-            f"{tenant_name} — ecco come potrebbe essere la vostra casa "
-            f"con il fotovoltaico"
-        )
+        base = f"{tenant_name} — ecco come potrebbe essere la vostra casa con il fotovoltaico"
         if step == 2:
             return f"{tenant_name} — un rendering del vostro tetto vi aspetta"
         if step == 3:
             return f"{tenant_name} — ultimo promemoria sul rendering del tetto"
         if step == 4:
-            return f"Re: fotovoltaico per la vostra casa"
+            return "Re: fotovoltaico per la vostra casa"
         return base
     return f"{tenant_name} — simulazione fotovoltaica"
 
@@ -513,9 +510,7 @@ def _format_money(value: Any) -> str:
 # ---------------------------------------------------------------------------
 
 # Allowed scenario stems — keep aligned with files in email_templates/.
-_FOLLOWUP_SCENARIOS = frozenset(
-    {"cold", "lukewarm", "engaged", "interessato", "riattivazione"}
-)
+_FOLLOWUP_SCENARIOS = frozenset({"cold", "lukewarm", "engaged", "interessato", "riattivazione"})
 
 # Default subject lines per scenario. The cron may override these via
 # ``ctx.subject_template`` if A/B copy is supplied.
@@ -557,9 +552,7 @@ def render_followup_email(
         sender_first = (ctx.tenant_name or "").split()[0] if ctx.tenant_name else None
 
     # Default subject if caller didn't override.
-    subject = ctx.subject_template or _FOLLOWUP_DEFAULT_SUBJECTS.get(
-        scenario, "Aggiornamento"
-    )
+    subject = ctx.subject_template or _FOLLOWUP_DEFAULT_SUBJECTS.get(scenario, "Aggiornamento")
     if ctx.copy_subject:
         subject = ctx.copy_subject
 
@@ -651,10 +644,7 @@ def _template_stem_for(
 
     # ── Premium family (Sprint 9) ──────────────────────────────────────
     if email_style == "premium":
-        if step == 1:
-            cand = "outreach_solarld_premium"
-        else:
-            cand = f"outreach_solarld_premium_step{step}"
+        cand = "outreach_solarld_premium" if step == 1 else f"outreach_solarld_premium_step{step}"
         if f"{cand}.html.j2" in env.list_templates():
             return cand
         # Step N missing → fall back to step 1 premium.

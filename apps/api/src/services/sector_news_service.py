@@ -148,9 +148,7 @@ async def upsert_news(
     return (res.data or [None])[0]
 
 
-async def archive_news(
-    supabase: Any, *, tenant_id: str, news_id: str
-) -> bool:
+async def archive_news(supabase: Any, *, tenant_id: str, news_id: str) -> bool:
     """Soft-archive a tenant-owned row."""
     res = (
         supabase.table("sector_news")

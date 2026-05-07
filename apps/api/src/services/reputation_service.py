@@ -24,7 +24,7 @@ Resend subdomain per tenant still attribute correctly.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from ..core.logging import get_logger
@@ -70,11 +70,9 @@ async def run_reputation_digest(
     Returns ``{"rows": N, "alarms": M}`` for logging.
     """
     sb = get_service_client()
-    today = as_of or datetime.now(timezone.utc).date()
+    today = as_of or datetime.now(UTC).date()
     window_start = today - timedelta(days=WINDOW_DAYS - 1)
-    window_start_iso = datetime.combine(
-        window_start, datetime.min.time(), tzinfo=timezone.utc
-    ).isoformat()
+    window_start_iso = datetime.combine(window_start, datetime.min.time(), tzinfo=UTC).isoformat()
 
     # ------------------------------------------------------------------
     # 1) Tenant list with a configured domain — tenants that never
@@ -96,9 +94,7 @@ async def run_reputation_digest(
         domain = (t.get("email_from_domain") or "").strip().lower()
         if not domain:
             continue
-        digests[t["id"]] = DomainDigest(
-            tenant_id=t["id"], email_from_domain=domain
-        )
+        digests[t["id"]] = DomainDigest(tenant_id=t["id"], email_from_domain=domain)
 
     # ------------------------------------------------------------------
     # 2) Campaigns in window — sent + delivered counts.
@@ -138,11 +134,14 @@ async def run_reputation_digest(
     events_res = (
         sb.table("events")
         .select("tenant_id, lead_id, event_type")
-        .in_("event_type", [
-            "lead.email_bounced",
-            "lead.email_complained",
-            "lead.email_opened",
-        ])
+        .in_(
+            "event_type",
+            [
+                "lead.email_bounced",
+                "lead.email_complained",
+                "lead.email_opened",
+            ],
+        )
         .gte("occurred_at", window_start_iso)
         .execute()
     )
@@ -174,42 +173,32 @@ async def run_reputation_digest(
     upserts: list[dict[str, Any]] = []
     alarms = 0
     for d in digests.values():
-        delivery_rate = (
-            d.delivered_count / d.sent_count if d.sent_count else None
-        )
-        bounce_rate = (
-            d.bounced_count / d.sent_count if d.sent_count else None
-        )
-        complaint_rate = (
-            d.complained_count / d.delivered_count
-            if d.delivered_count
-            else None
-        )
-        open_rate = (
-            d.opened_count / d.delivered_count if d.delivered_count else None
-        )
+        delivery_rate = d.delivered_count / d.sent_count if d.sent_count else None
+        bounce_rate = d.bounced_count / d.sent_count if d.sent_count else None
+        complaint_rate = d.complained_count / d.delivered_count if d.delivered_count else None
+        open_rate = d.opened_count / d.delivered_count if d.delivered_count else None
         alarm_bounce = bool(bounce_rate is not None and bounce_rate > BOUNCE_WARN)
-        alarm_complaint = bool(
-            complaint_rate is not None and complaint_rate > COMPLAINT_WARN
-        )
+        alarm_complaint = bool(complaint_rate is not None and complaint_rate > COMPLAINT_WARN)
         if alarm_bounce or alarm_complaint:
             alarms += 1
-        upserts.append({
-            "tenant_id": d.tenant_id,
-            "email_from_domain": d.email_from_domain,
-            "as_of_date": today.isoformat(),
-            "sent_count": d.sent_count,
-            "delivered_count": d.delivered_count,
-            "bounced_count": d.bounced_count,
-            "complained_count": d.complained_count,
-            "opened_count": d.opened_count,
-            "delivery_rate": delivery_rate,
-            "bounce_rate": bounce_rate,
-            "complaint_rate": complaint_rate,
-            "open_rate": open_rate,
-            "alarm_bounce": alarm_bounce,
-            "alarm_complaint": alarm_complaint,
-        })
+        upserts.append(
+            {
+                "tenant_id": d.tenant_id,
+                "email_from_domain": d.email_from_domain,
+                "as_of_date": today.isoformat(),
+                "sent_count": d.sent_count,
+                "delivered_count": d.delivered_count,
+                "bounced_count": d.bounced_count,
+                "complained_count": d.complained_count,
+                "opened_count": d.opened_count,
+                "delivery_rate": delivery_rate,
+                "bounce_rate": bounce_rate,
+                "complaint_rate": complaint_rate,
+                "open_rate": open_rate,
+                "alarm_bounce": alarm_bounce,
+                "alarm_complaint": alarm_complaint,
+            }
+        )
 
     if upserts:
         # on_conflict is required because the daily cron may run twice

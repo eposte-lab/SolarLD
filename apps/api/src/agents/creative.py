@@ -132,9 +132,7 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
         roof = _load_single(sb, "roofs", lead["roof_id"], payload.tenant_id)
         subject = _load_single(sb, "subjects", lead["subject_id"], payload.tenant_id)
         if not roof or not subject:
-            raise ValueError(
-                f"lead {payload.lead_id} missing roof or subject rows"
-            )
+            raise ValueError(f"lead {payload.lead_id} missing roof or subject rows")
 
         tenant_res = (
             sb.table("tenants")
@@ -218,18 +216,13 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
         elif not settings.google_solar_api_key and not settings.google_solar_mock_mode:
             skipped_reason = "solar_api_key_not_configured"
             log.warning("creative.solar_api_key_missing", lead_id=payload.lead_id)
-        elif (
-            not settings.replicate_api_token
-            and not settings.creative_skip_replicate
-        ):
+        elif not settings.replicate_api_token and not settings.creative_skip_replicate:
             # No Replicate token AND no opt-in to the offline path
             # → skip render. (When CREATIVE_SKIP_REPLICATE=true the
             # offline path drives both the after-image and skips
             # video render, so the missing token is irrelevant.)
             skipped_reason = "replicate_token_not_configured"
-            log.warning(
-                "creative.replicate_token_missing", lead_id=payload.lead_id
-            )
+            log.warning("creative.replicate_token_missing", lead_id=payload.lead_id)
         else:
             # Single-source-of-truth gate for the OSM snap retry below.
             #
@@ -284,9 +277,7 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
                 # would defeat the whole point of the picker UX.
                 async with httpx.AsyncClient(timeout=30.0) as http:
                     try:
-                        insight = await fetch_building_insight(
-                            lat, lng, client=http
-                        )
+                        insight = await fetch_building_insight(lat, lng, client=http)
                     except SolarApiNotFound:
                         if not allow_osm_snap:
                             log.info(
@@ -308,14 +299,13 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
                         # None on its own internal failures; the wait_for
                         # here is the belt-and-braces upper bound.
                         import asyncio
+
                         try:
                             snap = await asyncio.wait_for(
-                                find_nearest_building(
-                                    lat, lng, max_distance_m=80, client=http
-                                ),
+                                find_nearest_building(lat, lng, max_distance_m=80, client=http),
                                 timeout=15.0,
                             )
-                        except (asyncio.TimeoutError, Exception) as snap_exc:  # noqa: BLE001
+                        except (TimeoutError, Exception) as snap_exc:  # noqa: BLE001
                             log.warning(
                                 "creative.osm_snap_failed",
                                 lead_id=payload.lead_id,
@@ -329,9 +319,7 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
                                 lead_id=payload.lead_id,
                                 lat=lat,
                                 lng=lng,
-                                snap_distance_m=(
-                                    round(snap.distance_m, 1) if snap else None
-                                ),
+                                snap_distance_m=(round(snap.distance_m, 1) if snap else None),
                             )
                             raise
                         log.info(
@@ -348,9 +336,7 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
                         # rendering (before image crop, panel-paint
                         # prompt, telemetry) uses the snapped point.
                         lat, lng = snap.lat, snap.lng
-                        insight = await fetch_building_insight(
-                            lat, lng, client=http
-                        )
+                        insight = await fetch_building_insight(lat, lng, client=http)
                         # Sync the persisted roof row with the snapped
                         # building's coords + Solar values. Without
                         # this the email body would still show the
@@ -361,10 +347,12 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
                         # warned about.
                         try:
                             import geohash as _gh
+
                             new_geohash = _gh.encode(lat, lng, precision=9)
                             from ..services.roi_service import (
                                 compute_full_derivations,
                             )
+
                             new_derivations = compute_full_derivations(
                                 estimated_kwp=insight.estimated_kwp,
                                 estimated_yearly_kwh=insight.estimated_yearly_kwh,
@@ -377,12 +365,8 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
                                 panel_capacity_w=insight.panel_capacity_w,
                                 panel_width_m=insight.panel_width_m,
                                 panel_height_m=insight.panel_height_m,
-                                subject_type=(
-                                    subject.get("type") or "unknown"
-                                ),
-                                tenant_cost_assumptions=tenant_row.get(
-                                    "cost_assumptions"
-                                ),
+                                subject_type=(subject.get("type") or "unknown"),
+                                tenant_cost_assumptions=tenant_row.get("cost_assumptions"),
                             )
                             roof_update: dict[str, Any] = {
                                 "lat": lat,
@@ -398,9 +382,7 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
                             }
                             if new_derivations is not None:
                                 roof_update["derivations"] = new_derivations
-                            sb.table("roofs").update(roof_update).eq(
-                                "id", roof.get("id")
-                            ).execute()
+                            sb.table("roofs").update(roof_update).eq("id", roof.get("id")).execute()
                             log.info(
                                 "creative.roof_synced_after_snap",
                                 lead_id=payload.lead_id,
@@ -435,12 +417,16 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
                 # touching Replicate.
                 if settings.creative_skip_replicate:
                     before_bytes, after_bytes_offline = await render_before_after(
-                        lat, lng, insight,
+                        lat,
+                        lng,
+                        insight,
                         api_key=settings.google_solar_api_key or None,
                     )
                 else:
                     before_bytes = await render_before_only(
-                        lat, lng, insight,
+                        lat,
+                        lng,
+                        insight,
                         api_key=settings.google_solar_api_key or None,
                     )
                     after_bytes_offline = None  # filled in by Replicate path below
@@ -471,19 +457,13 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
                 #     (panel count, dominant azimuth, kWp scale, roof
                 #     geometry) but the pixels are produced by the AI
                 #     engine, not PIL.
-                primary_az = (
-                    insight.panels[0].segment_azimuth_deg
-                    if insight.panels
-                    else None
-                )
+                primary_az = insight.panels[0].segment_azimuth_deg if insight.panels else None
                 # Number of distinct roof planes — extracted from the
                 # per-panel ``segment_index`` so the prompt can constrain
                 # nano-banana on multi-segment roofs (typical for L-shaped
                 # houses and industrial buildings with mixed orientations).
                 roof_segment_count: int | None = (
-                    len({p.segment_index for p in insight.panels})
-                    if insight.panels
-                    else None
+                    len({p.segment_index for p in insight.panels}) if insight.panels else None
                 )
                 if settings.creative_skip_replicate and after_bytes_offline is not None:
                     # Offline path: render_before_after has already
@@ -593,24 +573,17 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
                 lead_id=payload.lead_id,
                 note="CREATIVE_SKIP_REPLICATE=true — bypassed Kling video",
             )
-        elif (
-            before_url is not None
-            and after_url is not None
-            and roi is not None
-        ):
+        elif before_url is not None and after_url is not None and roi is not None:
             try:
                 render_input = RenderTransitionInput(
                     before_image_url=before_url,
                     after_image_url=after_url,
                     kwp=roi.estimated_kwp,
                     yearly_savings_eur=roi.yearly_savings_eur,
-                    payback_years=roi.payback_years
-                    if roi.payback_years is not None
-                    else 0.0,
+                    payback_years=roi.payback_years if roi.payback_years is not None else 0.0,
                     co2_tonnes_lifetime=roi.co2_tonnes_25_years,
                     tenant_name=tenant_row.get("business_name") or "SolarLead",
-                    brand_primary_color=tenant_row.get("brand_primary_color")
-                    or "#0F766E",
+                    brand_primary_color=tenant_row.get("brand_primary_color") or "#0F766E",
                     brand_logo_url=tenant_row.get("brand_logo_url"),
                     output_path=f"{payload.tenant_id}/{payload.lead_id}",
                 )
@@ -684,9 +657,9 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
         if after_url is not None:
             current_status = roof.get("status")
             if current_status == RoofStatus.SCORED.value:
-                sb.table("roofs").update(
-                    {"status": RoofStatus.RENDERED.value}
-                ).eq("id", lead["roof_id"]).execute()
+                sb.table("roofs").update({"status": RoofStatus.RENDERED.value}).eq(
+                    "id", lead["roof_id"]
+                ).execute()
 
         out = CreativeOutput(
             lead_id=payload.lead_id,
@@ -713,17 +686,8 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
 # ---------------------------------------------------------------------------
 
 
-def _load_single(
-    sb: Any, table: str, row_id: str, tenant_id: str
-) -> dict[str, Any] | None:
-    res = (
-        sb.table(table)
-        .select("*")
-        .eq("id", row_id)
-        .eq("tenant_id", tenant_id)
-        .limit(1)
-        .execute()
-    )
+def _load_single(sb: Any, table: str, row_id: str, tenant_id: str) -> dict[str, Any] | None:
+    res = sb.table(table).select("*").eq("id", row_id).eq("tenant_id", tenant_id).limit(1).execute()
     data = res.data or []
     return data[0] if data else None
 

@@ -19,7 +19,7 @@ POST   /v1/email-templates/validate     Validate HTML without saving (syntax + G
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, status
@@ -36,35 +36,44 @@ log = get_logger(__name__)
 # GDPR-required variables that must appear in every custom template.
 # ---------------------------------------------------------------------------
 
-REQUIRED_VARS: frozenset[str] = frozenset({
-    "unsubscribe_url",
-    "tenant_legal_name",
-    "tenant_vat_number",
-    "tenant_legal_address",
-})
+REQUIRED_VARS: frozenset[str] = frozenset(
+    {
+        "unsubscribe_url",
+        "tenant_legal_name",
+        "tenant_vat_number",
+        "tenant_legal_address",
+    }
+)
 
 # All documented variables for the variable-picker UI.
 ALL_VARS: list[dict[str, str]] = [
     # Contact
-    {"slug": "greeting_name",        "label": "Nome contatto",        "example": "Mario Rossi"},
-    {"slug": "business_name",        "label": "Nome azienda",         "example": "Rossi S.r.l."},
-    {"slug": "hq_address",           "label": "Indirizzo",            "example": "Via Roma 1"},
-    {"slug": "hq_cap",               "label": "CAP",                  "example": "80100"},
-    {"slug": "hq_city",              "label": "Città",                "example": "Napoli"},
-    {"slug": "hq_province",          "label": "Provincia",            "example": "NA"},
-    {"slug": "phone",                "label": "Telefono",             "example": "+39 081 1234567"},
-    {"slug": "recipient_email",      "label": "Email destinatario",   "example": "mario@rossi.it"},
+    {"slug": "greeting_name", "label": "Nome contatto", "example": "Mario Rossi"},
+    {"slug": "business_name", "label": "Nome azienda", "example": "Rossi S.r.l."},
+    {"slug": "hq_address", "label": "Indirizzo", "example": "Via Roma 1"},
+    {"slug": "hq_cap", "label": "CAP", "example": "80100"},
+    {"slug": "hq_city", "label": "Città", "example": "Napoli"},
+    {"slug": "hq_province", "label": "Provincia", "example": "NA"},
+    {"slug": "phone", "label": "Telefono", "example": "+39 081 1234567"},
+    {"slug": "recipient_email", "label": "Email destinatario", "example": "mario@rossi.it"},
     # Sender
-    {"slug": "sender_first_name",    "label": "Nome mittente",        "example": "Alfonso"},
-    {"slug": "tenant_name",          "label": "Nome brand/azienda",   "example": "SolarTech"},
-    {"slug": "brand_logo_url",       "label": "Logo brand (URL)",     "example": "https://..."},
+    {"slug": "sender_first_name", "label": "Nome mittente", "example": "Alfonso"},
+    {"slug": "tenant_name", "label": "Nome brand/azienda", "example": "SolarTech"},
+    {"slug": "brand_logo_url", "label": "Logo brand (URL)", "example": "https://..."},
+    # Hero (rendering pipeline)
+    {"slug": "hero_gif_url", "label": "GIF rendering tetto (URL)", "example": "https://..."},
+    {
+        "slug": "hero_image_url",
+        "label": "Immagine statica fallback (URL)",
+        "example": "https://...",
+    },
     # GDPR (required)
-    {"slug": "unsubscribe_url",      "label": "Link disiscrizione ✱", "example": "https://..."},
-    {"slug": "tenant_legal_name",    "label": "Ragione sociale ✱",    "example": "SolarTech S.r.l."},
-    {"slug": "tenant_vat_number",    "label": "P.IVA ✱",              "example": "IT12345678901"},
-    {"slug": "tenant_legal_address", "label": "Sede legale ✱",        "example": "Via Roma 1, 00100 Roma"},
+    {"slug": "unsubscribe_url", "label": "Link disiscrizione ✱", "example": "https://..."},
+    {"slug": "tenant_legal_name", "label": "Ragione sociale ✱", "example": "SolarTech S.r.l."},
+    {"slug": "tenant_vat_number", "label": "P.IVA ✱", "example": "IT12345678901"},
+    {"slug": "tenant_legal_address", "label": "Sede legale ✱", "example": "Via Roma 1, 00100 Roma"},
     # Tracking
-    {"slug": "tracking_pixel_url",   "label": "Pixel tracking (URL)", "example": "https://..."},
+    {"slug": "tracking_pixel_url", "label": "Pixel tracking (URL)", "example": "https://..."},
 ]
 
 
@@ -126,22 +135,24 @@ def _template_belongs_to_tenant(sb: Any, template_id: str, tenant_id: str) -> bo
 # ---------------------------------------------------------------------------
 
 _PREVIEW_CONTEXT: dict[str, Any] = {
-    "greeting_name":        "Mario Rossi",
-    "business_name":        "Studio Rossi Amministrazioni",
-    "hq_address":           "Via Roma 42",
-    "hq_cap":               "80100",
-    "hq_city":              "Napoli",
-    "hq_province":          "NA",
-    "phone":                "+39 081 123 4567",
-    "recipient_email":      "mario.rossi@esempio.it",
-    "sender_first_name":    "Alfonso",
-    "tenant_name":          "SolarTech",
-    "brand_logo_url":       "",
-    "unsubscribe_url":      "https://solarld.app/optout/preview",
-    "tenant_legal_name":    "SolarTech S.r.l.",
-    "tenant_vat_number":    "IT12345678901",
+    "greeting_name": "Mario Rossi",
+    "business_name": "Studio Rossi Amministrazioni",
+    "hq_address": "Via Roma 42",
+    "hq_cap": "80100",
+    "hq_city": "Napoli",
+    "hq_province": "NA",
+    "phone": "+39 081 123 4567",
+    "recipient_email": "mario.rossi@esempio.it",
+    "sender_first_name": "Alfonso",
+    "tenant_name": "SolarTech",
+    "brand_logo_url": "",
+    "hero_gif_url": "https://solarld.app/preview/hero.gif",
+    "hero_image_url": "https://solarld.app/preview/hero.jpg",
+    "unsubscribe_url": "https://solarld.app/optout/preview",
+    "tenant_legal_name": "SolarTech S.r.l.",
+    "tenant_vat_number": "IT12345678901",
     "tenant_legal_address": "Via Milano 10, 20100 Milano MI",
-    "tracking_pixel_url":   "https://solarld.app/track/preview",
+    "tracking_pixel_url": "https://solarld.app/track/preview",
 }
 
 
@@ -149,6 +160,7 @@ def _render_preview(html: str, subject: str) -> dict[str, str]:
     """Render template with sample context via Jinja2. Best-effort."""
     try:
         from jinja2 import Environment, Undefined
+
         env = Environment(autoescape=False, undefined=Undefined)
         rendered_html = env.from_string(html).render(**_PREVIEW_CONTEXT)
         rendered_subject = env.from_string(subject).render(**_PREVIEW_CONTEXT)
@@ -206,14 +218,20 @@ async def create_template(body: CreateTemplateInput, ctx: CurrentUser) -> dict[s
 
     vars_used = _extract_variables(body.html)
     sb = get_service_client()
-    res = sb.table("email_templates").insert({
-        "tenant_id": tenant_id,
-        "name": body.name,
-        "subject": body.subject,
-        "html": body.html,
-        "plain_text": body.plain_text,
-        "variables_used": vars_used,
-    }).execute()
+    res = (
+        sb.table("email_templates")
+        .insert(
+            {
+                "tenant_id": tenant_id,
+                "name": body.name,
+                "subject": body.subject,
+                "html": body.html,
+                "plain_text": body.plain_text,
+                "variables_used": vars_used,
+            }
+        )
+        .execute()
+    )
     if not res.data:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -276,13 +294,10 @@ async def update_template(
 
     if not patch:
         # Nothing to update — return the current row.
-        res = (
-            sb.table("email_templates").select("*")
-            .eq("id", template_id).limit(1).execute()
-        )
+        res = sb.table("email_templates").select("*").eq("id", template_id).limit(1).execute()
         return res.data[0]
 
-    patch["updated_at"] = datetime.now(timezone.utc).isoformat()
+    patch["updated_at"] = datetime.now(UTC).isoformat()
     res = (
         sb.table("email_templates")
         .update(patch)
@@ -391,9 +406,7 @@ async def generate_variants(
         .execute()
     )
     if not res.data:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="template_not_found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="template_not_found")
     tpl = res.data[0]
 
     from ..services.variant_generator_service import generate_template_rewrite
@@ -418,13 +431,15 @@ async def generate_variants(
     out: list[dict[str, Any]] = []
     for r in rewrites:
         missing = _check_required_vars(r.html)
-        out.append({
-            "subject": r.subject,
-            "html": r.html,
-            "angle": r.angle,
-            "missing_required": missing,
-            "valid": len(missing) == 0,
-        })
+        out.append(
+            {
+                "subject": r.subject,
+                "html": r.html,
+                "angle": r.angle,
+                "missing_required": missing,
+                "valid": len(missing) == 0,
+            }
+        )
 
     log.info(
         "email_template.generate_variants",
@@ -442,9 +457,7 @@ async def generate_variants(
 # ---------------------------------------------------------------------------
 
 
-def get_template_for_list(
-    sb: Any, *, list_id: str, tenant_id: str
-) -> dict[str, Any] | None:
+def get_template_for_list(sb: Any, *, list_id: str, tenant_id: str) -> dict[str, Any] | None:
     """Return the email_template row linked to a prospect_list, or None."""
     res = (
         sb.table("prospect_lists")
@@ -489,16 +502,12 @@ def render_template_for_lead(
 
     # Build context from lead data.
     place_blob = (subject_row.get("raw_data") or {}).get("enrichment_places") or {}
-    scraped = {}
     # Try contact extraction
-    contact = {}
 
     # Resolve address pieces — prefer scan_candidate enrichment data via raw_data,
     # fall back to subject fields.
     hq_address = (
-        subject_row.get("sede_operativa_address")
-        or place_blob.get("formatted_address")
-        or ""
+        subject_row.get("sede_operativa_address") or place_blob.get("formatted_address") or ""
     )
 
     # Parse CAP / city / province from the address string best-effort.
@@ -506,22 +515,31 @@ def render_template_for_lead(
     # For now expose the full address and let the template author decide.
 
     context: dict[str, Any] = {
-        "greeting_name":        subject_row.get("decision_maker_name") or subject_row.get("business_name") or "",
-        "business_name":        subject_row.get("business_name") or "",
-        "hq_address":           hq_address,
-        "hq_cap":               "",
-        "hq_city":              "",
-        "hq_province":          "",
-        "phone":                subject_row.get("decision_maker_phone") or "",
-        "recipient_email":      subject_row.get("decision_maker_email") or "",
-        "sender_first_name":    (tenant_row.get("email_from_name") or tenant_row.get("business_name") or "").split()[0],
-        "tenant_name":          tenant_row.get("business_name") or "",
-        "brand_logo_url":       tenant_row.get("brand_logo_url") or "",
-        "unsubscribe_url":      optout_url,
-        "tenant_legal_name":    tenant_row.get("legal_name") or tenant_row.get("business_name") or "",
-        "tenant_vat_number":    tenant_row.get("vat_number") or "",
+        "greeting_name": subject_row.get("decision_maker_name")
+        or subject_row.get("business_name")
+        or "",
+        "business_name": subject_row.get("business_name") or "",
+        "hq_address": hq_address,
+        "hq_cap": "",
+        "hq_city": "",
+        "hq_province": "",
+        "phone": subject_row.get("decision_maker_phone") or "",
+        "recipient_email": subject_row.get("decision_maker_email") or "",
+        "sender_first_name": (
+            tenant_row.get("email_from_name") or tenant_row.get("business_name") or ""
+        ).split()[0],
+        "tenant_name": tenant_row.get("business_name") or "",
+        "brand_logo_url": tenant_row.get("brand_logo_url") or "",
+        "unsubscribe_url": optout_url,
+        "tenant_legal_name": tenant_row.get("legal_name") or tenant_row.get("business_name") or "",
+        "tenant_vat_number": tenant_row.get("vat_number") or "",
         "tenant_legal_address": tenant_row.get("legal_address") or "",
-        "tracking_pixel_url":   tracking_pixel_url or "",
+        "tracking_pixel_url": tracking_pixel_url or "",
+        # Hero from the rendering pipeline (Remotion → Supabase). Same
+        # priority chain used by OutreachAgent for the built-in Solar
+        # template family — see agents/outreach.py.
+        "hero_gif_url": (lead.get("rendering_gif_cdn_url") or lead.get("rendering_gif_url") or ""),
+        "hero_image_url": lead.get("rendering_image_url") or "",
     }
 
     env = Environment(autoescape=False, undefined=Undefined)

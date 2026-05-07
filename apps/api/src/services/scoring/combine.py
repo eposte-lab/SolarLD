@@ -58,7 +58,7 @@ class ScoringWeights:
     distance: float
 
     @classmethod
-    def from_jsonb(cls, data: dict[str, Any] | None) -> "ScoringWeights":
+    def from_jsonb(cls, data: dict[str, Any] | None) -> ScoringWeights:
         """Build weights from the `scoring_weights.weights` JSON blob.
 
         Falls back to the PRD V1 default when fields are missing.
@@ -73,15 +73,10 @@ class ScoringWeights:
         )
 
     def total(self) -> float:
-        return (
-            self.technical + self.consumption + self.incentives
-            + self.solvency + self.distance
-        )
+        return self.technical + self.consumption + self.incentives + self.solvency + self.distance
 
 
-def combine_breakdown(
-    breakdown: ScoringBreakdown, weights: ScoringWeights
-) -> int:
+def combine_breakdown(breakdown: ScoringBreakdown, weights: ScoringWeights) -> int:
     """Weighted average → 0..100 integer score.
 
     If the weights sum to 0 (misconfiguration) we fall back to an equal
@@ -89,10 +84,18 @@ def combine_breakdown(
     """
     total = weights.total()
     if total <= 0:
-        return int(round(
-            (breakdown.technical + breakdown.consumption + breakdown.incentives
-             + breakdown.solvency + breakdown.distance) / 5.0
-        ))
+        return int(
+            round(
+                (
+                    breakdown.technical
+                    + breakdown.consumption
+                    + breakdown.incentives
+                    + breakdown.solvency
+                    + breakdown.distance
+                )
+                / 5.0
+            )
+        )
     weighted = (
         breakdown.technical * weights.technical
         + breakdown.consumption * weights.consumption

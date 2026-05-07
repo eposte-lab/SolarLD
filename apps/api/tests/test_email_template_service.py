@@ -12,7 +12,6 @@ These tests ensure:
 from __future__ import annotations
 
 import pytest
-from jinja2 import UndefinedError
 
 from src.services.email_template_service import (
     OutreachContext,
@@ -92,7 +91,7 @@ def test_default_subject_for_case_insensitive() -> None:
 
 
 @pytest.mark.parametrize(
-    "value,expected",
+    ("value", "expected"),
     [
         (0, "0"),
         (5, "5"),
@@ -203,8 +202,13 @@ def test_render_unknown_subject_type_falls_back_to_b2c() -> None:
 
 def test_render_roi_none_still_renders() -> None:
     out = render_outreach_email(
-        _ctx(subject_type="b2c", roi=None, business_name=None,
-             ateco_code=None, ateco_description=None)
+        _ctx(
+            subject_type="b2c",
+            roi=None,
+            business_name=None,
+            ateco_code=None,
+            ateco_description=None,
+        )
     )
     # The ROI block should be suppressed but the body should still be there.
     assert "<html" in out.html.lower() or "<body" in out.html.lower()

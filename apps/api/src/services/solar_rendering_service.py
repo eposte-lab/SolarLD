@@ -95,15 +95,16 @@ def _adaptive_padding_factor(cluster_half_diag_m: float) -> float:
     t = (cluster_half_diag_m - 8.0) / (35.0 - 8.0)
     return 1.45 - 0.35 * t
 
+
 # ── Panel visual style ─────────────────────────────────────────────────────
 # Colours are chosen to look like monocrystalline silicon panels seen
 # from above at ~45° solar angle: dark base + subtle blue cell sheen +
 # silver frame edge.
-PANEL_FILL = (18, 32, 62)          # #12203E  — very dark blue
-PANEL_CELL_1 = (22, 52, 100)       # #163464  — medium blue cell grid
-PANEL_CELL_2 = (30, 70, 130)       # #1E4682  — lighter blue highlight
-PANEL_FRAME = (210, 215, 220)      # silver frame edge
-PANEL_FRAME_WIDTH = 2              # pixels
+PANEL_FILL = (18, 32, 62)  # #12203E  — very dark blue
+PANEL_CELL_1 = (22, 52, 100)  # #163464  — medium blue cell grid
+PANEL_CELL_2 = (30, 70, 130)  # #1E4682  — lighter blue highlight
+PANEL_FRAME = (210, 215, 220)  # silver frame edge
+PANEL_FRAME_WIDTH = 2  # pixels
 # Number of cell columns / rows drawn inside each panel.
 CELL_COLS = 6
 CELL_ROWS = 10
@@ -116,6 +117,7 @@ class SolarRenderingError(Exception):
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
+
 
 def build_scene3d(
     *,
@@ -202,9 +204,7 @@ async def render_before_only(
         )
 
         try:
-            tiff_bytes = await download_geotiff(
-                data_layers.rgb_url, client=client, api_key=api_key
-            )
+            tiff_bytes = await download_geotiff(data_layers.rgb_url, client=client, api_key=api_key)
         except SolarApiError as exc:
             raise SolarRenderingError(f"GeoTIFF download failed: {exc}") from exc
     finally:
@@ -212,9 +212,7 @@ async def render_before_only(
             await client.aclose()
 
     try:
-        before_img, _transform = _load_and_crop(
-            tiff_bytes, lat, lng, insight, radius_m=50
-        )
+        before_img, _transform = _load_and_crop(tiff_bytes, lat, lng, insight, radius_m=50)
     except Exception as exc:
         raise SolarRenderingError(f"image processing failed: {exc}") from exc
 
@@ -262,9 +260,7 @@ async def render_before_after(
 
         # 2) Download the GeoTIFF.
         try:
-            tiff_bytes = await download_geotiff(
-                data_layers.rgb_url, client=client, api_key=api_key
-            )
+            tiff_bytes = await download_geotiff(data_layers.rgb_url, client=client, api_key=api_key)
         except SolarApiError as exc:
             raise SolarRenderingError(f"GeoTIFF download failed: {exc}") from exc
 
@@ -274,9 +270,7 @@ async def render_before_after(
 
     # 3) Parse + crop.
     try:
-        before_img, transform = _load_and_crop(
-            tiff_bytes, lat, lng, insight, radius_m=50
-        )
+        before_img, transform = _load_and_crop(tiff_bytes, lat, lng, insight, radius_m=50)
     except Exception as exc:
         raise SolarRenderingError(f"image processing failed: {exc}") from exc
 
@@ -284,8 +278,13 @@ async def render_before_after(
 
     # 4) Draw panel overlay.
     try:
-        after_img = _draw_panels(before_img.copy(), insight.panels, transform,
-                                 insight.panel_width_m, insight.panel_height_m)
+        after_img = _draw_panels(
+            before_img.copy(),
+            insight.panels,
+            transform,
+            insight.panel_width_m,
+            insight.panel_height_m,
+        )
     except Exception as exc:
         log.warning("solar_rendering.panel_draw_failed", err=str(exc))
         # Non-fatal: after = before (no panels) rather than crashing.
@@ -306,6 +305,7 @@ async def render_before_after(
 # GeoTIFF loading and cropping
 # ---------------------------------------------------------------------------
 
+
 class _GeoTransform:
     """Affine transform: (lat, lng) ↔ pixel (col, row) in the original image."""
 
@@ -313,10 +313,10 @@ class _GeoTransform:
         self,
         west_lng: float,
         north_lat: float,
-        scale_x: float,   # degrees per pixel in longitude
-        scale_y: float,   # degrees per pixel in latitude (positive)
-        crop_col: int,    # column offset of the crop within the original
-        crop_row: int,    # row offset of the crop within the original
+        scale_x: float,  # degrees per pixel in longitude
+        scale_y: float,  # degrees per pixel in latitude (positive)
+        crop_col: int,  # column offset of the crop within the original
+        crop_row: int,  # row offset of the crop within the original
     ) -> None:
         self.west_lng = west_lng
         self.north_lat = north_lat
@@ -368,12 +368,14 @@ def _find_georef_page(img: Image.Image) -> Image.Image:
             pages_seen.append({"idx": idx, "size": page.size, "tags": None})
             continue
         tag_ids = list(tags.keys())
-        pages_seen.append({
-            "idx": idx,
-            "size": page.size,
-            "mode": page.mode,
-            "tag_ids": sorted(tag_ids),
-        })
+        pages_seen.append(
+            {
+                "idx": idx,
+                "size": page.size,
+                "mode": page.mode,
+                "tag_ids": sorted(tag_ids),
+            }
+        )
         if 33550 in tags and 33922 in tags:
             log.info(
                 "solar_rendering.georef_page_found",
@@ -406,14 +408,14 @@ def _parse_geotiff_tags(img: Image.Image) -> tuple[float, float, float, float]:
     tags = page.tag_v2  # type: ignore[attr-defined]
 
     scale = _to_doubles(tags[33550])  # (ScaleX, ScaleY, ...)
-    tie = _to_doubles(tags[33922])    # (I, J, K, X, Y, Z, ...)
+    tie = _to_doubles(tags[33922])  # (I, J, K, X, Y, Z, ...)
 
     # Tiepoint: pixel (I, J) maps to geographic (X=lng, Y=lat)
     # For top-left origin (I=J=0): X=west_lng, Y=north_lat
     west_lng = tie[3]
     north_lat = tie[4]
-    scale_x = scale[0]   # degrees per pixel in longitude
-    scale_y = scale[1]   # degrees per pixel in latitude (positive: row↓ = lat↓)
+    scale_x = scale[0]  # degrees per pixel in longitude
+    scale_y = scale[1]  # degrees per pixel in latitude (positive: row↓ = lat↓)
 
     if scale_x <= 0 or scale_y <= 0:
         raise SolarRenderingError(
@@ -445,9 +447,7 @@ def _derive_geo_from_request(
     meters_per_deg_lat = 111_320.0
     meters_per_deg_lng = 111_320.0 * math.cos(math.radians(center_lat))
     if meters_per_deg_lng <= 0:
-        raise SolarRenderingError(
-            f"Cannot derive geo transform at center_lat={center_lat}"
-        )
+        raise SolarRenderingError(f"Cannot derive geo transform at center_lat={center_lat}")
     width_deg = (2 * radius_m) / meters_per_deg_lng
     height_deg = (2 * radius_m) / meters_per_deg_lat
     west_lng = center_lng - width_deg / 2
@@ -518,9 +518,7 @@ def _load_and_crop(
         panel_lngs = [p.lng for p in insight.panels]
         cluster_height_m = (max(panel_lats) - min(panel_lats)) * 111_320.0
         cluster_width_m = (
-            (max(panel_lngs) - min(panel_lngs))
-            * 111_320.0
-            * math.cos(math.radians(center_lat))
+            (max(panel_lngs) - min(panel_lngs)) * 111_320.0 * math.cos(math.radians(center_lat))
         )
         # Half-diagonal of the panel cluster — the smallest circle
         # that still contains every panel, centred on the cluster.
@@ -624,6 +622,7 @@ class _GeoTransformScaled(_GeoTransform):
 # Panel overlay drawing
 # ---------------------------------------------------------------------------
 
+
 def _rotate_corners(
     cx: float, cy: float, half_w: float, half_h: float, angle_deg: float
 ) -> list[tuple[float, float]]:
@@ -638,10 +637,7 @@ def _rotate_corners(
     cos_a = math.cos(theta)
     sin_a = math.sin(theta)
     local = [(-half_w, -half_h), (half_w, -half_h), (half_w, half_h), (-half_w, half_h)]
-    return [
-        (cx + dx * cos_a + dy * sin_a, cy - dx * sin_a + dy * cos_a)
-        for dx, dy in local
-    ]
+    return [(cx + dx * cos_a + dy * sin_a, cy - dx * sin_a + dy * cos_a) for dx, dy in local]
 
 
 def _panel_rotation_deg(panel: SolarPanel) -> float:
@@ -661,7 +657,7 @@ def _panel_rotation_deg(panel: SolarPanel) -> float:
     """
     azimuth = panel.segment_azimuth_deg % 360.0
     if panel.orientation == "PORTRAIT":
-        return azimuth % 180.0   # long axis parallel to azimuth, wrapped to [0,180)
+        return azimuth % 180.0  # long axis parallel to azimuth, wrapped to [0,180)
     # LANDSCAPE: long axis perpendicular to azimuth
     return (azimuth + 90.0) % 180.0
 
@@ -763,6 +759,7 @@ def _draw_panels(
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _to_png_bytes(img: Image.Image) -> bytes:
     buf = io.BytesIO()
     img.convert("RGB").save(buf, format="PNG", optimize=True, compress_level=6)
@@ -772,6 +769,7 @@ def _to_png_bytes(img: Image.Image) -> bytes:
 # ---------------------------------------------------------------------------
 # Convenience: fetch insight + render in one call (used by tests / admin)
 # ---------------------------------------------------------------------------
+
 
 async def render_lead(
     lat: float,

@@ -35,12 +35,14 @@ Read-only — no writes happen here. Snapshotting into
 
 from __future__ import annotations
 
-from typing import Any
-from uuid import UUID
+from typing import TYPE_CHECKING, Any
 
 from ..core.logging import get_logger
 from ..core.supabase_client import get_service_client
 from .roi_service import compute_roi
+
+if TYPE_CHECKING:
+    from uuid import UUID
 
 log = get_logger(__name__)
 
@@ -131,7 +133,10 @@ _TEMPLATE_REQUIREMENTS: dict[str, list[tuple[str, str]]] = {
         ("componenti.pannelli.marca", "Marca moduli"),
         ("componenti.pannelli.modello", "Modello moduli"),
         ("impianto.data_fine_lavori", "Data fine lavori"),
-        ("extras.codice_identificativo_connessione", "Codice identificativo connessione (assegnato dal distributore)"),
+        (
+            "extras.codice_identificativo_connessione",
+            "Codice identificativo connessione (assegnato dal distributore)",
+        ),
         ("extras.regime_ritiro", "Regime ritiro energia"),
     ],
     "schema_unifilare": [
@@ -225,20 +230,14 @@ class PracticeDataMapper:
         # embed may be None — defensive .get() throughout.
         practice_res = (
             self._sb.table("practices")
-            .select(
-                "*, "
-                "leads:lead_id(*, subjects(*), roofs(*)), "
-                "lead_quotes:quote_id(*)"
-            )
+            .select("*, leads:lead_id(*, subjects(*), roofs(*)), lead_quotes:quote_id(*)")
             .eq("id", self._practice_id)
             .eq("tenant_id", self._tenant_id)
             .limit(1)
             .execute()
         )
         if not practice_res.data:
-            raise ValueError(
-                f"practice {self._practice_id} not found for tenant {self._tenant_id}"
-            )
+            raise ValueError(f"practice {self._practice_id} not found for tenant {self._tenant_id}")
         self._practice = practice_res.data[0]
         self._lead = self._practice.get("leads") or {}
         self._subject = self._lead.get("subjects") or {}
@@ -403,9 +402,7 @@ class PracticeDataMapper:
             "codice_fiscale": t.get("codice_fiscale") or "",
             "numero_cciaa": t.get("numero_cciaa") or "",
             "sede_legale": t.get("legal_address") or settings.get("sede_legale") or "",
-            "sede_operativa": settings.get("sede_operativa")
-            or t.get("legal_address")
-            or "",
+            "sede_operativa": settings.get("sede_operativa") or t.get("legal_address") or "",
             # Contatti.
             "email": t.get("contact_email") or "",
             "telefono": t.get("contact_phone") or "",
@@ -423,17 +420,10 @@ class PracticeDataMapper:
                 t.get("responsabile_tecnico_nome"),
                 t.get("responsabile_tecnico_cognome"),
             ),
-            "responsabile_tecnico_codice_fiscale": t.get(
-                "responsabile_tecnico_codice_fiscale"
-            )
+            "responsabile_tecnico_codice_fiscale": t.get("responsabile_tecnico_codice_fiscale")
             or "",
-            "responsabile_tecnico_qualifica": t.get(
-                "responsabile_tecnico_qualifica"
-            )
-            or "",
-            "responsabile_tecnico_iscrizione_albo": t.get(
-                "responsabile_tecnico_iscrizione_albo"
-            )
+            "responsabile_tecnico_qualifica": t.get("responsabile_tecnico_qualifica") or "",
+            "responsabile_tecnico_iscrizione_albo": t.get("responsabile_tecnico_iscrizione_albo")
             or "",
         }
 
@@ -594,8 +584,7 @@ class PracticeDataMapper:
             },
             "accumulo": {
                 "presente": bool(
-                    (c.get("accumulo") or {}).get("presente")
-                    or manual.get("tech_accumulo_incluso")
+                    (c.get("accumulo") or {}).get("presente") or manual.get("tech_accumulo_incluso")
                 ),
                 "marca": (c.get("accumulo") or {}).get("marca") or "",
                 "modello": (c.get("accumulo") or {}).get("modello") or "",
@@ -641,9 +630,7 @@ class PracticeDataMapper:
             "kwp": _to_float(r.get("estimated_kwp")),
             "kwh_annui": _to_float(r.get("estimated_yearly_kwh")),
             "co2_kg_anno": roi_jsonb.get("co2_kg_per_year") or 0,
-            "co2_ton_anno": _to_round(
-                (roi_jsonb.get("co2_kg_per_year") or 0) / 1000.0, 2
-            ),
+            "co2_ton_anno": _to_round((roi_jsonb.get("co2_kg_per_year") or 0) / 1000.0, 2),
             "risparmio_anno_eur": roi_jsonb.get("net_self_savings_eur") or 0,
             "risparmio_25_anni_eur": roi_jsonb.get("savings_25y_eur") or 0,
             "payback_anni": roi_jsonb.get("payback_years") or 0,

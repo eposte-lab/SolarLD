@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import base64
 import email.utils
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from email.message import EmailMessage
 from typing import Any
 
@@ -45,9 +45,7 @@ from .base import EmailProvider, ProviderError, SendEmailInput, SendResult
 log = get_logger(__name__)
 
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
-GMAIL_SEND_URL = (
-    "https://gmail.googleapis.com/gmail/v1/users/me/messages/send"
-)
+GMAIL_SEND_URL = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send"
 # Refresh an access token 5 min before expiry so parallel workers don't
 # race at the cliff.
 REFRESH_BUFFER_SECONDS = 300
@@ -178,10 +176,8 @@ class GmailProvider(EmailProvider):
         if encrypted_access and expires_at:
             # ``expires_at`` may arrive as string (PostgREST) or datetime.
             expiry_dt = _parse_ts(expires_at)
-            if (
-                expiry_dt
-                and expiry_dt
-                > datetime.now(timezone.utc) + timedelta(seconds=REFRESH_BUFFER_SECONDS)
+            if expiry_dt and expiry_dt > datetime.now(UTC) + timedelta(
+                seconds=REFRESH_BUFFER_SECONDS
             ):
                 try:
                     return decrypt(encrypted_access)
@@ -195,9 +191,7 @@ class GmailProvider(EmailProvider):
 
         return await self._refresh_access_token(inbox, force=False)
 
-    async def _refresh_access_token(
-        self, inbox: dict[str, Any], *, force: bool
-    ) -> str:
+    async def _refresh_access_token(self, inbox: dict[str, Any], *, force: bool) -> str:
         """Exchange the refresh token for a new access token."""
         encrypted_refresh = inbox.get("oauth_refresh_token_encrypted")
         if not encrypted_refresh:
@@ -273,7 +267,7 @@ class GmailProvider(EmailProvider):
                 retryable=True,
             )
 
-        expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
+        expires_at = datetime.now(UTC) + timedelta(seconds=expires_in)
         await self._persist_access_token(inbox, access_token, expires_at)
         return access_token
 
@@ -309,9 +303,7 @@ class GmailProvider(EmailProvider):
                 err=str(exc),
             )
 
-    async def _record_auth_error(
-        self, inbox: dict[str, Any], reason: str
-    ) -> None:
+    async def _record_auth_error(self, inbox: dict[str, Any], reason: str) -> None:
         """Mark the inbox inactive + surface the error for the dashboard."""
         if self._sb is None:
             return
@@ -322,7 +314,7 @@ class GmailProvider(EmailProvider):
                     {
                         "active": False,
                         "oauth_last_error": reason[:500],
-                        "oauth_last_error_at": datetime.now(timezone.utc).isoformat(),
+                        "oauth_last_error_at": datetime.now(UTC).isoformat(),
                     }
                 )
                 .eq("id", inbox["id"])
@@ -395,7 +387,7 @@ def _html_to_text_fallback(html: str) -> str:
 def _parse_ts(value: Any) -> datetime | None:
     """Parse a PostgREST timestamptz into aware datetime. None on failure."""
     if isinstance(value, datetime):
-        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        return value if value.tzinfo else value.replace(tzinfo=UTC)
     if isinstance(value, str):
         try:
             # PostgREST emits e.g. "2026-04-24T10:15:32+00:00"

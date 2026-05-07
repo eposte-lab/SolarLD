@@ -56,11 +56,9 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import sys
-import time
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from typing import Any
 
 import httpx
@@ -80,9 +78,9 @@ SMARTLEAD_BASE_URL = "https://server.smartlead.ai/api/v1"
 # We set a generous target here; Smartlead ramps up automatically based on
 # inbox health, so the hard per-day cap comes from rate_limit_service,
 # not from Smartlead's own warmup scheduler.
-DEFAULT_WARMUP_TARGET_PER_DAY = 40     # max warmup emails per day
-DEFAULT_WARMUP_DAILY_RAMPUP = 2        # daily increment
-DEFAULT_WARMUP_REPLY_RATE_PCT = 30     # % of warmup emails that should get a reply
+DEFAULT_WARMUP_TARGET_PER_DAY = 40  # max warmup emails per day
+DEFAULT_WARMUP_DAILY_RAMPUP = 2  # daily increment
+DEFAULT_WARMUP_REPLY_RATE_PCT = 30  # % of warmup emails that should get a reply
 
 # HTTP client config
 _HTTP_TIMEOUT = httpx.Timeout(30.0, connect=10.0)
@@ -135,7 +133,7 @@ class SmartleadAccount:
     # These come from the warmup-stats endpoint
     warmup_emails_sent_today: int = 0
     warmup_reply_rate_actual: float = 0.0
-    health_score: float | None = None   # 0-100; None if not yet computed
+    health_score: float | None = None  # 0-100; None if not yet computed
     raw: dict = field(default_factory=dict)
 
 
@@ -145,8 +143,8 @@ class WarmupStats:
 
     account_id: int
     email: str
-    date: str          # ISO date of this stat snapshot
-    sent_count: int    # warmup emails sent on this date
+    date: str  # ISO date of this stat snapshot
+    sent_count: int  # warmup emails sent on this date
     received_count: int
     reply_count: int
     reply_rate_pct: float
@@ -289,11 +287,11 @@ async def enroll_inbox(
             "reply_rate_percentage": warmup_reply_rate_pct,
         }
         result = await _request("POST", "/email-accounts/save", json_body=payload)
-        account_id: int = int(
-            result.get("id") or result.get("email_account_id") or 0
-        )
+        account_id: int = int(result.get("id") or result.get("email_account_id") or 0)
         if not account_id:
-            raise SmartleadError(f"Enroll did not return account ID for {email}. Response: {result}")
+            raise SmartleadError(
+                f"Enroll did not return account ID for {email}. Response: {result}"
+            )
         log.info("smartlead.enrolled", email=email, account_id=account_id)
     else:
         account_id = existing.id
@@ -382,17 +380,17 @@ async def sync_warmup_to_db(
                 # Mark start date if not already set (first day of warm-up).
                 # We need to read the current row first.
                 res = await asyncio.to_thread(
-                    lambda: sb.table("tenant_inboxes")
-                    .select("id, warmup_started_at")
-                    .eq("email", email)
-                    .eq("tenant_id", tenant_id)
-                    .limit(1)
-                    .execute()
+                    lambda: (
+                        sb.table("tenant_inboxes")
+                        .select("id, warmup_started_at")
+                        .eq("email", email)
+                        .eq("tenant_id", tenant_id)
+                        .limit(1)
+                        .execute()
+                    )
                 )
                 if res.data and res.data[0].get("warmup_started_at") is None:
-                    update_payload["warmup_started_at"] = datetime.now(
-                        tz=timezone.utc
-                    ).isoformat()
+                    update_payload["warmup_started_at"] = datetime.now(tz=UTC).isoformat()
 
             # Persist health score in a JSON metadata blob if the column exists.
             # Gracefully skipped if the column doesn't exist yet.
@@ -401,11 +399,13 @@ async def sync_warmup_to_db(
 
             if update_payload:
                 await asyncio.to_thread(
-                    lambda: sb.table("tenant_inboxes")
-                    .update(update_payload)
-                    .eq("email", email)
-                    .eq("tenant_id", tenant_id)
-                    .execute()
+                    lambda: (
+                        sb.table("tenant_inboxes")
+                        .update(update_payload)
+                        .eq("email", email)
+                        .eq("tenant_id", tenant_id)
+                        .execute()
+                    )
                 )
 
             summary[email] = {
@@ -445,12 +445,14 @@ async def get_all_smartlead_ids_for_tenant(
     is null (handles inboxes enrolled before this column was added).
     """
     res = await asyncio.to_thread(
-        lambda: sb.table("tenant_inboxes")
-        .select("email, smartlead_account_id")
-        .eq("tenant_id", tenant_id)
-        .eq("active", True)
-        .eq("provider", "gmail_oauth")
-        .execute()
+        lambda: (
+            sb.table("tenant_inboxes")
+            .select("email, smartlead_account_id")
+            .eq("tenant_id", tenant_id)
+            .eq("active", True)
+            .eq("provider", "gmail_oauth")
+            .execute()
+        )
     )
     if not res.data:
         return {}
@@ -476,11 +478,13 @@ async def get_all_smartlead_ids_for_tenant(
                     mapping[email] = sl_id
                     # Back-fill the DB column for next time.
                     await asyncio.to_thread(
-                        lambda: sb.table("tenant_inboxes")
-                        .update({"smartlead_account_id": sl_id})
-                        .eq("email", email)
-                        .eq("tenant_id", tenant_id)
-                        .execute()
+                        lambda: (
+                            sb.table("tenant_inboxes")
+                            .update({"smartlead_account_id": sl_id})
+                            .eq("email", email)
+                            .eq("tenant_id", tenant_id)
+                            .execute()
+                        )
                     )
         except SmartleadError as exc:
             log.warning(
@@ -637,6 +641,7 @@ async def enroll_all_from_topology(
 # CLI entry-point
 # ---------------------------------------------------------------------------
 
+
 def _cli_main() -> None:
     """Minimal CLI for bulk operations.
 
@@ -716,8 +721,7 @@ def _cli_main() -> None:
                     passwords = json.load(fh)
             elif not args.dry_run:
                 print(
-                    "❌  No passwords provided. Use --passwords, --passwords-file, "
-                    "or --dry-run.",
+                    "❌  No passwords provided. Use --passwords, --passwords-file, or --dry-run.",
                     file=sys.stderr,
                 )
                 sys.exit(1)

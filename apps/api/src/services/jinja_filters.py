@@ -11,9 +11,10 @@ Use ``register_italian_filters(env)`` to attach them to a Jinja
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from jinja2 import Environment
+if TYPE_CHECKING:
+    from jinja2 import Environment
 
 
 def format_money(value: Any) -> str:

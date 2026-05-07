@@ -47,9 +47,7 @@ def _build_subject_row(*a: object, **kw: object) -> dict:  # type: ignore[empty-
 
 
 def test_confidence_all_sources_present() -> None:
-    score = _confidence_score(
-        ["visura", "atoka", "hunter_io", "neverbounce"], email_verified=True
-    )
+    score = _confidence_score(["visura", "atoka", "hunter_io", "neverbounce"], email_verified=True)
     assert score == 1.0
 
 
@@ -121,9 +119,7 @@ def test_pii_hash_is_case_and_accent_insensitive() -> None:
 
 
 def test_pii_hash_fallback_uses_locality_marker() -> None:
-    h = _compute_pii_hash(
-        visura=None, atoka=None, fallback_city="Napoli", fallback_cap="80100"
-    )
+    h = _compute_pii_hash(visura=None, atoka=None, fallback_city="Napoli", fallback_cap="80100")
     assert h == _sha256_normalized("anon|80100|Napoli")
 
 

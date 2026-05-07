@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import csv
 import io
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query
@@ -76,9 +76,7 @@ def _flatten(row: dict[str, Any]) -> dict[str, Any]:
         "score": row.get("score"),
         "score_tier": row.get("score_tier"),
         "feedback": row.get("feedback"),
-        "contract_value_eur": (
-            f"{contract_cents / 100:.2f}" if contract_cents else ""
-        ),
+        "contract_value_eur": (f"{contract_cents / 100:.2f}" if contract_cents else ""),
         "created_at": row.get("created_at"),
         "outreach_channel": row.get("outreach_channel"),
         "outreach_sent_at": row.get("outreach_sent_at"),
@@ -92,9 +90,7 @@ def _flatten(row: dict[str, Any]) -> dict[str, Any]:
         "owner_first_name": subj.get("owner_first_name"),
         "owner_last_name": subj.get("owner_last_name"),
         "decision_maker_email": subj.get("decision_maker_email"),
-        "decision_maker_email_verified": subj.get(
-            "decision_maker_email_verified"
-        ),
+        "decision_maker_email_verified": subj.get("decision_maker_email_verified"),
         "ateco_code": subj.get("ateco_code"),
         "partita_iva": subj.get("partita_iva"),
         "roof_address": roof.get("address"),
@@ -149,24 +145,15 @@ async def list_leads(
         # `outreach_sent_at <= now() - N days` AND outreach_sent_at NOT NULL
         from datetime import timedelta
 
-        cutoff = (
-            datetime.now(timezone.utc)
-            - timedelta(days=days_since_outreach_min)
-        ).isoformat()
-        query = query.not_.is_("outreach_sent_at", "null").lte(
-            "outreach_sent_at", cutoff
-        )
+        cutoff = (datetime.now(UTC) - timedelta(days=days_since_outreach_min)).isoformat()
+        query = query.not_.is_("outreach_sent_at", "null").lte("outreach_sent_at", cutoff)
     if pipeline_status_in:
         statuses = [s.strip() for s in pipeline_status_in.split(",") if s.strip()]
         if statuses:
             query = query.in_("pipeline_status", statuses)
 
     offset = (page - 1) * per_page
-    res = (
-        query.order("score", desc=True)
-        .range(offset, offset + per_page - 1)
-        .execute()
-    )
+    res = query.order("score", desc=True).range(offset, offset + per_page - 1).execute()
 
     return {
         "data": res.data or [],
@@ -210,9 +197,7 @@ async def list_hot_leads(
     # from a month ago would camp the top of the list forever.
     from datetime import timedelta
 
-    cutoff = (
-        datetime.now(timezone.utc) - timedelta(hours=since_hours)
-    ).isoformat()
+    cutoff = (datetime.now(UTC) - timedelta(hours=since_hours)).isoformat()
 
     # Pipeline statuses that mean the lead has *already* moved past
     # the "needs follow-up" point. We want the gap between
@@ -313,7 +298,7 @@ async def export_leads_csv(
             writer.writerow(_flatten(row))
             yield buf.getvalue()
 
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     filename = f"solarlead-leads-{stamp}.csv"
     return StreamingResponse(
         _generate(),
@@ -370,13 +355,7 @@ async def set_feedback(
     }
     if payload.contract_value_eur is not None:
         update["contract_value_cents"] = int(payload.contract_value_eur * 100)
-    res = (
-        sb.table("leads")
-        .update(update)
-        .eq("id", lead_id)
-        .eq("tenant_id", tenant_id)
-        .execute()
-    )
+    res = sb.table("leads").update(update).eq("id", lead_id).eq("tenant_id", tenant_id).execute()
 
     # Fan out contract_signed to any registered CRM endpoints AND drop
     # an in-app notification — this is the single most important
@@ -485,7 +464,8 @@ async def delete_lead(
                     None,
                     [subj.get("owner_first_name"), subj.get("owner_last_name")],
                 )
-            ) or None,
+            )
+            or None,
             "reason": "gdpr_erasure",
         },
     )
@@ -762,10 +742,7 @@ async def draft_followup(
             line += f" on {c['sent_at'][:10]}"
         cmp_lines.append(line)
 
-    evt_lines = [
-        f"  {e['event_type']} at {e['occurred_at'][:16]}"
-        for e in events
-    ]
+    evt_lines = [f"  {e['event_type']} at {e['occurred_at'][:16]}" for e in events]
 
     notes_section = ""
     if lead.get("feedback"):
@@ -951,17 +928,17 @@ def _text_to_html(text: str, *, tenant: dict[str, Any] | None = None) -> str:
     # Wrapper: 600px max-width, white card on light background — tested
     # in Gmail / Outlook365 / Apple Mail / Yahoo. No web fonts (ESP-safe).
     return (
-        '<!DOCTYPE html>\n'
+        "<!DOCTYPE html>\n"
         '<html lang="it">\n'
-        '<head>\n'
+        "<head>\n"
         '<meta charset="UTF-8">\n'
         '<meta name="viewport" content="width=device-width, initial-scale=1.0">\n'
         '<meta name="x-apple-disable-message-reformatting">\n'
-        '<title>Follow-up</title>\n'
-        '</head>\n'
+        "<title>Follow-up</title>\n"
+        "</head>\n"
         '<body style="margin:0; padding:0; background:#f9fafb; '
-        'font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', Roboto, '
-        '\'Helvetica Neue\', Arial, sans-serif;">\n'
+        "font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, "
+        "'Helvetica Neue', Arial, sans-serif;\">\n"
         '<table role="presentation" cellspacing="0" cellpadding="0" border="0" '
         'width="100%" style="background:#f9fafb;">\n'
         '  <tr><td align="center" style="padding: 32px 16px;">\n'
@@ -970,18 +947,18 @@ def _text_to_html(text: str, *, tenant: dict[str, Any] | None = None) -> str:
         'style="max-width: 600px; background: #ffffff; border-radius: 12px; '
         'box-shadow: 0 1px 3px rgba(0,0,0,0.06); overflow: hidden;">\n'
         '      <tr><td style="padding: 36px 36px 20px 36px;">\n'
-        f'        {body_html}\n'
-        '      </td></tr>\n'
+        f"        {body_html}\n"
+        "      </td></tr>\n"
         '      <tr><td style="padding: 0 36px 36px 36px;">\n'
         '        <hr style="border:none; border-top:1px solid #e5e7eb; margin: 8px 0 18px;">\n'
         f'        <p style="margin: 0; font-size: 12px; line-height: 1.5; '
         f'color: #6b7280;">{footer_html}</p>\n'
-        '      </td></tr>\n'
-        '    </table>\n'
-        '  </td></tr>\n'
-        '</table>\n'
-        '</body>\n'
-        '</html>'
+        "      </td></tr>\n"
+        "    </table>\n"
+        "  </td></tr>\n"
+        "</table>\n"
+        "</body>\n"
+        "</html>"
     )
 
 
@@ -1054,9 +1031,7 @@ async def send_draft(
         # If the operator supplied a bare address, wrap with the sender name.
         if "<" not in followup_addr:
             sender_name = (
-                tenant.get("email_from_name")
-                or tenant.get("business_name")
-                or "SolarLead"
+                tenant.get("email_from_name") or tenant.get("business_name") or "SolarLead"
             ).strip()
             from_address = f"{sender_name} <{followup_addr}>"
         else:
@@ -1065,8 +1040,7 @@ async def send_draft(
         name = (tenant.get("email_from_name") or "").strip()
         domain = (tenant.get("email_from_domain") or "").strip()
         from_address = (
-            f"{name or tenant.get('business_name', 'SolarLead')} "
-            f"<outreach@{domain}>"
+            f"{name or tenant.get('business_name', 'SolarLead')} <outreach@{domain}>"
             if domain
             else f"{name or 'SolarLead'} <outreach@solarlead.it>"
         )
@@ -1101,7 +1075,7 @@ async def send_draft(
     max_step = (steps_res.data or [{"sequence_step": 1}])[0].get("sequence_step") or 1
     next_step = max(2, max_step + 1)
 
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_iso = datetime.now(UTC).isoformat()
     camp_res = (
         sb.table("outreach_sends")
         .insert(
@@ -1205,11 +1179,7 @@ async def send_outreach_batch(
     """
     tenant_id = require_tenant(ctx)
     sb = get_service_client()
-    query = (
-        sb.table("leads")
-        .select("id, outreach_sent_at")
-        .eq("tenant_id", tenant_id)
-    )
+    query = sb.table("leads").select("id, outreach_sent_at").eq("tenant_id", tenant_id)
     if tier:
         query = query.eq("score_tier", tier)
     if only_new:
@@ -1311,11 +1281,7 @@ async def rescore_all(
     """
     tenant_id = require_tenant(ctx)
     sb = get_service_client()
-    query = (
-        sb.table("leads")
-        .select("id, roof_id, subject_id")
-        .eq("tenant_id", tenant_id)
-    )
+    query = sb.table("leads").select("id, roof_id, subject_id").eq("tenant_id", tenant_id)
     if tier:
         query = query.eq("score_tier", tier)
     res = query.limit(limit).execute()
@@ -1371,9 +1337,7 @@ async def backfill_derivations(
     # 1) Fetch candidate roofs
     query = (
         sb.table("roofs")
-        .select(
-            "id, area_sqm, estimated_kwp, estimated_yearly_kwh, raw_data, derivations"
-        )
+        .select("id, area_sqm, estimated_kwp, estimated_yearly_kwh, raw_data, derivations")
         .eq("tenant_id", tenant_id)
         .not_("area_sqm", "is", None)
     )
@@ -1402,13 +1366,9 @@ async def backfill_derivations(
         panel_h = None
         try:
             sp = (
-                (solar_blob or {}).get("solarPotential", {})
-                if isinstance(solar_blob, dict)
-                else {}
+                (solar_blob or {}).get("solarPotential", {}) if isinstance(solar_blob, dict) else {}
             )
-            panel_count = (
-                sp.get("maxArrayPanelsCount") or len(sp.get("solarPanels") or [])
-            )
+            panel_count = sp.get("maxArrayPanelsCount") or len(sp.get("solarPanels") or [])
             panel_capacity_w = sp.get("panelCapacityWatts")
             panel_w = sp.get("panelWidthMeters")
             panel_h = sp.get("panelHeightMeters")
@@ -1442,9 +1402,7 @@ async def backfill_derivations(
 
         # 2) Persist on roofs
         try:
-            sb.table("roofs").update({"derivations": derivations}).eq(
-                "id", roof["id"]
-            ).execute()
+            sb.table("roofs").update({"derivations": derivations}).eq("id", roof["id"]).execute()
             roofs_updated += 1
         except Exception as exc:  # noqa: BLE001
             log.warning(
@@ -1474,9 +1432,7 @@ async def backfill_derivations(
             for lead in leads_res.data or []:
                 existing = lead.get("roi_data") or {}
                 merged = {**existing, **roi_summary}
-                sb.table("leads").update({"roi_data": merged}).eq(
-                    "id", lead["id"]
-                ).execute()
+                sb.table("leads").update({"roi_data": merged}).eq("id", lead["id"]).execute()
                 leads_updated += 1
         except Exception as exc:  # noqa: BLE001
             log.warning(

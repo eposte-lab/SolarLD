@@ -26,7 +26,6 @@ until the demolition lands.
 
 from __future__ import annotations
 
-import asyncio
 from typing import Any
 
 from ...core.logging import get_logger
@@ -58,9 +57,7 @@ async def run_level1_places(ctx: FunnelV3Context) -> list[PlaceCandidateRecord]:
     # 1) Load zones — just the columns we need to drive discovery.
     zones_res = (
         sb.table("tenant_target_areas")
-        .select(
-            "id, primary_sector, matched_sectors, centroid_lat, centroid_lng, area_m2"
-        )
+        .select("id, primary_sector, matched_sectors, centroid_lat, centroid_lng, area_m2")
         .eq("tenant_id", ctx.tenant_id)
         .eq("status", "active")
         .order("matching_score", desc=True)
@@ -75,9 +72,7 @@ async def run_level1_places(ctx: FunnelV3Context) -> list[PlaceCandidateRecord]:
     await _warm_cache(sb)
 
     # 3) Group zones by primary_sector so we can fetch each palette once.
-    sectors_in_play = sorted(
-        {z["primary_sector"] for z in zones if z.get("primary_sector")}
-    )
+    sectors_in_play = sorted({z["primary_sector"] for z in zones if z.get("primary_sector")})
     sector_configs: dict[str, SectorAreaMapping] = {}
     for s in sectors_in_play:
         cfg = await get_sector_config_by_wizard_group(sb, wizard_group=s)
@@ -92,7 +87,7 @@ async def run_level1_places(ctx: FunnelV3Context) -> list[PlaceCandidateRecord]:
     # primary types) won't end up in the leads if horeca isn't a target.
     target_sectors: set[str] = set(sectors_in_play)
     for z in zones:
-        for s in (z.get("matched_sectors") or []):
+        for s in z.get("matched_sectors") or []:
             if isinstance(s, str):
                 target_sectors.add(s)
 
@@ -174,7 +169,7 @@ async def run_level1_places(ctx: FunnelV3Context) -> list[PlaceCandidateRecord]:
     #    legacy scan_candidates schema will accept these as additional
     #    columns once 0102 (which keeps roof_id around) is applied.
     rows = []
-    for place_id, (cand, zone) in all_candidates.items():
+    for _place_id, (cand, _zone) in all_candidates.items():
         rows.append(
             {
                 "tenant_id": ctx.tenant_id,
@@ -207,9 +202,7 @@ async def run_level1_places(ctx: FunnelV3Context) -> list[PlaceCandidateRecord]:
         )
 
     res = (
-        sb.table("scan_candidates")
-        .upsert(rows, on_conflict="tenant_id,google_place_id")
-        .execute()
+        sb.table("scan_candidates").upsert(rows, on_conflict="tenant_id,google_place_id").execute()
     )
     persisted = res.data or []
 

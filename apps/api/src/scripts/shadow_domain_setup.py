@@ -53,27 +53,26 @@ import json
 import os
 import sys
 import textwrap
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date
-from typing import Literal
-
 
 # ---------------------------------------------------------------------------
 # Domain topology — edit here when domains/mailboxes change
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True)
 class Mailbox:
-    local_part: str      # e.g. "luca.ferrari"
-    display_name: str    # e.g. "Luca Ferrari"
-    title: str           # short persona title for the guide
+    local_part: str  # e.g. "luca.ferrari"
+    display_name: str  # e.g. "Luca Ferrari"
+    title: str  # short persona title for the guide
 
 
 @dataclass(frozen=True)
 class ShadowDomain:
     domain: str
-    purpose: str          # human label
-    dmarc_rua: str        # DMARC reporting address (brand domain)
+    purpose: str  # human label
+    dmarc_rua: str  # DMARC reporting address (brand domain)
     mailboxes: tuple[Mailbox, ...]
 
     @property
@@ -98,9 +97,9 @@ SHADOW_DOMAINS: tuple[ShadowDomain, ...] = (
         purpose="Progetti fotovoltaici (focus manifatturiero / PMI)",
         dmarc_rua=DMARC_RUA,
         mailboxes=(
-            Mailbox("luca.ferrari",    "Luca Ferrari",    "Responsabile Sviluppo Progetti"),
-            Mailbox("giulia.romano",   "Giulia Romano",   "Consulente Impianti Industriali"),
-            Mailbox("marco.esposito",  "Marco Esposito",  "Tecnico Fotovoltaico Senior"),
+            Mailbox("luca.ferrari", "Luca Ferrari", "Responsabile Sviluppo Progetti"),
+            Mailbox("giulia.romano", "Giulia Romano", "Consulente Impianti Industriali"),
+            Mailbox("marco.esposito", "Marco Esposito", "Tecnico Fotovoltaico Senior"),
         ),
     ),
     ShadowDomain(
@@ -108,9 +107,9 @@ SHADOW_DOMAINS: tuple[ShadowDomain, ...] = (
         purpose="Energia rinnovabile (focus logistica / grande distribuzione)",
         dmarc_rua=DMARC_RUA,
         mailboxes=(
-            Mailbox("sara.bianchi",   "Sara Bianchi",   "Energy Manager"),
-            Mailbox("andrea.conti",   "Andrea Conti",   "Consulente Risparmio Energetico"),
-            Mailbox("chiara.ricci",   "Chiara Ricci",   "Responsabile Efficienza Energetica"),
+            Mailbox("sara.bianchi", "Sara Bianchi", "Energy Manager"),
+            Mailbox("andrea.conti", "Andrea Conti", "Consulente Risparmio Energetico"),
+            Mailbox("chiara.ricci", "Chiara Ricci", "Responsabile Efficienza Energetica"),
         ),
     ),
     ShadowDomain(
@@ -118,9 +117,9 @@ SHADOW_DOMAINS: tuple[ShadowDomain, ...] = (
         purpose="Info / discovery (primo contatto generico)",
         dmarc_rua=DMARC_RUA,
         mailboxes=(
-            Mailbox("matteo.russo",  "Matteo Russo",  "Specialista Fotovoltaico"),
-            Mailbox("elena.marino",  "Elena Marino",  "Consulente Energie Rinnovabili"),
-            Mailbox("davide.greco",  "Davide Greco",  "Account Manager Solare"),
+            Mailbox("matteo.russo", "Matteo Russo", "Specialista Fotovoltaico"),
+            Mailbox("elena.marino", "Elena Marino", "Consulente Energie Rinnovabili"),
+            Mailbox("davide.greco", "Davide Greco", "Account Manager Solare"),
         ),
     ),
     ShadowDomain(
@@ -128,18 +127,18 @@ SHADOW_DOMAINS: tuple[ShadowDomain, ...] = (
         purpose="Pro (.com) — targeting aziende internazionalizzate / export",
         dmarc_rua=DMARC_RUA,
         mailboxes=(
-            Mailbox("sofia.lombardi",    "Sofia Lombardi",    "Solar Solutions Consultant"),
-            Mailbox("roberto.fontana",   "Roberto Fontana",   "Business Development Manager"),
-            Mailbox("valentina.caruso",  "Valentina Caruso",  "Senior PV Project Advisor"),
+            Mailbox("sofia.lombardi", "Sofia Lombardi", "Solar Solutions Consultant"),
+            Mailbox("roberto.fontana", "Roberto Fontana", "Business Development Manager"),
+            Mailbox("valentina.caruso", "Valentina Caruso", "Senior PV Project Advisor"),
         ),
     ),
 )
 
 # Google Workspace MX records (identical for every Google Workspace domain)
 _GW_MX_RECORDS: tuple[tuple[int, str], ...] = (
-    (1,  "ASPMX.L.GOOGLE.COM."),
-    (5,  "ALT1.ASPMX.L.GOOGLE.COM."),
-    (5,  "ALT2.ASPMX.L.GOOGLE.COM."),
+    (1, "ASPMX.L.GOOGLE.COM."),
+    (5, "ALT1.ASPMX.L.GOOGLE.COM."),
+    (5, "ALT2.ASPMX.L.GOOGLE.COM."),
     (10, "ALT3.ASPMX.L.GOOGLE.COM."),
     (10, "ALT4.ASPMX.L.GOOGLE.COM."),
 )
@@ -148,6 +147,7 @@ _GW_MX_RECORDS: tuple[tuple[int, str], ...] = (
 # ---------------------------------------------------------------------------
 # DNS record builders
 # ---------------------------------------------------------------------------
+
 
 def mx_records(domain: ShadowDomain) -> list[dict]:
     return [
@@ -233,6 +233,7 @@ def all_records_for(domain: ShadowDomain) -> list[dict]:
 # Topology JSON (consumed by smartlead_service.py)
 # ---------------------------------------------------------------------------
 
+
 def build_topology_json() -> dict:
     """Return the full shadow domain topology as a dict ready for JSON serialise."""
     domains_out = []
@@ -260,7 +261,7 @@ def build_topology_json() -> dict:
                     # SolarLead inbox metadata
                     "provider": "gmail_oauth",
                     "purpose": "outreach",
-                    "daily_cap": 50,     # steady-state; overridden by warmup curve
+                    "daily_cap": 50,  # steady-state; overridden by warmup curve
                 }
             )
         domains_out.append(
@@ -279,9 +280,7 @@ def build_topology_json() -> dict:
         "brand_domain": BRAND_DOMAIN,
         "shadow_domains": domains_out,
         "total_inboxes": sum(len(sd.mailboxes) for sd in SHADOW_DOMAINS),
-        "daily_capacity_at_steady_state": sum(
-            len(sd.mailboxes) * 50 for sd in SHADOW_DOMAINS
-        ),
+        "daily_capacity_at_steady_state": sum(len(sd.mailboxes) * 50 for sd in SHADOW_DOMAINS),
     }
 
 
@@ -289,12 +288,13 @@ def build_topology_json() -> dict:
 # Text formatters
 # ---------------------------------------------------------------------------
 
+
 def _rule(char: str = "─", width: int = 72) -> str:
     return char * width
 
 
 def _table_row(cols: list[str], widths: list[int]) -> str:
-    parts = [str(c).ljust(w) for c, w in zip(cols, widths)]
+    parts = [str(c).ljust(w) for c, w in zip(cols, widths, strict=False)]
     return "│ " + " │ ".join(parts) + " │"
 
 
@@ -331,15 +331,12 @@ def _dns_section(sd: ShadowDomain) -> str:
     lines.append("```\n")
 
     # DKIM
-    dkim = dkim_placeholder(sd)
+    dkim_placeholder(sd)
     lines.append(f"**DKIM TXT** (host: `google._domainkey.{sd.domain}`)\n")
     lines.append("```")
     lines.append("v=DKIM1; k=rsa; p=<PASTE_KEY_FROM_GOOGLE_ADMIN_CONSOLE>")
     lines.append("```")
-    lines.append(
-        "> ⚠️  DKIM key must be generated in Google Admin Console. "
-        "See Step 3 below.\n"
-    )
+    lines.append("> ⚠️  DKIM key must be generated in Google Admin Console. See Step 3 below.\n")
 
     # DMARC
     dmarc = dmarc_record(sd)
@@ -349,7 +346,7 @@ def _dns_section(sd: ShadowDomain) -> str:
     lines.append("```\n")
 
     # Tracking CNAME
-    cname = tracking_cname(sd)
+    tracking_cname(sd)
     lines.append(f"**Tracking CNAME** (host: `go.{sd.domain}`)\n")
     lines.append("```")
     lines.append(f"go.{sd.domain}  CNAME  {TRACKING_CNAME_TARGET}.")
@@ -360,11 +357,7 @@ def _dns_section(sd: ShadowDomain) -> str:
     lines.append("| Email | Display Name | Persona |")
     lines.append("|-------|-------------|---------|")
     for mb in sd.mailboxes:
-        lines.append(
-            f"| `{mb.local_part}@{sd.domain}` "
-            f"| {mb.display_name} "
-            f"| {mb.title} |"
-        )
+        lines.append(f"| `{mb.local_part}@{sd.domain}` | {mb.display_name} | {mb.title} |")
     lines.append("")
     return "\n".join(lines)
 
@@ -628,6 +621,7 @@ def build_markdown_guide() -> str:
 # DNS-only printer (compact, for registrar copy-paste)
 # ---------------------------------------------------------------------------
 
+
 def print_dns_tables() -> None:
     for sd in SHADOW_DOMAINS:
         print(f"\n{'=' * 72}")
@@ -658,6 +652,7 @@ def print_dns_tables() -> None:
 # ---------------------------------------------------------------------------
 # CLI entry-point
 # ---------------------------------------------------------------------------
+
 
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(

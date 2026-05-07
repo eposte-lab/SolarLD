@@ -18,11 +18,13 @@ this module explicitly to avoid Atoka coupling.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
-from uuid import UUID
+from typing import TYPE_CHECKING, Any
 
-from ...services.scan_cost_tracker import ScanCostAccumulator
-from ...services.tenant_config_service import TenantConfig
+if TYPE_CHECKING:
+    from uuid import UUID
+
+    from ...services.scan_cost_tracker import ScanCostAccumulator
+    from ...services.tenant_config_service import TenantConfig
 
 
 @dataclass(slots=True)
@@ -59,6 +61,7 @@ class FunnelV3Context:
 # L1 — Places discovery output
 # ---------------------------------------------------------------------------
 
+
 @dataclass(slots=True)
 class PlaceCandidateRecord:
     """Persisted snapshot after L1.
@@ -91,6 +94,7 @@ class PlaceCandidateRecord:
 # ---------------------------------------------------------------------------
 # L2 — Scraping output
 # ---------------------------------------------------------------------------
+
 
 @dataclass(slots=True)
 class ScrapedSignals:
@@ -186,6 +190,7 @@ class ScrapedCandidate:
 # L3 — Building quality output
 # ---------------------------------------------------------------------------
 
+
 @dataclass(slots=True)
 class QualifiedCandidate:
     """L1 + L2 + L3 building quality euristica."""
@@ -199,6 +204,7 @@ class QualifiedCandidate:
 # ---------------------------------------------------------------------------
 # L4 — Solar qualification output
 # ---------------------------------------------------------------------------
+
 
 @dataclass(slots=True)
 class SolarQualified:
@@ -224,6 +230,7 @@ class SolarQualified:
 # ---------------------------------------------------------------------------
 # L5 — Proxy score output
 # ---------------------------------------------------------------------------
+
 
 @dataclass(slots=True)
 class ScoredV3Candidate:

@@ -37,7 +37,7 @@ Why mode and not mean/median:
 from __future__ import annotations
 
 from collections import Counter
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from ..core.logging import get_logger
@@ -54,10 +54,12 @@ LOOKBACK_DAYS = 180
 # the client fetched the tracked link), so we include both —
 # counting a click as one vote on equal footing is fine because the
 # mode is rank-order, not weighted.
-_SIGNAL_EVENT_TYPES: frozenset[str] = frozenset({
-    "lead.email_opened",
-    "lead.email_clicked",
-})
+_SIGNAL_EVENT_TYPES: frozenset[str] = frozenset(
+    {
+        "lead.email_opened",
+        "lead.email_clicked",
+    }
+)
 
 # Default when no personal / tenant signal exists. 09 UTC ≈ 10-11 CET
 # — after standup, before the midday slump. Common default across
@@ -95,8 +97,8 @@ def compute_best_hour_from_timestamps(
         # Normalize to UTC — events.occurred_at is TIMESTAMPTZ so
         # this is a cheap re-anchoring, not a timezone conversion.
         if ts.tzinfo is None:
-            ts = ts.replace(tzinfo=timezone.utc)
-        counter[ts.astimezone(timezone.utc).hour] += 1
+            ts = ts.replace(tzinfo=UTC)
+        counter[ts.astimezone(UTC).hour] += 1
     if not counter:
         return None
     # Counter.most_common breaks ties by insertion order; sort by
@@ -131,10 +133,8 @@ def pick_next_send_time(
         or _coerce_hour(_tenant_default_hour(tenant_row))
         or DEFAULT_SEND_HOUR_UTC
     )
-    now_utc = now.astimezone(timezone.utc)
-    target_today = now_utc.replace(
-        hour=hour, minute=0, second=0, microsecond=0
-    )
+    now_utc = now.astimezone(UTC)
+    target_today = now_utc.replace(hour=hour, minute=0, second=0, microsecond=0)
     window = timedelta(minutes=immediate_window_minutes)
 
     # Inside the "close enough to now" window → send immediately.
@@ -195,7 +195,7 @@ async def run_send_time_rollup(
     Returns ``{"leads_updated": N, "leads_cleared": M}`` for logging.
     """
     sb = get_service_client()
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     window_start = now - timedelta(days=lookback_days)
 
     # PostgREST "in" filter keeps this single-shot — the event types
@@ -225,12 +225,7 @@ async def run_send_time_rollup(
 
     # Also find leads that used to have a best_send_hour so we can
     # clear stale ones (below the sample threshold after attrition).
-    stale_res = (
-        sb.table("leads")
-        .select("id")
-        .not_.is_("best_send_hour", "null")
-        .execute()
-    )
+    stale_res = sb.table("leads").select("id").not_.is_("best_send_hour", "null").execute()
     previously_set = {row["id"] for row in (stale_res.data or [])}
 
     updated = 0
@@ -238,9 +233,7 @@ async def run_send_time_rollup(
     for lid, timestamps in by_lead.items():
         best = compute_best_hour_from_timestamps(timestamps)
         try:
-            sb.table("leads").update(
-                {"best_send_hour": best}
-            ).eq("id", lid).execute()
+            sb.table("leads").update({"best_send_hour": best}).eq("id", lid).execute()
         except Exception as exc:  # noqa: BLE001
             log.warning(
                 "send_time.rollup.update_failed",
@@ -258,9 +251,7 @@ async def run_send_time_rollup(
     # (all of its opens fell out of the 180d window) → clear.
     for lid in previously_set:
         try:
-            sb.table("leads").update(
-                {"best_send_hour": None}
-            ).eq("id", lid).execute()
+            sb.table("leads").update({"best_send_hour": None}).eq("id", lid).execute()
             cleared += 1
         except Exception as exc:  # noqa: BLE001
             log.warning(

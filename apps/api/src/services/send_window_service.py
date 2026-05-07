@@ -37,7 +37,7 @@ Both functions accept an optional ``now`` parameter for deterministic testing.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from typing import Any
 
 from ..core.logging import get_logger
@@ -53,7 +53,7 @@ SEND_WINDOW_TZ = "Europe/Rome"
 # Send windows in *local* time (inclusive start, exclusive end).
 # Each tuple is (hour_start, hour_end).
 SEND_WINDOWS_LOCAL: tuple[tuple[int, int], ...] = (
-    (8, 12),   # 08:00–12:00 morning block
+    (8, 12),  # 08:00–12:00 morning block
     (14, 18),  # 14:00–18:00 afternoon block
 )
 
@@ -95,14 +95,16 @@ def is_within_send_window(now: datetime | None = None) -> bool:
     """
     try:
         import zoneinfo  # stdlib Python 3.9+
+
         tz = zoneinfo.ZoneInfo(SEND_WINDOW_TZ)
     except (ImportError, KeyError):
         # Fallback: CET = UTC+1.  Rough but safe for our use case.
         from datetime import timedelta
+
         tz = timezone(timedelta(hours=1))
 
     if now is None:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
     local = now.astimezone(tz)
 
@@ -111,11 +113,7 @@ def is_within_send_window(now: datetime | None = None) -> bool:
         return False
 
     hour = local.hour
-    for start, end in SEND_WINDOWS_LOCAL:
-        if start <= hour < end:
-            return True
-
-    return False
+    return any(start <= hour < end for start, end in SEND_WINDOWS_LOCAL)
 
 
 def is_inbox_human_delay_ok(
@@ -149,14 +147,12 @@ def is_inbox_human_delay_ok(
         return True  # Brand-new inbox: no prior send → no delay needed.
 
     if now is None:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
     try:
-        last_sent = datetime.fromisoformat(
-            str(last_sent_str).replace("Z", "+00:00")
-        )
+        last_sent = datetime.fromisoformat(str(last_sent_str).replace("Z", "+00:00"))
         if last_sent.tzinfo is None:
-            last_sent = last_sent.replace(tzinfo=timezone.utc)
+            last_sent = last_sent.replace(tzinfo=UTC)
         elapsed = (now - last_sent).total_seconds()
         return elapsed >= MIN_INTER_SEND_SECONDS
     except (ValueError, TypeError):

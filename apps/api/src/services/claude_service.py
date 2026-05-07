@@ -67,8 +67,6 @@ async def complete_json(
     (``` or ```json) or with leading/trailing prose. Extracts the first
     JSON object found; returns {} only if nothing parseable exists.
     """
-    import json
-    import re
 
     full_system = (
         (system or "")
@@ -76,9 +74,7 @@ async def complete_json(
         + schema_hint
         + "\nReturn ONLY the JSON object. No prose, no markdown code fences."
     )
-    text = await complete(
-        prompt, system=full_system, max_tokens=max_tokens, temperature=0.0
-    )
+    text = await complete(prompt, system=full_system, max_tokens=max_tokens, temperature=0.0)
     parsed = _parse_json_lenient(text)
     if parsed is None:
         log.warning("claude_json_parse_failed", raw=text[:500])

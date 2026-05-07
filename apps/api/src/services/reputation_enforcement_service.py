@@ -26,7 +26,7 @@ spike (bad list hygiene, shared domain abuse, etc.) before resuming.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from ..core.logging import get_logger
@@ -34,7 +34,7 @@ from ..core.logging import get_logger
 log = get_logger(__name__)
 
 # Thresholds (matching Gmail's guidelines).
-BOUNCE_RATE_THRESHOLD = 0.05      # 5 %
+BOUNCE_RATE_THRESHOLD = 0.05  # 5 %
 COMPLAINT_RATE_THRESHOLD = 0.003  # 0.3 %
 
 # How long to pause on alarm.
@@ -47,9 +47,9 @@ REALTIME_COMPLAINT_WINDOW_MINUTES = 60
 # Real-time bounce spike: if rolling-24h bounce rate exceeds this on a minimum
 # volume of sends, trigger an early-warning pause (8% threshold is stricter in
 # time window than the nightly 7-day 5% threshold to catch spikes quickly).
-REALTIME_BOUNCE_SPIKE_THRESHOLD = 0.08   # 8 % in 24 h
+REALTIME_BOUNCE_SPIKE_THRESHOLD = 0.08  # 8 % in 24 h
 REALTIME_BOUNCE_WINDOW_HOURS = 24
-REALTIME_BOUNCE_MIN_SENDS = 10           # need at least this many sends to compute
+REALTIME_BOUNCE_MIN_SENDS = 10  # need at least this many sends to compute
 
 # Notification type constant.
 _NOTIF_TYPE = "domain_reputation_alarm"
@@ -58,6 +58,7 @@ _NOTIF_TYPE = "domain_reputation_alarm"
 @dataclass
 class EnforcementResult:
     """What the enforcement service did in one run."""
+
     domains_checked: int = 0
     domains_paused: int = 0
     paused_details: list[dict[str, Any]] = field(default_factory=list)
@@ -74,7 +75,7 @@ async def run_enforcement(sb: Any) -> EnforcementResult:
         sb: Supabase service-role client (sync, as used elsewhere in the codebase).
     """
     result = EnforcementResult()
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_iso = datetime.now(UTC).isoformat()
 
     # Pull all active domains with fresh reputation data.
     # We join domain_reputation on the most recent row per domain name.
@@ -102,7 +103,9 @@ async def run_enforcement(sb: Any) -> EnforcementResult:
     try:
         rep_res = (
             sb.table("domain_reputation")
-            .select("domain, bounce_rate, complaint_rate, alarm_bounce, alarm_complaint, measured_at")
+            .select(
+                "domain, bounce_rate, complaint_rate, alarm_bounce, alarm_complaint, measured_at"
+            )
             .order("measured_at", desc=True)
             .limit(500)
             .execute()
@@ -146,10 +149,7 @@ async def run_enforcement(sb: Any) -> EnforcementResult:
         if existing_pause and existing_pause > now_iso:
             continue  # Already paused from a prior run.
 
-        reason = (
-            "bounce_rate_exceeded" if alarm_bounce
-            else "complaint_rate_exceeded"
-        )
+        reason = "bounce_rate_exceeded" if alarm_bounce else "complaint_rate_exceeded"
         await _pause_domain_and_inboxes(
             sb,
             domain_row=domain_row,
@@ -160,13 +160,15 @@ async def run_enforcement(sb: Any) -> EnforcementResult:
             alarm_complaint=alarm_complaint,
         )
         result.domains_paused += 1
-        result.paused_details.append({
-            "domain_id": domain_row["id"],
-            "domain": domain_name,
-            "reason": reason,
-            "bounce_rate": bounce_rate,
-            "complaint_rate": complaint_rate,
-        })
+        result.paused_details.append(
+            {
+                "domain_id": domain_row["id"],
+                "domain": domain_name,
+                "reason": reason,
+                "bounce_rate": bounce_rate,
+                "complaint_rate": complaint_rate,
+            }
+        )
 
     log.info(
         "reputation_enforcement.done",
@@ -194,8 +196,7 @@ async def check_realtime_complaint_cluster(
     exists). If ≥ REALTIME_COMPLAINT_CLUSTER_SIZE → pause immediately.
     """
     window_start = (
-        datetime.now(timezone.utc)
-        - timedelta(minutes=REALTIME_COMPLAINT_WINDOW_MINUTES)
+        datetime.now(UTC) - timedelta(minutes=REALTIME_COMPLAINT_WINDOW_MINUTES)
     ).isoformat()
 
     try:
@@ -231,7 +232,7 @@ async def check_realtime_complaint_cluster(
                 .execute()
             )
             domain_rows = dom_res.data or []
-        except Exception as exc:  # noqa: BLE001
+        except Exception:  # noqa: BLE001
             domain_rows = []
     else:
         try:
@@ -243,7 +244,7 @@ async def check_realtime_complaint_cluster(
                 .execute()
             )
             domain_rows = dom_res.data or []
-        except Exception as exc:  # noqa: BLE001
+        except Exception:  # noqa: BLE001
             domain_rows = []
 
     if not domain_rows:
@@ -290,10 +291,8 @@ async def _pause_domain_and_inboxes(
     domain_id: str = domain_row["id"]
     tenant_id: str = domain_row["tenant_id"]
     domain_name: str = domain_row.get("domain") or ""
-    now_iso = datetime.now(timezone.utc).isoformat()
-    until = (
-        datetime.now(timezone.utc) + timedelta(hours=PAUSE_HOURS_ON_ALARM)
-    ).isoformat()
+    now_iso = datetime.now(UTC).isoformat()
+    until = (datetime.now(UTC) + timedelta(hours=PAUSE_HOURS_ON_ALARM)).isoformat()
 
     # 1. Pause the domain.
     try:
@@ -332,7 +331,9 @@ async def _pause_domain_and_inboxes(
             .execute()
         )
     except Exception as exc:  # noqa: BLE001
-        log.warning("reputation_enforcement.pause_inboxes_failed", domain_id=domain_id, err=str(exc))
+        log.warning(
+            "reputation_enforcement.pause_inboxes_failed", domain_id=domain_id, err=str(exc)
+        )
 
     # 3. Create a notification for the tenant dashboard.
     try:
@@ -396,10 +397,7 @@ async def check_realtime_bounce_spike(
     This catches sudden spikes before the nightly digest (which uses a
     7-day window and a 5 % threshold).
     """
-    window_start = (
-        datetime.now(timezone.utc)
-        - timedelta(hours=REALTIME_BOUNCE_WINDOW_HOURS)
-    ).isoformat()
+    window_start = (datetime.now(UTC) - timedelta(hours=REALTIME_BOUNCE_WINDOW_HOURS)).isoformat()
 
     # Count total sends in the last 24 h for this tenant.
     try:
@@ -527,10 +525,7 @@ async def check_realtime_complaint_rate(
     Returns True if the domain was paused, False otherwise.
     """
     MIN_SENDS_FOR_RATE_CHECK = 5
-    window_start = (
-        datetime.now(timezone.utc)
-        - timedelta(hours=24)
-    ).isoformat()
+    window_start = (datetime.now(UTC) - timedelta(hours=24)).isoformat()
 
     # Count total sends in 24 h (tenant-scoped; domain scope requires a
     # join that is not yet universal — tenant scope is conservative/correct).
@@ -623,7 +618,7 @@ async def check_realtime_complaint_rate(
     domain_row = domain_rows[0]
 
     # Skip if already paused (cluster check may have fired first).
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_iso = datetime.now(UTC).isoformat()
     existing_pause = domain_row.get("paused_until")
     if existing_pause and str(existing_pause) > now_iso:
         return False  # Already handled.

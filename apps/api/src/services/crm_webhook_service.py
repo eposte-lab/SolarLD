@@ -116,9 +116,9 @@ def serialize_payload(envelope: dict[str, Any], secret: str) -> CanonicalPayload
     so identical envelopes always produce identical bytes (and thus
     identical signatures).
     """
-    body = json.dumps(
-        envelope, sort_keys=True, separators=(",", ":"), ensure_ascii=False
-    ).encode("utf-8")
+    body = json.dumps(envelope, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode(
+        "utf-8"
+    )
     return CanonicalPayload(
         body=body,
         signature=sign(body, secret),
@@ -137,9 +137,7 @@ def serialize_payload(envelope: dict[str, Any], secret: str) -> CanonicalPayload
     retry=retry_if_exception_type((CrmWebhookError, httpx.TransportError)),
     reraise=True,
 )
-async def _post_once(
-    *, url: str, body: bytes, headers: dict[str, str]
-) -> httpx.Response:
+async def _post_once(*, url: str, body: bytes, headers: dict[str, str]) -> httpx.Response:
     async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT_S) as client:
         try:
             resp = await client.post(url, content=body, headers=headers)
@@ -147,9 +145,7 @@ async def _post_once(
             raise CrmWebhookError(f"transport error: {exc}") from exc
     if 500 <= resp.status_code < 600:
         # Retry on server errors; the tenacity wrapper will re-enter.
-        raise CrmWebhookError(
-            f"receiver returned {resp.status_code}: {resp.text[:200]}"
-        )
+        raise CrmWebhookError(f"receiver returned {resp.status_code}: {resp.text[:200]}")
     return resp
 
 
@@ -185,9 +181,7 @@ async def dispatch_to_subscription(
     response_body: str | None = None
     error: str | None = None
     try:
-        resp = await _post_once(
-            url=subscription["url"], body=canon.body, headers=headers
-        )
+        resp = await _post_once(url=subscription["url"], body=canon.body, headers=headers)
         status_code = resp.status_code
         response_body = resp.text[:2000]
     except Exception as exc:  # noqa: BLE001
@@ -242,9 +236,7 @@ async def dispatch_to_subscription(
     healthy = status_code is not None and 200 <= status_code < 300
     new_fail_count = 0 if healthy else int(subscription.get("failure_count", 0)) + 1
     update = {
-        "last_status": (
-            f"{status_code}" if status_code else f"error:{(error or '')[:80]}"
-        ),
+        "last_status": (f"{status_code}" if status_code else f"error:{(error or '')[:80]}"),
         "last_delivered_at": "now()",
         "failure_count": new_fail_count,
     }
@@ -255,9 +247,7 @@ async def dispatch_to_subscription(
             subscription_id=subscription["id"],
             failure_count=new_fail_count,
         )
-    sb.table("crm_webhook_subscriptions").update(update).eq(
-        "id", subscription["id"]
-    ).execute()
+    sb.table("crm_webhook_subscriptions").update(update).eq("id", subscription["id"]).execute()
 
     return {
         "subscription_id": subscription["id"],

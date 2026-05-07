@@ -15,7 +15,7 @@ chiedere i suoi dati indipendentemente dal tenant — l'API normalmente
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -138,7 +138,7 @@ async def gdpr_export(
         subjects=subjects,
         contact_extraction_log=cel.data or [],
         outreach_sends=os_res.data or [],
-        exported_at=datetime.now(timezone.utc).isoformat(),
+        exported_at=datetime.now(UTC).isoformat(),
     )
 
 
@@ -158,14 +158,11 @@ async def gdpr_erase(
     """
     sb = get_service_client()
     email = body.email
-    now = datetime.now(timezone.utc).isoformat()
+    now = datetime.now(UTC).isoformat()
 
     # 1) Subjects: blank il PII
     subj_res = (
-        sb.table("subjects")
-        .select("id, tenant_id")
-        .eq("decision_maker_email", email)
-        .execute()
+        sb.table("subjects").select("id, tenant_id").eq("decision_maker_email", email).execute()
     )
     subjects = subj_res.data or []
     subject_ids = [s["id"] for s in subjects]
@@ -192,12 +189,7 @@ async def gdpr_erase(
 
     # 3) Audit rows: hard delete (è esattamente il dato che il diritto
     #    all'oblio chiede di rimuovere)
-    cel_res = (
-        sb.table("contact_extraction_log")
-        .delete()
-        .eq("contact_value", email)
-        .execute()
-    )
+    cel_res = sb.table("contact_extraction_log").delete().eq("contact_value", email).execute()
     erased_audit = len(cel_res.data or [])
 
     # 4) Blacklist permanente per impedire re-discovery futuro

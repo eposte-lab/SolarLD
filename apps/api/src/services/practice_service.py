@@ -32,9 +32,8 @@ from __future__ import annotations
 import asyncio
 import re
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Any
-from uuid import UUID
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any
 
 from ..core.logging import get_logger
 from ..core.queue import enqueue
@@ -55,6 +54,9 @@ from .practice_events_service import (
 )
 from .practice_pdf_renderer import SUPPORTED_TEMPLATE_CODES, render_practice_pdf
 from .storage_service import upload_bytes
+
+if TYPE_CHECKING:
+    from uuid import UUID
 
 log = get_logger(__name__)
 
@@ -149,7 +151,7 @@ class Practice:
     updated_at: str
 
     @classmethod
-    def from_row(cls, row: dict[str, Any]) -> "Practice":
+    def from_row(cls, row: dict[str, Any]) -> Practice:
         return cls(
             id=str(row["id"]),
             tenant_id=str(row["tenant_id"]),
@@ -197,7 +199,7 @@ class PracticeDocument:
     updated_at: str
 
     @classmethod
-    def from_row(cls, row: dict[str, Any]) -> "PracticeDocument":
+    def from_row(cls, row: dict[str, Any]) -> PracticeDocument:
         return cls(
             id=str(row["id"]),
             practice_id=str(row["practice_id"]),
@@ -239,11 +241,7 @@ def next_practice_number(tenant_id: str | UUID) -> tuple[str, int]:
     #    rather than caching — tenant renames are rare but we want the
     #    next number minted *after* a rename to use the new abbr.
     tenant_res = (
-        sb.table("tenants")
-        .select("business_name")
-        .eq("id", str(tenant_id))
-        .limit(1)
-        .execute()
+        sb.table("tenants").select("business_name").eq("id", str(tenant_id)).limit(1).execute()
     )
     business_name = (tenant_res.data or [{}])[0].get("business_name") or ""
     abbr = _tenant_abbr(business_name)
@@ -253,11 +251,9 @@ def next_practice_number(tenant_id: str | UUID) -> tuple[str, int]:
     seq = int(res.data) if isinstance(res.data, int) else int(res.data or 0)
     if seq <= 0:
         # Defensive: 0 would silently mint duplicates. Fail loud.
-        raise RuntimeError(
-            f"next_practice_seq returned non-positive seq: {res.data!r}"
-        )
+        raise RuntimeError(f"next_practice_seq returned non-positive seq: {res.data!r}")
 
-    year = datetime.now(timezone.utc).year
+    year = datetime.now(UTC).year
     return f"{abbr}/{year}/{seq:04d}", seq
 
 
@@ -266,9 +262,7 @@ def next_practice_number(tenant_id: str | UUID) -> tuple[str, int]:
 # ---------------------------------------------------------------------------
 
 
-def get_draft_preview(
-    *, lead_id: str | UUID, tenant_id: str | UUID
-) -> dict[str, Any]:
+def get_draft_preview(*, lead_id: str | UUID, tenant_id: str | UUID) -> dict[str, Any]:
     """Return everything the "Crea pratica" modal needs to pre-populate.
 
     Shape:
@@ -372,7 +366,7 @@ def get_draft_preview(
     )
     last_seq = (counter_res.data or [{"last_seq": 0}])[0]["last_seq"] or 0
     abbr = _tenant_abbr(t.get("business_name") or "")
-    year = datetime.now(timezone.utc).year
+    year = datetime.now(UTC).year
     suggested_number = f"{abbr}/{year}/{(last_seq + 1):04d}"
 
     # 6. Prefill from quote.manual_fields (tech_*) when available; the
@@ -403,9 +397,7 @@ def get_draft_preview(
         "eligible": eligible,
         "has_existing": existing is not None,
         "existing_practice_id": existing["id"] if existing else None,
-        "existing_practice_number": existing["practice_number"]
-        if existing
-        else None,
+        "existing_practice_number": existing["practice_number"] if existing else None,
         "missing_tenant_fields": missing_tenant_fields,
         "suggested_practice_number": suggested_number,
         "prefill": {
@@ -497,8 +489,7 @@ async def create_practice(
         "impianto_pod": payload.get("impianto_pod"),
         # Default to e_distribuzione — the form should send a value, but
         # default keeps the CHECK constraint happy in API misuse cases.
-        "impianto_distributore": payload.get("impianto_distributore")
-        or "e_distribuzione",
+        "impianto_distributore": payload.get("impianto_distributore") or "e_distribuzione",
         "impianto_data_inizio_lavori": payload.get("impianto_data_inizio_lavori"),
         "impianto_data_fine_lavori": payload.get("impianto_data_fine_lavori"),
         "catastale_foglio": payload.get("catastale_foglio"),
@@ -524,9 +515,7 @@ async def create_practice(
     try:
         mapper = PracticeDataMapper(practice_id, tenant_id)
         snapshot = mapper.get_full_context()
-        sb.table("practices").update({"data_snapshot": snapshot}).eq(
-            "id", practice_id
-        ).execute()
+        sb.table("practices").update({"data_snapshot": snapshot}).eq("id", practice_id).execute()
         practice_row["data_snapshot"] = snapshot
     except Exception:
         # Snapshot failure shouldn't block creation — the worker will
@@ -623,9 +612,7 @@ def list_practices(
     return res.data or []
 
 
-def get_practice(
-    *, practice_id: str | UUID, tenant_id: str | UUID
-) -> dict[str, Any] | None:
+def get_practice(*, practice_id: str | UUID, tenant_id: str | UUID) -> dict[str, Any] | None:
     """Detail view: practice + documents + lead + subject. Returns row dict."""
     sb = get_service_client()
     res = (
@@ -725,7 +712,7 @@ def render_practice_document(
 
     # 4. UPSERT the document row. ``generated_at`` set fresh on each
     #    render so re-generation timestamps are visible in the UI.
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_iso = datetime.now(UTC).isoformat()
     upsert_payload = {
         "practice_id": str(practice_id),
         "tenant_id": str(tenant_id),
@@ -810,7 +797,7 @@ def update_document_status(
     if status:
         update["status"] = status
         # Set the appropriate timestamp column when transitioning.
-        now_iso = datetime.now(timezone.utc).isoformat()
+        now_iso = datetime.now(UTC).isoformat()
         if status == "sent":
             update["sent_at"] = now_iso
         elif status == "accepted":

@@ -46,7 +46,7 @@ Usage
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from ..core.logging import get_logger
@@ -101,8 +101,8 @@ async def pick_and_claim(
     If two workers try to claim the last slot simultaneously, exactly one
     succeeds and the other moves to the next candidate inbox.
     """
-    today = datetime.now(timezone.utc).date().isoformat()
-    now_iso = datetime.now(timezone.utc).isoformat()
+    today = datetime.now(UTC).date().isoformat()
+    now_iso = datetime.now(UTC).isoformat()
 
     # ── 1. Fetch all active inboxes + their domain row ────────────────────
     # We try the JOIN-select first (migration 0050 adds domain_id).
@@ -145,7 +145,7 @@ async def pick_and_claim(
 
     # ── 2. Python-side filtering: skip paused, at-cap, and too-recent inboxes
     # Also skip inboxes whose parent domain is paused.
-    now_dt = datetime.now(timezone.utc)  # used by human-delay check below
+    now_dt = datetime.now(UTC)  # used by human-delay check below
     available: list[dict[str, Any]] = []
     for inbox in all_inboxes:
         # Inbox-level pause.
@@ -317,8 +317,8 @@ async def pause_inbox(
 
     Safe to call even if the inbox doesn't exist — the UPDATE is a no-op.
     """
-    until = (datetime.now(timezone.utc) + timedelta(hours=hours)).isoformat()
-    now_iso = datetime.now(timezone.utc).isoformat()
+    until = (datetime.now(UTC) + timedelta(hours=hours)).isoformat()
+    now_iso = datetime.now(UTC).isoformat()
     try:
         q = (
             sb.table("tenant_inboxes")
@@ -354,7 +354,7 @@ async def unpause_inbox(sb: Any, inbox_id: str, *, tenant_id: str) -> bool:
 
     Returns True if the row was updated.
     """
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_iso = datetime.now(UTC).isoformat()
     try:
         res = (
             sb.table("tenant_inboxes")
@@ -413,5 +413,5 @@ def get_domain_purpose(inbox: dict[str, Any]) -> str:
     """
     domain_row = inbox.get("tenant_email_domains") or {}
     if isinstance(domain_row, dict):
-        return (domain_row.get("purpose") or "brand")
+        return domain_row.get("purpose") or "brand"
     return "brand"

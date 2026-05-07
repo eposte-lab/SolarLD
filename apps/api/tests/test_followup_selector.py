@@ -6,20 +6,20 @@ scheduler logic is trivially unit-testable without ``freezegun``.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
 from src.services.followup_service import (
-    CampaignSummary,
-    FollowUpCandidate,
     STEP_2_DELAY_DAYS,
     STEP_3_DELAY_DAYS,
+    CampaignSummary,
+    FollowUpCandidate,
     build_candidate_from_rows,
     select_next_step,
 )
 
-D0 = datetime(2026, 4, 1, 9, 0, tzinfo=timezone.utc)
+D0 = datetime(2026, 4, 1, 9, 0, tzinfo=UTC)
 
 
 def _now(days_after: float) -> datetime:
@@ -44,9 +44,7 @@ def _candidate(
 
 
 def _step1(status: str = "sent", sent_at: datetime = D0) -> CampaignSummary:
-    return CampaignSummary(
-        sequence_step=1, status=status, sent_at=sent_at, channel="email"
-    )
+    return CampaignSummary(sequence_step=1, status=status, sent_at=sent_at, channel="email")
 
 
 def _step2(status: str = "sent", sent_at: datetime | None = None) -> CampaignSummary:
@@ -123,7 +121,8 @@ def test_step2_too_early_before_cadence() -> None:
     c = _candidate(campaigns=(_step1(),))
     out = select_next_step(c, now=_now(STEP_2_DELAY_DAYS - 1))
     assert out.should_send is False
-    assert out.reason is not None and out.reason.startswith("too_early_for_step2")
+    assert out.reason is not None
+    assert out.reason.startswith("too_early_for_step2")
 
 
 def test_step2_fires_at_cadence() -> None:
@@ -162,7 +161,8 @@ def test_step3_too_early_skips() -> None:
     )
     out = select_next_step(c, now=_now(STEP_3_DELAY_DAYS - 2))
     assert out.should_send is False
-    assert out.reason is not None and out.reason.startswith("too_early_for_step3")
+    assert out.reason is not None
+    assert out.reason.startswith("too_early_for_step3")
 
 
 def test_step3_fires_at_cadence() -> None:
@@ -181,7 +181,8 @@ def test_step3_respects_min_gap_between_steps() -> None:
     c = _candidate(campaigns=(_step1(), recent_step2))
     out = select_next_step(c, now=_now(STEP_3_DELAY_DAYS))
     assert out.should_send is False
-    assert out.reason is not None and "step2_too_recent" in out.reason
+    assert out.reason is not None
+    assert "step2_too_recent" in out.reason
 
 
 def test_step3_skips_when_already_sent_step4_not_yet_eligible() -> None:
@@ -207,7 +208,8 @@ def test_step3_skips_when_already_sent_step4_not_yet_eligible() -> None:
     )
     out = select_next_step(c, now=_now(STEP_4_DELAY_DAYS - 2))
     assert out.should_send is False
-    assert out.reason is not None and out.reason.startswith("too_early_for_step4")
+    assert out.reason is not None
+    assert out.reason.startswith("too_early_for_step4")
 
 
 def test_step4_fires_after_step3_at_cadence() -> None:

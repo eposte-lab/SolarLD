@@ -35,11 +35,9 @@ Cache invariants
 from __future__ import annotations
 
 import asyncio
-from dataclasses import asdict
-from datetime import datetime, timezone
-from typing import Any
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any
 
-import httpx
 import structlog
 
 from ..core.config import settings
@@ -54,6 +52,9 @@ from .google_solar_service import (
     fetch_building_insight,
     fetch_data_layers,
 )
+
+if TYPE_CHECKING:
+    import httpx
 
 log = structlog.get_logger(__name__)
 
@@ -128,9 +129,7 @@ async def fetch_building_insight_cached(
 
     # Live call.
     try:
-        result = await fetch_building_insight(
-            lat, lng, client=client, api_key=api_key
-        )
+        result = await fetch_building_insight(lat, lng, client=client, api_key=api_key)
     except SolarApiNotFound:
         await _write_cache(
             lat_q=lat_q,
@@ -185,9 +184,7 @@ async def fetch_data_layers_cached(
     """
 
     if settings.google_solar_mock_mode and not (api_key or settings.google_solar_api_key):
-        return await fetch_data_layers(
-            lat, lng, client=client, api_key=api_key, radius_m=radius_m
-        )
+        return await fetch_data_layers(lat, lng, client=client, api_key=api_key, radius_m=radius_m)
 
     lat_q = _quantise(lat)
     lng_q = _quantise(lng)
@@ -249,21 +246,19 @@ async def fetch_data_layers_cached(
 # ---------------------------------------------------------------------------
 
 
-async def _read_cache(
-    lat_q: float, lng_q: float, payload_kind: str
-) -> dict[str, Any] | None:
+async def _read_cache(lat_q: float, lng_q: float, payload_kind: str) -> dict[str, Any] | None:
     sb = get_service_client()
     try:
         res = await asyncio.to_thread(
-            lambda: sb.table("solar_insights_cache")
-            .select(
-                "status, parsed_payload, raw_response, quality_used, expires_at"
+            lambda: (
+                sb.table("solar_insights_cache")
+                .select("status, parsed_payload, raw_response, quality_used, expires_at")
+                .eq("lat_q", lat_q)
+                .eq("lng_q", lng_q)
+                .eq("payload_kind", payload_kind)
+                .limit(1)
+                .execute()
             )
-            .eq("lat_q", lat_q)
-            .eq("lng_q", lng_q)
-            .eq("payload_kind", payload_kind)
-            .limit(1)
-            .execute()
         )
     except Exception as exc:  # noqa: BLE001
         log.warning("solar_cache.read_failed", err=str(exc))
@@ -277,12 +272,10 @@ async def _read_cache(
     expires_raw = row.get("expires_at")
     if expires_raw:
         try:
-            expires_at = datetime.fromisoformat(
-                str(expires_raw).replace("Z", "+00:00")
-            )
+            expires_at = datetime.fromisoformat(str(expires_raw).replace("Z", "+00:00"))
             if expires_at.tzinfo is None:
-                expires_at = expires_at.replace(tzinfo=timezone.utc)
-            if expires_at <= datetime.now(tz=timezone.utc):
+                expires_at = expires_at.replace(tzinfo=UTC)
+            if expires_at <= datetime.now(tz=UTC):
                 return None
         except ValueError:
             pass
@@ -312,9 +305,11 @@ async def _write_cache(
     }
     try:
         await asyncio.to_thread(
-            lambda: sb.table("solar_insights_cache")
-            .upsert(payload, on_conflict="lat_q,lng_q,payload_kind")
-            .execute()
+            lambda: (
+                sb.table("solar_insights_cache")
+                .upsert(payload, on_conflict="lat_q,lng_q,payload_kind")
+                .execute()
+            )
         )
     except Exception as exc:  # noqa: BLE001
         # Cache write failures must not break the orchestrator. Log + continue.

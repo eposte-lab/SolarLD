@@ -17,7 +17,7 @@ POST   /v1/acquisition-campaigns/{id}/pause     → status='paused'
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, status
@@ -232,7 +232,7 @@ async def update_acquisition_campaign(
     sb = get_service_client()
 
     update_data: dict[str, Any] = {
-        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(UTC).isoformat(),
     }
     if body.name is not None:
         update_data["name"] = body.name.strip()
@@ -257,9 +257,7 @@ async def update_acquisition_campaign(
     # custom_copy_override: support clearing (null) vs setting (dict).
     # We honour the field only if the client *explicitly* included it.
     if "custom_copy_override" in body.model_fields_set:
-        update_data["custom_copy_override"] = _sanitise_custom_copy(
-            body.custom_copy_override
-        )
+        update_data["custom_copy_override"] = _sanitise_custom_copy(body.custom_copy_override)
 
     if len(update_data) == 1:
         raise HTTPException(
@@ -341,7 +339,7 @@ async def archive_acquisition_campaign(
         sb.table("acquisition_campaigns").update(
             {
                 "status": "archived",
-                "updated_at": datetime.now(timezone.utc).isoformat(),
+                "updated_at": datetime.now(UTC).isoformat(),
             }
         ).eq("id", campaign_id).eq("tenant_id", tenant_id).execute()
     except Exception as exc:  # noqa: BLE001
@@ -367,7 +365,7 @@ async def activate_acquisition_campaign(
     """Move a campaign from draft/paused to active."""
     tenant_id = require_tenant(ctx)
     sb = get_service_client()
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_iso = datetime.now(UTC).isoformat()
     try:
         res = (
             sb.table("acquisition_campaigns")
@@ -396,7 +394,7 @@ async def pause_acquisition_campaign(
     """Pause an active campaign."""
     tenant_id = require_tenant(ctx)
     sb = get_service_client()
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_iso = datetime.now(UTC).isoformat()
     try:
         res = (
             sb.table("acquisition_campaigns")
@@ -437,6 +435,7 @@ class CampaignOverrideCreate(BaseModel):
 
     def check_window(self) -> None:
         from datetime import timedelta
+
         if self.end_at <= self.start_at:
             raise ValueError("end_at must be after start_at")
         if self.end_at > self.start_at + timedelta(days=90):
@@ -473,7 +472,7 @@ async def list_campaign_overrides(
         .order("start_at", desc=True)
     )
     if active_only:
-        now_iso = datetime.now(timezone.utc).isoformat()
+        now_iso = datetime.now(UTC).isoformat()
         q = q.lte("start_at", now_iso).gte("end_at", now_iso)
 
     res = q.execute()
@@ -553,9 +552,9 @@ async def delete_campaign_override(
     sb = get_service_client()
 
     try:
-        sb.table("campaign_overrides").delete().eq(
-            "id", override_id
-        ).eq("campaign_id", campaign_id).eq("tenant_id", tenant_id).execute()
+        sb.table("campaign_overrides").delete().eq("id", override_id).eq(
+            "campaign_id", campaign_id
+        ).eq("tenant_id", tenant_id).execute()
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail="Delete failed") from exc
 

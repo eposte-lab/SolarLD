@@ -13,7 +13,6 @@ import hmac
 import pytest
 
 from src.services.resend_service import (
-    EmailEvent,
     ResendError,
     SendEmailInput,
     build_send_payload,
@@ -21,7 +20,6 @@ from src.services.resend_service import (
     parse_webhook_event,
     verify_webhook_signature,
 )
-
 
 # ---------------------------------------------------------------------------
 # build_send_payload
@@ -155,7 +153,7 @@ def test_parse_webhook_event_to_list_of_non_strings_ignored() -> None:
 
 def _sign(body: bytes, svix_id: str, ts: str, secret_b64: str) -> str:
     key = base64.b64decode(secret_b64)
-    payload = f"{svix_id}.{ts}.".encode("utf-8") + body
+    payload = f"{svix_id}.{ts}.".encode() + body
     digest = hmac.new(key, payload, hashlib.sha256).digest()
     return "v1," + base64.b64encode(digest).decode("ascii")
 
@@ -228,18 +226,30 @@ def test_verify_webhook_signature_accepts_any_of_rotated_keys() -> None:
 
 
 def test_verify_webhook_signature_missing_fields_returns_false() -> None:
-    assert verify_webhook_signature(
-        body=b"", svix_id="", svix_timestamp="1", svix_signature="v1,x", secret="s"
-    ) is False
-    assert verify_webhook_signature(
-        body=b"", svix_id="a", svix_timestamp="", svix_signature="v1,x", secret="s"
-    ) is False
-    assert verify_webhook_signature(
-        body=b"", svix_id="a", svix_timestamp="1", svix_signature="", secret="s"
-    ) is False
-    assert verify_webhook_signature(
-        body=b"", svix_id="a", svix_timestamp="1", svix_signature="v1,x", secret=""
-    ) is False
+    assert (
+        verify_webhook_signature(
+            body=b"", svix_id="", svix_timestamp="1", svix_signature="v1,x", secret="s"
+        )
+        is False
+    )
+    assert (
+        verify_webhook_signature(
+            body=b"", svix_id="a", svix_timestamp="", svix_signature="v1,x", secret="s"
+        )
+        is False
+    )
+    assert (
+        verify_webhook_signature(
+            body=b"", svix_id="a", svix_timestamp="1", svix_signature="", secret="s"
+        )
+        is False
+    )
+    assert (
+        verify_webhook_signature(
+            body=b"", svix_id="a", svix_timestamp="1", svix_signature="v1,x", secret=""
+        )
+        is False
+    )
 
 
 def test_verify_webhook_signature_bad_timestamp_format() -> None:

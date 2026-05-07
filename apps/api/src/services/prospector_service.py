@@ -34,7 +34,6 @@ from __future__ import annotations
 
 from dataclasses import asdict
 from typing import Any
-from uuid import UUID
 
 from ..core.logging import get_logger
 from ..core.supabase_client import get_service_client
@@ -66,7 +65,22 @@ ATECO_PRESETS: dict[str, dict[str, Any]] = {
     },
     "capannoni_industriali": {
         "label": "Capannoni industriali",
-        "ateco_codes": ["10", "11", "13", "14", "15", "16", "17", "18", "20", "22", "23", "25", "27", "28"],
+        "ateco_codes": [
+            "10",
+            "11",
+            "13",
+            "14",
+            "15",
+            "16",
+            "17",
+            "18",
+            "20",
+            "22",
+            "23",
+            "25",
+            "27",
+            "28",
+        ],
         "description": (
             "Manifattura con grandi superfici di copertura — alta "
             "consumi energetici, alta probabilità di tetto idoneo."
@@ -168,9 +182,9 @@ async def search(
     if keyword:
         kw = keyword.lower().strip()
         profiles = [
-            p for p in profiles
-            if kw in (p.legal_name or "").lower()
-            or kw in (p.ateco_description or "").lower()
+            p
+            for p in profiles
+            if kw in (p.legal_name or "").lower() or kw in (p.ateco_description or "").lower()
         ]
 
     items = [_profile_to_dict(p) for p in profiles]
@@ -240,40 +254,40 @@ def create_list(
             if not vat or vat in seen:
                 continue
             seen.add(vat)
-            rows.append({
-                "list_id": list_id,
-                "tenant_id": tenant_id,
-                "vat_number": vat,
-                "legal_name": it.get("legal_name") or "",
-                "ateco_code": it.get("ateco_code"),
-                "ateco_description": it.get("ateco_description"),
-                "employees": it.get("employees"),
-                "revenue_eur": it.get("revenue_eur"),
-                "hq_address": it.get("hq_address"),
-                "hq_cap": it.get("hq_cap"),
-                "hq_city": it.get("hq_city"),
-                "hq_province": it.get("hq_province"),
-                "hq_lat": it.get("hq_lat"),
-                "hq_lng": it.get("hq_lng"),
-                "website_domain": it.get("website_domain"),
-                "decision_maker_name": it.get("decision_maker_name"),
-                "decision_maker_role": it.get("decision_maker_role"),
-                "decision_maker_email": it.get("decision_maker_email"),
-                "linkedin_url": it.get("linkedin_url"),
-                "atoka_payload": it.get("raw") or {},
-            })
+            rows.append(
+                {
+                    "list_id": list_id,
+                    "tenant_id": tenant_id,
+                    "vat_number": vat,
+                    "legal_name": it.get("legal_name") or "",
+                    "ateco_code": it.get("ateco_code"),
+                    "ateco_description": it.get("ateco_description"),
+                    "employees": it.get("employees"),
+                    "revenue_eur": it.get("revenue_eur"),
+                    "hq_address": it.get("hq_address"),
+                    "hq_cap": it.get("hq_cap"),
+                    "hq_city": it.get("hq_city"),
+                    "hq_province": it.get("hq_province"),
+                    "hq_lat": it.get("hq_lat"),
+                    "hq_lng": it.get("hq_lng"),
+                    "website_domain": it.get("website_domain"),
+                    "decision_maker_name": it.get("decision_maker_name"),
+                    "decision_maker_role": it.get("decision_maker_role"),
+                    "decision_maker_email": it.get("decision_maker_email"),
+                    "linkedin_url": it.get("linkedin_url"),
+                    "atoka_payload": it.get("raw") or {},
+                }
+            )
 
         if rows:
             # Chunked insert — Supabase REST has a ~1k row payload
             # limit; chunk at 500 to be safe.
             for chunk_start in range(0, len(rows), 500):
-                chunk = rows[chunk_start:chunk_start + 500]
+                chunk = rows[chunk_start : chunk_start + 500]
                 sb.table("prospect_list_items").insert(chunk).execute()
 
             # Refresh item_count to deduped reality.
-            sb.table("prospect_lists").update(
-                {"item_count": len(rows)}
-            ).eq("id", list_id).execute()
+            sb.table("prospect_lists").update({"item_count": len(rows)}).eq("id", list_id).execute()
             list_row["item_count"] = len(rows)
 
     return list_row
@@ -327,37 +341,37 @@ def create_places_list(
             if not place_id or place_id in seen:
                 continue
             seen.add(place_id)
-            rows.append({
-                "list_id": list_id,
-                "tenant_id": tenant_id,
-                # vat_number is now nullable — Places-based items don't
-                # have a P.IVA until L2 scraping extracts one. legal_name
-                # is still NOT NULL: use display_name as canonical name.
-                "vat_number": None,
-                "legal_name": it.get("display_name") or "(Senza nome)",
-                "hq_address": it.get("formatted_address"),
-                "google_place_id": place_id,
-                "place_lat": it.get("lat"),
-                "place_lng": it.get("lng"),
-                "place_types": it.get("types") or [],
-                "business_status": it.get("business_status"),
-                "user_ratings_total": it.get("user_ratings_total"),
-                "rating": it.get("rating"),
-                "website_domain": it.get("website"),
-                "phone": it.get("phone"),
-                "google_maps_uri": it.get("google_maps_uri"),
-                "validation_status": "pending",
-                "atoka_payload": {},  # NOT NULL with empty default
-            })
+            rows.append(
+                {
+                    "list_id": list_id,
+                    "tenant_id": tenant_id,
+                    # vat_number is now nullable — Places-based items don't
+                    # have a P.IVA until L2 scraping extracts one. legal_name
+                    # is still NOT NULL: use display_name as canonical name.
+                    "vat_number": None,
+                    "legal_name": it.get("display_name") or "(Senza nome)",
+                    "hq_address": it.get("formatted_address"),
+                    "google_place_id": place_id,
+                    "place_lat": it.get("lat"),
+                    "place_lng": it.get("lng"),
+                    "place_types": it.get("types") or [],
+                    "business_status": it.get("business_status"),
+                    "user_ratings_total": it.get("user_ratings_total"),
+                    "rating": it.get("rating"),
+                    "website_domain": it.get("website"),
+                    "phone": it.get("phone"),
+                    "google_maps_uri": it.get("google_maps_uri"),
+                    "validation_status": "pending",
+                    "atoka_payload": {},  # NOT NULL with empty default
+                }
+            )
 
         if rows:
             for chunk_start in range(0, len(rows), 500):
-                chunk = rows[chunk_start:chunk_start + 500]
+                chunk = rows[chunk_start : chunk_start + 500]
                 sb.table("prospect_list_items").insert(chunk).execute()
 
-            sb.table("prospect_lists").update(
-                {"item_count": len(rows)}
-            ).eq("id", list_id).execute()
+            sb.table("prospect_lists").update({"item_count": len(rows)}).eq("id", list_id).execute()
             list_row["item_count"] = len(rows)
 
     return list_row
@@ -433,13 +447,7 @@ def get_list(
 def delete_list(*, tenant_id: str, list_id: str) -> bool:
     """Hard-delete a list + cascade items (FK on items has ON DELETE CASCADE)."""
     sb = get_service_client()
-    res = (
-        sb.table("prospect_lists")
-        .delete()
-        .eq("tenant_id", tenant_id)
-        .eq("id", list_id)
-        .execute()
-    )
+    res = sb.table("prospect_lists").delete().eq("tenant_id", tenant_id).eq("id", list_id).execute()
     return bool(res.data)
 
 

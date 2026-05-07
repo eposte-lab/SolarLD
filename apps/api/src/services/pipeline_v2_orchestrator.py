@@ -38,12 +38,11 @@ Public API
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import structlog
 
-from .consumption_estimator import stima_potenza_FV
 from .email_extractor import ExtractionResult, extract_email
 from .offline_filters import FilterResult, apply_offline_filters
 
@@ -220,9 +219,9 @@ async def _run_hunter_fallback(
     return ExtractionResult(
         email=best.email,
         source="atoka",  # map to 'atoka' class for GDPR audit — Hunter is
-                          # treated as an Atoka-equivalent data provider for
-                          # fallback mode. Change to 'hunter_io' when we want
-                          # separate reporting.
+        # treated as an Atoka-equivalent data provider for
+        # fallback mode. Change to 'hunter_io' when we want
+        # separate reporting.
         confidence=float(best.confidence or 0.5),
         cost_cents=5,  # Hunter.io ~$0.049/lookup ≈ 5 cents
         company_name=company_name,
@@ -261,12 +260,10 @@ async def log_rejection(
         "rule": filter_result.rule,
         "rule_threshold": filter_result.rule_threshold,
         "candidate_value": filter_result.candidate_value,
-        "rejected_at": datetime.now(tz=timezone.utc).isoformat(),
+        "rejected_at": datetime.now(tz=UTC).isoformat(),
     }
     try:
-        await asyncio.to_thread(
-            lambda: sb.table("lead_rejection_log").insert(row).execute()
-        )
+        await asyncio.to_thread(lambda: sb.table("lead_rejection_log").insert(row).execute())
     except Exception as exc:  # noqa: BLE001
         log.warning(
             "pipeline_v2.log_rejection_failed",
@@ -299,12 +296,10 @@ async def log_extraction(
         "confidence": float(result.confidence) if result.confidence is not None else None,
         "cost_cents": result.cost_cents,
         "raw_response": result.raw_response or {},
-        "occurred_at": datetime.now(tz=timezone.utc).isoformat(),
+        "occurred_at": datetime.now(tz=UTC).isoformat(),
     }
     try:
-        await asyncio.to_thread(
-            lambda: sb.table("email_extraction_log").insert(row).execute()
-        )
+        await asyncio.to_thread(lambda: sb.table("email_extraction_log").insert(row).execute())
     except Exception as exc:  # noqa: BLE001
         log.warning(
             "pipeline_v2.log_extraction_failed",

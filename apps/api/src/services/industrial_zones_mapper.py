@@ -110,16 +110,14 @@ class MapResult:
 # Geometry helpers
 # ---------------------------------------------------------------------------
 
+
 def _haversine_m(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
     """Haversine distance in metres. Sufficiently accurate at < 1 km."""
     r = 6_371_000.0
     p1, p2 = math.radians(lat1), math.radians(lat2)
     dphi = math.radians(lat2 - lat1)
     dlmb = math.radians(lng2 - lng1)
-    a = (
-        math.sin(dphi / 2) ** 2
-        + math.cos(p1) * math.cos(p2) * math.sin(dlmb / 2) ** 2
-    )
+    a = math.sin(dphi / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dlmb / 2) ** 2
     return 2 * r * math.asin(math.sqrt(a))
 
 
@@ -181,6 +179,7 @@ def _polygon_area_m2(coords: list[tuple[float, float]]) -> float:
 # Query construction
 # ---------------------------------------------------------------------------
 
+
 def build_overpass_query(
     *,
     landuse_values: set[str],
@@ -203,7 +202,7 @@ def build_overpass_query(
 
     # ISO 3166-2 codes for Italian provinces are formatted IT-XX (e.g. IT-MI).
     # Overpass `["ISO3166-2"~"^IT-(MI|BG|BS)$"]` matches the area boundary.
-    province_regex = "|".join(sorted(set(p.upper() for p in province_codes)))
+    province_regex = "|".join(sorted({p.upper() for p in province_codes}))
 
     landuse_clause = ""
     if landuse_values:
@@ -256,6 +255,7 @@ def aggregate_filters(
 # ---------------------------------------------------------------------------
 # Overpass fetch
 # ---------------------------------------------------------------------------
+
 
 async def fetch_zones_from_osm(
     query: str,
@@ -360,6 +360,7 @@ def _parse_overpass_payload(payload: dict[str, Any]) -> list[OsmZone]:
 # Classification (zone → matched_sectors[])
 # ---------------------------------------------------------------------------
 
+
 def classify_zone_for_sectors(
     zone: OsmZone,
     *,
@@ -425,6 +426,7 @@ def classify_zone_for_sectors(
 # ---------------------------------------------------------------------------
 # Persistence + orchestrator
 # ---------------------------------------------------------------------------
+
 
 async def _persist_zones(
     supabase: Any,
@@ -547,7 +549,7 @@ async def map_target_areas_for_tenant(
     matched = [c for c in classified if c.matched_sectors]
     persisted = await _persist_zones(supabase, tenant_id=tenant_id, classified=matched)
 
-    sectors_covered = sorted(set(s for c in matched for s in c.matched_sectors))
+    sectors_covered = sorted({s for c in matched for s in c.matched_sectors})
     elapsed = asyncio.get_event_loop().time() - started
 
     log.info(

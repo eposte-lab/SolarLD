@@ -26,7 +26,6 @@ from src.services.tenant_module_service import (
     validate_config,
 )
 
-
 # ---------------------------------------------------------------------------
 # Schema instantiation + defaults
 # ---------------------------------------------------------------------------

@@ -33,7 +33,7 @@ gets exercised in integration tests with a fakeredis instance.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
@@ -76,7 +76,7 @@ class DailyTargetCapDecision:
     """Outcome of a ``check_and_reserve`` call."""
 
     verdict: Verdict
-    used: int           # post-reserve count (or pre-reserve if blocked)
+    used: int  # post-reserve count (or pre-reserve if blocked)
     limit: int
     tenant_id: str
 
@@ -115,7 +115,7 @@ def redis_key_for(tenant_id: str, *, now_utc: datetime | None = None) -> str:
     should leave it None to use the wall clock.
     """
     if now_utc is None:
-        now_utc = datetime.now(timezone.utc)
+        now_utc = datetime.now(UTC)
     rome_date = now_utc.astimezone(TZ_ROME).strftime("%Y-%m-%d")
     return f"daily_target_cap:{tenant_id}:{rome_date}"
 
@@ -167,7 +167,7 @@ async def check_and_reserve(
             await r.decr(key)
             return DailyTargetCapDecision(
                 verdict="cap_reached",
-                used=cap,           # report the cap as "used" so the UI shows 250/250
+                used=cap,  # report the cap as "used" so the UI shows 250/250
                 limit=cap,
                 tenant_id=str(tenant_id),
             )
@@ -202,7 +202,7 @@ def campaign_redis_key_for(
 ) -> str:
     """Build the Redis sub-cap key for one campaign + Rome calendar date."""
     if now_utc is None:
-        now_utc = datetime.now(timezone.utc)
+        now_utc = datetime.now(UTC)
     rome_date = now_utc.astimezone(TZ_ROME).strftime("%Y-%m-%d")
     return f"daily_campaign_cap:{tenant_id}:{list_id}:{rome_date}"
 

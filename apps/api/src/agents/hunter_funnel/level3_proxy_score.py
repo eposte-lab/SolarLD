@@ -79,10 +79,7 @@ async def run_level3(
     if not candidates:
         return []
 
-    batches = [
-        candidates[i : i + _BATCH_SIZE]
-        for i in range(0, len(candidates), _BATCH_SIZE)
-    ]
+    batches = [candidates[i : i + _BATCH_SIZE] for i in range(0, len(candidates), _BATCH_SIZE)]
 
     sem = asyncio.Semaphore(_BATCH_CONCURRENCY)
 
@@ -110,9 +107,7 @@ async def run_level3(
             "tenant_id": ctx.tenant_id,
             "scan_id": ctx.scan_id,
             "scored": len(scored),
-            "score_avg": (
-                sum(s.score for s in scored) / len(scored) if scored else 0
-            ),
+            "score_avg": (sum(s.score for s in scored) / len(scored) if scored else 0),
             "score_p80": scored[len(scored) // 5].score if scored else 0,
         },
     )
@@ -232,11 +227,7 @@ def _build_batch_prompt(
             "ateco": p.ateco_code,
             "ateco_desc": p.ateco_description,
             "employees": p.employees,
-            "revenue_eur": (
-                p.yearly_revenue_cents // 100
-                if p.yearly_revenue_cents
-                else None
-            ),
+            "revenue_eur": (p.yearly_revenue_cents // 100 if p.yearly_revenue_cents else None),
             "province": p.hq_province,
             "city": p.hq_city,
             "site_signals": c.enrichment.site_signals,
@@ -340,9 +331,7 @@ def _maybe_clamp_score(value: Any) -> int | None:
     return max(0, min(100, n))
 
 
-def _parse_batch_response(
-    text: str, *, expected_len: int
-) -> list[dict[str, Any]] | None:
+def _parse_batch_response(text: str, *, expected_len: int) -> list[dict[str, Any]] | None:
     """Parse the Haiku JSON. Tolerant to leading/trailing whitespace and
     accidental markdown fences the model sometimes emits despite the
     system prompt.
@@ -401,9 +390,32 @@ def _fallback_score(c: EnrichedCandidate) -> ScoredCandidate:
 
     # Industrial ATECO prefixes (manifattura, logistica, alimentare)
     ateco = (p.ateco_code or "")[:2]
-    if ateco in {"10", "11", "13", "14", "15", "16", "17", "18", "19", "20",
-                 "21", "22", "23", "24", "25", "26", "27", "28", "29", "30",
-                 "31", "32", "33", "52"}:
+    if ateco in {
+        "10",
+        "11",
+        "13",
+        "14",
+        "15",
+        "16",
+        "17",
+        "18",
+        "19",
+        "20",
+        "21",
+        "22",
+        "23",
+        "24",
+        "25",
+        "26",
+        "27",
+        "28",
+        "29",
+        "30",
+        "31",
+        "32",
+        "33",
+        "52",
+    }:
         score += 15
 
     # Website signal match
@@ -411,14 +423,13 @@ def _fallback_score(c: EnrichedCandidate) -> ScoredCandidate:
         score += min(10, len(c.enrichment.site_signals) * 3)
 
     sector_match: int | None = None
-    if c.predicted_sector:
-        if c.sector_confidence is not None:
-            if c.sector_confidence >= 0.9:
-                sector_match = 75
-            elif c.sector_confidence >= 0.6:
-                sector_match = 55
-            else:
-                sector_match = 40
+    if c.predicted_sector and c.sector_confidence is not None:
+        if c.sector_confidence >= 0.9:
+            sector_match = 75
+        elif c.sector_confidence >= 0.6:
+            sector_match = 55
+        else:
+            sector_match = 40
 
     return ScoredCandidate(
         candidate_id=c.candidate_id,
@@ -468,9 +479,7 @@ def _bulk_persist_l3(scored: list[ScoredCandidate]) -> None:
             "predicted_ateco_codes": list(s.predicted_ateco_codes or []),
         }
         try:
-            sb.table("scan_candidates").update(update).eq(
-                "id", str(s.candidate_id)
-            ).execute()
+            sb.table("scan_candidates").update(update).eq("id", str(s.candidate_id)).execute()
         except Exception as exc:  # noqa: BLE001
             log.warning(
                 "l3_persist_failed",

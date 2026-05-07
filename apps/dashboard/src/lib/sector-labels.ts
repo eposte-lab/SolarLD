@@ -24,6 +24,7 @@ export const SECTOR_LABELS: Record<string, string> = {
   personal_services: 'Servizi alla persona',
   professional_offices: 'Studi professionali',
   horeca: 'HoReCa',
+  amministratori_condominio: 'Amministratori di condominio',
 };
 
 /**

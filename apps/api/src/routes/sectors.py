@@ -125,8 +125,7 @@ async def list_wizard_groups() -> list[WizardGroup]:
     res = (
         sb.table("ateco_google_types")
         .select(
-            "ateco_code, ateco_label, wizard_group, "
-            "typical_kwp_range_min, typical_kwp_range_max"
+            "ateco_code, ateco_label, wizard_group, typical_kwp_range_min, typical_kwp_range_max"
         )
         .order("wizard_group")
         .order("priority_hint", desc=True)

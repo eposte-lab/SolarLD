@@ -47,7 +47,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from ..core.logging import get_logger
@@ -158,7 +158,7 @@ async def run_engagement_rollup(
     "hot right now" threshold).
     """
     sb = get_service_client()
-    now = now or datetime.now(timezone.utc)
+    now = now or datetime.now(UTC)
     window_start = now - timedelta(days=ROLLUP_WINDOW_DAYS)
 
     # ------------------------------------------------------------------
@@ -166,9 +166,7 @@ async def run_engagement_rollup(
     # ------------------------------------------------------------------
     events_res = (
         sb.table("portal_events")
-        .select(
-            "tenant_id, lead_id, session_id, event_kind, metadata"
-        )
+        .select("tenant_id, lead_id, session_id, event_kind, metadata")
         .gte("occurred_at", window_start.isoformat())
         .execute()
     )
@@ -179,9 +177,7 @@ async def run_engagement_rollup(
         tid = row.get("tenant_id")
         if not lid or not tid:
             continue
-        stats = by_lead.setdefault(
-            lid, LeadEngagementStats(lead_id=lid, tenant_id=tid)
-        )
+        stats = by_lead.setdefault(lid, LeadEngagementStats(lead_id=lid, tenant_id=tid))
         sid = row.get("session_id")
         if sid:
             stats.sessions.add(str(sid))
@@ -308,7 +304,7 @@ async def get_hot_leads_now(
     through the API for every page load.
     """
     sb = get_service_client()
-    since = (datetime.now(timezone.utc) - timedelta(minutes=minutes)).isoformat()
+    since = (datetime.now(UTC) - timedelta(minutes=minutes)).isoformat()
     res = (
         sb.table("portal_events")
         .select("lead_id")

@@ -92,11 +92,11 @@ def _b2c_score(roof: dict[str, Any]) -> int:
     if area <= 40:
         return 20
     if area <= 80:
-        return int(round(20 + (area - 40) * 0.50))       # 40→40
+        return int(round(20 + (area - 40) * 0.50))  # 40→40
     if area <= 150:
-        return int(round(40 + (area - 80) * 0.4286))     # 150→70
+        return int(round(40 + (area - 80) * 0.4286))  # 150→70
     if area <= 300:
-        return int(round(70 + (area - 150) * 0.0667))    # 300→80
+        return int(round(70 + (area - 150) * 0.0667))  # 300→80
     return 85
 
 

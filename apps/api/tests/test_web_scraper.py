@@ -6,16 +6,13 @@ import pytest
 
 from src.services import web_scraper as ws
 
-
 # ---------------------------------------------------------------------------
 # Email selection
 # ---------------------------------------------------------------------------
 
 
 def test_extract_best_email_picks_named_role_first() -> None:
-    out = ws.extract_best_email(
-        ["info@acme.it", "direzione@acme.it", "marketing@acme.it"]
-    )
+    out = ws.extract_best_email(["info@acme.it", "direzione@acme.it", "marketing@acme.it"])
     assert out is not None
     assert out.value == "direzione@acme.it"
     assert out.confidence == "alta"
@@ -41,9 +38,7 @@ def test_extract_best_email_first_generic_when_no_priority_match() -> None:
 def test_extract_best_email_drops_hard_exclusions() -> None:
     """noreply/newsletter are still hard-rejected; privacy@ falls through
     to the new privacy_dpo last-resort tier (better than nothing)."""
-    out = ws.extract_best_email(
-        ["noreply@acme.it", "newsletter@acme.it", "unsubscribe@acme.it"]
-    )
+    out = ws.extract_best_email(["noreply@acme.it", "newsletter@acme.it", "unsubscribe@acme.it"])
     assert out is None
 
 
@@ -71,9 +66,7 @@ def test_extract_best_email_empty_input() -> None:
 
 
 def test_extract_best_email_priority_order_amministrazione_over_info() -> None:
-    out = ws.extract_best_email(
-        ["info@acme.it", "amministrazione@acme.it"]
-    )
+    out = ws.extract_best_email(["info@acme.it", "amministrazione@acme.it"])
     assert out is not None
     # PRIORITA = direzione, amministrazione, info, commerciale
     # amministrazione comes before info → wins.

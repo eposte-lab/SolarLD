@@ -70,9 +70,7 @@ class SavingsCompareResult:
         """Wire format for the public endpoint."""
         return {
             "predicted_yearly_kwh": round(self.predicted_yearly_kwh, 0),
-            "predicted_yearly_savings_eur": round(
-                self.predicted_yearly_savings_eur, 0
-            ),
+            "predicted_yearly_savings_eur": round(self.predicted_yearly_savings_eur, 0),
             "predicted_payback_years": (
                 round(self.predicted_payback_years, 1)
                 if self.predicted_payback_years is not None
@@ -80,20 +78,14 @@ class SavingsCompareResult:
             ),
             "actual_yearly_kwh": round(self.actual_yearly_kwh, 0),
             "actual_yearly_eur": round(self.actual_yearly_eur, 0),
-            "actual_tariff_eur_per_kwh": round(
-                self.actual_tariff_eur_per_kwh, 4
-            ),
-            "actual_yearly_savings_eur": round(
-                self.actual_yearly_savings_eur, 0
-            ),
+            "actual_tariff_eur_per_kwh": round(self.actual_tariff_eur_per_kwh, 4),
+            "actual_yearly_savings_eur": round(self.actual_yearly_savings_eur, 0),
             "actual_payback_years": (
                 round(self.actual_payback_years, 1)
                 if self.actual_payback_years is not None
                 else None
             ),
-            "actual_self_consumption_kwh": round(
-                self.actual_self_consumption_kwh, 0
-            ),
+            "actual_self_consumption_kwh": round(self.actual_self_consumption_kwh, 0),
             "actual_export_kwh": round(self.actual_export_kwh, 0),
             "delta_savings_eur": round(self.delta_savings_eur, 0),
             "delta_pct": round(self.delta_pct, 1),
@@ -142,27 +134,18 @@ def compute_savings_compare(
     tariff = bolletta_eur_yearly / bolletta_kwh_yearly
 
     st = (subject_type or "unknown").lower()
-    if st == "b2b":
-        self_ratio = SELF_CONSUMPTION_RATIO_B2B
-    else:
-        self_ratio = SELF_CONSUMPTION_RATIO_B2C
+    self_ratio = SELF_CONSUMPTION_RATIO_B2B if st == "b2b" else SELF_CONSUMPTION_RATIO_B2C
 
     self_kwh = predicted_yearly_kwh * self_ratio
     export_kwh = predicted_yearly_kwh * (1.0 - self_ratio)
-    actual_savings = (
-        self_kwh * tariff + export_kwh * EXPORT_PRICE_EUR_PER_KWH
-    )
+    actual_savings = self_kwh * tariff + export_kwh * EXPORT_PRICE_EUR_PER_KWH
 
     actual_payback: float | None = None
     if net_capex_eur and net_capex_eur > 0 and actual_savings > 0:
         actual_payback = net_capex_eur / actual_savings
 
     delta = actual_savings - predicted_yearly_savings
-    delta_pct = (
-        (delta / predicted_yearly_savings) * 100.0
-        if predicted_yearly_savings > 0
-        else 0.0
-    )
+    delta_pct = (delta / predicted_yearly_savings) * 100.0 if predicted_yearly_savings > 0 else 0.0
 
     return SavingsCompareResult(
         predicted_yearly_kwh=predicted_yearly_kwh,

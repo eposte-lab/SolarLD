@@ -30,7 +30,7 @@ All write mutations use the service-role client so the checked row's
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, status
@@ -60,6 +60,7 @@ _VALID_STATUSES = {"pending_review", "approved", "rejected"}
 
 class ReviewBody(BaseModel):
     """Payload for approve / reject actions."""
+
     notes: str | None = None
 
 
@@ -100,10 +101,7 @@ async def list_quarantine(
             valid = ", ".join(sorted(_VALID_STATUSES))
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=(
-                    f"Stato revisione non valido. Valori ammessi: {valid} "
-                    "oppure 'all'."
-                ),
+                detail=(f"Stato revisione non valido. Valori ammessi: {valid} oppure 'all'."),
             )
         q = q.eq("review_status", review_status)
 
@@ -166,7 +164,7 @@ async def approve_quarantine(
     user_id = ctx.user.id if ctx.user else None
     sb = get_service_client()
 
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_iso = datetime.now(UTC).isoformat()
 
     update_payload: dict[str, Any] = {
         "review_status": "approved",
@@ -215,7 +213,7 @@ async def reject_quarantine(
     user_id = ctx.user.id if ctx.user else None
     sb = get_service_client()
 
-    now_iso = datetime.now(timezone.utc).isoformat()
+    now_iso = datetime.now(UTC).isoformat()
 
     update_payload: dict[str, Any] = {
         "review_status": "rejected",

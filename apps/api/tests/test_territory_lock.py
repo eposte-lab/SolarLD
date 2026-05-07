@@ -64,7 +64,7 @@ class _Result:
 
 
 class _Chain:
-    def __init__(self, sb: "_LockFakeSupabase", table: str) -> None:
+    def __init__(self, sb: _LockFakeSupabase, table: str) -> None:
         self._sb = sb
         self._table = table
         self._op = "select"
@@ -73,60 +73,60 @@ class _Chain:
         self._is_maybe_single = False
 
     # terminal ops
-    def select(self, *_a: Any, **_k: Any) -> "_Chain":
+    def select(self, *_a: Any, **_k: Any) -> _Chain:
         self._op = "select"
         return self
 
-    def insert(self, row: dict[str, Any]) -> "_Chain":
+    def insert(self, row: dict[str, Any]) -> _Chain:
         self._op = "insert"
         self._payload = row
         return self
 
-    def update(self, row: dict[str, Any]) -> "_Chain":
+    def update(self, row: dict[str, Any]) -> _Chain:
         self._op = "update"
         self._payload = row
         return self
 
-    def upsert(self, row: dict[str, Any], **_k: Any) -> "_Chain":
+    def upsert(self, row: dict[str, Any], **_k: Any) -> _Chain:
         self._op = "upsert"
         self._payload = row
         return self
 
-    def delete(self) -> "_Chain":
+    def delete(self) -> _Chain:
         self._op = "delete"
         return self
 
     # filters — eq tracked, rest no-op
-    def eq(self, field_name: str, value: Any, *_a: Any, **_k: Any) -> "_Chain":
+    def eq(self, field_name: str, value: Any, *_a: Any, **_k: Any) -> _Chain:
         self._filters[field_name] = value
         return self
 
-    def neq(self, *_a: Any, **_k: Any) -> "_Chain":
+    def neq(self, *_a: Any, **_k: Any) -> _Chain:
         return self
 
-    def in_(self, *_a: Any, **_k: Any) -> "_Chain":
+    def in_(self, *_a: Any, **_k: Any) -> _Chain:
         return self
 
-    def is_(self, *_a: Any, **_k: Any) -> "_Chain":
+    def is_(self, *_a: Any, **_k: Any) -> _Chain:
         return self
 
-    def or_(self, *_a: Any, **_k: Any) -> "_Chain":
+    def or_(self, *_a: Any, **_k: Any) -> _Chain:
         return self
 
-    def order(self, *_a: Any, **_k: Any) -> "_Chain":
+    def order(self, *_a: Any, **_k: Any) -> _Chain:
         return self
 
-    def limit(self, *_a: Any, **_k: Any) -> "_Chain":
+    def limit(self, *_a: Any, **_k: Any) -> _Chain:
         return self
 
-    def range(self, *_a: Any, **_k: Any) -> "_Chain":
+    def range(self, *_a: Any, **_k: Any) -> _Chain:
         return self
 
-    def maybe_single(self, *_a: Any, **_k: Any) -> "_Chain":
+    def maybe_single(self, *_a: Any, **_k: Any) -> _Chain:
         self._is_maybe_single = True
         return self
 
-    def single(self, *_a: Any, **_k: Any) -> "_Chain":
+    def single(self, *_a: Any, **_k: Any) -> _Chain:
         return self
 
     def execute(self) -> _Result:
@@ -150,14 +150,17 @@ class _LockFakeSupabase:
     ) -> None:
         self.tenant_row: dict[str, Any] = {
             "id": tenant_id,
-            "territory_locked_at": (
-                "2024-01-01T00:00:00+00:00" if locked else None
-            ),
+            "territory_locked_at": ("2024-01-01T00:00:00+00:00" if locked else None),
             "territory_locked_by": USER if locked else None,
         }
         self.territories: list[dict[str, Any]] = [
-            {"id": TERRITORY_ID, "tenant_id": tenant_id, "type": "regione",
-             "code": "15", "name": "Campania"},
+            {
+                "id": TERRITORY_ID,
+                "tenant_id": tenant_id,
+                "type": "regione",
+                "code": "15",
+                "name": "Campania",
+            },
         ]
         self.sorgente_config: dict[str, Any] = sorgente_config or {
             "mode": "b2b_funnel_v2",
@@ -259,30 +262,21 @@ def _clear_auth() -> None:
     app.dependency_overrides.clear()
 
 
-def _patch_service_clients(
-    monkeypatch: pytest.MonkeyPatch, fake: _LockFakeSupabase
-) -> None:
+def _patch_service_clients(monkeypatch: pytest.MonkeyPatch, fake: _LockFakeSupabase) -> None:
     """Point every call site that reads/writes lock state at the fake.
 
     The service module and each route import ``get_service_client`` at
     import time, so we have to patch each bound name individually.
     """
-    from src.services import territory_lock_service
-    from src.routes import territories as territories_route
     from src.routes import admin as admin_route
     from src.routes import onboarding as onboarding_route
-    from src.services import tenant_module_service
+    from src.routes import territories as territories_route
+    from src.services import tenant_module_service, territory_lock_service
 
-    monkeypatch.setattr(
-        territory_lock_service, "get_service_client", lambda: fake
-    )
-    monkeypatch.setattr(
-        territories_route, "get_service_client", lambda: fake
-    )
+    monkeypatch.setattr(territory_lock_service, "get_service_client", lambda: fake)
+    monkeypatch.setattr(territories_route, "get_service_client", lambda: fake)
     monkeypatch.setattr(admin_route, "get_service_client", lambda: fake)
-    monkeypatch.setattr(
-        tenant_module_service, "get_service_client", lambda: fake
-    )
+    monkeypatch.setattr(tenant_module_service, "get_service_client", lambda: fake)
     # onboarding imports lock() from the service — already patched above.
     _ = onboarding_route  # silence unused
 
@@ -527,9 +521,7 @@ def test_delete_territory_returns_423_when_locked(
                 headers={"Authorization": "Bearer dummy"},
             )
         assert r.status_code == 423, r.text
-        assert fake.territory_deletes == 0, (
-            "Lock was bypassed — delete reached the DB"
-        )
+        assert fake.territory_deletes == 0, "Lock was bypassed — delete reached the DB"
     finally:
         _clear_auth()
 
@@ -592,9 +584,7 @@ def test_put_sorgente_geo_change_returns_423_when_locked(
             )
         assert r.status_code == 423, r.text
         # upsert must NOT have been called.
-        assert fake.module_upserts == [], (
-            "Lock bypassed — sorgente upsert reached the DB"
-        )
+        assert fake.module_upserts == [], "Lock bypassed — sorgente upsert reached the DB"
     finally:
         _clear_auth()
 

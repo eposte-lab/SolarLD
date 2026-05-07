@@ -34,18 +34,19 @@ import hashlib
 import hmac
 import json
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any
 
-import pytest
 from fastapi.testclient import TestClient
 
 from src.core.security import AuthContext, get_current_user
 from src.main import app
 from src.services import crm_webhook_service as crm_svc
-from src.services import digest_service
-from src.services import notifications_service
-from src.services import resend_service
+from src.services import digest_service, notifications_service, resend_service
 
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    import pytest
 
 # ---------------------------------------------------------------------------
 # In-memory Supabase fake — smallest surface that satisfies the flows
@@ -68,7 +69,7 @@ class _FakeChain:
     ``FakeSupabase`` to decide what to return based on (table, op).
     """
 
-    def __init__(self, sb: "FakeSupabase", table: str) -> None:
+    def __init__(self, sb: FakeSupabase, table: str) -> None:
         self._sb = sb
         self._table = table
         self._op: str = "select"
@@ -76,48 +77,48 @@ class _FakeChain:
         self._kwargs: dict[str, Any] = {}
 
     # --- terminal ops ---
-    def select(self, *_args: Any, **kwargs: Any) -> "_FakeChain":
+    def select(self, *_args: Any, **kwargs: Any) -> _FakeChain:
         self._op = "select"
         self._kwargs.update(kwargs)
         return self
 
-    def insert(self, row: dict[str, Any]) -> "_FakeChain":
+    def insert(self, row: dict[str, Any]) -> _FakeChain:
         self._op = "insert"
         self._payload = row
         return self
 
-    def update(self, row: dict[str, Any]) -> "_FakeChain":
+    def update(self, row: dict[str, Any]) -> _FakeChain:
         self._op = "update"
         self._payload = row
         return self
 
-    def delete(self) -> "_FakeChain":
+    def delete(self) -> _FakeChain:
         self._op = "delete"
         return self
 
     # --- no-op filters / modifiers ---
-    def eq(self, *_a: Any, **_k: Any) -> "_FakeChain":
+    def eq(self, *_a: Any, **_k: Any) -> _FakeChain:
         return self
 
-    def in_(self, *_a: Any, **_k: Any) -> "_FakeChain":
+    def in_(self, *_a: Any, **_k: Any) -> _FakeChain:
         return self
 
-    def is_(self, *_a: Any, **_k: Any) -> "_FakeChain":
+    def is_(self, *_a: Any, **_k: Any) -> _FakeChain:
         return self
 
-    def or_(self, *_a: Any, **_k: Any) -> "_FakeChain":
+    def or_(self, *_a: Any, **_k: Any) -> _FakeChain:
         return self
 
-    def gte(self, *_a: Any, **_k: Any) -> "_FakeChain":
+    def gte(self, *_a: Any, **_k: Any) -> _FakeChain:
         return self
 
-    def lte(self, *_a: Any, **_k: Any) -> "_FakeChain":
+    def lte(self, *_a: Any, **_k: Any) -> _FakeChain:
         return self
 
-    def order(self, *_a: Any, **_k: Any) -> "_FakeChain":
+    def order(self, *_a: Any, **_k: Any) -> _FakeChain:
         return self
 
-    def limit(self, *_a: Any, **_k: Any) -> "_FakeChain":
+    def limit(self, *_a: Any, **_k: Any) -> _FakeChain:
         return self
 
     # --- execute routes to owner ---
@@ -210,15 +211,13 @@ async def test_crm_webhook_dispatch_end_to_end(
         def __init__(self, *_: Any, **__: Any) -> None:
             pass
 
-        async def __aenter__(self) -> "_FakeAsyncClient":
+        async def __aenter__(self) -> _FakeAsyncClient:
             return self
 
         async def __aexit__(self, *_: Any) -> None:
             return None
 
-        async def post(
-            self, url: str, *, content: bytes, headers: dict[str, str]
-        ) -> _FakeResponse:
+        async def post(self, url: str, *, content: bytes, headers: dict[str, str]) -> _FakeResponse:
             captured["url"] = url
             captured["body"] = content
             captured["headers"] = headers
@@ -283,9 +282,9 @@ async def test_daily_digest_skips_empty_and_sends_active(
 ) -> None:
     """Two opted-in tenants — one idle, one active — exercise every branch.
 
-      * The empty-window tenant must be *skipped* (no email).
-      * The active tenant must receive an email whose subject, body
-        and tags match the daily digest format.
+    * The empty-window tenant must be *skipped* (no email).
+    * The active tenant must receive an email whose subject, body
+      and tags match the daily digest format.
     """
     tenants = [
         {
@@ -323,8 +322,6 @@ async def test_daily_digest_skips_empty_and_sends_active(
         "tenant-active": (12, 3, 8, 5, 2, 1, 1234),
     }
 
-    call_idx = {"n": 0}
-
     def _leads_select(chain: _FakeChain) -> _FakeResult:
         """Dispatch leads/api_usage_log counts via call order.
 
@@ -345,7 +342,9 @@ async def test_daily_digest_skips_empty_and_sends_active(
     cursor = {"idx": 0, "leads_seen": 0, "usage_seen": 0}
 
     def _current_tenant_id() -> str:
-        eligible = [t for t in tenants if t["settings"].get("feature_flags", {}).get("daily_digest")]
+        eligible = [
+            t for t in tenants if t["settings"].get("feature_flags", {}).get("daily_digest")
+        ]
         return eligible[cursor["idx"]]["id"]
 
     def _leads_dispatch(_chain: _FakeChain) -> _FakeResult:
@@ -361,9 +360,7 @@ async def test_daily_digest_skips_empty_and_sends_active(
         # End of this tenant's stat bundle — advance cursor.
         cursor["idx"] += 1
         cursor["leads_seen"] = 0
-        return _FakeResult(
-            data=[{"cost_cents": cost_cents}] if cost_cents else []
-        )
+        return _FakeResult(data=[{"cost_cents": cost_cents}] if cost_cents else [])
 
     fake_sb = FakeSupabase(
         selects={
@@ -392,8 +389,10 @@ async def test_daily_digest_skips_empty_and_sends_active(
     assert len(results) == 2  # opt-out tenant was filtered before send
     skipped = [r for r in results if r.get("skipped")]
     sent_rows = [r for r in results if r.get("sent")]
-    assert len(skipped) == 1 and skipped[0]["tenant_id"] == "tenant-idle"
-    assert len(sent_rows) == 1 and sent_rows[0]["tenant_id"] == "tenant-active"
+    assert len(skipped) == 1
+    assert skipped[0]["tenant_id"] == "tenant-idle"
+    assert len(sent_rows) == 1
+    assert sent_rows[0]["tenant_id"] == "tenant-active"
 
     # Exactly one real email went out, to the active tenant.
     assert len(sent) == 1
@@ -405,9 +404,11 @@ async def test_daily_digest_skips_empty_and_sends_active(
     # HTML includes the numeric signal so we know composition plugged
     # the computed stats into format_digest_html (12 leads, 3 HOT, €12.34).
     assert "Solare Attiva" in payload.html
-    assert "12" in payload.html and "3" in payload.html
+    assert "12" in payload.html
+    assert "3" in payload.html
     assert "€12.34" in payload.html
-    assert payload.text is not None and "Nuovi lead:" in payload.text
+    assert payload.text is not None
+    assert "Nuovi lead:" in payload.text
 
 
 # ---------------------------------------------------------------------------
