@@ -513,6 +513,23 @@ async def upload_bolletta(
                 "occurred_at": datetime.now(UTC).isoformat(),
             }
         ).execute()
+        # Mirror the engagement bump from the /portal/track route.
+        # The portal_events INSERT alone doesn't stamp engagement_score
+        # or last_portal_event_at — those live behind the
+        # bump_engagement_score RPC. Without this call a server-side
+        # bolletta upload (or any other server-fired portal event) leaves
+        # the lead at engagement_score=0 even though the event delta
+        # would be +50, and the /leads "Caldi adesso" filter that gates
+        # on engagement_score never picks them up.
+        delta = _EVENT_DELTA.get("portal.bolletta_uploaded", 0)
+        if delta > 0:
+            try:
+                sb.rpc(
+                    "bump_engagement_score",
+                    {"p_lead_id": lead["id"], "p_delta": delta},
+                ).execute()
+            except Exception as exc:  # noqa: BLE001
+                log.warning("bolletta.engagement_bump_failed", err=str(exc))
     except Exception as exc:  # noqa: BLE001
         log.warning("bolletta.portal_event_failed", err=str(exc))
 

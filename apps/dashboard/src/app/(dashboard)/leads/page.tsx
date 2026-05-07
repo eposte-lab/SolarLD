@@ -162,9 +162,9 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
 
       {isHotMode && (
         <div className="rounded-xl bg-surface-container-low px-5 py-3 text-xs text-on-surface-variant">
-          Lead con engagement ≥ 60, evento sul portale nelle ultime 72h, non
-          ancora in pipeline (engaged / WhatsApp / appuntamento / chiusi).
-          Ordinati per score e ultimo evento.
+          Lead con almeno un&apos;attività sul portale nelle ultime 72h, non
+          ancora in conversazione attiva (WhatsApp / appuntamento / chiusi).
+          Ordinati per engagement e ultimo evento.
         </div>
       )}
 
@@ -234,11 +234,34 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
       <BentoCard padding="tight" span="full">
         {rows.length === 0 ? (
           <div className="rounded-lg bg-surface-container-low p-12 text-center">
-            <p className="text-sm text-on-surface-variant">
-              {isHotMode
-                ? 'Nessun lead caldo da chiamare. Manda un round di outreach per riscaldare la pipeline.'
-                : 'Nessun lead trovato con questi filtri.'}
-            </p>
+            {isHotMode ? (
+              <div className="space-y-2">
+                <p className="text-sm text-on-surface-variant">
+                  Nessuno è ancora atterrato sul portale nelle ultime 72h.
+                </p>
+                {contattiSummary.l4_qualified > 0 ? (
+                  <p className="text-xs text-on-surface-variant">
+                    Hai{' '}
+                    <Link
+                      href="/contatti"
+                      className="font-semibold text-primary hover:underline"
+                    >
+                      {formatNumber(contattiSummary.l4_qualified)} contatti qualificati
+                    </Link>{' '}
+                    in attesa: l&apos;outreach automatico inizia a contattarli
+                    appena la pipeline è attiva.
+                  </p>
+                ) : (
+                  <p className="text-xs text-on-surface-variant">
+                    Manda un round di outreach per riscaldare la pipeline.
+                  </p>
+                )}
+              </div>
+            ) : (
+              <p className="text-sm text-on-surface-variant">
+                Nessun lead trovato con questi filtri.
+              </p>
+            )}
           </div>
         ) : (
           <LeadsTable rows={rows} pipelineLabels={pipelineLabels} />

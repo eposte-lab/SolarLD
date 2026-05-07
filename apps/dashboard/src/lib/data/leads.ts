@@ -459,7 +459,14 @@ export async function listHotLeadsAwaitingResponse(opts: {
   limit?: number;
 } = {}): Promise<LeadListRow[]> {
   const sinceHours = opts.sinceHours ?? 72;
-  const minScore = opts.minScore ?? 60;
+  // Was 60 — too strict. A single portal.view bumps engagement by +5,
+  // a scroll_50 by +3, a roi_viewed by +10 (see _EVENT_DELTA in
+  // apps/api/src/routes/public.py). 60 required ~5 different actions
+  // in the same session, so first-time visitors never qualified for
+  // "Caldi adesso" and the operator saw an empty list. Threshold of 5
+  // means "any portal activity counts" — the recent-event filter
+  // (sinceHours=72) keeps the list scoped to actually-warm leads.
+  const minScore = opts.minScore ?? 5;
   const limit = opts.limit ?? 25;
   const supabase = await createSupabaseServerClient();
   const cutoff = new Date(Date.now() - sinceHours * 60 * 60 * 1000).toISOString();
