@@ -131,9 +131,6 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
             {isHotMode ? 'Caldi adesso' : 'Lead Attivi'}
           </h1>
         </div>
-        <GradientButton href="/territories" size="sm" variant="secondary">
-          Aggiungi territorio
-        </GradientButton>
       </header>
 
 
