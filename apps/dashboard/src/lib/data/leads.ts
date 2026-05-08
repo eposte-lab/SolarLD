@@ -78,6 +78,12 @@ export interface LeadListFilter {
   status?: LeadStatus;
   tier?: LeadScoreTier;
   q?: string; // free-text on business_name / owner_last_name
+  /** Activity filters — answer "did the lead do X?" without needing
+   *  to open the detail page. Multiple flags AND together: `read=true`
+   *  + `clicked=true` returns leads that opened AND clicked. */
+  read?: boolean | null; // outreach_opened_at: true=read, false=not, null=any
+  clicked?: boolean | null; // outreach_clicked_at
+  portalVisited?: boolean | null; // last_portal_event_at OR dashboard_visited_at
 }
 
 export interface LeadListResult {
@@ -150,6 +156,24 @@ export async function listLeads(opts: {
   // verbose; for now we just match on `leads.public_slug` as a fallback.
   if (opts.filter?.q && opts.filter.q.trim()) {
     q = q.ilike('public_slug', `%${opts.filter.q.trim()}%`);
+  }
+
+  // Activity filters — applied as AND on top of the engagement gate.
+  // `true` requires the timestamp to exist; `false` requires it to be
+  // null. The portal-visited filter widens to either of the two columns
+  // because the API and the in-page tracker write to different ones.
+  if (opts.filter?.read === true) q = q.not('outreach_opened_at', 'is', null);
+  else if (opts.filter?.read === false) q = q.is('outreach_opened_at', null);
+  if (opts.filter?.clicked === true) q = q.not('outreach_clicked_at', 'is', null);
+  else if (opts.filter?.clicked === false) q = q.is('outreach_clicked_at', null);
+  if (opts.filter?.portalVisited === true) {
+    q = q.or(
+      'last_portal_event_at.not.is.null,dashboard_visited_at.not.is.null',
+    );
+  } else if (opts.filter?.portalVisited === false) {
+    q = q
+      .is('last_portal_event_at', null)
+      .is('dashboard_visited_at', null);
   }
 
   // Engagement gate — only leads with at least one concrete action.

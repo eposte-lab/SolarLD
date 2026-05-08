@@ -28,6 +28,7 @@ import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 
 import { FollowUpDrafter } from '@/components/follow-up-drafter';
+import { LeadActivityStrip } from '@/components/lead-activity-strip';
 import { LeadConversationsCard } from '@/components/lead-conversations-card';
 import { LeadRepliesCard } from '@/components/lead-replies-card';
 import { LeadPortalTimeline } from '@/components/lead-portal-timeline';
@@ -326,6 +327,31 @@ export default async function LeadDetailPage({ params }: PageProps) {
   const hasReplies = replies.length > 0;
   const hasConversations = conversations.length > 0;
 
+  // Derive bolletta/appointment timestamps from the events stream — they
+  // don't have dedicated columns on the lead row. The activity strip in
+  // the header reads these so the operator sees the full status at a
+  // glance instead of having to scroll the timeline.
+  const latestEventAt = (
+    types: ReadonlyArray<string>,
+  ): string | null => {
+    let latest: string | null = null;
+    for (const e of events) {
+      if (!types.includes(e.event_type)) continue;
+      if (!e.occurred_at) continue;
+      if (!latest || e.occurred_at > latest) latest = e.occurred_at;
+    }
+    return latest;
+  };
+  const activityFlags = {
+    outreachSentAt: lead.outreach_sent_at,
+    outreachOpenedAt: lead.outreach_opened_at,
+    outreachClickedAt: lead.outreach_clicked_at,
+    portalVisitedAt:
+      lead.last_portal_event_at ?? lead.dashboard_visited_at ?? null,
+    bollettaUploadedAt: latestEventAt(['lead.bolletta_uploaded']),
+    appointmentRequestedAt: latestEventAt(['lead.appointment_requested']),
+  };
+
   return (
     <div className="space-y-4">
       {/* ─── Header ───────────────────────────────────────────────────── */}
@@ -341,6 +367,11 @@ export default async function LeadDetailPage({ params }: PageProps) {
           <h1 className="font-headline text-4xl font-bold tracking-tighter">
             {name}
           </h1>
+          {/* Activity-at-a-glance — the operator's mental model is
+              "did the lead read the email? click? visit the portal?"
+              Render this *first* so the answer is the first thing the
+              eye lands on, before the technical chips below. */}
+          <LeadActivityStrip flags={activityFlags} />
           <div className="flex flex-wrap items-center gap-2">
             {/* The header shows the lead's *current* state: pipeline status
                 + engagement (real portal activity over the last 30d). The

@@ -40,7 +40,17 @@ type Search = Promise<{
   status?: string;
   q?: string;
   mode?: string;
+  // Activity filters: '1' = require, '0' = require-absent, undefined = any.
+  read?: string;
+  clicked?: string;
+  portal?: string;
 }>;
+
+function parseTriState(raw: string | undefined): boolean | null | undefined {
+  if (raw === '1') return true;
+  if (raw === '0') return false;
+  return undefined;
+}
 
 const TIERS: { value: '' | LeadScoreTier; label: string }[] = [
   { value: '', label: 'Tutti' },
@@ -72,6 +82,9 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
     tier: (sp.tier as LeadScoreTier) || undefined,
     status: (sp.status as LeadStatus) || undefined,
     q: sp.q || undefined,
+    read: parseTriState(sp.read),
+    clicked: parseTriState(sp.clicked),
+    portalVisited: parseTriState(sp.portal),
   };
 
   // In "Caldi adesso" mode we ignore the tier/status filters because
@@ -108,6 +121,9 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
     if (filter.tier) params.set('tier', filter.tier);
     if (filter.status) params.set('status', filter.status);
     if (filter.q) params.set('q', filter.q);
+    if (sp.read !== undefined) params.set('read', sp.read);
+    if (sp.clicked !== undefined) params.set('clicked', sp.clicked);
+    if (sp.portal !== undefined) params.set('portal', sp.portal);
     if (page > 1) params.set('page', String(page));
     for (const [k, v] of Object.entries(overrides)) {
       if (v === undefined || v === '') params.delete(k);
@@ -250,6 +266,54 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
                   {s.label}
                 </FilterChip>
               ))}
+            </FilterGroup>
+            <FilterGroup label="Lettura email">
+              <FilterChip
+                active={sp.read === undefined}
+                href={queryFor({ read: undefined, page: undefined })}
+              >
+                Tutti
+              </FilterChip>
+              <FilterChip
+                active={sp.read === '1'}
+                href={queryFor({ read: '1', page: undefined })}
+              >
+                Letta
+              </FilterChip>
+              <FilterChip
+                active={sp.read === '0'}
+                href={queryFor({ read: '0', page: undefined })}
+              >
+                Non letta
+              </FilterChip>
+            </FilterGroup>
+            <FilterGroup label="Click">
+              <FilterChip
+                active={sp.clicked === undefined}
+                href={queryFor({ clicked: undefined, page: undefined })}
+              >
+                Tutti
+              </FilterChip>
+              <FilterChip
+                active={sp.clicked === '1'}
+                href={queryFor({ clicked: '1', page: undefined })}
+              >
+                Cliccata
+              </FilterChip>
+            </FilterGroup>
+            <FilterGroup label="Portale">
+              <FilterChip
+                active={sp.portal === undefined}
+                href={queryFor({ portal: undefined, page: undefined })}
+              >
+                Tutti
+              </FilterChip>
+              <FilterChip
+                active={sp.portal === '1'}
+                href={queryFor({ portal: '1', page: undefined })}
+              >
+                Visitato
+              </FilterChip>
             </FilterGroup>
           </div>
         </BentoCard>
