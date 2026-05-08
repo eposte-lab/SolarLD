@@ -584,40 +584,89 @@ export default async function LeadDetailPage({ params }: PageProps) {
                 )}
             </div>
           </div>
-          <BentoGrid cols={4}>
-            <KpiChipCard
-              label="Potenza impianto"
-              value={
-                lead.roi_data?.estimated_kwp != null
-                  ? `${formatNumber(lead.roi_data.estimated_kwp)} kWp`
-                  : '—'
-              }
-              accent="primary"
-            />
-            <KpiChipCard
-              label="Risparmio annuo"
-              value={formatEurPlain(lead.roi_data?.annual_savings_eur ?? null)}
-              accent="primary"
-            />
-            <KpiChipCard
-              label="Rientro investimento"
-              value={
-                lead.roi_data?.payback_years != null
-                  ? `${formatNumber(lead.roi_data.payback_years)} anni`
-                  : '—'
-              }
-              accent="tertiary"
-            />
-            <KpiChipCard
-              label="CO₂ evitata"
-              value={
-                lead.roi_data?.co2_saved_kg != null
-                  ? `${formatNumber(lead.roi_data.co2_saved_kg)} kg`
-                  : '—'
-              }
-              accent="neutral"
-            />
-          </BentoGrid>
+          {(() => {
+            // Read canonical keys with legacy-alias fallback. The v3
+            // ROI service writes `yearly_savings_eur` / `co2_kg_per_year`,
+            // older rows used `annual_savings_eur` / `co2_saved_kg`. Both
+            // sets coexist in the DB; the UI prefers canonical and falls
+            // back so leads from either era render correctly.
+            const roi = lead.roi_data ?? null;
+            const yearlySavings =
+              roi?.yearly_savings_eur ?? roi?.annual_savings_eur ?? null;
+            const co2Year = roi?.co2_kg_per_year ?? roi?.co2_saved_kg ?? null;
+            const netCapex = roi?.net_capex_eur ?? null;
+            const savings25y = roi?.savings_25y_eur ?? null;
+            return (
+              <>
+                <BentoGrid cols={4}>
+                  <KpiChipCard
+                    label="Potenza impianto"
+                    value={
+                      roi?.estimated_kwp != null
+                        ? `${formatNumber(roi.estimated_kwp)} kWp`
+                        : '—'
+                    }
+                    accent="primary"
+                  />
+                  <KpiChipCard
+                    label="Risparmio annuo"
+                    value={
+                      yearlySavings != null
+                        ? formatEurPlain(yearlySavings)
+                        : '—'
+                    }
+                    accent="primary"
+                  />
+                  <KpiChipCard
+                    label="Rientro investimento"
+                    value={
+                      roi?.payback_years != null
+                        ? `${formatNumber(roi.payback_years)} anni`
+                        : '—'
+                    }
+                    accent="tertiary"
+                  />
+                  <KpiChipCard
+                    label="CO₂ evitata/anno"
+                    value={
+                      co2Year != null ? `${formatNumber(co2Year)} kg` : '—'
+                    }
+                    accent="neutral"
+                  />
+                </BentoGrid>
+                {(netCapex != null || savings25y != null) && (
+                  <p className="px-1 pt-2 text-[11px] text-on-surface-variant">
+                    {netCapex != null && (
+                      <>
+                        Investimento netto{' '}
+                        <span className="font-semibold text-on-surface">
+                          {formatEurPlain(netCapex)}
+                        </span>
+                      </>
+                    )}
+                    {netCapex != null && savings25y != null && ' · '}
+                    {savings25y != null && (
+                      <>
+                        Risparmio 25 anni{' '}
+                        <span className="font-semibold text-on-surface">
+                          {formatEurPlain(savings25y)}
+                        </span>
+                      </>
+                    )}
+                    {roi?.self_consumption_ratio != null && (
+                      <>
+                        {' · '}
+                        Autoconsumo{' '}
+                        <span className="font-semibold text-on-surface">
+                          {Math.round(roi.self_consumption_ratio * 100)}%
+                        </span>
+                      </>
+                    )}
+                  </p>
+                )}
+              </>
+            );
+          })()}
           {(lead.subjects?.sede_operativa_source || v3Signal?.google_maps_url) && (
             <p className="px-1 text-[10px] uppercase tracking-widest text-on-surface-variant">
               Sede operativa ·{' '}

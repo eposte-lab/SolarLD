@@ -61,11 +61,32 @@ export type OutreachChannel = 'email' | 'postal';
 export type SubjectType = 'b2b' | 'b2c' | 'unknown';
 export type CampaignStatus = 'pending' | 'sent' | 'delivered' | 'failed' | 'cancelled';
 
+/**
+ * ROI payload computed by the v3 funnel and stored on `leads.roi_data`
+ * (and mirrored on `roofs.derivations`). The canonical key set is the
+ * one written by the Solar API → ROI service: `yearly_savings_eur`,
+ * `co2_kg_per_year`, etc.
+ *
+ * `annual_savings_eur` / `co2_saved_kg` are legacy aliases left in the
+ * type for backward compatibility with older rows still in the DB; the
+ * UI prefers the canonical keys and only falls back to the aliases.
+ */
 export interface RoiData {
-  annual_savings_eur?: number;
-  payback_years?: number;
-  co2_saved_kg?: number;
   estimated_kwp?: number;
+  payback_years?: number;
+  // Canonical keys — written by the v3 ROI service.
+  yearly_savings_eur?: number;
+  yearly_kwh?: number;
+  co2_kg_per_year?: number;
+  net_capex_eur?: number;
+  gross_capex_eur?: number;
+  incentive_eur?: number;
+  savings_25y_eur?: number;
+  self_consumption_ratio?: number;
+  trees_equivalent?: number;
+  // Legacy aliases — kept so older leads still render.
+  annual_savings_eur?: number;
+  co2_saved_kg?: number;
 }
 
 export interface TenantRow {
