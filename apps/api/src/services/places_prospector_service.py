@@ -357,14 +357,14 @@ async def search_places(
     # the dashboard table renders identically.
     registry_ateco = registry_ateco_for_sector(sector)
     if registry_ateco:
-        token = settings.openapi_it_token.strip() if settings.openapi_it_token else ""
-
-        # Demo fallback: when the token isn't configured AND the caller
-        # is the demo tenant, return a hand-curated sample so the demo
-        # walkthrough shows the right shape of data without burning
-        # OpenAPI.it credit. Production tenants get an empty result —
-        # they MUST configure the token to use these sectors.
-        if not token and is_demo_tenant:
+        # Demo tenants ALWAYS get the placeholder dataset — even when
+        # the OpenAPI.it token is configured. Rationale: the demo
+        # account doesn't have OpenAPI.it credit (or shouldn't burn
+        # any), so a real call from the demo flow would 402 the
+        # moment credit runs out and break the customer walkthrough.
+        # The walkthrough must be deterministic and free regardless
+        # of the production token state.
+        if is_demo_tenant:
             from .demo_amministratori_data import demo_amministratori_for_provincia
 
             items = demo_amministratori_for_provincia(province_code, limit=limit)
@@ -376,6 +376,7 @@ async def search_places(
             )
             return items
 
+        token = settings.openapi_it_token.strip() if settings.openapi_it_token else ""
         if not token:
             log.warning(
                 "places_prospector.registry_skip_no_token",
