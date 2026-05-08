@@ -450,12 +450,14 @@ export async function listTopHotLeads(limit = 10): Promise<LeadListRow[]> {
  * no contact yet. Used by both the /leads "Caldi adesso" filter and
  * the overview hot-leads widget.
  *
- * Excludes pipeline_status IN (engaged, whatsapp, appointment,
- * closed_won, closed_lost, blacklisted) so the operator only sees
- * leads that haven't been "claimed" in any direction yet.
+ * Excludes pipeline_status IN (whatsapp, appointment, closed_won,
+ * closed_lost, blacklisted) — those mean the sales side has already
+ * taken over. `engaged` stays in the list intentionally: that status
+ * means the LEAD took action (portal visit, click) but no human has
+ * reached out yet, which is exactly the call-list candidate the
+ * widget is supposed to surface.
  */
 const HOT_AWAITING_EXCLUDED: LeadStatus[] = [
-  'engaged',
   'whatsapp',
   'appointment',
   'closed_won',
@@ -576,18 +578,16 @@ export async function getOverviewKpis(): Promise<OverviewKpis> {
   const supabase = await createSupabaseServerClient();
   const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
 
-  // "Hot leads" — score_tier='hot' AND any engagement signal AND that
-  // signal happened in the last 30 days. Without the freshness filter
-  // a lead engaged 6 months ago that has since gone silent stayed in
-  // the counter forever (inconsistent with the 30d window of the
-  // sibling KPIs).
-  const FRESHNESS_OR = [
-    `last_portal_event_at.gte.${since}`,
-    `outreach_clicked_at.gte.${since}`,
-    `dashboard_visited_at.gte.${since}`,
-    `whatsapp_initiated_at.gte.${since}`,
-    `outreach_replied_at.gte.${since}`,
-  ].join(',');
+  // "Hot leads" semantics for the operator: leads with proven
+  // engagement, regardless of the AI score_tier prediction at import
+  // time. Score_tier locks the counter to leads the AI predicted
+  // hot, but what the sales team wants to call is leads who actually
+  // engaged (portal session, email click, dashboard visit) — that's
+  // what `engagement_score` measures.
+  //
+  // Threshold 50 covers: opened email + portal session, or
+  // bolletta/whatsapp/appointment events on their own (each weighted
+  // 20-30 — see engagement_service.py).
 
   const [sent, hot, conversionRows] = await Promise.all([
     supabase
@@ -598,9 +598,7 @@ export async function getOverviewKpis(): Promise<OverviewKpis> {
     supabase
       .from('leads')
       .select('id', { count: 'exact', head: true })
-      .eq('score_tier', 'hot')
-      .or(ENGAGEMENT_OR)
-      .or(FRESHNESS_OR),
+      .gte('engagement_score', 50),
     // Appointments + closed_won come from the `conversions` table —
     // `closed_at` is the actual transition timestamp, while
     // `leads.created_at` is the lead's birthday and would silently drop

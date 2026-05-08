@@ -110,21 +110,19 @@ export default async function DashboardOverview() {
         </div>
       </header>
 
-      {/* ── Row 2: Hero KPI strip — single hero (Hot leads) + 3 default ─── */}
+      {/* ── Row 2: Hero KPI strip — Hot leads (hero, span 2) + Appuntamenti + Contratti
+              "Scansionati" rimosso: il numero da solo non guida nessuna decisione
+              commerciale (la stessa info, segmentata per stage L1→L4, è in /contatti).
+              Lo spazio liberato è usato per portare "Contratti firmati" sulla riga
+              principale insieme agli altri due. ─────────────────────────────── */}
       <BentoGrid cols={4}>
         <KpiChipCard
           label="Hot leads"
           value={formatNumber(kpis.hot_leads)}
-          hint="in pipeline"
+          hint="engagement ≥ 50 negli ultimi 30gg"
           tone="highlight"
           size="hero"
           className="md:col-span-2"
-        />
-        <KpiChipCard
-          label="Scansionati"
-          value={formatNumber(contattiSummary.l1_30d)}
-          hint={`30gg · ${formatNumber(contattiSummary.l1)} totali`}
-          tone="neutral"
         />
         <KpiChipCard
           label="Appuntamenti 30gg"
@@ -136,7 +134,6 @@ export default async function DashboardOverview() {
           value={formatNumber(kpis.closed_won_30d)}
           hint="30gg"
           tone="success"
-          className="md:col-span-1"
         />
       </BentoGrid>
 
