@@ -225,18 +225,15 @@ export async function getContattiSummary(): Promise<ContattiSummary> {
     return count ?? 0;
   };
 
-  // Stage semantics in production:
-  //   stage 4 = just-after L4 (Solar verdict written, before L5 scoring)
-  //   stage 5 = after L5 Haiku scoring (typical terminal stage for accepted)
-  // Rows that survived L4 are advanced to stage=5 by L5, so the verdict
-  // counts must match `stage >= 4` not `stage = 4` — otherwise accepted
-  // rows are visible in the table (which filters by solar_verdict only)
-  // while the KPI strip claims "0 rifiutati / 0 skippati".
+  // KPI counts must mirror the table filter (`solar_verdict=verdict`
+  // alone — no stage gate). The stage column lags the verdict in some
+  // pipelines (a candidate may carry verdict='accepted' at stage=1 if
+  // the Solar gate ran out-of-order), and gating the KPI on stage>=4
+  // produced "table shows 9 rows / KPI says 0" inconsistencies.
   const countVerdict = async (verdict: SolarVerdict): Promise<number> => {
     const { count, error } = await sb
       .from('scan_candidates')
       .select('id', { count: 'exact', head: true })
-      .gte('stage', 4)
       .eq('solar_verdict', verdict);
     if (error) return 0;
     return count ?? 0;
@@ -261,12 +258,11 @@ export async function getContattiSummary(): Promise<ContattiSummary> {
       .filter((v): v is string => typeof v === 'string');
     if (promotedRoofIds.length === 0) return [];
 
-    // Same `gte('stage', 4)` rationale as countVerdict above — accepted
-    // candidates live at stage=5 once L5 scoring runs.
+    // Mirror the table filter: solar_verdict='accepted' is sufficient,
+    // stage is intentionally unconstrained (see countVerdict above).
     const { data, error } = await sb
       .from('scan_candidates')
       .select('solar_kw_installable, proxy_score_data, contact_extraction')
-      .gte('stage', 4)
       .eq('solar_verdict', 'accepted')
       .in('roof_id', promotedRoofIds);
     if (error || !data) return [];

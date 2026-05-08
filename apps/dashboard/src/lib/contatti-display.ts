@@ -129,17 +129,58 @@ export function displayProvince(c: ContattoRow): string | null {
   return c.hq_province ?? null;
 }
 
+// Defense-in-depth filter: reject obvious placeholders/example addresses
+// that may have leaked through the scraper (e.g. a stale `info@example.com`
+// in a website template). Mirrors the server-side `_looks_like_example`
+// in apps/api/src/services/email_extractor.py.
+function looksLikeExampleEmail(email: string): boolean {
+  const lower = email.toLowerCase();
+  return (
+    lower.includes('example') ||
+    lower.includes('esempio') ||
+    lower.includes('dummy') ||
+    lower.includes('placeholder') ||
+    lower.startsWith('your@') ||
+    lower.startsWith('user@') ||
+    lower.startsWith('nome@') ||
+    lower.startsWith('cognome@')
+  );
+}
+
+// Reject phone strings that are obviously not phones — repeated digits
+// (33333333333), VAT-numbers/fiscal codes the scraper occasionally swept
+// up by mistake (anything starting with 3+ leading zeros), or numbers
+// that are too short to be Italian phones (< 7 digits after stripping
+// non-digits). Italian landlines are 9-11 digits, mobiles 9-10.
+function looksLikeRealPhone(phone: string): boolean {
+  const digits = phone.replace(/\D/g, '');
+  if (digits.length < 7) return false;
+  if (/^0{3,}/.test(digits)) return false;
+  if (/^(\d)\1+$/.test(digits)) return false;
+  return true;
+}
+
 export function displayEmail(c: ContattoRow): string | null {
-  return c.contact_extraction?.best_email ?? null;
+  const email = c.contact_extraction?.best_email ?? null;
+  if (!email) return null;
+  if (looksLikeExampleEmail(email)) return null;
+  return email;
 }
 
 export function displayPhone(c: ContattoRow): string | null {
-  return (
-    c.contact_extraction?.decision_maker_phone ??
-    c.contact_extraction?.best_phone ??
-    c.enrichment?.places?.phone ??
-    null
-  );
+  // Prefer Google Places phone over the scraped best_phone — the Places
+  // value is verified by Google, the scraper sometimes captures VAT
+  // numbers or all-3s placeholders when the website's contact section
+  // is malformed.
+  const candidates = [
+    c.contact_extraction?.decision_maker_phone ?? null,
+    c.enrichment?.places?.phone ?? null,
+    c.contact_extraction?.best_phone ?? null,
+  ];
+  for (const p of candidates) {
+    if (p && looksLikeRealPhone(p)) return p;
+  }
+  return null;
 }
 
 export function displayOverallScore(c: ContattoRow): number | null {
