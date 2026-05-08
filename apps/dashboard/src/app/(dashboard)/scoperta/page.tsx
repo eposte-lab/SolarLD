@@ -23,7 +23,9 @@ import { ApiError } from '@/lib/api-client';
 import {
   createList,
   fetchSectors,
+  listProspectLists,
   searchProspector,
+  type ProspectList,
   type ProspectorPlace,
 } from '@/lib/data/prospector';
 import { sectorLabel, SECTOR_LABELS } from '@/lib/sector-labels';
@@ -74,6 +76,7 @@ export default function ScopertaPage() {
 
   const [saving, setSaving] = useState(false);
   const [savedListId, setSavedListId] = useState<string | null>(null);
+  const [recentLists, setRecentLists] = useState<ProspectList[]>([]);
   // Campaign type drives whether the saved list goes through the
   // L4 Solar gate ('solar_rooftop' = standard rooftop validation) or
   // bypasses it ('generic_outreach' = non-rooftop B2B campaign with
@@ -89,6 +92,9 @@ export default function ScopertaPage() {
         // Fallback: hard-coded sector slugs from SECTOR_LABELS keys.
         setAvailableSectors(Object.keys(SECTOR_LABELS));
       });
+    listProspectLists({ page: 1, page_size: 5 })
+      .then((res) => setRecentLists(res.rows))
+      .catch(() => setRecentLists([]));
   }, []);
 
   const sectorOptions = useMemo(
@@ -173,14 +179,14 @@ export default function ScopertaPage() {
   return (
     <div className="space-y-6">
       <header>
-        <SectionEyebrow>Trova aziende · v3 Google Places</SectionEyebrow>
+        <SectionEyebrow>Trova aziende</SectionEyebrow>
         <h1 className="font-headline text-4xl font-bold tracking-tighter">
           Trova aziende
         </h1>
         <p className="mt-2 max-w-3xl text-sm text-on-surface-variant">
-          Ricerca aziende reali tramite Google Places filtrate per settore e
-          area. Salva una lista, poi convalida per il fotovoltaico e lancia
-          l&apos;outreach on-demand. Gli invii rispettano il cap giornaliero.
+          Cerca aziende reali per settore e area. Salva una lista, poi
+          convalida per il fotovoltaico e lancia l&apos;outreach. Gli invii
+          rispettano il cap giornaliero.
         </p>
       </header>
 
@@ -399,8 +405,54 @@ export default function ScopertaPage() {
           )}
 
           {items.length === 0 ? (
-            <div className="mt-6 rounded-lg bg-surface-container-low p-12 text-center text-sm text-on-surface-variant">
-              Configura i filtri a sinistra e premi <strong>Cerca</strong>.
+            <div className="mt-4 space-y-4">
+              <div className="rounded-lg bg-surface-container-low p-8 text-center text-sm text-on-surface-variant">
+                Configura i filtri a sinistra e premi <strong>Cerca</strong>.
+              </div>
+              {recentLists.length > 0 && (
+                <div className="rounded-lg bg-surface-container-low p-4">
+                  <div className="mb-2 flex items-center justify-between">
+                    <p className="text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">
+                      Le tue liste recenti
+                    </p>
+                    <Link
+                      href="/scoperta/liste"
+                      className="text-xs font-semibold text-primary hover:underline"
+                    >
+                      Vedi tutte →
+                    </Link>
+                  </div>
+                  <ul className="divide-y divide-on-surface/5">
+                    {recentLists.map((l) => (
+                      <li key={l.id}>
+                        <Link
+                          href={`/scoperta/liste/${l.id}`}
+                          className="flex items-center justify-between gap-3 py-2.5 transition-colors hover:bg-surface-container-high/40"
+                        >
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-semibold text-on-surface">
+                              {l.name}
+                            </p>
+                            <p className="text-[11px] text-on-surface-variant">
+                              {formatNumber(l.item_count)} aziende
+                              {l.outreach_started_at
+                                ? ' · outreach lanciato'
+                                : l.validation_completed_at
+                                  ? ' · pronta per outreach'
+                                  : l.validation_started_at
+                                    ? ' · convalida in corso'
+                                    : ' · da convalidare'}
+                            </p>
+                          </div>
+                          <span className="shrink-0 text-xs text-primary">
+                            apri →
+                          </span>
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
           ) : (
             <div className="mt-4 overflow-hidden rounded-lg bg-surface-container-low">

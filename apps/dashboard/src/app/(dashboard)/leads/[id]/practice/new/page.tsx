@@ -473,8 +473,8 @@ export default function NewPracticePage({
             {draft.existing_practice_number}
           </p>
           <p className="mt-1 text-blue-800">
-            In Sprint 1 è ammessa una sola pratica per lead. Apri quella
-            esistente per generare nuovamente i documenti.
+            È ammessa una sola pratica per lead. Apri quella esistente per
+            generare nuovamente i documenti.
           </p>
           <div className="mt-3 flex gap-2">
             <Link
@@ -711,7 +711,7 @@ export default function NewPracticePage({
           )}
         </Section>
 
-        <Section title="Dati avanzati pratica (Sprint 2 — opzionali)">
+        <Section title="Dati avanzati pratica (opzionali)">
           <Field label="IBAN per accredito GSE">
             <Input
               value={form.ex_iban}

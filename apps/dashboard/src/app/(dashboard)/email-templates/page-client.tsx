@@ -382,69 +382,81 @@ function ListView({
 }) {
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+      {/* Header — editorial style, matches /leads + /scoperta. */}
+      <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-on-surface">Template email campagne</h1>
-          <p className="mt-1 text-sm text-on-surface-variant">
-            Crea template HTML con variabili personalizzate per le campagne{' '}
-            <em>generic_outreach</em> di Trova aziende.
+          <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
+            Template email campagne
+          </p>
+          <h1 className="font-headline text-4xl font-bold tracking-tighter">
+            Template email
+          </h1>
+          <p className="mt-1 max-w-2xl text-sm text-on-surface-variant">
+            Crea template HTML con variabili personalizzate per le campagne di
+            Trova aziende. Si associano a una lista prima del lancio.
           </p>
         </div>
         <button
           onClick={onNew}
-          className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700 active:bg-teal-800"
+          className="rounded-full bg-primary px-4 py-2 text-sm font-semibold text-on-primary shadow-ambient-sm transition-colors hover:bg-primary/90"
         >
           + Nuovo template
         </button>
-      </div>
+      </header>
 
       {/* Table */}
       {loading ? (
-        <div className="py-16 text-center text-sm text-on-surface-variant">
+        <div className="rounded-2xl bg-surface-container-low p-12 text-center text-sm text-on-surface-variant">
           Caricamento…
         </div>
       ) : templates.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-on-surface/20 py-16 text-center">
+        <div className="rounded-2xl bg-surface-container-low p-12 text-center">
           <p className="text-sm text-on-surface-variant">Nessun template ancora.</p>
           <button
             onClick={onNew}
-            className="mt-3 text-sm font-semibold text-teal-600 hover:underline"
+            className="mt-3 text-sm font-semibold text-primary hover:underline"
           >
             Crea il primo template →
           </button>
         </div>
       ) : (
-        <div className="overflow-hidden rounded-xl border border-on-surface/10 bg-surface">
+        <div className="overflow-hidden rounded-2xl bg-surface-container-low">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-on-surface/10 text-xs font-semibold uppercase tracking-wider text-on-surface-variant">
-                <th className="px-4 py-3 text-left">Nome</th>
-                <th className="px-4 py-3 text-left">Oggetto</th>
-                <th className="px-4 py-3 text-left">Variabili</th>
-                <th className="px-4 py-3 text-left">Modificato</th>
-                <th className="px-4 py-3 text-right">Azioni</th>
+              <tr className="text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">
+                <th className="px-5 py-3 text-left">Nome</th>
+                <th className="px-5 py-3 text-left">Oggetto</th>
+                <th className="px-5 py-3 text-left">Variabili</th>
+                <th className="px-5 py-3 text-left">Modificato</th>
+                <th className="px-5 py-3 text-right">Azioni</th>
               </tr>
             </thead>
-            <tbody>
-              {templates.map((tpl) => (
+            <tbody className="bg-surface-container-lowest">
+              {templates.map((tpl, idx) => (
                 <tr
                   key={tpl.id}
-                  className="border-b border-on-surface/5 last:border-0 hover:bg-on-surface/[0.02]"
+                  className="transition-colors hover:bg-surface-container-low"
+                  style={
+                    idx !== 0
+                      ? { boxShadow: 'inset 0 1px 0 rgba(170,174,173,0.15)' }
+                      : undefined
+                  }
                 >
-                  <td className="px-4 py-3 font-medium text-on-surface">{tpl.name}</td>
-                  <td className="px-4 py-3 text-on-surface-variant">{tpl.subject}</td>
-                  <td className="px-4 py-3">
-                    <span className="rounded-full bg-teal-50 px-2 py-0.5 text-xs text-teal-700">
+                  <td className="px-5 py-4 font-semibold text-on-surface">{tpl.name}</td>
+                  <td className="px-5 py-4 text-on-surface-variant">{tpl.subject}</td>
+                  <td className="px-5 py-4">
+                    <span className="inline-flex items-center rounded-full bg-primary-container px-2 py-0.5 text-[11px] font-semibold text-on-primary-container">
                       {(tpl.variables_used as string[]).length} var.
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-on-surface-variant">{fmtDate(tpl.updated_at)}</td>
-                  <td className="px-4 py-3 text-right">
+                  <td className="px-5 py-4 text-xs text-on-surface-variant">
+                    {fmtDate(tpl.updated_at)}
+                  </td>
+                  <td className="px-5 py-4 text-right">
                     <div className="flex items-center justify-end gap-2">
                       <button
                         onClick={() => onEdit(tpl.id)}
-                        className="rounded px-2 py-1 text-xs font-semibold text-teal-600 hover:bg-teal-50"
+                        className="rounded px-2 py-1 text-xs font-semibold text-primary hover:underline"
                       >
                         Modifica
                       </button>
@@ -452,13 +464,13 @@ function ListView({
                         <>
                           <button
                             onClick={() => onDelete(tpl.id)}
-                            className="rounded px-2 py-1 text-xs font-semibold text-red-600 hover:bg-red-50"
+                            className="rounded-full bg-error-container px-2.5 py-1 text-xs font-semibold text-on-error-container hover:bg-error-container/80"
                           >
                             Conferma
                           </button>
                           <button
                             onClick={() => setDeleteConfirm(null)}
-                            className="rounded px-2 py-1 text-xs text-on-surface-variant hover:bg-on-surface/5"
+                            className="rounded px-2 py-1 text-xs text-on-surface-variant hover:bg-surface-container-high"
                           >
                             Annulla
                           </button>
@@ -466,7 +478,7 @@ function ListView({
                       ) : (
                         <button
                           onClick={() => setDeleteConfirm(tpl.id)}
-                          className="rounded px-2 py-1 text-xs text-on-surface-variant hover:text-red-600"
+                          className="rounded px-2 py-1 text-xs text-on-surface-variant hover:text-error"
                         >
                           Elimina
                         </button>
@@ -481,16 +493,16 @@ function ListView({
       )}
 
       {/* Help */}
-      <div className="rounded-xl bg-teal-50 p-4 text-sm text-teal-800">
-        <p className="font-semibold">Come funzionano i template</p>
-        <p className="mt-1 text-teal-700">
+      <div className="rounded-2xl bg-surface-container-low p-5 text-sm">
+        <p className="font-semibold text-on-surface">Come funzionano i template</p>
+        <p className="mt-1 text-on-surface-variant">
           Scrivi HTML normale con segnaposto Jinja2 come{' '}
-          <code className="rounded bg-teal-100 px-1 py-0.5 font-mono text-xs">
+          <code className="rounded bg-surface-container-high px-1 py-0.5 font-mono text-xs text-on-surface">
             {'{{ business_name }}'}
           </code>
           . Il sistema sostituisce le variabili con i dati reali di ogni azienda al momento
           dell&apos;invio. I template vanno poi associati a una lista in{' '}
-          <strong>Trova aziende</strong>.
+          <strong className="text-on-surface">Trova aziende</strong>.
         </p>
       </div>
     </div>
@@ -561,8 +573,7 @@ function EditorView({
                 ? 'Chiedi a Claude di proporre 2 alternative del template (subject + corpo)'
                 : 'Salva il template almeno una volta per usare la generazione AI'
             }
-            className="rounded-lg border border-purple-300 bg-purple-50 px-3 py-1.5 text-sm font-semibold
-              text-purple-700 hover:bg-purple-100 disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded-full bg-secondary-container px-3 py-1.5 text-sm font-semibold text-on-secondary-container hover:bg-secondary-container/80 disabled:cursor-not-allowed disabled:opacity-50"
           >
             ✨ Genera con AI
           </button>
@@ -575,8 +586,7 @@ function EditorView({
           <button
             onClick={onSave}
             disabled={saving || !editor.name || !editor.subject || !editor.html}
-            className="rounded-lg bg-teal-600 px-4 py-1.5 text-sm font-semibold text-white
-              hover:bg-teal-700 disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded-full bg-primary px-4 py-1.5 text-sm font-semibold text-on-primary shadow-ambient-sm hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {saving ? 'Salvataggio…' : 'Salva'}
           </button>
@@ -585,18 +595,18 @@ function EditorView({
 
       {/* Error banners */}
       {validationErrors.length > 0 && (
-        <div className="shrink-0 border-b border-red-200 bg-red-50 px-4 py-2">
-          <p className="text-sm font-semibold text-red-700">
+        <div className="shrink-0 bg-error-container px-4 py-2">
+          <p className="text-sm font-semibold text-on-error-container">
             Variabili GDPR obbligatorie mancanti:
           </p>
-          <p className="text-xs text-red-600">
+          <p className="text-xs text-on-error-container/80">
             {validationErrors.map((v) => `{{ ${v} }}`).join(', ')}
           </p>
         </div>
       )}
       {saveError && (
-        <div className="shrink-0 border-b border-red-200 bg-red-50 px-4 py-2">
-          <p className="text-sm text-red-700">{saveError}</p>
+        <div className="shrink-0 bg-error-container px-4 py-2">
+          <p className="text-sm text-on-error-container">{saveError}</p>
         </div>
       )}
 
@@ -616,7 +626,7 @@ function EditorView({
                 onChange={(e) => setEditor((s) => ({ ...s, name: e.target.value }))}
                 placeholder="Es. Campagna amm. condominio"
                 className="w-full rounded-lg border border-on-surface/20 bg-surface px-3 py-2 text-sm
-                  text-on-surface placeholder:text-on-surface/40 focus:border-teal-500 focus:outline-none"
+                  text-on-surface placeholder:text-on-surface/40 focus:border-primary focus:outline-none"
               />
             </div>
             <div>
@@ -629,7 +639,7 @@ function EditorView({
                 onChange={(e) => setEditor((s) => ({ ...s, subject: e.target.value }))}
                 placeholder="Es. Una proposta per {{ business_name }}"
                 className="w-full rounded-lg border border-on-surface/20 bg-surface px-3 py-2 text-sm
-                  text-on-surface placeholder:text-on-surface/40 focus:border-teal-500 focus:outline-none"
+                  text-on-surface placeholder:text-on-surface/40 focus:border-primary focus:outline-none"
               />
             </div>
           </div>
@@ -647,8 +657,8 @@ function EditorView({
                   onClick={() => onInsertVariable(v.slug)}
                   className={`rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors
                     ${REQUIRED_VARS.has(v.slug)
-                      ? 'bg-amber-100 text-amber-800 hover:bg-amber-200'
-                      : 'bg-teal-50 text-teal-700 hover:bg-teal-100'
+                      ? 'bg-tertiary-container text-on-tertiary-container hover:bg-tertiary-container/80'
+                      : 'bg-primary-container text-on-primary-container hover:bg-primary-container/80'
                     }`}
                 >
                   {v.label}
@@ -672,7 +682,7 @@ function EditorView({
               spellCheck={false}
               className="flex-1 resize-none rounded-lg border border-on-surface/20 bg-gray-950 p-3
                 font-mono text-xs leading-relaxed text-green-300
-                focus:border-teal-500 focus:outline-none"
+                focus:border-primary focus:outline-none"
               style={{ minHeight: '360px' }}
               placeholder={`<!DOCTYPE html>\n<html>\n<body>\n  <p>Gentile {{ greeting_name }},</p>\n  <p>…</p>\n  <a href="{{ unsubscribe_url }}">Disiscriviti</a>\n  <p>{{ tenant_legal_name }} — P.IVA {{ tenant_vat_number }}</p>\n  <p>{{ tenant_legal_address }}</p>\n</body>\n</html>`}
             />
@@ -687,7 +697,7 @@ function EditorView({
               value={editor.plain_text}
               onChange={(e) => setEditor((s) => ({ ...s, plain_text: e.target.value }))}
               className="mt-2 w-full resize-none rounded-lg border border-on-surface/20 bg-surface p-3
-                font-mono text-xs text-on-surface focus:border-teal-500 focus:outline-none"
+                font-mono text-xs text-on-surface focus:border-primary focus:outline-none"
               rows={6}
               placeholder="Versione testuale dell'email (senza HTML)."
             />
@@ -787,12 +797,12 @@ function AiVariantsModal({
               </div>
             </div>
           ) : error ? (
-            <div className="flex flex-1 flex-col items-center justify-center gap-3 text-sm text-red-700">
+            <div className="flex flex-1 flex-col items-center justify-center gap-3 text-sm text-on-error-container">
               <div className="text-2xl">⚠️</div>
               <p>{error}</p>
               <button
                 onClick={onRetry}
-                className="rounded-lg bg-purple-600 px-4 py-2 text-xs font-semibold text-white hover:bg-purple-700"
+                className="rounded-full bg-primary px-4 py-2 text-xs font-semibold text-on-primary shadow-ambient-sm hover:bg-primary/90"
               >
                 Riprova
               </button>
@@ -809,14 +819,14 @@ function AiVariantsModal({
                   className="flex flex-col overflow-hidden border-r border-on-surface/10 last:border-r-0"
                 >
                   {/* Variant header */}
-                  <div className="shrink-0 border-b border-on-surface/10 bg-purple-50 px-4 py-3">
+                  <div className="shrink-0 border-b border-on-surface/10 bg-secondary-container/40 px-4 py-3">
                     <div className="mb-1 flex items-center gap-2">
-                      <span className="rounded-full bg-purple-200 px-2 py-0.5 text-xs font-bold text-purple-800">
+                      <span className="rounded-full bg-secondary-container px-2 py-0.5 text-xs font-bold text-on-secondary-container">
                         Variante {String.fromCharCode(65 + idx)}
                       </span>
                       {!v.valid && (
                         <span
-                          className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700"
+                          className="rounded-full bg-error-container px-2 py-0.5 text-[10px] font-semibold text-on-error-container"
                           title={`Mancano: ${v.missing_required.join(', ')}`}
                         >
                           ⚠ GDPR incompleto
@@ -824,7 +834,7 @@ function AiVariantsModal({
                       )}
                     </div>
                     {v.angle && (
-                      <p className="text-xs italic text-purple-900">{v.angle}</p>
+                      <p className="text-xs italic text-on-secondary-container">{v.angle}</p>
                     )}
                     <p className="mt-2 truncate text-sm font-semibold text-on-surface">
                       {v.subject}
@@ -832,7 +842,7 @@ function AiVariantsModal({
                   </div>
 
                   {/* Preview iframe */}
-                  <div className="flex-1 overflow-hidden bg-gray-50">
+                  <div className="flex-1 overflow-hidden bg-surface-container-low">
                     <iframe
                       srcDoc={previewWithSampleData(v.html)}
                       sandbox="allow-same-origin"
@@ -842,7 +852,7 @@ function AiVariantsModal({
                   </div>
 
                   {/* Action footer */}
-                  <div className="shrink-0 border-t border-on-surface/10 bg-white px-4 py-3">
+                  <div className="shrink-0 border-t border-on-surface/10 bg-surface px-4 py-3">
                     <button
                       onClick={() => onApply(v)}
                       disabled={!v.valid}
@@ -851,8 +861,7 @@ function AiVariantsModal({
                           ? 'Carica questa variante nell\'editor'
                           : 'GDPR incompleto: la variante non può essere usata'
                       }
-                      className="w-full rounded-lg bg-purple-600 px-4 py-2 text-sm font-semibold
-                        text-white hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="w-full rounded-full bg-primary px-4 py-2 text-sm font-semibold text-on-primary shadow-ambient-sm hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       Usa questa variante
                     </button>
