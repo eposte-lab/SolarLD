@@ -38,7 +38,7 @@ import { CollapsibleCard } from '@/components/ui/collapsible-card';
 import { GlassPanel } from '@/components/ui/glass-panel';
 import { KpiChipCard } from '@/components/ui/kpi-chip-card';
 import { EngagementScoreChip } from '@/components/ui/engagement-score-chip';
-import { StatusChip, TierChip } from '@/components/ui/status-chip';
+import { StatusChip } from '@/components/ui/status-chip';
 import { TierLock } from '@/components/ui/tier-lock';
 import { listCampaignsForLead, listEventsForLead } from '@/lib/data/campaigns';
 import { listPortalEventsForLead } from '@/lib/data/engagement';
@@ -342,14 +342,24 @@ export default async function LeadDetailPage({ params }: PageProps) {
             {name}
           </h1>
           <div className="flex flex-wrap items-center gap-2">
-            <TierChip tier={lead.score_tier} />
+            {/* The header shows the lead's *current* state: pipeline status
+                + engagement (real portal activity over the last 30d). The
+                old `score_tier` cold/warm/hot was a pre-engagement ICP
+                prediction (revenue/employees/sector) — leaving it here
+                next to engagement=100 produced "this lead is cold" /
+                "this lead is at 100" contradictions. The ICP tier still
+                lives in the Score breakdown card below, where its
+                provenance is explained. */}
             <EngagementScoreChip
               score={lead.engagement_score}
               updatedAt={lead.engagement_score_updated_at}
             />
             <StatusChip status={lead.pipeline_status} />
-            <span className="text-xs text-on-surface-variant">
-              Punteggio{' '}
+            <span
+              className="text-xs text-on-surface-variant"
+              title="Score ICP iniziale (settore, dimensione, distanza). Resta fisso dopo l'import — l'engagement qui sopra invece riflette l'attività reale."
+            >
+              ICP{' '}
               <span className="font-headline font-bold text-on-surface">
                 {lead.score}
               </span>
