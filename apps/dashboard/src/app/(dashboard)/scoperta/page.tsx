@@ -70,7 +70,10 @@ export default function ScopertaPage() {
   const [availableSectors, setAvailableSectors] = useState<string[]>([]);
   const [form, setForm] = useState<FormState>(INITIAL);
   const [items, setItems] = useState<ProspectorPlace[]>([]);
-  const [searchMeta, setSearchMeta] = useState<{ count: number } | null>(null);
+  const [searchMeta, setSearchMeta] = useState<{
+    count: number;
+    isDemo: boolean;
+  } | null>(null);
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -134,7 +137,7 @@ export default function ScopertaPage() {
         limit: form.limit,
       });
       setItems(res.items);
-      setSearchMeta({ count: res.count });
+      setSearchMeta({ count: res.count, isDemo: res.is_demo_data ?? false });
     } catch (err) {
       const msg =
         err instanceof ApiError
@@ -402,6 +405,23 @@ export default function ScopertaPage() {
                 </label>
               </div>
             </fieldset>
+          )}
+
+          {/* Demo placeholder banner — visible only when the API tagged
+              the response with `is_demo_data: true`. It means the
+              tenant is `is_demo` and the OpenAPI.it token is empty,
+              so we returned a hand-curated sample for the walkthrough.
+              Production tenants never see this. */}
+          {searchMeta?.isDemo && items.length > 0 && (
+            <div className="mt-4 rounded-lg bg-tertiary-container px-4 py-3 text-sm text-on-tertiary-container">
+              <p className="font-semibold">Dati di esempio</p>
+              <p className="mt-0.5 text-xs opacity-90">
+                Questi sono amministratori di condominio campione mostrati
+                per la demo. Per ottenere dati reali dal Registro Imprese
+                italiano, configura il token API (OpenAPI.it) nelle
+                impostazioni.
+              </p>
+            </div>
           )}
 
           {items.length === 0 ? (

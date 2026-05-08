@@ -331,6 +331,7 @@ async def search_places(
     limit: int = 60,
     client: httpx.AsyncClient | None = None,
     api_key: str | None = None,
+    is_demo_tenant: bool = False,
 ) -> list[ProspectorPlace]:
     """Run Places discovery for the /scoperta operator-driven flow.
 
@@ -356,8 +357,34 @@ async def search_places(
     # the dashboard table renders identically.
     registry_ateco = registry_ateco_for_sector(sector)
     if registry_ateco:
-        # Imported lazily to avoid a hard dependency during module load
-        # (the integration is opt-in; the env var may be empty).
+        token = settings.openapi_it_token.strip() if settings.openapi_it_token else ""
+
+        # Demo fallback: when the token isn't configured AND the caller
+        # is the demo tenant, return a hand-curated sample so the demo
+        # walkthrough shows the right shape of data without burning
+        # OpenAPI.it credit. Production tenants get an empty result —
+        # they MUST configure the token to use these sectors.
+        if not token and is_demo_tenant:
+            from .demo_amministratori_data import demo_amministratori_for_provincia
+
+            items = demo_amministratori_for_provincia(province_code, limit=limit)
+            log.info(
+                "places_prospector.registry_demo_placeholder",
+                sector=sector,
+                province=province_code,
+                count=len(items),
+            )
+            return items
+
+        if not token:
+            log.warning(
+                "places_prospector.registry_skip_no_token",
+                sector=sector,
+                note="OPENAPI_IT_TOKEN not configured; returning empty",
+            )
+            return []
+
+        # Imported lazily to avoid a hard dependency during module load.
         from .italian_company_lookup import search_companies_by_ateco
 
         result = await search_companies_by_ateco(

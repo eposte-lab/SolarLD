@@ -109,7 +109,7 @@ async def prospector_search(body: SearchInput, ctx: CurrentUser) -> dict[str, An
     Returns ``items`` shaped for direct table render in the dashboard:
     a list of flat dicts mirroring ``ProspectorPlace``.
     """
-    require_tenant(ctx)
+    tenant_id = require_tenant(ctx)
 
     if not body.province_code and not body.comune:
         raise HTTPException(
@@ -123,6 +123,14 @@ async def prospector_search(body: SearchInput, ctx: CurrentUser) -> dict[str, An
             detail=f"sector_not_supported:{body.sector}",
         )
 
+    # Pull `is_demo` so the prospector can swap in the hand-curated
+    # placeholder dataset on demo tenants when the OpenAPI.it token
+    # is not yet configured. Cheap single-row lookup; bypassed for
+    # the rest of the search path.
+    sb = get_service_client()
+    tenant_row = sb.table("tenants").select("is_demo").eq("id", tenant_id).maybe_single().execute()
+    is_demo = bool((tenant_row.data or {}).get("is_demo") if tenant_row else False)
+
     places = await search_places(
         sector=body.sector,
         province_code=body.province_code,
@@ -130,11 +138,18 @@ async def prospector_search(body: SearchInput, ctx: CurrentUser) -> dict[str, An
         radius_km=body.radius_km,
         keyword=body.keyword,
         limit=body.limit,
+        is_demo_tenant=is_demo,
     )
+
+    # Tag the response so the UI can show a "demo data" banner without
+    # having to inspect each item. The marker only fires when the
+    # prospector picked the demo placeholder branch.
+    is_demo_data = bool(is_demo and places and "demo_placeholder" in (places[0].types or []))
 
     return {
         "items": [asdict(p) for p in places],
         "count": len(places),
+        "is_demo_data": is_demo_data,
     }
 
 
