@@ -116,6 +116,17 @@ class Settings(BaseSettings):
     atoka_api_key: str = ""
     hunter_api_key: str = ""
     neverbounce_api_key: str = ""
+    # OpenAPI.it (https://console.openapi.com) — pay-as-you-go REST
+    # access to the Italian company registry. Used by the prospector
+    # for sectors where Google Places returns the wrong category
+    # (es. amministratori condominio: ATECO 68.32 / 81.10). Empty
+    # token disables the integration: the prospector falls back to
+    # Google Places for every sector.
+    openapi_it_token: str = ""
+    # Sandbox vs production base URL. The sandbox returns the same
+    # shape but with synthetic data and no billing impact — useful
+    # during integration smoke tests.
+    openapi_it_use_sandbox: bool = False
 
     # ---- Atoka mock mode (dev / integration testing without a real key) ----
     # Set ATOKA_MOCK_MODE=true to bypass the real Atoka API and generate

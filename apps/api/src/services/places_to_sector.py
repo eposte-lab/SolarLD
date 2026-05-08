@@ -242,3 +242,23 @@ def default_keyword_for_sector(sector: str) -> str | None:
     Text Search.
     """
     return _SECTOR_DEFAULT_KEYWORD.get(sector)
+
+
+# Sectors that bypass Google Places entirely and query the Italian
+# business registry instead. Keyed by `wizard_group`; value is the
+# list of ATECO codes (without dots) to ask OpenAPI.it for.
+#
+# Why bypass Google: for these sectors the Places category is either
+# missing (no equivalent type in Italy) or so broad that filtering
+# noise out costs more than the registry call itself. The registry
+# is exhaustive: every administrator/clinic/etc. is registered by
+# law, so we get the actual cohort, not a Google-curated subset.
+_SECTOR_TO_REGISTRY_ATECO: dict[str, list[str]] = {
+    "amministratori_condominio": ["68.32.00", "81.10.00"],
+}
+
+
+def registry_ateco_for_sector(sector: str) -> list[str]:
+    """Return the ATECO codes to query OpenAPI.it for, or [] when the
+    sector should keep using Google Places."""
+    return list(_SECTOR_TO_REGISTRY_ATECO.get(sector, []))

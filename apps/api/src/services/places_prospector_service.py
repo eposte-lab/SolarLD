@@ -32,7 +32,11 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 from ..core.config import settings
 from ..core.logging import get_logger
 from ..data.province_centroids import province_centroid
-from .places_to_sector import default_keyword_for_sector, included_types_for_sector
+from .places_to_sector import (
+    default_keyword_for_sector,
+    included_types_for_sector,
+    registry_ateco_for_sector,
+)
 
 log = get_logger(__name__)
 
@@ -341,16 +345,43 @@ async def search_places(
         with a single primary type filter and locationBias circle.
         keyword absent → uses Nearby Search with multiple primary types.
     """
+    if not sector:
+        log.warning("places_prospector.empty_sector")
+        return []
+
+    # Sector router — for sectors that don't map cleanly to Google Places
+    # categories in Italy (amministratori condominio is the canonical
+    # case) we bypass Google and query the official Italian business
+    # registry via OpenAPI.it. Returns the same ProspectorPlace shape so
+    # the dashboard table renders identically.
+    registry_ateco = registry_ateco_for_sector(sector)
+    if registry_ateco:
+        # Imported lazily to avoid a hard dependency during module load
+        # (the integration is opt-in; the env var may be empty).
+        from .italian_company_lookup import search_companies_by_ateco
+
+        result = await search_companies_by_ateco(
+            ateco_codes=registry_ateco,
+            province_code=province_code,
+            keyword=keyword,
+            limit=limit,
+            client=client,
+        )
+        log.info(
+            "places_prospector.registry_lookup",
+            sector=sector,
+            ateco=registry_ateco,
+            province=province_code,
+            count=len(result.items),
+        )
+        return result.items
+
     key = api_key or settings.google_places_api_key
     if not key:
         log.error(
             "places_prospector.skip_no_key — GOOGLE_PLACES_API_KEY is not "
             "set; /scoperta will return empty. Set it on the API service."
         )
-        return []
-
-    if not sector:
-        log.warning("places_prospector.empty_sector")
         return []
 
     included_types = included_types_for_sector(sector)
