@@ -41,6 +41,7 @@ from .cron import (
     engagement_rollup_cron,
     follow_up_cron,
     funnel_v3_cron,
+    imminence_predictions_cron,
     practice_deadlines_cron,
     reputation_digest_cron,
     retention_cron,
@@ -504,6 +505,7 @@ class WorkerSettings:
     #   03:45 every day  → send_time_rollup_cron        (per-lead best UTC hour)
     #   04:00 every day  → engagement_rollup_cron       (portal heat → leads)
     #   06:00 every day  → smartlead_warmup_sync_cron   (inbox health + warmup caps)
+    #   06:30 every day  → imminence_predictions_cron   (rank "leads to call today")
     #   07:00 every day  → daily_digest_cron            (opt-in feature flag)
     #   07:30 every day  → follow_up_cron               (reads best_send_hour)
     #   08:00 Mon        → weekly_digest_cron           (opt-in feature flag)
@@ -543,6 +545,10 @@ class WorkerSettings:
         # Task 14: sync Smartlead warm-up health scores before the morning
         # outreach run so inbox_service.pick_and_claim has fresh caps.
         cron(smartlead_warmup_sync_cron, hour=6, minute=0, run_at_startup=False),
+        # Imminence Predictor: must run AFTER engagement_rollup (04:00)
+        # so engagement_score is fresh, and BEFORE follow_up (07:30) so
+        # the dashboard shows up-to-date predictions for the morning.
+        cron(imminence_predictions_cron, hour=6, minute=30, run_at_startup=False),
         cron(daily_digest_cron, hour=7, minute=0, run_at_startup=False),
         cron(follow_up_cron, hour=7, minute=30, run_at_startup=False),
         cron(

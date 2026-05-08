@@ -40,6 +40,10 @@ export interface SearchInput {
 export interface SearchResponse {
   items: ProspectorPlace[];
   count: number;
+  /** True when the API returned hand-curated placeholder data because
+   *  the tenant is flagged `is_demo` and the OpenAPI.it token is not
+   *  configured yet. UI surfaces a "Dati di esempio" banner. */
+  is_demo_data?: boolean;
 }
 
 export type ValidationStatus =

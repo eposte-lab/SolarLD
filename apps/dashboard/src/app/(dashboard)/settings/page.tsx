@@ -333,8 +333,8 @@ function IntegrationsCard({ tenant, isDemo }: { tenant: TenantRow; isDemo: boole
         />
         <IntegrationLink
           href="/email-templates"
-          title="Template campagne generic"
-          blurb="Template HTML Jinja2 per le campagne generic_outreach di Trova aziende (es. amministratori di condominio). Ogni template va associato a una lista prima del lancio."
+          title="Template email campagne"
+          blurb="Template HTML personalizzati per le campagne di Trova aziende (es. amministratori di condominio). Ogni template va associato a una lista prima del lancio."
         />
 
         <IntegrationLink

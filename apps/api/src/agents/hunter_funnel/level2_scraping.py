@@ -119,7 +119,21 @@ def _project_to_signals_and_contact(
         scrape_errors=[site.error] if site.error else [],
     )
 
-    best = extract_best_email(site.emails)
+    # Pass the apex domain so on-domain addresses (info@<their-site>) win
+    # over off-domain debris (info@example.com from a stale template).
+    company_domain: str | None = None
+    if cand.website:
+        try:
+            from urllib.parse import urlparse
+
+            host = urlparse(
+                cand.website if "://" in cand.website else "https://" + cand.website
+            ).hostname
+            company_domain = (host or "").removeprefix("www.").lower() or None
+        except ValueError:
+            company_domain = None
+
+    best = extract_best_email(site.emails, company_domain=company_domain)
     contact = ContactExtraction(
         best_email=best.value if best else None,
         best_email_confidence=best.confidence if best else None,

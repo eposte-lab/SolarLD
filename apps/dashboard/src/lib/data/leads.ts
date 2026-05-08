@@ -26,7 +26,9 @@ const LIST_COLUMNS = `
   outreach_channel, outreach_sent_at, outreach_opened_at,
   outreach_delivered_at, outreach_clicked_at, outreach_replied_at,
   whatsapp_initiated_at, dashboard_visited_at, created_at,
-  engagement_score, engagement_score_updated_at,
+  engagement_score, engagement_score_updated_at, engagement_peak_score,
+  last_portal_event_at,
+  last_followup_scenario, last_followup_sent_at, hot_lead_alerted_at,
   portal_sessions, portal_total_time_sec, deepest_scroll_pct,
   subjects:subjects(type, business_name, owner_first_name, owner_last_name,
                     decision_maker_email, decision_maker_email_verified,
@@ -56,7 +58,9 @@ const DETAIL_COLUMNS = `
   id, public_slug, pipeline_status, score, score_tier,
   outreach_channel, outreach_sent_at, outreach_opened_at,
   dashboard_visited_at, created_at,
-  engagement_score, engagement_score_updated_at,
+  engagement_score, engagement_score_updated_at, engagement_peak_score,
+  last_portal_event_at,
+  last_followup_scenario, last_followup_sent_at, hot_lead_alerted_at,
   portal_sessions, portal_total_time_sec, deepest_scroll_pct,
   subjects:subjects(type, business_name, owner_first_name, owner_last_name,
                     decision_maker_email, decision_maker_email_verified,
@@ -78,6 +82,19 @@ export interface LeadListFilter {
   status?: LeadStatus;
   tier?: LeadScoreTier;
   q?: string; // free-text on business_name / owner_last_name
+  /** Activity filters — answer "did the lead do X?" without needing
+   *  to open the detail page. Multiple flags AND together: `read=true`
+   *  + `clicked=true` returns leads that opened AND clicked. */
+  read?: boolean | null; // outreach_opened_at: true=read, false=not, null=any
+  clicked?: boolean | null; // outreach_clicked_at
+  portalVisited?: boolean | null; // last_portal_event_at OR dashboard_visited_at
+  /** Follow-up management mode:
+   *    'manual' → engagement_score >= SCORE_HOT_MIN (61): system handed
+   *               off, operator has to take over manually.
+   *    'auto'   → engagement_score < 61 (or null): system still
+   *               sending tiered follow-ups on its own.
+   *  null/undefined → no filter applied. */
+  management?: 'auto' | 'manual';
 }
 
 export interface LeadListResult {
@@ -150,6 +167,34 @@ export async function listLeads(opts: {
   // verbose; for now we just match on `leads.public_slug` as a fallback.
   if (opts.filter?.q && opts.filter.q.trim()) {
     q = q.ilike('public_slug', `%${opts.filter.q.trim()}%`);
+  }
+
+  // Activity filters — applied as AND on top of the engagement gate.
+  // `true` requires the timestamp to exist; `false` requires it to be
+  // null. The portal-visited filter widens to either of the two columns
+  // because the API and the in-page tracker write to different ones.
+  if (opts.filter?.read === true) q = q.not('outreach_opened_at', 'is', null);
+  else if (opts.filter?.read === false) q = q.is('outreach_opened_at', null);
+  if (opts.filter?.clicked === true) q = q.not('outreach_clicked_at', 'is', null);
+  else if (opts.filter?.clicked === false) q = q.is('outreach_clicked_at', null);
+  if (opts.filter?.portalVisited === true) {
+    q = q.or(
+      'last_portal_event_at.not.is.null,dashboard_visited_at.not.is.null',
+    );
+  } else if (opts.filter?.portalVisited === false) {
+    q = q
+      .is('last_portal_event_at', null)
+      .is('dashboard_visited_at', null);
+  }
+
+  // Management filter — splits the list by who's driving the follow-up.
+  // The threshold (61) mirrors `SCORE_HOT_MIN` in the Python service so
+  // the UI's "Manuale" matches exactly the leads on which the cron has
+  // already paused automatic emails (cron.py:1080-1120).
+  if (opts.filter?.management === 'manual') {
+    q = q.gte('engagement_score', 61);
+  } else if (opts.filter?.management === 'auto') {
+    q = q.or('engagement_score.lt.61,engagement_score.is.null');
   }
 
   // Engagement gate — only leads with at least one concrete action.

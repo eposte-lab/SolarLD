@@ -32,7 +32,11 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 from ..core.config import settings
 from ..core.logging import get_logger
 from ..data.province_centroids import province_centroid
-from .places_to_sector import included_types_for_sector
+from .places_to_sector import (
+    default_keyword_for_sector,
+    included_types_for_sector,
+    registry_ateco_for_sector,
+)
 
 log = get_logger(__name__)
 
@@ -327,6 +331,7 @@ async def search_places(
     limit: int = 60,
     client: httpx.AsyncClient | None = None,
     api_key: str | None = None,
+    is_demo_tenant: bool = False,
 ) -> list[ProspectorPlace]:
     """Run Places discovery for the /scoperta operator-driven flow.
 
@@ -341,16 +346,69 @@ async def search_places(
         with a single primary type filter and locationBias circle.
         keyword absent → uses Nearby Search with multiple primary types.
     """
+    if not sector:
+        log.warning("places_prospector.empty_sector")
+        return []
+
+    # Sector router — for sectors that don't map cleanly to Google Places
+    # categories in Italy (amministratori condominio is the canonical
+    # case) we bypass Google and query the official Italian business
+    # registry via OpenAPI.it. Returns the same ProspectorPlace shape so
+    # the dashboard table renders identically.
+    registry_ateco = registry_ateco_for_sector(sector)
+    if registry_ateco:
+        token = settings.openapi_it_token.strip() if settings.openapi_it_token else ""
+
+        # Demo fallback: when the token isn't configured AND the caller
+        # is the demo tenant, return a hand-curated sample so the demo
+        # walkthrough shows the right shape of data without burning
+        # OpenAPI.it credit. Production tenants get an empty result —
+        # they MUST configure the token to use these sectors.
+        if not token and is_demo_tenant:
+            from .demo_amministratori_data import demo_amministratori_for_provincia
+
+            items = demo_amministratori_for_provincia(province_code, limit=limit)
+            log.info(
+                "places_prospector.registry_demo_placeholder",
+                sector=sector,
+                province=province_code,
+                count=len(items),
+            )
+            return items
+
+        if not token:
+            log.warning(
+                "places_prospector.registry_skip_no_token",
+                sector=sector,
+                note="OPENAPI_IT_TOKEN not configured; returning empty",
+            )
+            return []
+
+        # Imported lazily to avoid a hard dependency during module load.
+        from .italian_company_lookup import search_companies_by_ateco
+
+        result = await search_companies_by_ateco(
+            ateco_codes=registry_ateco,
+            province_code=province_code,
+            keyword=keyword,
+            limit=limit,
+            client=client,
+        )
+        log.info(
+            "places_prospector.registry_lookup",
+            sector=sector,
+            ateco=registry_ateco,
+            province=province_code,
+            count=len(result.items),
+        )
+        return result.items
+
     key = api_key or settings.google_places_api_key
     if not key:
         log.error(
             "places_prospector.skip_no_key — GOOGLE_PLACES_API_KEY is not "
             "set; /scoperta will return empty. Set it on the API service."
         )
-        return []
-
-    if not sector:
-        log.warning("places_prospector.empty_sector")
         return []
 
     included_types = included_types_for_sector(sector)
@@ -387,7 +445,16 @@ async def search_places(
 
         all_places: dict[str, ProspectorPlace] = {}
 
-        if keyword and keyword.strip():
+        # Sector-level default keyword: when the Google Places category is
+        # too broad (e.g. amministratori_condominio → real_estate_agency
+        # also matches Tecnocasa/Gabetti/Regus), force a textQuery so the
+        # search narrows by name/description. The user-typed keyword still
+        # wins when present.
+        effective_keyword = (
+            keyword.strip() if (keyword and keyword.strip()) else default_keyword_for_sector(sector)
+        )
+
+        if effective_keyword:
             # Text Search path: single primary type at a time, run once
             # per included_type up to the limit budget.
             per_type_max = max(5, min(limit, 20))
@@ -396,7 +463,7 @@ async def search_places(
                     break
                 try:
                     raw = await _places_text_search(
-                        text_query=keyword.strip(),
+                        text_query=effective_keyword,
                         lat=lat,
                         lng=lng,
                         radius_m=radius_m,

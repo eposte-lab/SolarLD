@@ -28,6 +28,7 @@ import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 
 import { FollowUpDrafter } from '@/components/follow-up-drafter';
+import { LeadActivityStrip } from '@/components/lead-activity-strip';
 import { LeadConversationsCard } from '@/components/lead-conversations-card';
 import { LeadRepliesCard } from '@/components/lead-replies-card';
 import { LeadPortalTimeline } from '@/components/lead-portal-timeline';
@@ -38,7 +39,8 @@ import { CollapsibleCard } from '@/components/ui/collapsible-card';
 import { GlassPanel } from '@/components/ui/glass-panel';
 import { KpiChipCard } from '@/components/ui/kpi-chip-card';
 import { EngagementScoreChip } from '@/components/ui/engagement-score-chip';
-import { StatusChip, TierChip } from '@/components/ui/status-chip';
+import { FollowUpStateChip } from '@/components/ui/follow-up-state-chip';
+import { StatusChip } from '@/components/ui/status-chip';
 import { TierLock } from '@/components/ui/tier-lock';
 import { listCampaignsForLead, listEventsForLead } from '@/lib/data/campaigns';
 import { listPortalEventsForLead } from '@/lib/data/engagement';
@@ -326,6 +328,31 @@ export default async function LeadDetailPage({ params }: PageProps) {
   const hasReplies = replies.length > 0;
   const hasConversations = conversations.length > 0;
 
+  // Derive bolletta/appointment timestamps from the events stream — they
+  // don't have dedicated columns on the lead row. The activity strip in
+  // the header reads these so the operator sees the full status at a
+  // glance instead of having to scroll the timeline.
+  const latestEventAt = (
+    types: ReadonlyArray<string>,
+  ): string | null => {
+    let latest: string | null = null;
+    for (const e of events) {
+      if (!types.includes(e.event_type)) continue;
+      if (!e.occurred_at) continue;
+      if (!latest || e.occurred_at > latest) latest = e.occurred_at;
+    }
+    return latest;
+  };
+  const activityFlags = {
+    outreachSentAt: lead.outreach_sent_at,
+    outreachOpenedAt: lead.outreach_opened_at,
+    outreachClickedAt: lead.outreach_clicked_at,
+    portalVisitedAt:
+      lead.last_portal_event_at ?? lead.dashboard_visited_at ?? null,
+    bollettaUploadedAt: latestEventAt(['lead.bolletta_uploaded']),
+    appointmentRequestedAt: latestEventAt(['lead.appointment_requested']),
+  };
+
   return (
     <div className="space-y-4">
       {/* ─── Header ───────────────────────────────────────────────────── */}
@@ -341,15 +368,31 @@ export default async function LeadDetailPage({ params }: PageProps) {
           <h1 className="font-headline text-4xl font-bold tracking-tighter">
             {name}
           </h1>
+          {/* Activity-at-a-glance — the operator's mental model is
+              "did the lead read the email? click? visit the portal?"
+              Render this *first* so the answer is the first thing the
+              eye lands on, before the technical chips below. */}
+          <LeadActivityStrip flags={activityFlags} />
           <div className="flex flex-wrap items-center gap-2">
-            <TierChip tier={lead.score_tier} />
+            {/* The header shows the lead's *current* state: pipeline status
+                + engagement (real portal activity over the last 30d). The
+                old `score_tier` cold/warm/hot was a pre-engagement ICP
+                prediction (revenue/employees/sector) — leaving it here
+                next to engagement=100 produced "this lead is cold" /
+                "this lead is at 100" contradictions. The ICP tier still
+                lives in the Score breakdown card below, where its
+                provenance is explained. */}
             <EngagementScoreChip
               score={lead.engagement_score}
               updatedAt={lead.engagement_score_updated_at}
             />
+            <FollowUpStateChip row={lead} />
             <StatusChip status={lead.pipeline_status} />
-            <span className="text-xs text-on-surface-variant">
-              Punteggio{' '}
+            <span
+              className="text-xs text-on-surface-variant"
+              title="Score ICP iniziale (settore, dimensione, distanza). Resta fisso dopo l'import — l'engagement qui sopra invece riflette l'attività reale."
+            >
+              ICP{' '}
               <span className="font-headline font-bold text-on-surface">
                 {lead.score}
               </span>
@@ -543,40 +586,89 @@ export default async function LeadDetailPage({ params }: PageProps) {
                 )}
             </div>
           </div>
-          <BentoGrid cols={4}>
-            <KpiChipCard
-              label="Potenza impianto"
-              value={
-                lead.roi_data?.estimated_kwp != null
-                  ? `${formatNumber(lead.roi_data.estimated_kwp)} kWp`
-                  : '—'
-              }
-              accent="primary"
-            />
-            <KpiChipCard
-              label="Risparmio annuo"
-              value={formatEurPlain(lead.roi_data?.annual_savings_eur ?? null)}
-              accent="primary"
-            />
-            <KpiChipCard
-              label="Rientro investimento"
-              value={
-                lead.roi_data?.payback_years != null
-                  ? `${formatNumber(lead.roi_data.payback_years)} anni`
-                  : '—'
-              }
-              accent="tertiary"
-            />
-            <KpiChipCard
-              label="CO₂ evitata"
-              value={
-                lead.roi_data?.co2_saved_kg != null
-                  ? `${formatNumber(lead.roi_data.co2_saved_kg)} kg`
-                  : '—'
-              }
-              accent="neutral"
-            />
-          </BentoGrid>
+          {(() => {
+            // Read canonical keys with legacy-alias fallback. The v3
+            // ROI service writes `yearly_savings_eur` / `co2_kg_per_year`,
+            // older rows used `annual_savings_eur` / `co2_saved_kg`. Both
+            // sets coexist in the DB; the UI prefers canonical and falls
+            // back so leads from either era render correctly.
+            const roi = lead.roi_data ?? null;
+            const yearlySavings =
+              roi?.yearly_savings_eur ?? roi?.annual_savings_eur ?? null;
+            const co2Year = roi?.co2_kg_per_year ?? roi?.co2_saved_kg ?? null;
+            const netCapex = roi?.net_capex_eur ?? null;
+            const savings25y = roi?.savings_25y_eur ?? null;
+            return (
+              <>
+                <BentoGrid cols={4}>
+                  <KpiChipCard
+                    label="Potenza impianto"
+                    value={
+                      roi?.estimated_kwp != null
+                        ? `${formatNumber(roi.estimated_kwp)} kWp`
+                        : '—'
+                    }
+                    accent="primary"
+                  />
+                  <KpiChipCard
+                    label="Risparmio annuo"
+                    value={
+                      yearlySavings != null
+                        ? formatEurPlain(yearlySavings)
+                        : '—'
+                    }
+                    accent="primary"
+                  />
+                  <KpiChipCard
+                    label="Rientro investimento"
+                    value={
+                      roi?.payback_years != null
+                        ? `${formatNumber(roi.payback_years)} anni`
+                        : '—'
+                    }
+                    accent="tertiary"
+                  />
+                  <KpiChipCard
+                    label="CO₂ evitata/anno"
+                    value={
+                      co2Year != null ? `${formatNumber(co2Year)} kg` : '—'
+                    }
+                    accent="neutral"
+                  />
+                </BentoGrid>
+                {(netCapex != null || savings25y != null) && (
+                  <p className="px-1 pt-2 text-[11px] text-on-surface-variant">
+                    {netCapex != null && (
+                      <>
+                        Investimento netto{' '}
+                        <span className="font-semibold text-on-surface">
+                          {formatEurPlain(netCapex)}
+                        </span>
+                      </>
+                    )}
+                    {netCapex != null && savings25y != null && ' · '}
+                    {savings25y != null && (
+                      <>
+                        Risparmio 25 anni{' '}
+                        <span className="font-semibold text-on-surface">
+                          {formatEurPlain(savings25y)}
+                        </span>
+                      </>
+                    )}
+                    {roi?.self_consumption_ratio != null && (
+                      <>
+                        {' · '}
+                        Autoconsumo{' '}
+                        <span className="font-semibold text-on-surface">
+                          {Math.round(roi.self_consumption_ratio * 100)}%
+                        </span>
+                      </>
+                    )}
+                  </p>
+                )}
+              </>
+            );
+          })()}
           {(lead.subjects?.sede_operativa_source || v3Signal?.google_maps_url) && (
             <p className="px-1 text-[10px] uppercase tracking-widest text-on-surface-variant">
               Sede operativa ·{' '}
@@ -793,20 +885,14 @@ export default async function LeadDetailPage({ params }: PageProps) {
               }
             />
           )}
-          {/* v3 funnel source badge */}
+          {/* Source badge — hides the internal place_id (debug noise),
+              shows the human-readable provenance instead. */}
           {v3Signal && (
             <DataRow
               label="Sorgente"
               value={
-                <span className="inline-flex items-center gap-1.5">
-                  <span className="rounded-full bg-primary-container px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-on-primary-container">
-                    Geocentrico v3
-                  </span>
-                  {v3Signal.google_place_id && (
-                    <span className="rounded bg-surface-container-low px-1.5 py-0.5 font-mono text-[10px] text-on-surface-variant" title={v3Signal.google_place_id}>
-                      {v3Signal.google_place_id.slice(0, 16)}…
-                    </span>
-                  )}
+                <span className="rounded-full bg-primary-container px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-on-primary-container">
+                  Discovery automatica
                 </span>
               }
             />
@@ -1145,15 +1231,13 @@ export default async function LeadDetailPage({ params }: PageProps) {
           </CollapsibleCard>
         )}
 
-      {/* ─── V3 Funnel intelligence ───────────────────────────────────────
-          Shown only for leads generated by FLUSSO 1 v3 (geocentric).
-          Surfaces building quality score, Haiku proxy score breakdown,
-          and Google Maps link — hidden for legacy v2 leads. */}
+      {/* Funnel-quality breakdown — building quality, AI proxy score,
+          Google Maps link. User-facing label kept neutral; internal funnel
+          version (v3 geocentric) intentionally hidden. */}
       {v3Signal && (
         <CollapsibleCard
-          label="Flusso geocentrico v3"
-          title="Intelligenza funnel"
-          badge="v3"
+          label="Qualità lead"
+          title="Dettagli scoring"
           defaultOpen={false}
         >
           <V3FunnelPanel signal={v3Signal} />

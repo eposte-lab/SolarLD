@@ -82,7 +82,30 @@ class EmailCandidate:
     type: str  # "named_role" | "generic" | "privacy_dpo" | "inferred_pattern"
 
 
-def extract_best_email(scraped_emails: list[str]) -> EmailCandidate | None:
+_EXAMPLE_EMAIL_TOKENS = (
+    "example",
+    "esempio",
+    "dummy",
+    "placeholder",
+    "your@",
+    "user@",
+    "nome@",
+    "cognome@",
+    "test@",
+)
+
+
+def _is_example_email(email: str) -> bool:
+    """Reject placeholder/template addresses (info@example.com, etc.)."""
+    lower = email.lower()
+    return any(tok in lower for tok in _EXAMPLE_EMAIL_TOKENS)
+
+
+def extract_best_email(
+    scraped_emails: list[str],
+    *,
+    company_domain: str | None = None,
+) -> EmailCandidate | None:
     """Pick the best email from a scraped list per the PRD's policy.
 
     Hard exclusions (noreply@, newsletter@) are applied first. Then we
@@ -94,12 +117,22 @@ def extract_best_email(scraped_emails: list[str]) -> EmailCandidate | None:
       3. **Privacy/DPO** — privacy@/dpo@/legal@ — last resort,
          "bassa" / "privacy_dpo". Used only when nothing else found.
 
+    When ``company_domain`` is provided, addresses on that domain are
+    preferred — `info@fifaa.it` always beats `info@example.com` even
+    if the latter happened to come first in the regex sweep.
+
     Returns ``None`` when only hard-excluded addresses remain.
     """
     if not scraped_emails:
         return None
 
-    candidates = [e for e in scraped_emails if not any(esc in e.lower() for esc in ESCLUSIONI_HARD)]
+    # Drop hard exclusions AND placeholder addresses (info@example.com,
+    # esempio@..., your@..., nome@... — typical website-template debris).
+    candidates = [
+        e
+        for e in scraped_emails
+        if not any(esc in e.lower() for esc in ESCLUSIONI_HARD) and not _is_example_email(e)
+    ]
     if not candidates:
         return None
 
@@ -115,6 +148,22 @@ def extract_best_email(scraped_emails: list[str]) -> EmailCandidate | None:
             privacy_pool.append(email)
         else:
             main_pool.append(email)
+
+    # Sort each pool with on-domain matches first. The company's own
+    # domain is the strongest provenance signal — `info@<their-site>`
+    # is what we actually want to mail, not a random `info@othersite`
+    # that ended up in the page (e.g. footer credits, partner widgets).
+    if company_domain:
+        domain_lower = company_domain.lower().lstrip(".")
+
+        def _on_domain(email: str) -> int:
+            addr_domain = email.split("@", 1)[-1].lower()
+            return (
+                0 if addr_domain == domain_lower or addr_domain.endswith("." + domain_lower) else 1
+            )
+
+        main_pool.sort(key=_on_domain)
+        privacy_pool.sort(key=_on_domain)
 
     # Try priority keywords in order on the main pool first.
     for keyword in PRIORITA_EMAIL:
@@ -225,11 +274,28 @@ def _extract_emails_from_html(html: str) -> list[str]:
     return list(seen.keys())
 
 
+def _is_placeholder_phone(digits: str) -> bool:
+    """Reject obvious non-phones picked up by the regex.
+
+    Pages frequently embed placeholders (33333333333, 0000000000) or
+    P.IVA / fiscal-code fragments that match the loose phone shape.
+    """
+    if len(digits) < 7:
+        return True
+    # All-same-digit (33333333333, 1111111).
+    if len(set(digits)) == 1:
+        return True
+    # 3+ leading zeros = almost always a P.IVA with country prefix
+    # (it 0008899584576 = 13-char P.IVA, not a phone).
+    return digits.startswith("000")
+
+
 def _extract_phone_from_html(html: str) -> str | None:
     for match in _PHONE_REGEX.findall(html):
         digits_only = re.sub(r"\D", "", match)
-        if len(digits_only) >= 8:
-            return match.strip()
+        if _is_placeholder_phone(digits_only):
+            continue
+        return match.strip()
     return None
 
 
@@ -260,6 +326,26 @@ async def scrape_website(
     base = url.rstrip("/")
     out = ScrapedSite(url=base)
 
+    # Extract the company's own apex domain (fifaa.it from
+    # https://www.fifaa.it/) so we can recognise on-domain emails as
+    # the strong-provenance signal that lets us stop early.
+    try:
+        from urllib.parse import urlparse
+
+        host = urlparse(base).hostname or ""
+        company_domain = host.removeprefix("www.").lower() if host else ""
+    except ValueError:
+        company_domain = ""
+
+    def _has_on_domain_email() -> bool:
+        if not company_domain:
+            return False
+        for e in out.emails:
+            addr_domain = e.split("@", 1)[-1].lower()
+            if addr_domain == company_domain or addr_domain.endswith("." + company_domain):
+                return True
+        return False
+
     owns_client = client is None
     if client is None:
         client = httpx.AsyncClient(
@@ -280,8 +366,13 @@ async def scrape_website(
                     out.emails.append(e)
             if out.phone is None:
                 out.phone = _extract_phone_from_html(html)
-            # Cheap stop condition.
-            if out.emails and out.phone:
+            # Stop only when we have a phone AND an on-domain email —
+            # that's the "we found the real contact" signal. If the
+            # homepage only yielded `info@example.com`-style debris,
+            # keep walking through /contatti, /privacy, /cookie-policy:
+            # GDPR art. 13 mandates the Titolare's email there, so it's
+            # the canonical fallback when contact pages are sparse.
+            if out.phone and _has_on_domain_email():
                 break
 
         out.pec = _classify_pec(out.emails)

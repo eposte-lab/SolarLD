@@ -421,8 +421,12 @@ async def _fetch_emails_from_url(
     found: dict[str, tuple[str, float]] = {}  # email → (source_type, score)
 
     # Mailto href links (highest confidence — explicitly published).
+    # Still filter out placeholder addresses: a stale `<a href="mailto:info@example.com">`
+    # in a website template would otherwise be persisted as the contact email.
     for match in _MAILTO_HREF_RE.finditer(body):
         email = match.group(1).lower()
+        if _looks_like_example(email):
+            continue
         score = _score_email(email, company_domain, is_mailto=True)
         if email not in found or score > found[email][1]:
             found[email] = ("mailto_href", score)

@@ -16,7 +16,6 @@ import { redirect } from 'next/navigation';
 
 import { BentoCard } from '@/components/ui/bento-card';
 import { GradientButton } from '@/components/ui/gradient-button';
-import { HotLeadsNow } from '@/components/hot-leads-now';
 import { LeadsTable } from '@/components/leads/leads-table';
 import {
   LEADS_PAGE_SIZE,
@@ -25,6 +24,7 @@ import {
   type LeadListFilter,
 } from '@/lib/data/leads';
 import { getContattiSummary } from '@/lib/data/contatti';
+import { listTodayPredictionsByLead } from '@/lib/data/imminence';
 import { getModuleForTenant } from '@/lib/data/modules.server';
 import { getCurrentTenantContext } from '@/lib/data/tenant';
 import type { CRMConfig } from '@/types/modules';
@@ -39,7 +39,19 @@ type Search = Promise<{
   status?: string;
   q?: string;
   mode?: string;
+  // Activity filters: '1' = require, '0' = require-absent, undefined = any.
+  read?: string;
+  clicked?: string;
+  portal?: string;
+  // Management mode: 'manual' (hot, system stopped) | 'auto' | undefined.
+  gestione?: string;
 }>;
+
+function parseTriState(raw: string | undefined): boolean | null | undefined {
+  if (raw === '1') return true;
+  if (raw === '0') return false;
+  return undefined;
+}
 
 const TIERS: { value: '' | LeadScoreTier; label: string }[] = [
   { value: '', label: 'Tutti' },
@@ -71,21 +83,30 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
     tier: (sp.tier as LeadScoreTier) || undefined,
     status: (sp.status as LeadStatus) || undefined,
     q: sp.q || undefined,
+    read: parseTriState(sp.read),
+    clicked: parseTriState(sp.clicked),
+    portalVisited: parseTriState(sp.portal),
+    management:
+      sp.gestione === 'manual' || sp.gestione === 'auto'
+        ? sp.gestione
+        : undefined,
   };
 
   // In "Caldi adesso" mode we ignore the tier/status filters because
   // they would conflict with the operational definition (engagement
   // ≥ 60, recent portal event, NOT in a closing pipeline stage).
-  const [ctx, listResult, hotRows, contattiSummary] = await Promise.all([
-    getCurrentTenantContext(),
-    isHotMode
-      ? Promise.resolve({ rows: [], total: 0 })
-      : listLeads({ page, filter }),
-    isHotMode
-      ? listHotLeadsAwaitingResponse({ sinceHours: 72, limit: 50 })
-      : Promise.resolve([]),
-    getContattiSummary(),
-  ]);
+  const [ctx, listResult, hotRows, contattiSummary, predictionsByLead] =
+    await Promise.all([
+      getCurrentTenantContext(),
+      isHotMode
+        ? Promise.resolve({ rows: [], total: 0 })
+        : listLeads({ page, filter }),
+      isHotMode
+        ? listHotLeadsAwaitingResponse({ sinceHours: 72, limit: 50 })
+        : Promise.resolve([]),
+      getContattiSummary(),
+      listTodayPredictionsByLead(),
+    ]);
   if (!ctx) redirect('/login');
   const { rows: regularRows, total } = listResult;
   const rows = isHotMode ? hotRows : regularRows;
@@ -105,6 +126,10 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
     if (filter.tier) params.set('tier', filter.tier);
     if (filter.status) params.set('status', filter.status);
     if (filter.q) params.set('q', filter.q);
+    if (sp.read !== undefined) params.set('read', sp.read);
+    if (sp.clicked !== undefined) params.set('clicked', sp.clicked);
+    if (sp.portal !== undefined) params.set('portal', sp.portal);
+    if (sp.gestione !== undefined) params.set('gestione', sp.gestione);
     if (page > 1) params.set('page', String(page));
     for (const [k, v] of Object.entries(overrides)) {
       if (v === undefined || v === '') params.delete(k);
@@ -128,9 +153,6 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
             {isHotMode ? 'Caldi adesso' : 'Lead Attivi'}
           </h1>
         </div>
-        <GradientButton href="/territories" size="sm" variant="secondary">
-          Aggiungi territorio
-        </GradientButton>
       </header>
 
 
@@ -197,8 +219,30 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
         </div>
       )}
 
-      {/* Real-time heat panel (only on default mode) ----------------- */}
-      {!isHotMode && <HotLeadsNow minutes={60} limit={5} />}
+      {/* AI suggestion banner — only on default mode ----------------- */}
+      {!isHotMode && predictionsByLead.size > 0 && (
+        <div className="flex items-center gap-3 rounded-xl bg-primary/10 px-5 py-3 text-sm">
+          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-on-primary">
+            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor" aria-hidden>
+              <path d="M12 2l2.4 6.6L21 11l-6.6 2.4L12 20l-2.4-6.6L3 11l6.6-2.4L12 2z" />
+            </svg>
+          </div>
+          <div className="flex-1">
+            <p className="font-semibold text-on-surface">
+              L&apos;agente AI suggerisce{' '}
+              <span className="text-primary">{predictionsByLead.size}</span>{' '}
+              lead da chiamare oggi
+            </p>
+            <p className="text-xs text-on-surface-variant">
+              Sono in cima alla lista, evidenziati in verde. Clicca il badge
+              <span className="mx-1 rounded-full bg-primary/20 px-1.5 py-0.5 text-[9px] font-bold uppercase text-primary">
+                AI
+              </span>
+              accanto al nome per vedere perché.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Filters ------------------------------------------------------ */}
       {!isHotMode && (
@@ -225,6 +269,74 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
                   {s.label}
                 </FilterChip>
               ))}
+            </FilterGroup>
+            <FilterGroup label="Lettura email">
+              <FilterChip
+                active={sp.read === undefined}
+                href={queryFor({ read: undefined, page: undefined })}
+              >
+                Tutti
+              </FilterChip>
+              <FilterChip
+                active={sp.read === '1'}
+                href={queryFor({ read: '1', page: undefined })}
+              >
+                Letta
+              </FilterChip>
+              <FilterChip
+                active={sp.read === '0'}
+                href={queryFor({ read: '0', page: undefined })}
+              >
+                Non letta
+              </FilterChip>
+            </FilterGroup>
+            <FilterGroup label="Click">
+              <FilterChip
+                active={sp.clicked === undefined}
+                href={queryFor({ clicked: undefined, page: undefined })}
+              >
+                Tutti
+              </FilterChip>
+              <FilterChip
+                active={sp.clicked === '1'}
+                href={queryFor({ clicked: '1', page: undefined })}
+              >
+                Cliccata
+              </FilterChip>
+            </FilterGroup>
+            <FilterGroup label="Portale">
+              <FilterChip
+                active={sp.portal === undefined}
+                href={queryFor({ portal: undefined, page: undefined })}
+              >
+                Tutti
+              </FilterChip>
+              <FilterChip
+                active={sp.portal === '1'}
+                href={queryFor({ portal: '1', page: undefined })}
+              >
+                Visitato
+              </FilterChip>
+            </FilterGroup>
+            <FilterGroup label="Gestione">
+              <FilterChip
+                active={sp.gestione === undefined}
+                href={queryFor({ gestione: undefined, page: undefined })}
+              >
+                Tutti
+              </FilterChip>
+              <FilterChip
+                active={sp.gestione === 'auto'}
+                href={queryFor({ gestione: 'auto', page: undefined })}
+              >
+                Auto
+              </FilterChip>
+              <FilterChip
+                active={sp.gestione === 'manual'}
+                href={queryFor({ gestione: 'manual', page: undefined })}
+              >
+                Manuale
+              </FilterChip>
             </FilterGroup>
           </div>
         </BentoCard>
@@ -264,7 +376,11 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
             )}
           </div>
         ) : (
-          <LeadsTable rows={rows} pipelineLabels={pipelineLabels} />
+          <LeadsTable
+            rows={rows}
+            pipelineLabels={pipelineLabels}
+            predictionsByLead={predictionsByLead}
+          />
         )}
 
         {/* Pagination --------------------------------------------- */}

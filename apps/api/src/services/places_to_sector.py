@@ -220,3 +220,45 @@ def included_types_for_sector(sector: str) -> list[str]:
     field is present).
     """
     return list(_SECTOR_TO_INCLUDED_TYPES.get(sector, []))
+
+
+# Sectors where the Google Places category alone is too broad and the
+# search needs a textual narrowing. Selecting "amministratori_condominio"
+# without these keywords returns every real_estate_agency in the radius
+# (Tecnocasa, Gabetti, Regus, …) because Google has no dedicated
+# "condominium administrator" category in Italy. We force a default
+# textQuery in those cases so Nearby Search becomes Text Search and the
+# results are filtered by name/description.
+_SECTOR_DEFAULT_KEYWORD: dict[str, str] = {
+    "amministratori_condominio": "amministratore condominio",
+}
+
+
+def default_keyword_for_sector(sector: str) -> str | None:
+    """Default text-query for sectors where the category alone is too broad.
+
+    The prospector pipeline calls this when the user hasn't typed a
+    keyword. Returning a non-None value flips the search from Nearby to
+    Text Search.
+    """
+    return _SECTOR_DEFAULT_KEYWORD.get(sector)
+
+
+# Sectors that bypass Google Places entirely and query the Italian
+# business registry instead. Keyed by `wizard_group`; value is the
+# list of ATECO codes (without dots) to ask OpenAPI.it for.
+#
+# Why bypass Google: for these sectors the Places category is either
+# missing (no equivalent type in Italy) or so broad that filtering
+# noise out costs more than the registry call itself. The registry
+# is exhaustive: every administrator/clinic/etc. is registered by
+# law, so we get the actual cohort, not a Google-curated subset.
+_SECTOR_TO_REGISTRY_ATECO: dict[str, list[str]] = {
+    "amministratori_condominio": ["68.32.00", "81.10.00"],
+}
+
+
+def registry_ateco_for_sector(sector: str) -> list[str]:
+    """Return the ATECO codes to query OpenAPI.it for, or [] when the
+    sector should keep using Google Places."""
+    return list(_SECTOR_TO_REGISTRY_ATECO.get(sector, []))
