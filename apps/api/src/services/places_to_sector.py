@@ -220,3 +220,25 @@ def included_types_for_sector(sector: str) -> list[str]:
     field is present).
     """
     return list(_SECTOR_TO_INCLUDED_TYPES.get(sector, []))
+
+
+# Sectors where the Google Places category alone is too broad and the
+# search needs a textual narrowing. Selecting "amministratori_condominio"
+# without these keywords returns every real_estate_agency in the radius
+# (Tecnocasa, Gabetti, Regus, …) because Google has no dedicated
+# "condominium administrator" category in Italy. We force a default
+# textQuery in those cases so Nearby Search becomes Text Search and the
+# results are filtered by name/description.
+_SECTOR_DEFAULT_KEYWORD: dict[str, str] = {
+    "amministratori_condominio": "amministratore condominio",
+}
+
+
+def default_keyword_for_sector(sector: str) -> str | None:
+    """Default text-query for sectors where the category alone is too broad.
+
+    The prospector pipeline calls this when the user hasn't typed a
+    keyword. Returning a non-None value flips the search from Nearby to
+    Text Search.
+    """
+    return _SECTOR_DEFAULT_KEYWORD.get(sector)

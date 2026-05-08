@@ -32,7 +32,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 from ..core.config import settings
 from ..core.logging import get_logger
 from ..data.province_centroids import province_centroid
-from .places_to_sector import included_types_for_sector
+from .places_to_sector import default_keyword_for_sector, included_types_for_sector
 
 log = get_logger(__name__)
 
@@ -387,7 +387,16 @@ async def search_places(
 
         all_places: dict[str, ProspectorPlace] = {}
 
-        if keyword and keyword.strip():
+        # Sector-level default keyword: when the Google Places category is
+        # too broad (e.g. amministratori_condominio → real_estate_agency
+        # also matches Tecnocasa/Gabetti/Regus), force a textQuery so the
+        # search narrows by name/description. The user-typed keyword still
+        # wins when present.
+        effective_keyword = (
+            keyword.strip() if (keyword and keyword.strip()) else default_keyword_for_sector(sector)
+        )
+
+        if effective_keyword:
             # Text Search path: single primary type at a time, run once
             # per included_type up to the limit budget.
             per_type_max = max(5, min(limit, 20))
@@ -396,7 +405,7 @@ async def search_places(
                     break
                 try:
                     raw = await _places_text_search(
-                        text_query=keyword.strip(),
+                        text_query=effective_keyword,
                         lat=lat,
                         lng=lng,
                         radius_m=radius_m,
