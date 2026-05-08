@@ -16,7 +16,6 @@ import { redirect } from 'next/navigation';
 
 import { BentoCard } from '@/components/ui/bento-card';
 import { GradientButton } from '@/components/ui/gradient-button';
-import { HotLeadsNow } from '@/components/hot-leads-now';
 import { LeadsTable } from '@/components/leads/leads-table';
 import {
   LEADS_PAGE_SIZE,
@@ -244,9 +243,6 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
           </div>
         </div>
       )}
-
-      {/* Real-time heat panel (only on default mode) ----------------- */}
-      {!isHotMode && <HotLeadsNow minutes={60} limit={5} />}
 
       {/* Filters ------------------------------------------------------ */}
       {!isHotMode && (
