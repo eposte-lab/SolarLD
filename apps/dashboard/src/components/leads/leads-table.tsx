@@ -26,9 +26,11 @@ import Link from 'next/link';
 import { Fragment, useState } from 'react';
 
 import { EngagementScoreChip } from '@/components/ui/engagement-score-chip';
+import { FollowUpStateChip } from '@/components/ui/follow-up-state-chip';
 import { SortableTh } from '@/components/ui/sortable-th';
 import { StatusChip, TierChip } from '@/components/ui/status-chip';
 import { useSortableData } from '@/hooks/use-sortable-data';
+import { followUpState } from '@/lib/data/followup-state';
 import { cn, daysSince, relativeTime } from '@/lib/utils';
 import type { ImminencePrediction } from '@/lib/data/imminence';
 import type { LeadListRow } from '@/types/db';
@@ -48,6 +50,7 @@ type SortKey =
   | 'score'
   | 'tier'
   | 'engagement'
+  | 'followup'
   | 'status'
   | 'last_touch'
   | 'imminence';
@@ -120,6 +123,11 @@ export function LeadsTable({
         return TIER_ORDER[lead.score_tier] ?? 0;
       case 'engagement':
         return lead.engagement_score ?? null;
+      case 'followup':
+        // Lower weight = more urgent (manual=0, interessato=1, ...,
+        // conversazione=-1). Multiply by -1 so DESC sort surfaces
+        // "Manuale" first.
+        return -followUpState(lead).weight;
       case 'status':
         return lead.pipeline_status ?? '';
       case 'last_touch':
@@ -161,6 +169,7 @@ export function LeadsTable({
             <SortableTh sortKey="score" active={sortKey} dir={sortDir} onSort={requestSort} className="px-5 py-3" align="right">Score</SortableTh>
             <SortableTh sortKey="tier" active={sortKey} dir={sortDir} onSort={requestSort} className="px-5 py-3">Tier</SortableTh>
             <SortableTh sortKey="engagement" active={sortKey} dir={sortDir} onSort={requestSort} className="px-5 py-3">Engagement</SortableTh>
+            <SortableTh sortKey="followup" active={sortKey} dir={sortDir} onSort={requestSort} className="px-5 py-3">Follow-up</SortableTh>
             <SortableTh sortKey="status" active={sortKey} dir={sortDir} onSort={requestSort} className="px-5 py-3">Stato</SortableTh>
             <SortableTh sortKey="last_touch" active={sortKey} dir={sortDir} onSort={requestSort} className="px-5 py-3">Ultimo tocco</SortableTh>
             <th className="px-5 py-3" />
@@ -174,23 +183,33 @@ export function LeadsTable({
             const prediction = predictionsByLead?.get(lead.id);
             const isAi = !!prediction;
             const isExpanded = expanded.has(lead.id);
+            // Manual handoff (engagement >= 61) takes precedence over the
+            // AI-imminence overlay — both compete for the row tint, but
+            // "system stopped, call this lead now" is more urgent than
+            // "AI suggests calling this lead today".
+            const isManual = followUpState(lead).kind === 'manual';
             return (
               <Fragment key={lead.id}>
                 <tr
                   className={cn(
                     'transition-colors hover:bg-surface-container-low',
-                    isAi && 'bg-primary/5 hover:bg-primary/10',
+                    !isManual && isAi && 'bg-primary/5 hover:bg-primary/10',
+                    isManual && 'bg-error-container/15 hover:bg-error-container/25',
                   )}
                   style={
                     idx !== 0
                       ? {
-                          boxShadow: isAi
-                            ? 'inset 4px 0 0 var(--md-sys-color-primary), inset 0 1px 0 rgba(170,174,173,0.15)'
-                            : 'inset 0 1px 0 rgba(170,174,173,0.15)',
+                          boxShadow: isManual
+                            ? 'inset 4px 0 0 var(--md-sys-color-error), inset 0 1px 0 rgba(170,174,173,0.15)'
+                            : isAi
+                              ? 'inset 4px 0 0 var(--md-sys-color-primary), inset 0 1px 0 rgba(170,174,173,0.15)'
+                              : 'inset 0 1px 0 rgba(170,174,173,0.15)',
                         }
-                      : isAi
-                        ? { boxShadow: 'inset 4px 0 0 var(--md-sys-color-primary)' }
-                        : undefined
+                      : isManual
+                        ? { boxShadow: 'inset 4px 0 0 var(--md-sys-color-error)' }
+                        : isAi
+                          ? { boxShadow: 'inset 4px 0 0 var(--md-sys-color-primary)' }
+                          : undefined
                   }
                 >
                   <td className="px-5 py-4 font-semibold text-on-surface">
@@ -249,6 +268,9 @@ export function LeadsTable({
                     />
                   </td>
                   <td className="px-5 py-4">
+                    <FollowUpStateChip row={lead} />
+                  </td>
+                  <td className="px-5 py-4">
                     <StatusChip
                       status={lead.pipeline_status}
                       pipelineLabels={pipelineLabels}
@@ -271,7 +293,7 @@ export function LeadsTable({
                 </tr>
                 {isAi && isExpanded && (
                   <tr className="bg-primary/5">
-                    <td colSpan={10} className="px-8 py-4">
+                    <td colSpan={11} className="px-8 py-4">
                       <ImminenceDetail prediction={prediction} />
                     </td>
                   </tr>

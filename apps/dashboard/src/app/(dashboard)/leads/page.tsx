@@ -44,6 +44,8 @@ type Search = Promise<{
   read?: string;
   clicked?: string;
   portal?: string;
+  // Management mode: 'manual' (hot, system stopped) | 'auto' | undefined.
+  gestione?: string;
 }>;
 
 function parseTriState(raw: string | undefined): boolean | null | undefined {
@@ -85,6 +87,10 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
     read: parseTriState(sp.read),
     clicked: parseTriState(sp.clicked),
     portalVisited: parseTriState(sp.portal),
+    management:
+      sp.gestione === 'manual' || sp.gestione === 'auto'
+        ? sp.gestione
+        : undefined,
   };
 
   // In "Caldi adesso" mode we ignore the tier/status filters because
@@ -124,6 +130,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
     if (sp.read !== undefined) params.set('read', sp.read);
     if (sp.clicked !== undefined) params.set('clicked', sp.clicked);
     if (sp.portal !== undefined) params.set('portal', sp.portal);
+    if (sp.gestione !== undefined) params.set('gestione', sp.gestione);
     if (page > 1) params.set('page', String(page));
     for (const [k, v] of Object.entries(overrides)) {
       if (v === undefined || v === '') params.delete(k);
@@ -313,6 +320,26 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
                 href={queryFor({ portal: '1', page: undefined })}
               >
                 Visitato
+              </FilterChip>
+            </FilterGroup>
+            <FilterGroup label="Gestione">
+              <FilterChip
+                active={sp.gestione === undefined}
+                href={queryFor({ gestione: undefined, page: undefined })}
+              >
+                Tutti
+              </FilterChip>
+              <FilterChip
+                active={sp.gestione === 'auto'}
+                href={queryFor({ gestione: 'auto', page: undefined })}
+              >
+                Auto
+              </FilterChip>
+              <FilterChip
+                active={sp.gestione === 'manual'}
+                href={queryFor({ gestione: 'manual', page: undefined })}
+              >
+                Manuale
               </FilterChip>
             </FilterGroup>
           </div>

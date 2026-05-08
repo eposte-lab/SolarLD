@@ -39,6 +39,7 @@ import { CollapsibleCard } from '@/components/ui/collapsible-card';
 import { GlassPanel } from '@/components/ui/glass-panel';
 import { KpiChipCard } from '@/components/ui/kpi-chip-card';
 import { EngagementScoreChip } from '@/components/ui/engagement-score-chip';
+import { FollowUpStateChip } from '@/components/ui/follow-up-state-chip';
 import { StatusChip } from '@/components/ui/status-chip';
 import { TierLock } from '@/components/ui/tier-lock';
 import { listCampaignsForLead, listEventsForLead } from '@/lib/data/campaigns';
@@ -385,6 +386,7 @@ export default async function LeadDetailPage({ params }: PageProps) {
               score={lead.engagement_score}
               updatedAt={lead.engagement_score_updated_at}
             />
+            <FollowUpStateChip row={lead} />
             <StatusChip status={lead.pipeline_status} />
             <span
               className="text-xs text-on-surface-variant"

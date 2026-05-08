@@ -318,6 +318,9 @@ export interface LeadListRow {
   // never null for rows written after the migration.
   engagement_score: number;
   engagement_score_updated_at: string | null;
+  /** All-time peak engagement score — used by the riattivazione scenario
+   *  to detect leads that were warm in the past but have flat-lined. */
+  engagement_peak_score: number | null;
   // Stamped by bump_engagement_score (migration 0066) every time the
   // public portal track endpoint fires. Used by the "Caldi adesso"
   // surface to filter to leads that are currently moving.
@@ -325,6 +328,23 @@ export interface LeadListRow {
   portal_sessions: number;
   portal_total_time_sec: number;
   deepest_scroll_pct: number;
+  // Follow-up engine state — written by followup_engagement_cron.
+  // Together they let the dashboard render an "Auto · interessato"
+  // chip + tooltip "prossima email tra Xgg" without a detail-row
+  // roundtrip. NULL until the engine has acted on the lead.
+  last_followup_scenario:
+    | 'cold'
+    | 'lukewarm'
+    | 'engaged'
+    | 'interessato'
+    | 'hot'
+    | 'riattivazione'
+    | null;
+  last_followup_sent_at: string | null;
+  /** Stamped once when score crosses the hot threshold and the system
+   *  hands off to the operator. The chip on the row reads this to show
+   *  "notifica inviata X fa" in the tooltip. */
+  hot_lead_alerted_at: string | null;
 }
 
 /** Full detail row — same as list + renderings + roi_data. */
