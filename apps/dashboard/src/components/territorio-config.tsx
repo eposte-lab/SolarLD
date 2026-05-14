@@ -26,12 +26,14 @@ const WIZARD_GROUPS: { value: string; label: string }[] = [
   { value: 'hospitality_large', label: 'Ricettivo grande' },
   { value: 'hospitality_food_service', label: 'Ristorazione collettiva' },
   { value: 'healthcare', label: 'Sanitario' },
+  { value: 'healthcare_private', label: 'Sanitario privato' },
   { value: 'agricultural_intensive', label: 'Agricolo intensivo' },
   { value: 'automotive', label: 'Automotive' },
   { value: 'education', label: 'Istruzione' },
   { value: 'personal_services', label: 'Servizi alla persona' },
   { value: 'professional_offices', label: 'Studi professionali' },
   { value: 'horeca', label: 'HoReCa' },
+  { value: 'amministratori_condominio', label: 'Amministratori di condominio' },
 ];
 
 // All Italian province codes for the autocomplete suggestions
