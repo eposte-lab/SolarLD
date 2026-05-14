@@ -805,3 +805,161 @@ async def scrape_all_for_candidate(
     finally:
         if owns_client:
             await client.aclose()
+
+
+# ===========================================================================
+# Brand extraction — punto G (Sprint client-feedback)
+# ===========================================================================
+#
+# Why: the lead-portal white-labels via tenant.business_name +
+# tenant.brand_logo_url. When a new tenant is onboarded we'd rather
+# auto-populate these from their public website instead of asking them
+# to copy-paste the URL of their logo.
+#
+# Heuristic order (best → fallback):
+#   1. <meta property="og:image"> — the canonical "share preview" image
+#      most modern sites set explicitly to their logo.
+#   2. <meta name="twitter:image">
+#   3. <link rel="apple-touch-icon"> — usually a high-res PNG
+#   4. <link rel="icon"> with sizes hint (preferring 192x192+)
+#   5. <img> tag whose class or alt mentions "logo"
+#
+# For business name we prefer:
+#   1. <meta property="og:site_name">
+#   2. <title> (stripped of trailing branding fluff)
+#   3. <meta property="og:title">
+
+
+@dataclass
+class ExtractedBranding:
+    """Result of `extract_branding_from_url`."""
+
+    business_name: str | None = None
+    logo_url: str | None = None
+    source: dict[str, str] = field(default_factory=dict)
+
+
+_LOGO_IMG_RE = re.compile(
+    r'<img\s+[^>]*(?:class\s*=\s*"[^"]*\blogo\b[^"]*"|alt\s*=\s*"[^"]*\blogo\b[^"]*"|id\s*=\s*"[^"]*\blogo\b[^"]*")[^>]*\bsrc\s*=\s*"([^"]+)"',
+    re.IGNORECASE,
+)
+_OG_IMAGE_RE = re.compile(
+    r'<meta\s+(?:[^>]*\s)?property\s*=\s*"og:image"\s+content\s*=\s*"([^"]+)"',
+    re.IGNORECASE,
+)
+_TWITTER_IMAGE_RE = re.compile(
+    r'<meta\s+(?:[^>]*\s)?name\s*=\s*"twitter:image"\s+content\s*=\s*"([^"]+)"',
+    re.IGNORECASE,
+)
+_APPLE_ICON_RE = re.compile(
+    r'<link\s+(?:[^>]*\s)?rel\s*=\s*"apple-touch-icon[^"]*"\s+(?:[^>]*\s)?href\s*=\s*"([^"]+)"',
+    re.IGNORECASE,
+)
+_LINK_ICON_RE = re.compile(
+    r'<link\s+(?:[^>]*\s)?rel\s*=\s*"(?:shortcut )?icon"\s+(?:[^>]*\s)?href\s*=\s*"([^"]+)"',
+    re.IGNORECASE,
+)
+_OG_SITE_NAME_RE = re.compile(
+    r'<meta\s+(?:[^>]*\s)?property\s*=\s*"og:site_name"\s+content\s*=\s*"([^"]+)"',
+    re.IGNORECASE,
+)
+_OG_TITLE_RE = re.compile(
+    r'<meta\s+(?:[^>]*\s)?property\s*=\s*"og:title"\s+content\s*=\s*"([^"]+)"',
+    re.IGNORECASE,
+)
+_TITLE_RE = re.compile(r"<title[^>]*>(.*?)</title>", re.IGNORECASE | re.DOTALL)
+
+# Strip common trailing fluff from <title> like "Home | Foo Srl"
+_TITLE_FLUFF_RE = re.compile(
+    r"^(home|homepage|chi siamo|about\s*us?|contatti|contact)\s*[-|·]\s*",
+    re.IGNORECASE,
+)
+
+
+def _absolutize(base_url: str, candidate: str) -> str:
+    """Return `candidate` resolved against `base_url`. Skips data: URIs."""
+    if not candidate or candidate.startswith("data:"):
+        return ""
+    if candidate.startswith("http://") or candidate.startswith("https://"):
+        return candidate
+    if candidate.startswith("//"):
+        return "https:" + candidate
+    try:
+        from urllib.parse import urljoin
+
+        return urljoin(base_url, candidate)
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def extract_branding_from_html(*, html: str, base_url: str) -> ExtractedBranding:
+    """Extract a best-effort business_name + logo_url from a homepage HTML.
+
+    Returns an `ExtractedBranding`; either field can be None if no
+    candidate was found. The `source` dict records which heuristic
+    produced each field — useful when the operator wants to see why
+    the system picked a given image.
+    """
+    out = ExtractedBranding()
+
+    # ── Business name ────────────────────────────────────────────────
+    if m := _OG_SITE_NAME_RE.search(html):
+        out.business_name = m.group(1).strip()
+        out.source["business_name"] = "og:site_name"
+    else:
+        if m := _OG_TITLE_RE.search(html):
+            out.business_name = m.group(1).strip()
+            out.source["business_name"] = "og:title"
+        elif m := _TITLE_RE.search(html):
+            t = m.group(1).strip()
+            # Take the rightmost (typical) chunk for "Page | Brand"
+            parts = re.split(r"\s*[-|·–—]\s*", t)
+            cleaned = (parts[-1] if len(parts) > 1 else t).strip()
+            cleaned = _TITLE_FLUFF_RE.sub("", cleaned)
+            out.business_name = cleaned or None
+            out.source["business_name"] = "title"
+
+    # ── Logo URL ─────────────────────────────────────────────────────
+    for regex, src_name in (
+        (_OG_IMAGE_RE, "og:image"),
+        (_TWITTER_IMAGE_RE, "twitter:image"),
+        (_APPLE_ICON_RE, "apple-touch-icon"),
+        (_LINK_ICON_RE, "link icon"),
+        (_LOGO_IMG_RE, "img.logo"),
+    ):
+        m = regex.search(html)
+        if m:
+            absolute = _absolutize(base_url, m.group(1))
+            if absolute:
+                out.logo_url = absolute
+                out.source["logo_url"] = src_name
+                break
+
+    return out
+
+
+async def extract_branding_from_url(
+    *,
+    website_url: str,
+    client: httpx.AsyncClient | None = None,
+) -> ExtractedBranding:
+    """Fetch the website homepage and run `extract_branding_from_html`.
+
+    Convenience wrapper for callers (admin endpoint, onboarding flow,
+    backfill scripts). Returns an empty `ExtractedBranding` on any
+    network / parsing error — never raises.
+    """
+    owns_client = client is None
+    if client is None:
+        client = httpx.AsyncClient(
+            headers={"User-Agent": "solarlead-scraper/1.0 (+https://solarlead.it)"},
+            follow_redirects=True,
+        )
+    try:
+        html = await _fetch_html(website_url, client=client, timeout=10.0)
+        if not html:
+            return ExtractedBranding()
+        return extract_branding_from_html(html=html, base_url=website_url)
+    finally:
+        if owns_client:
+            await client.aclose()

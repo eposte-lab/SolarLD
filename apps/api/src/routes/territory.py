@@ -21,9 +21,10 @@ will be deprecated.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from ..core.queue import enqueue
@@ -477,3 +478,185 @@ async def scan_results(ctx: CurrentUser) -> ScanResultsResponse:
         top_candidates=top_candidates,
         scan_id=latest_scan_id,
     )
+
+
+# ===========================================================================
+# Scan schedules — punto E avanzato (Sprint client-feedback)
+# ===========================================================================
+#
+# Permettono all'operatore di definire scansioni RICORRENTI su un subset
+# di territori + settori, con un budget giornaliero (daily_cap) e una
+# frequenza in giorni (1 = giornaliero, 7 = settimanale, ecc.).
+#
+# Il worker `scan_schedules_cron` in `workers/cron.py` legge ogni mattina
+# le schedule con `next_run_at <= now()` e `status='active'`, esegue
+# `run-funnel` con i parametri della schedule (override di max_l1_candidates
+# = daily_cap, restrizione zone via territory_ids), aggiorna
+# last_run_at + last_run_candidates e ricalcola next_run_at.
+
+
+class ScanScheduleCreate(BaseModel):
+    """Body of POST /v1/territory/schedules."""
+
+    name: str = Field(min_length=1, max_length=120)
+    territory_ids: list[str] = Field(default_factory=list)
+    sector_filters: list[str] = Field(default_factory=list)
+    daily_cap: int = Field(default=100, ge=1, le=5000)
+    frequency_days: int = Field(default=1, ge=0, le=90)
+    start_at: datetime | None = Field(
+        default=None,
+        description="When to fire the first run. Default: now (run on next cron).",
+    )
+
+
+class ScanScheduleUpdate(BaseModel):
+    """Body of PATCH /v1/territory/schedules/{id}. All fields optional."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    territory_ids: list[str] | None = None
+    sector_filters: list[str] | None = None
+    daily_cap: int | None = Field(default=None, ge=1, le=5000)
+    frequency_days: int | None = Field(default=None, ge=0, le=90)
+    status: str | None = Field(
+        default=None,
+        pattern="^(active|paused|archived)$",
+    )
+    next_run_at: datetime | None = None
+
+
+class ScanScheduleOut(BaseModel):
+    id: str
+    name: str
+    territory_ids: list[str]
+    sector_filters: list[str]
+    daily_cap: int
+    frequency_days: int
+    status: str
+    next_run_at: datetime
+    last_run_at: datetime | None = None
+    last_run_candidates: int | None = None
+    last_run_cost_eur: float | None = None
+    created_at: datetime
+
+
+@router.post(
+    "/schedules",
+    response_model=ScanScheduleOut,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_scan_schedule(
+    body: ScanScheduleCreate,
+    ctx: CurrentUser,
+) -> ScanScheduleOut:
+    """Create a recurring scan schedule for the current tenant."""
+    tenant_id = require_tenant(ctx)
+    sb = get_service_client()
+
+    next_run = body.start_at or datetime.now(tz=UTC)
+
+    payload = {
+        "tenant_id": tenant_id,
+        "name": body.name,
+        "territory_ids": body.territory_ids,
+        "sector_filters": body.sector_filters,
+        "daily_cap": body.daily_cap,
+        "frequency_days": body.frequency_days,
+        "status": "active",
+        "next_run_at": next_run.isoformat(),
+        "created_by": ctx.user_id,
+    }
+    res = sb.table("scan_schedules").insert(payload).execute()
+    if not res.data:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="create_failed",
+        )
+    return ScanScheduleOut(**res.data[0])
+
+
+@router.get("/schedules", response_model=list[ScanScheduleOut])
+async def list_scan_schedules(ctx: CurrentUser) -> list[ScanScheduleOut]:
+    """List all scan schedules for the current tenant (active + paused)."""
+    tenant_id = require_tenant(ctx)
+    sb = get_service_client()
+    res = (
+        sb.table("scan_schedules")
+        .select("*")
+        .eq("tenant_id", tenant_id)
+        .neq("status", "archived")
+        .order("created_at", desc=True)
+        .execute()
+    )
+    return [ScanScheduleOut(**row) for row in (res.data or [])]
+
+
+@router.patch("/schedules/{schedule_id}", response_model=ScanScheduleOut)
+async def update_scan_schedule(
+    schedule_id: str,
+    body: ScanScheduleUpdate,
+    ctx: CurrentUser,
+) -> ScanScheduleOut:
+    """Update a scan schedule. Non-null fields are persisted; others
+    are left unchanged."""
+    tenant_id = require_tenant(ctx)
+    sb = get_service_client()
+
+    update_fields: dict[str, Any] = {}
+    if body.name is not None:
+        update_fields["name"] = body.name
+    if body.territory_ids is not None:
+        update_fields["territory_ids"] = body.territory_ids
+    if body.sector_filters is not None:
+        update_fields["sector_filters"] = body.sector_filters
+    if body.daily_cap is not None:
+        update_fields["daily_cap"] = body.daily_cap
+    if body.frequency_days is not None:
+        update_fields["frequency_days"] = body.frequency_days
+    if body.status is not None:
+        update_fields["status"] = body.status
+    if body.next_run_at is not None:
+        update_fields["next_run_at"] = body.next_run_at.isoformat()
+
+    if not update_fields:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="no_fields_to_update",
+        )
+
+    res = (
+        sb.table("scan_schedules")
+        .update(update_fields)
+        .eq("id", schedule_id)
+        .eq("tenant_id", tenant_id)
+        .execute()
+    )
+    if not res.data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="schedule_not_found",
+        )
+    return ScanScheduleOut(**res.data[0])
+
+
+@router.delete("/schedules/{schedule_id}", status_code=status.HTTP_200_OK)
+async def delete_scan_schedule(
+    schedule_id: str,
+    ctx: CurrentUser,
+) -> dict[str, Any]:
+    """Archive (soft-delete) a scan schedule. Idempotent."""
+    tenant_id = require_tenant(ctx)
+    sb = get_service_client()
+
+    res = (
+        sb.table("scan_schedules")
+        .update({"status": "archived"})
+        .eq("id", schedule_id)
+        .eq("tenant_id", tenant_id)
+        .execute()
+    )
+    if not res.data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="schedule_not_found",
+        )
+    return {"archived": True, "id": schedule_id}
