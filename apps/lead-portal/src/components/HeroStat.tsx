@@ -19,6 +19,9 @@ type Props = {
   decimals?: number;
   /** Brand color reused for the eyebrow accent dot. */
   accentColor?: string;
+  /** Optional second-line caption — used to clarify ambiguous units
+   *  (es. "Potenza installabile: 75 kWp" → caption "≈ 107.590 kWh/anno"). */
+  caption?: string | null;
 };
 
 export function HeroStat({
@@ -27,6 +30,7 @@ export function HeroStat({
   unit,
   decimals = 0,
   accentColor = '#1F8F76',
+  caption,
 }: Props) {
   const isNumeric =
     value !== null && value !== undefined && !Number.isNaN(value);
@@ -57,6 +61,9 @@ export function HeroStat({
           </span>
         ) : null}
       </p>
+      {caption ? (
+        <p className="mt-1 text-xs text-on-surface-variant">{caption}</p>
+      ) : null}
     </div>
   );
 }

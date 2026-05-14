@@ -140,3 +140,69 @@ export async function runFunnelManual(opts: {
 export async function getScanResults(): Promise<ScanResultsResponse> {
   return apiFetch<ScanResultsResponse>('/v1/territory/scan-results');
 }
+
+// ---------------------------------------------------------------------------
+// Scan schedules — Sprint client-feedback E avanzato
+// ---------------------------------------------------------------------------
+
+export interface ScanSchedule {
+  id: string;
+  name: string;
+  territory_ids: string[];
+  sector_filters: string[];
+  daily_cap: number;
+  frequency_days: number;
+  status: 'active' | 'paused' | 'archived';
+  next_run_at: string;
+  last_run_at: string | null;
+  last_run_candidates: number | null;
+  last_run_cost_eur: number | null;
+  created_at: string;
+}
+
+export interface CreateScheduleInput {
+  name: string;
+  territory_ids?: string[];
+  sector_filters?: string[];
+  daily_cap?: number;
+  frequency_days?: number;
+  start_at?: string;
+}
+
+export interface UpdateScheduleInput {
+  name?: string;
+  territory_ids?: string[];
+  sector_filters?: string[];
+  daily_cap?: number;
+  frequency_days?: number;
+  status?: 'active' | 'paused' | 'archived';
+}
+
+export async function listScanSchedules(): Promise<ScanSchedule[]> {
+  return apiFetch<ScanSchedule[]>('/v1/territory/schedules');
+}
+
+export async function createScanSchedule(
+  input: CreateScheduleInput,
+): Promise<ScanSchedule> {
+  return apiFetch<ScanSchedule>('/v1/territory/schedules', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function updateScanSchedule(
+  id: string,
+  input: UpdateScheduleInput,
+): Promise<ScanSchedule> {
+  return apiFetch<ScanSchedule>(`/v1/territory/schedules/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function deleteScanSchedule(id: string): Promise<{ archived: boolean; id: string }> {
+  return apiFetch(`/v1/territory/schedules/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+}
