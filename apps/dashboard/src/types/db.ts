@@ -206,6 +206,18 @@ export interface RoofSummary {
    * NULL on legacy rows pre-dating the column.
    */
   data_source?: string | null;
+  /**
+   * Territorio (tenant_target_areas) di provenienza. Popolato dal hunter
+   * funnel L4 quando un roof viene mappato dentro una zona OSM attiva.
+   * NULL su roof legacy o creati al di fuori del flusso v3.
+   */
+  territory_id?: string | null;
+  tenant_target_areas?: {
+    id: string;
+    primary_sector: string | null;
+    province_code: string | null;
+    area_m2: number | null;
+  } | null;
 }
 
 export interface SubjectSummary {

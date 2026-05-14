@@ -186,6 +186,13 @@ _SECTOR_TO_INCLUDED_TYPES: dict[str, list[str]] = {
         # non-target hits.
         "warehouse",
     ],
+    "industry_light": [
+        # Smaller manufacturing — printing, plastics, light mechanical.
+        # Places doesn't differentiate from heavy industry well; we lean
+        # on "warehouse" as the catch-all and let the L4 gate filter on
+        # roof size (>30 kW for light industry).
+        "warehouse",
+    ],
     "logistics": [
         "warehouse",
         "moving_company",
@@ -204,10 +211,50 @@ _SECTOR_TO_INCLUDED_TYPES: dict[str, list[str]] = {
         "auto_parts_store",
     ],
     "horeca": ["restaurant", "bar", "cafe"],
+    "hospitality_food_service": [
+        # Catering, mensa aziendale, food-services-on-site. Overlaps with
+        # HORECA but the segment targets B2B kitchens (mensa, catering
+        # industriali) rather than the public-facing restaurant funnel.
+        "catering_service",
+        "meal_takeaway",
+        "meal_delivery",
+    ],
     "food_production": ["bakery", "butcher_shop"],
+    "agricultural_intensive": [
+        # Serre, vivai, allevamenti intensivi — high HVAC + lighting
+        # load, big roofs (= big PV potential).
+        "farm",
+    ],
     "hospitality_large": ["hotel", "resort_hotel"],
     "healthcare": ["hospital"],
+    "healthcare_private": [
+        # Cliniche private, ambulatori, dentisti — smaller than hospitals
+        # but with continuous HVAC + sterilisation load.
+        "dental_clinic",
+        "doctor",
+        "medical_lab",
+        "physiotherapist",
+        "veterinary_care",
+    ],
     "education": ["school", "university"],
+    "personal_services": [
+        # Palestre, lavanderie, parrucchieri, centri estetici — small
+        # commercial with HVAC/heating loads suitable for sub-30 kW PV.
+        "gym",
+        "spa",
+        "hair_salon",
+        "beauty_salon",
+        "laundry",
+    ],
+    "professional_offices": [
+        # Studi legali, commercialisti, consulenze, agenzie immobiliari
+        # (escluse da amministratori_condominio), studi ingegneria.
+        # Office-only consumption: lighting + HVAC + electronics.
+        "lawyer",
+        "accounting",
+        "consultant",
+        "insurance_agency",
+    ],
     "amministratori_condominio": ["real_estate_agency"],
 }
 

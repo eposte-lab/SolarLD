@@ -40,7 +40,9 @@ const LIST_COLUMNS = `
                     sede_operativa_lat, sede_operativa_lng,
                     sede_operativa_source),
   roofs:roofs(address, comune, provincia, cap,
-              estimated_kwp, estimated_yearly_kwh, area_sqm)
+              estimated_kwp, estimated_yearly_kwh, area_sqm,
+              territory_id,
+              tenant_target_areas:territory_id(id, primary_sector, province_code, area_m2))
 `.trim();
 
 // Detail page also pulls Solar API fields from `roofs` so the
@@ -51,7 +53,9 @@ const DETAIL_ROOF_COLUMNS = `
   address, comune, provincia, cap,
   estimated_kwp, estimated_yearly_kwh, area_sqm,
   exposure, pitch_degrees, shading_score, has_existing_pv,
-  lat, lng, status, raw_data, derivations, data_source
+  lat, lng, status, raw_data, derivations, data_source,
+  territory_id,
+  tenant_target_areas:territory_id(id, primary_sector, province_code, area_m2)
 `.trim();
 
 const DETAIL_COLUMNS = `
@@ -95,6 +99,10 @@ export interface LeadListFilter {
    *               sending tiered follow-ups on its own.
    *  null/undefined → no filter applied. */
   management?: 'auto' | 'manual';
+  /** Filter leads by origin territory (tenant_target_areas.id). Used by
+   *  the "Territorio" chip on /leads/[id] — clicking the chip drives
+   *  the list to show all leads from the same OSM zone. */
+  territoryId?: string;
 }
 
 export interface LeadListResult {
@@ -195,6 +203,14 @@ export async function listLeads(opts: {
     q = q.gte('engagement_score', 61);
   } else if (opts.filter?.management === 'auto') {
     q = q.or('engagement_score.lt.61,engagement_score.is.null');
+  }
+
+  // Territory filter — clicking the "Territorio" chip on the detail
+  // page drives the list to all leads sourced from the same OSM zone.
+  // The FK lives on roofs (roof_id → territory_id), so we navigate
+  // through the join.
+  if (opts.filter?.territoryId) {
+    q = q.eq('roofs.territory_id', opts.filter.territoryId);
   }
 
   // Engagement gate — only leads with at least one concrete action.

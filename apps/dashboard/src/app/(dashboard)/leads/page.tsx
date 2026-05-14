@@ -45,6 +45,9 @@ type Search = Promise<{
   portal?: string;
   // Management mode: 'manual' (hot, system stopped) | 'auto' | undefined.
   gestione?: string;
+  // Origin territory (tenant_target_areas.id) — driven by the chip on
+  // /leads/[id]. When set, lists only leads sourced from that OSM zone.
+  territorio?: string;
 }>;
 
 function parseTriState(raw: string | undefined): boolean | null | undefined {
@@ -90,6 +93,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
       sp.gestione === 'manual' || sp.gestione === 'auto'
         ? sp.gestione
         : undefined,
+    territoryId: sp.territorio || undefined,
   };
 
   // In "Caldi adesso" mode we ignore the tier/status filters because
@@ -130,6 +134,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
     if (sp.clicked !== undefined) params.set('clicked', sp.clicked);
     if (sp.portal !== undefined) params.set('portal', sp.portal);
     if (sp.gestione !== undefined) params.set('gestione', sp.gestione);
+    if (sp.territorio !== undefined) params.set('territorio', sp.territorio);
     if (page > 1) params.set('page', String(page));
     for (const [k, v] of Object.entries(overrides)) {
       if (v === undefined || v === '') params.delete(k);
@@ -241,6 +246,22 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
               accanto al nome per vedere perché.
             </p>
           </div>
+        </div>
+      )}
+
+      {/* Territory filter banner — active when the user landed here
+          via a "Territorio" chip click. Compact, dismissible. */}
+      {sp.territorio && (
+        <div className="flex items-center gap-3 rounded-xl bg-primary-container/40 px-4 py-2 text-sm">
+          <span className="text-on-primary-container">
+            🗺️ Filtro territorio attivo — mostro solo i lead originati da questa zona
+          </span>
+          <a
+            href={queryFor({ territorio: undefined, page: undefined })}
+            className="ml-auto rounded-full bg-surface px-3 py-1 text-xs font-semibold hover:opacity-80"
+          >
+            Rimuovi filtro
+          </a>
         </div>
       )}
 
