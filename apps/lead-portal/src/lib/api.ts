@@ -38,6 +38,11 @@ export type PublicLead = {
     yearly_kwh?: number;
     co2_kg_per_year?: number;
     panel_count?: number;
+    /** Sector-aware consumption + realistic savings (Sprint client-feedback C). */
+    estimated_consumption_kwh?: number;
+    estimated_current_bill_eur?: number;
+    consumption_estimate_method?: string;
+    realistic_yearly_savings_eur?: number;
   };
   subjects: {
     type: 'b2b' | 'b2c' | 'unknown';

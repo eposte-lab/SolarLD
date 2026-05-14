@@ -147,6 +147,24 @@ async def _persist_roof_and_link(
     try:
         from ...services.roi_service import compute_full_derivations
 
+        # Look up predicted_sector so the derivation can include the
+        # sector-aware consumption + bill estimate (Sprint client-feedback C).
+        # Cheap single-row read on a column we already keyed.
+        predicted_sector: str | None = None
+        try:
+            sector_res = (
+                sb.table("scan_candidates")
+                .select("predicted_sector")
+                .eq("id", str(candidate_id))
+                .limit(1)
+                .maybe_single()
+                .execute()
+            )
+            if sector_res and sector_res.data:
+                predicted_sector = (sector_res.data or {}).get("predicted_sector")
+        except Exception:  # noqa: BLE001
+            predicted_sector = None
+
         derivations = compute_full_derivations(
             estimated_kwp=insight.estimated_kwp,
             estimated_yearly_kwh=insight.estimated_yearly_kwh,
@@ -160,6 +178,7 @@ async def _persist_roof_and_link(
             panel_width_m=getattr(insight, "panel_width_m", None),
             panel_height_m=getattr(insight, "panel_height_m", None),
             subject_type="b2b",
+            predicted_sector=predicted_sector,
             tenant_cost_assumptions=None,
             roi_target_years=None,
         )

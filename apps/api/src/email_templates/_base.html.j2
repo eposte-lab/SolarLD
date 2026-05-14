@@ -490,6 +490,20 @@
                 <span class="roi-value">{{ roi.trees_equivalent }}</span>
               </div>
               {% endif %}
+
+              {# Discrepancy disclaimer — see Sprint client-feedback D.
+                 The email is a static snapshot; the portal is live. If
+                 the lead uploads a bolletta later, portal numbers update
+                 but the email doesn't. Setting expectations here avoids
+                 confusion when the two values differ. #}
+              <p style="margin:14px 0 0 0; padding:10px 12px; background:#f8f6ef; border-left:3px solid #d4b878; font-size:11px; line-height:16px; color:#6b5a30;">
+                <strong>Stima indicativa</strong> — i numeri sopra sono
+                calcolati sul consumo medio di settore e sulla geometria
+                del tuo tetto. Sulla
+                <a href="{{ lead_url }}" style="color:#0b3d2e; text-decoration:underline;">pagina personale</a>
+                puoi caricare la tua bolletta per affinare la stima in
+                tempo reale.
+              </p>
             </div>
           {% endif %}
 

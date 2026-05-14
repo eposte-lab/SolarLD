@@ -30,6 +30,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .consumption_estimator import (
+    estimate_consumption_from_roof,
+    realistic_yearly_savings,
+)
+
 # ---- Market constants (2026 Q2 calibration) ---------------------------
 
 CAPEX_EUR_PER_KWP_B2C = 1500.0
@@ -297,6 +302,7 @@ def compute_full_derivations(
     panel_width_m: float | None = None,
     panel_height_m: float | None = None,
     subject_type: str = "unknown",
+    predicted_sector: str | None = None,
     tenant_cost_assumptions: dict | None = None,
     roi_target_years: int | None = None,
 ) -> dict | None:
@@ -353,6 +359,44 @@ def compute_full_derivations(
         for kwh in monthly_production
     ]
 
+    # ── Sector-aware consumption estimate (Sprint client-feedback C) ─
+    # Use roof.area_sqm + scan_candidates.predicted_sector to estimate
+    # how much the business actually consumes per year, then derive a
+    # "stima bolletta" + a physics-based `realistic_yearly_savings` that
+    # uses min(production, consumption) as self-consumption instead of
+    # the abstract self_ratio. The portal shows both so the lead can
+    # see "Bolletta stimata €X" → "Con il solare paghi €Y".
+    consumption_est = estimate_consumption_from_roof(
+        roof_area_sqm=roof_area_sqm,
+        predicted_sector=predicted_sector,
+        subject_type=subject_type,
+        grid_price_eur_per_kwh=a["grid_price"],
+    )
+    if consumption_est is not None:
+        real_savings, real_self_kwh, real_export_kwh = realistic_yearly_savings(
+            production_kwh=base.yearly_kwh,
+            consumption_kwh=consumption_est.estimated_consumption_kwh,
+            grid_price_eur_per_kwh=a["grid_price"],
+            export_price_eur_per_kwh=a["export_price"],
+        )
+        consumption_block = {
+            "estimated_consumption_kwh": round(consumption_est.estimated_consumption_kwh, 0),
+            "estimated_current_bill_eur": round(consumption_est.estimated_current_bill_eur, 0),
+            "consumption_estimate_method": consumption_est.method,
+            "realistic_yearly_savings_eur": round(real_savings, 0),
+            "realistic_self_kwh": round(real_self_kwh, 0),
+            "realistic_export_kwh": round(real_export_kwh, 0),
+        }
+    else:
+        consumption_block = {
+            "estimated_consumption_kwh": None,
+            "estimated_current_bill_eur": None,
+            "consumption_estimate_method": "unavailable",
+            "realistic_yearly_savings_eur": None,
+            "realistic_self_kwh": None,
+            "realistic_export_kwh": None,
+        }
+
     return {
         # Lightweight ROI block — same shape compute_roi.to_jsonb()
         # produces, so consumers used to leads.roi_data find the same
@@ -372,9 +416,8 @@ def compute_full_derivations(
         # Monthly curve
         "monthly_production_kwh": [round(x, 0) for x in monthly_production],
         "monthly_savings_eur": [round(x, 0) for x in monthly_savings],
-        # Snapshot of the assumptions actually used. Lets the dashboard
-        # inspector show "Calcoli basati su €1500/kWp · 0.27€/kWh" so
-        # the operator knows whether the numbers reflect their
-        # tenant-specific overrides or the public-market defaults.
+        # Sector-aware consumption + realistic savings
+        **consumption_block,
+        # Snapshot of the assumptions actually used.
         "assumptions_resolved": a,
     }
