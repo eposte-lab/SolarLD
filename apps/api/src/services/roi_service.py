@@ -46,9 +46,13 @@ SELF_CONSUMPTION_RATIO_B2B = 0.65
 EXPORT_PRICE_EUR_PER_KWH = 0.09
 CO2_KG_PER_KWH = 0.281
 
-INCENTIVE_PCT_B2C = 0.50
-INCENTIVE_PCT_B2B = 0.30
-INCENTIVE_PCT_FALLBACK = 0.10
+# Incentives disabled: show the gross 1000 €/kW capex to the lead without
+# discounting for Industria 4.0 / Superbonus. Conservatism + transparency:
+# the operator quotes the bonus separately during the trattativa, not in
+# the auto-generated estimate.
+INCENTIVE_PCT_B2C = 0.0
+INCENTIVE_PCT_B2B = 0.0
+INCENTIVE_PCT_FALLBACK = 0.0
 
 
 @dataclass(frozen=True, slots=True)
