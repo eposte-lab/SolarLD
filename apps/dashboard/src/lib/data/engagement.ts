@@ -218,6 +218,10 @@ export async function getPortalSessionStats(
     };
   }
   // MAX(elapsed_ms) per session = duration of that session.
+  // CRITICAL: initialise the Map entry even when elapsed_ms is 0 — many
+  // events (portal.view, portal.bolletta_uploaded fired via postPortalEvent)
+  // have elapsed_ms=0 by design, and a "0 > 0" comparison would skip them
+  // entirely → sessions count would stay at 0 → chips would never render.
   const sessionMax = new Map<string, number>();
   let maxScroll = 0;
   for (const row of rows) {
@@ -227,9 +231,11 @@ export async function getPortalSessionStats(
       event_kind: string;
       metadata: Record<string, unknown> | null;
     };
-    const cur = sessionMax.get(r.session_id) ?? 0;
     const ms = r.elapsed_ms ?? 0;
-    if (ms > cur) sessionMax.set(r.session_id, ms);
+    const cur = sessionMax.get(r.session_id);
+    if (cur === undefined || ms > cur) {
+      sessionMax.set(r.session_id, ms);
+    }
     if (r.event_kind === 'portal.scroll_90') maxScroll = Math.max(maxScroll, 90);
     else if (r.event_kind === 'portal.scroll_50') maxScroll = Math.max(maxScroll, 50);
     const pct = r.metadata && typeof r.metadata.pct === 'number' ? r.metadata.pct : null;
