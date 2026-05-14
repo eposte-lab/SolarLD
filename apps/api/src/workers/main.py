@@ -45,6 +45,7 @@ from .cron import (
     practice_deadlines_cron,
     reputation_digest_cron,
     retention_cron,
+    scan_schedules_cron,
     send_time_rollup_cron,
     sla_first_touch_cron,
     smartlead_warmup_sync_cron,
@@ -539,6 +540,11 @@ class WorkerSettings:
         # FLUSSO 1 v3 — fan-out hunter funnel before the warehouse refill
         # so any v3 recommended leads are picked up by daily_pipeline_cron.
         cron(funnel_v3_cron, hour=4, minute=30, run_at_startup=False),
+        # Scan schedules — operator-defined recurring scans (Sprint
+        # client-feedback E). Runs hourly to honour same-day "fire at
+        # 09:00" requests; the cron only fires schedules whose
+        # next_run_at has passed, so the cost stays trivial.
+        cron(scan_schedules_cron, minute=5, run_at_startup=False),
         cron(daily_pipeline_cron, hour=5, minute=30, run_at_startup=False),
         cron(send_time_rollup_cron, hour=3, minute=45, run_at_startup=False),
         cron(engagement_rollup_cron, hour=4, minute=0, run_at_startup=False),

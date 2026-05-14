@@ -629,6 +629,91 @@ async def funnel_v3_cron(ctx: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, "tenants_total": len(tenant_ids), "tenants_enqueued": enqueued}
 
 
+async def scan_schedules_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
+    """Operator-defined scan schedules (Sprint client-feedback E).
+
+    Hourly check: any row in ``scan_schedules`` with ``status='active'``
+    AND ``next_run_at <= now()`` is enqueued for execution and its
+    ``next_run_at`` is bumped by ``frequency_days`` (one-shot schedules
+    get archived after firing).
+
+    The actual scan re-uses the ``hunter_funnel_v3_task`` worker but
+    passes overrides:
+        * ``territory_ids`` — restrict L1 Places to only these zones
+        * ``sector_filters`` — restrict to these wizard_groups
+        * ``max_l1_candidates`` — set to schedule.daily_cap
+
+    Runs at the top of every hour. We chose hourly (not daily) so an
+    operator who creates a schedule for "tomorrow at 09:00" sees it
+    fire at 09:00, not at 04:30 the day after.
+    """
+    sb = get_service_client()
+    now_iso = datetime.now(tz=UTC).isoformat()
+
+    res = (
+        sb.table("scan_schedules")
+        .select("*")
+        .eq("status", "active")
+        .lte("next_run_at", now_iso)
+        .order("next_run_at")
+        .limit(50)  # protect against runaway lists
+        .execute()
+    )
+    rows = res.data or []
+    if not rows:
+        return {"ok": True, "schedules_fired": 0}
+
+    from ..core.queue import enqueue
+
+    fired = 0
+    archived = 0
+    for s in rows:
+        job_id = f"scan_schedule:{s['id']}:{int(datetime.now(tz=UTC).timestamp())}"
+        try:
+            await enqueue(
+                "hunter_funnel_v3_task",
+                {
+                    "tenant_id": s["tenant_id"],
+                    "max_l1_candidates": s["daily_cap"],
+                    "territory_ids_filter": s.get("territory_ids") or [],
+                    "sector_filters": s.get("sector_filters") or [],
+                    "scan_schedule_id": s["id"],
+                },
+                job_id=job_id,
+            )
+            fired += 1
+
+            # Advance state machine.
+            now = datetime.now(tz=UTC)
+            update_fields: dict[str, Any] = {
+                "last_run_at": now.isoformat(),
+            }
+            if s["frequency_days"] == 0:
+                # One-shot: archive after first run.
+                update_fields["status"] = "archived"
+                archived += 1
+            else:
+                update_fields["next_run_at"] = (
+                    now + timedelta(days=s["frequency_days"])
+                ).isoformat()
+
+            sb.table("scan_schedules").update(update_fields).eq("id", s["id"]).execute()
+        except Exception as exc:  # noqa: BLE001
+            log.warning(
+                "cron.scan_schedules.enqueue_failed",
+                schedule_id=s["id"],
+                err=str(exc)[:200],
+            )
+
+    log.info(
+        "cron.scan_schedules.fired",
+        total=len(rows),
+        fired=fired,
+        archived=archived,
+    )
+    return {"ok": True, "schedules_fired": fired, "archived": archived}
+
+
 async def cluster_ab_evaluation_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
     """Daily evaluation of cluster A/B tests — auto-promote winners (Sprint 9 Fase B.5).
 

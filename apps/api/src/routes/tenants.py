@@ -123,3 +123,43 @@ async def followup_auto_toggle(
         enabled=body.enabled,
     )
     return {"ok": True, "followup_auto_enabled": body.enabled}
+
+
+class ExtractBrandingInput(BaseModel):
+    """Body of POST /v1/tenants/me/extract-branding."""
+
+    website_url: str
+    apply: bool = False
+
+
+@router.post("/me/extract-branding")
+async def extract_branding(body: ExtractBrandingInput, ctx: CurrentUser) -> dict[str, object]:
+    """Punto G del feedback cliente — estrai logo + nome dal sito.
+
+    Fa scraping della homepage del cliente per estrarre `business_name`
+    e `brand_logo_url` candidati (vedi web_scraper.extract_branding_from_url).
+    Quando ``apply=True`` scrive i valori estratti sul record tenant
+    immediatamente, altrimenti restituisce solo i candidati per preview.
+    """
+    tenant_id = require_tenant(ctx)
+    from ..services.web_scraper import extract_branding_from_url
+
+    branding = await extract_branding_from_url(website_url=body.website_url)
+    result: dict[str, object] = {
+        "business_name": branding.business_name,
+        "logo_url": branding.logo_url,
+        "source": branding.source,
+        "applied": False,
+    }
+    if body.apply and (branding.business_name or branding.logo_url):
+        update: dict[str, object] = {}
+        if branding.business_name:
+            update["business_name"] = branding.business_name
+        if branding.logo_url:
+            update["brand_logo_url"] = branding.logo_url
+        if update:
+            sb = get_service_client()
+            sb.table("tenants").update(update).eq("id", tenant_id).execute()
+            result["applied"] = True
+            log.info("tenants.branding_extracted", tenant_id=tenant_id, fields=list(update.keys()))
+    return result
