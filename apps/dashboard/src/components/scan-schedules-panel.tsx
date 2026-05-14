@@ -25,15 +25,17 @@
  * — al momento non c'è una UI per selezionare singole zone.
  */
 
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 
 import {
   createScanSchedule,
   deleteScanSchedule,
   listScanSchedules,
+  listTargetZones,
   type ScanSchedule,
+  type TargetZone,
 } from '@/lib/data/territory';
-import { SECTOR_LABELS } from '@/lib/sector-labels';
+import { SECTOR_LABELS, sectorLabel } from '@/lib/sector-labels';
 import { relativeTime } from '@/lib/utils';
 
 const SECTORS_FOR_SCHEDULE = Object.keys(SECTOR_LABELS);
@@ -58,6 +60,11 @@ export function ScanSchedulesPanel() {
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Zone picker state (Sprint 3a)
+  const [zones, setZones] = useState<TargetZone[] | null>(null);
+  const [selectedZoneIds, setSelectedZoneIds] = useState<Set<string>>(new Set());
+  const [dailyCap, setDailyCap] = useState<number>(100);
+
   async function load() {
     try {
       const rows = await listScanSchedules();
@@ -68,9 +75,64 @@ export function ScanSchedulesPanel() {
     }
   }
 
+  async function loadZones() {
+    try {
+      const rows = await listTargetZones({ limit: 500 });
+      setZones(rows);
+    } catch {
+      setZones([]);
+    }
+  }
+
   useEffect(() => {
     void load();
+    void loadZones();
   }, []);
+
+  // Reset zone picker on opening Create form
+  useEffect(() => {
+    if (creating) {
+      setSelectedZoneIds(new Set());
+      setDailyCap(100);
+    }
+  }, [creating]);
+
+  function toggleZone(id: string) {
+    setSelectedZoneIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleAllZones() {
+    if (zones && selectedZoneIds.size < zones.length) {
+      setSelectedZoneIds(new Set(zones.map((z) => z.id)));
+    } else {
+      setSelectedZoneIds(new Set());
+    }
+  }
+
+  // Distribution estimate — used by ScanDistributionWidget
+  const distributionEstimate = useMemo(() => {
+    if (!zones) return null;
+    const selectedZones = zones.filter((z) => selectedZoneIds.has(z.id));
+    const totalArea =
+      selectedZones.length === 0
+        ? zones.reduce((s, z) => s + (z.area_m2 ?? 0), 0)
+        : selectedZones.reduce((s, z) => s + (z.area_m2 ?? 0), 0);
+    // Heuristic: 0.5 candidates per 100m² of OSM industrial area
+    const expectedCandidates = Math.round((totalArea / 100) * 0.5);
+    const daysToComplete = dailyCap > 0 ? Math.ceil(expectedCandidates / dailyCap) : 0;
+    return {
+      zoneCount: selectedZones.length || (zones?.length ?? 0),
+      allSelected: selectedZones.length === 0,
+      totalArea,
+      expectedCandidates,
+      daysToComplete,
+    };
+  }, [zones, selectedZoneIds, dailyCap]);
 
   async function handleCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -90,10 +152,12 @@ export function ScanSchedulesPanel() {
         daily_cap: Number(data.get('daily_cap')) || 100,
         frequency_days: Number(data.get('frequency_days') ?? 1),
         sector_filters: sectors,
+        territory_ids: Array.from(selectedZoneIds),
         start_at: (data.get('start_at') as string) || undefined,
       });
       form.reset();
       setCreating(false);
+      setSelectedZoneIds(new Set());
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'create_failed');
@@ -163,7 +227,8 @@ export function ScanSchedulesPanel() {
               <input
                 name="daily_cap"
                 type="number"
-                defaultValue={100}
+                value={dailyCap}
+                onChange={(e) => setDailyCap(Math.max(1, Math.min(5000, Number(e.target.value) || 1)))}
                 min={1}
                 max={5000}
                 className="w-full rounded-md border border-outline-variant bg-surface px-3 py-1.5 text-sm tabular-nums focus:outline-none focus:ring-1 focus:ring-primary"
@@ -217,6 +282,101 @@ export function ScanSchedulesPanel() {
               ))}
             </div>
           </div>
+
+          {/* ZONE PICKER — Sprint 3a */}
+          <div className="space-y-1.5">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <span className="text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">
+                Zone OSM (opzionale — vuoto = tutte le zone mappate)
+              </span>
+              {zones && zones.length > 0 && (
+                <button
+                  type="button"
+                  onClick={toggleAllZones}
+                  className="text-[10px] font-semibold uppercase tracking-widest text-primary hover:underline"
+                >
+                  {selectedZoneIds.size === zones.length ? 'Deseleziona tutto' : 'Seleziona tutto'}
+                </button>
+              )}
+            </div>
+            {zones === null ? (
+              <p className="text-xs text-on-surface-variant">Caricamento zone…</p>
+            ) : zones.length === 0 ? (
+              <p className="text-xs text-on-surface-variant">
+                Nessuna zona mappata. Lancia prima «Rimappa il territorio» nelle Azioni.
+              </p>
+            ) : (
+              <div className="max-h-56 space-y-1 overflow-y-auto rounded-md bg-surface-container p-2 ring-1 ring-on-surface/5">
+                {zones.map((z) => (
+                  <label
+                    key={z.id}
+                    className="flex cursor-pointer items-center gap-2 rounded p-1.5 hover:bg-surface"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedZoneIds.has(z.id)}
+                      onChange={() => toggleZone(z.id)}
+                      className="h-3.5 w-3.5 shrink-0"
+                    />
+                    <span className="flex-1 truncate text-xs">
+                      <span className="font-medium text-on-surface">
+                        {sectorLabel(z.primary_sector)} · {z.province_code ?? '—'}
+                      </span>
+                      <span className="ml-2 text-on-surface-variant">
+                        {z.area_m2
+                          ? `${Math.round(z.area_m2 / 10000).toLocaleString('it-IT')} ha`
+                          : 'area sconosciuta'}
+                      </span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* DISTRIBUTION WIDGET — Sprint 3a */}
+          {distributionEstimate && distributionEstimate.expectedCandidates > 0 && (
+            <div className="rounded-xl bg-primary-container/30 p-3.5">
+              <div className="flex items-start gap-3">
+                <span className="text-xl" aria-hidden>📊</span>
+                <div className="flex-1">
+                  <p className="text-[10px] font-semibold uppercase tracking-widest text-on-primary-container">
+                    Distribuzione automatica
+                  </p>
+                  <p className="mt-1 text-sm text-on-surface">
+                    {distributionEstimate.allSelected ? 'Tutte le zone' : `${distributionEstimate.zoneCount} zone selezionate`} →{' '}
+                    <strong className="tabular-nums">
+                      ~{distributionEstimate.expectedCandidates.toLocaleString('it-IT')}
+                    </strong>{' '}
+                    candidati stimati ·{' '}
+                    <strong className="tabular-nums">
+                      {distributionEstimate.daysToComplete}
+                    </strong>{' '}
+                    {distributionEstimate.daysToComplete === 1 ? 'giorno' : 'giorni'} per completarli (a {dailyCap}/giorno)
+                  </p>
+                  {/* Progress segments */}
+                  <div className="mt-2 flex gap-1">
+                    {Array.from({ length: Math.min(10, distributionEstimate.daysToComplete) }).map((_, i) => (
+                      <span
+                        key={i}
+                        className="h-1.5 flex-1 rounded-full bg-primary"
+                        style={{ opacity: 1 - (i * 0.06) }}
+                      />
+                    ))}
+                    {distributionEstimate.daysToComplete > 10 && (
+                      <span className="ml-1 text-[10px] text-on-surface-variant">
+                        +{distributionEstimate.daysToComplete - 10}gg
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-1.5 text-[10px] text-on-surface-variant">
+                    Stima euristica: ~0.5 candidati ogni 100 m² di zona OSM. Il numero reale dipende dalla densità Places.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
           {error && <p className="text-xs text-error">{error}</p>}
           <div className="flex justify-end gap-2">
             <button
