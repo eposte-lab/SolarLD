@@ -167,7 +167,7 @@ export function SavingsComparePanel({ slug, refreshKey, brandColor, brandName = 
           </p>
           <dl className="mt-4 space-y-1.5 text-sm text-on-surface-variant">
             <Row
-              label="Produzione attesa"
+              label="Energia prodotta dal pannello"
               value={`${Math.round(
                 data.predicted_yearly_kwh,
               ).toLocaleString('it-IT')} kWh`}
