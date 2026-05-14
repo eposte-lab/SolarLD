@@ -310,7 +310,7 @@ export default function QuoteEditorPage({
             value={String(auto.azienda_sede_operativa || '—')}
           />
           <Divider />
-          <SidebarRow label="kWp installabili" value={`${auto.solar_kw_installabili || '—'} kWp`} />
+          <SidebarRow label="kW installabili" value={`${auto.solar_kw_installabili || '—'} kW`} />
           <SidebarRow label="kWh/anno stimati" value={`${auto.solar_kwh_annui || '—'} kWh`} />
           <SidebarRow label="N° pannelli" value={String(auto.solar_pannelli_numero || '—')} />
           <Divider />

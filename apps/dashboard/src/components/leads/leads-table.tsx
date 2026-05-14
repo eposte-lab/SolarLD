@@ -165,7 +165,7 @@ export function LeadsTable({
             <SortableTh sortKey="name" active={sortKey} dir={sortDir} onSort={requestSort} className="px-5 py-3">Lead</SortableTh>
             <SortableTh sortKey="type" active={sortKey} dir={sortDir} onSort={requestSort} className="px-5 py-3">Tipo</SortableTh>
             <SortableTh sortKey="comune" active={sortKey} dir={sortDir} onSort={requestSort} className="px-5 py-3">Comune</SortableTh>
-            <SortableTh sortKey="kwp" active={sortKey} dir={sortDir} onSort={requestSort} className="px-5 py-3" align="right">kWp</SortableTh>
+            <SortableTh sortKey="kwp" active={sortKey} dir={sortDir} onSort={requestSort} className="px-5 py-3" align="right">kW</SortableTh>
             <SortableTh sortKey="score" active={sortKey} dir={sortDir} onSort={requestSort} className="px-5 py-3" align="right">Score</SortableTh>
             <SortableTh sortKey="tier" active={sortKey} dir={sortDir} onSort={requestSort} className="px-5 py-3">Tier</SortableTh>
             <SortableTh sortKey="engagement" active={sortKey} dir={sortDir} onSort={requestSort} className="px-5 py-3">Engagement</SortableTh>

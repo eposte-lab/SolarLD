@@ -323,7 +323,7 @@ export default function PracticesIndexPage() {
                 <tr className="border-b border-on-surface/10 text-left text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">
                   <th className="px-4 py-3">Numero</th>
                   <th className="px-4 py-3">Cliente</th>
-                  <th className="px-4 py-3">kWp</th>
+                  <th className="px-4 py-3">kW</th>
                   <th className="px-4 py-3">Distr.</th>
                   <th className="px-4 py-3">Documenti</th>
                   <th className="px-4 py-3">Stato</th>

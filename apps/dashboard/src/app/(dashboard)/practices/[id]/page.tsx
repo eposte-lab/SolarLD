@@ -473,7 +473,7 @@ export default function PracticeDetailPage({
           </h1>
           <p className="mt-1 text-sm text-on-surface-variant">
             Cliente: <strong>{cliente}</strong> ·{' '}
-            {data.impianto_potenza_kw.toFixed(2)} kWp ·{' '}
+            {data.impianto_potenza_kw.toFixed(2)} kW ·{' '}
             {DISTRIBUTORE_LABELS[data.impianto_distributore] ??
               data.impianto_distributore}
           </p>
@@ -579,7 +579,7 @@ export default function PracticeDetailPage({
           />
           <DataRow
             label="Potenza impianto"
-            value={`${data.impianto_potenza_kw.toFixed(2)} kWp`}
+            value={`${data.impianto_potenza_kw.toFixed(2)} kW`}
           />
           <DataRow
             label="Numero pannelli"

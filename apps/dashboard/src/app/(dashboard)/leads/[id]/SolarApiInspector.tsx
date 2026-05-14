@@ -164,10 +164,10 @@ export function SolarApiInspector({ lead }: Props) {
           hint="maxArrayPanelsCount"
         />
         <Metric
-          label="kWp stimati"
+          label="kW stimati"
           value={
             roof.estimated_kwp != null
-              ? `${formatNumber(roof.estimated_kwp)} kWp`
+              ? `${formatNumber(roof.estimated_kwp)} kW`
               : '—'
           }
           hint={panelW ? `${panelW} W/pannello` : undefined}
@@ -231,7 +231,7 @@ export function SolarApiInspector({ lead }: Props) {
               value={fmtEur(derived.estimatedInstallCostEur)}
               hint={`~ ${fmtEur(
                 derived.estimatedInstallCostEur / Math.max(derived.estimatedKwp, 1),
-              )}/kWp`}
+              )}/kW`}
             />
             <Metric
               label="Risparmio annuo"

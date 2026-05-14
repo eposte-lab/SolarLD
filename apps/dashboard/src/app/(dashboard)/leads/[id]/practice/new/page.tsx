@@ -552,7 +552,7 @@ export default function NewPracticePage({
 
       <form onSubmit={onSubmit} className="space-y-4">
         <Section title="Dati impianto">
-          <Field label="Potenza (kWp)">
+          <Field label="Potenza (kW)">
             <NumberInput
               step="0.01"
               value={form.impianto_potenza_kw}

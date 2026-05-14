@@ -63,9 +63,9 @@ const FIELDS: Array<{
     key: 'copy_proposition_line',
     label: 'Proposta (cuore del messaggio)',
     hint:
-      'Il messaggio chiave: cosa offri, perché ora, su che dati. Per il taglio "tecnico-impattante" spiega kWp installabili + ammortamento + payback.',
+      'Il messaggio chiave: cosa offri, perché ora, su che dati. Per il taglio "tecnico-impattante" spiega kW installabili + ammortamento + payback.',
     placeholder:
-      'Es. Sul tetto del condominio in Via Roma 12 abbiamo stimato 78 kWp installabili — payback 4.2 anni, IRR 22%…',
+      'Es. Sul tetto del condominio in Via Roma 12 abbiamo stimato 78 kW installabili — payback 4.2 anni, IRR 22%…',
     rows: 4,
   },
   {
