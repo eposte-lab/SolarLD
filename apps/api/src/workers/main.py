@@ -484,11 +484,8 @@ async def hunter_funnel_v3_task(_ctx: dict[str, Any], payload: dict[str, Any]) -
 
             # Decide next status
             if l1_count == 0:
-                # Territorio esaurito
-                if cur.get("always_active"):
-                    next_status = "pending"  # restart al prossimo tick
-                else:
-                    next_status = "exhausted"
+                # Territorio esaurito: restart se always_active, altrimenti stop
+                next_status = "pending" if cur.get("always_active") else "exhausted"
             elif new_today >= cap:
                 next_status = "paused_daily_cap"
             else:
