@@ -1,6 +1,7 @@
 import { notFound, redirect } from 'next/navigation';
 
 import { AboutSection } from '@/components/AboutSection';
+import { BehindTheNumbersPanel } from '@/components/BehindTheNumbersPanel';
 import { BollettaSection } from '@/components/BollettaSection';
 import { EditorialHero } from '@/components/EditorialHero';
 import { EmailReplyCta } from '@/components/EmailReplyCta';
@@ -151,17 +152,17 @@ export default async function LeadPage({ params }: PageProps) {
         </h2>
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
           <HeroStat
-            label="Potenza installabile"
-            value={roi.estimated_kwp ?? null}
-            unit="kWp"
-            decimals={1}
+            label="Energia prodotta dal pannello"
+            value={roi.yearly_kwh ?? null}
+            unit="kWh/anno"
+            decimals={0}
             accentColor={brandColor}
             caption={
-              // Mostra anche l'energia annua per disambiguare "kWp"
-              // (dimensione impianto) da "kWh/anno" (produzione attesa)
-              // — chiede questo cliente Total Trade.
-              roi.yearly_kwh
-                ? `≈ ${Math.round(roi.yearly_kwh).toLocaleString('it-IT')} kWh prodotti/anno`
+              // kWp ora come caption (il "quanto è grande l'impianto")
+              // — la metrica principale è ora la produzione annua
+              // (= il "quanto rende"), come richiesto dal cliente.
+              roi.estimated_kwp
+                ? `${roi.estimated_kwp.toLocaleString('it-IT', { maximumFractionDigits: 1 })} kWp di potenza installata`
                 : null
             }
           />
@@ -282,6 +283,17 @@ export default async function LeadPage({ params }: PageProps) {
           </div>
         </section>
       ) : null}
+
+      {/* ============== "Dietro i numeri" — calcolo trasparente ========== */}
+      <BehindTheNumbersPanel
+        brandColor={brandColor}
+        productionKwh={roi.yearly_kwh ?? null}
+        consumptionKwh={roi.estimated_consumption_kwh ?? null}
+        consumptionMethod={roi.consumption_estimate_method ?? null}
+        selfKwh={(roi as Record<string, unknown>).realistic_self_kwh as number | null | undefined}
+        exportKwh={(roi as Record<string, unknown>).realistic_export_kwh as number | null | undefined}
+        totalSavingsEur={roi.realistic_yearly_savings_eur ?? roi.yearly_savings_eur ?? null}
+      />
 
       {/* ============== EPC commercial proposition (optional) ========== */}
       {tenant?.epc_enabled && roi?.gross_capex_eur ? (
