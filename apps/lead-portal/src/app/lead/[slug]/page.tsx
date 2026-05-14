@@ -198,36 +198,90 @@ export default async function LeadPage({ params }: PageProps) {
           />
         </div>
 
-        {/* Bolletta stimata (sector-aware consumption) — only when we
-            have the sector + roof area to compute it credibly. Falls
-            back silently otherwise so the page stays clean. */}
-        {roi.estimated_current_bill_eur != null && (
-          <div
-            className="mt-4 flex flex-wrap items-center gap-3 rounded-2xl px-5 py-4"
-            style={{ backgroundColor: `${brandColor}10`, border: `1px solid ${brandColor}20` }}
-          >
-            <span className="text-2xl" aria-hidden>💡</span>
-            <div className="flex-1">
-              <p className="text-xs font-semibold uppercase tracking-widest text-on-surface-variant">
-                Bolletta annua stimata per la tua attività
-              </p>
-              <p className="mt-1 font-headline text-2xl font-bold tracking-tighter" style={{ color: brandColor }}>
-                ≈ € {Math.round(roi.estimated_current_bill_eur).toLocaleString('it-IT')}/anno
-              </p>
-              <p className="mt-1 text-xs text-on-surface-variant">
-                Basata sul consumo medio di settore e sulla superficie del tuo
-                stabile. Caricare la bolletta reale affina la stima.
-              </p>
-            </div>
-          </div>
-        )}
-
         <p className="mt-3 text-xs text-on-surface-muted">
           Stime indicative basate sul consumo medio del settore.
           Il preventivo formale richiede un sopralluogo gratuito — caricare
           la propria bolletta affina i numeri sopra.
         </p>
       </section>
+
+      {/* ============== Savings hero — IMPATTO REALE ============== */}
+      {/* La card più grande della pagina: traduce produzione + tariffa
+          settore nel "quanto risparmi" con un numero da catturare
+          subito. Visibile pre-bolletta — il SavingsComparePanel sotto
+          la affina dopo l'upload. */}
+      {(roi.realistic_yearly_savings_eur ?? roi.yearly_savings_eur) ? (
+        <section className="mx-auto max-w-6xl px-6 pt-2 pb-4">
+          <div
+            className="relative overflow-hidden rounded-3xl p-8 md:p-12"
+            style={{
+              background: `linear-gradient(135deg, ${brandColor}18 0%, ${brandColor}06 60%, transparent 100%)`,
+              border: `1.5px solid ${brandColor}30`,
+            }}
+          >
+            {/* Decorative pulse — pure CSS, no images */}
+            <span
+              aria-hidden
+              className="absolute -right-12 -top-12 h-40 w-40 rounded-full"
+              style={{
+                background: `radial-gradient(circle, ${brandColor}25 0%, transparent 70%)`,
+                animation: 'pulseGlow 3s ease-in-out infinite',
+              }}
+            />
+            <style>{`
+              @keyframes pulseGlow {
+                0%, 100% { transform: scale(1); opacity: 0.6; }
+                50%      { transform: scale(1.15); opacity: 1; }
+              }
+              @keyframes savingsFadeUp {
+                from { opacity: 0; transform: translateY(20px); }
+                to   { opacity: 1; transform: translateY(0); }
+              }
+              .savings-amount {
+                animation: savingsFadeUp 0.7s cubic-bezier(.22,1,.36,1) 0.1s both;
+              }
+              .savings-tagline {
+                animation: savingsFadeUp 0.6s cubic-bezier(.22,1,.36,1) 0.3s both;
+              }
+              .savings-cumulative {
+                animation: savingsFadeUp 0.6s cubic-bezier(.22,1,.36,1) 0.5s both;
+              }
+            `}</style>
+
+            <p className="text-xs font-bold uppercase tracking-widest" style={{ color: brandColor }}>
+              Il tuo risparmio con il fotovoltaico
+            </p>
+            <p className="savings-amount mt-4 font-headline text-6xl font-bold leading-none tracking-tightest md:text-8xl"
+              style={{ color: brandColor }}>
+              € {Math.round(
+                (roi.realistic_yearly_savings_eur ?? roi.yearly_savings_eur ?? 0)
+              ).toLocaleString('it-IT')}
+              <span className="ml-2 text-2xl font-medium text-on-surface-variant md:text-3xl">
+                /anno
+              </span>
+            </p>
+            <p className="savings-tagline mt-3 max-w-2xl text-base text-on-surface md:text-lg">
+              Stima sul consumo tipico di un&apos;attività come la vostra.
+              Sono soldi che <strong>non escono più</strong> dalla cassa per
+              l&apos;energia.
+            </p>
+            {(roi.realistic_yearly_savings_eur ?? roi.yearly_savings_eur) && (
+              <div className="savings-cumulative mt-6 inline-flex items-center gap-3 rounded-full bg-surface-container-lowest px-5 py-3 ring-1 ring-on-surface/5">
+                <span className="text-xl" aria-hidden>📈</span>
+                <p className="text-sm text-on-surface">
+                  In 25 anni{' '}
+                  <strong className="font-headline text-lg font-bold" style={{ color: brandColor }}>
+                    € {Math.round(
+                      (roi.realistic_yearly_savings_eur ?? roi.yearly_savings_eur ?? 0) * 25
+                    ).toLocaleString('it-IT')}
+                  </strong>
+                  {' '}di energia risparmiata
+                </p>
+              </div>
+            )}
+          </div>
+        </section>
+      ) : null}
 
       {/* ============== EPC commercial proposition (optional) ========== */}
       {tenant?.epc_enabled && roi?.gross_capex_eur ? (
@@ -236,6 +290,7 @@ export default async function LeadPage({ params }: PageProps) {
           brandName={tenantName}
           brandColor={brandColor}
           brandLogoUrl={tenant.brand_logo_url}
+          yearlySavingsEur={roi.realistic_yearly_savings_eur ?? roi.yearly_savings_eur ?? null}
         />
       ) : null}
 
