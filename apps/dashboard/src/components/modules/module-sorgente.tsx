@@ -118,7 +118,7 @@ export function ModuleSorgente({
                 ? `Esempi: ${g.ateco_examples.join('; ')}`
                 : null,
               g.typical_kwp_range_min !== null && g.typical_kwp_range_max !== null
-                ? `kWp tipici: ${g.typical_kwp_range_min}–${g.typical_kwp_range_max}`
+                ? `kW tipici: ${g.typical_kwp_range_min}–${g.typical_kwp_range_max}`
                 : null,
             ]
               .filter(Boolean)

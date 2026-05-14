@@ -611,7 +611,7 @@ export default async function LeadDetailPage({ params }: PageProps) {
                     label="Potenza impianto"
                     value={
                       roi?.estimated_kwp != null
-                        ? `${formatNumber(roi.estimated_kwp)} kWp`
+                        ? `${formatNumber(roi.estimated_kwp)} kW`
                         : '—'
                     }
                     accent="primary"

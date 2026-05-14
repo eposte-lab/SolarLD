@@ -18,7 +18,7 @@ export function formatKwh(value: number): string {
 }
 
 export function formatKwp(value: number): string {
-  return new Intl.NumberFormat('it-IT', { maximumFractionDigits: 1 }).format(value) + ' kWp';
+  return new Intl.NumberFormat('it-IT', { maximumFractionDigits: 1 }).format(value) + ' kW';
 }
 
 export function formatEurPlain(eur: number | null | undefined): string {

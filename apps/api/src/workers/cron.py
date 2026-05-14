@@ -629,89 +629,105 @@ async def funnel_v3_cron(ctx: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, "tenants_total": len(tenant_ids), "tenants_enqueued": enqueued}
 
 
-async def scan_schedules_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
-    """Operator-defined scan schedules (Sprint client-feedback E).
+async def scan_jobs_dispatcher_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
+    """Dispatcher per la coda scan_jobs (PR #refactor).
 
-    Hourly check: any row in ``scan_schedules`` with ``status='active'``
-    AND ``next_run_at <= now()`` is enqueued for execution and its
-    ``next_run_at`` is bumped by ``frequency_days`` (one-shot schedules
-    get archived after firing).
+    Ogni ora al minuto 05:
+      1. Reset midnight: ogni job con valid_leads_today_date < today
+         viene resettato (valid_leads_today=0, valid_leads_today_date=today,
+         status paused_daily_cap → in_progress).
+      2. Per ogni tenant attivo, prende il PRIMO job da consumare
+         (status IN ('pending','in_progress','paused_daily_cap'),
+         ORDER BY priority ASC, LIMIT 1).
+      3. Solo se valid_leads_today < daily_validated_cap, enqueue il
+         worker hunter_funnel_v3_task con scan_job_id.
 
-    The actual scan re-uses the ``hunter_funnel_v3_task`` worker but
-    passes overrides:
-        * ``territory_ids`` — restrict L1 Places to only these zones
-        * ``sector_filters`` — restrict to these wizard_groups
-        * ``max_l1_candidates`` — set to schedule.daily_cap
-
-    Runs at the top of every hour. We chose hourly (not daily) so an
-    operator who creates a schedule for "tomorrow at 09:00" sees it
-    fire at 09:00, not at 04:30 the day after.
+    Il worker stesso aggiornerà valid_leads_today/valid_leads_total e
+    il suo status (paused_daily_cap quando raggiunto, exhausted quando
+    territorio finito).
     """
     sb = get_service_client()
-    now_iso = datetime.now(tz=UTC).isoformat()
+    today = datetime.now(tz=UTC).date()
 
-    res = (
-        sb.table("scan_schedules")
-        .select("*")
-        .eq("status", "active")
-        .lte("next_run_at", now_iso)
-        .order("next_run_at")
-        .limit(50)  # protect against runaway lists
+    # ── 1. Reset daily counter ─────────────────────────────────────
+    sb.table("scan_jobs").update(
+        {
+            "valid_leads_today": 0,
+            "valid_leads_today_date": today.isoformat(),
+        }
+    ).neq("valid_leads_today_date", today.isoformat()).neq("status", "archived").neq(
+        "status", "exhausted"
+    ).execute()
+
+    # Promuovi paused_daily_cap → in_progress dopo il reset
+    sb.table("scan_jobs").update({"status": "in_progress"}).eq("status", "paused_daily_cap").eq(
+        "valid_leads_today_date", today.isoformat()
+    ).eq("valid_leads_today", 0).execute()
+
+    # ── 2. Per ogni tenant attivo, dispatch del job top-priority ────
+    tenants_res = (
+        sb.table("scan_jobs")
+        .select("tenant_id")
+        .in_("status", ["pending", "in_progress"])
         .execute()
     )
-    rows = res.data or []
-    if not rows:
-        return {"ok": True, "schedules_fired": 0}
+    tenant_ids = sorted({r["tenant_id"] for r in (tenants_res.data or [])})
+    if not tenant_ids:
+        return {"ok": True, "jobs_dispatched": 0}
 
     from ..core.queue import enqueue
 
-    fired = 0
-    archived = 0
-    for s in rows:
-        job_id = f"scan_schedule:{s['id']}:{int(datetime.now(tz=UTC).timestamp())}"
+    dispatched = 0
+    for tid in tenant_ids:
+        job_res = (
+            sb.table("scan_jobs")
+            .select("*")
+            .eq("tenant_id", tid)
+            .in_("status", ["pending", "in_progress"])
+            .order("priority")
+            .limit(1)
+            .execute()
+        )
+        job = (job_res.data or [None])[0]
+        if not job:
+            continue
+
+        # Hard cap: il job ha già raggiunto il limite quotidiano
+        if (job.get("valid_leads_today") or 0) >= job["daily_validated_cap"]:
+            sb.table("scan_jobs").update({"status": "paused_daily_cap"}).eq(
+                "id", job["id"]
+            ).execute()
+            continue
+
         try:
             await enqueue(
                 "hunter_funnel_v3_task",
                 {
-                    "tenant_id": s["tenant_id"],
-                    "max_l1_candidates": s["daily_cap"],
-                    "territory_ids_filter": s.get("territory_ids") or [],
-                    "sector_filters": s.get("sector_filters") or [],
-                    "scan_schedule_id": s["id"],
+                    "tenant_id": tid,
+                    "scan_job_id": job["id"],
+                    "max_l1_candidates": job["daily_validated_cap"] * 5,
                 },
-                job_id=job_id,
+                job_id=f"scan_job:{job['id']}:{int(datetime.now(tz=UTC).timestamp())}",
             )
-            fired += 1
-
-            # Advance state machine.
-            now = datetime.now(tz=UTC)
-            update_fields: dict[str, Any] = {
-                "last_run_at": now.isoformat(),
-            }
-            if s["frequency_days"] == 0:
-                # One-shot: archive after first run.
-                update_fields["status"] = "archived"
-                archived += 1
-            else:
-                update_fields["next_run_at"] = (
-                    now + timedelta(days=s["frequency_days"])
-                ).isoformat()
-
-            sb.table("scan_schedules").update(update_fields).eq("id", s["id"]).execute()
+            sb.table("scan_jobs").update(
+                {
+                    "status": "in_progress",
+                    "last_run_at": datetime.now(tz=UTC).isoformat(),
+                }
+            ).eq("id", job["id"]).execute()
+            dispatched += 1
         except Exception as exc:  # noqa: BLE001
             log.warning(
-                "cron.scan_schedules.enqueue_failed",
-                schedule_id=s["id"],
+                "cron.scan_jobs.dispatch_failed",
+                job_id=job["id"],
                 err=str(exc)[:200],
             )
+            sb.table("scan_jobs").update({"last_error": str(exc)[:500]}).eq(
+                "id", job["id"]
+            ).execute()
 
-    log.info(
-        "cron.scan_schedules.fired",
-        total=len(rows),
-        fired=fired,
-        archived=archived,
-    )
-    return {"ok": True, "schedules_fired": fired, "archived": archived}
+    log.info("cron.scan_jobs.dispatched", count=dispatched, tenants=len(tenant_ids))
+    return {"ok": True, "jobs_dispatched": dispatched, "tenants": len(tenant_ids)}
 
 
 async def cluster_ab_evaluation_cron(_ctx: dict[str, Any]) -> dict[str, Any]:

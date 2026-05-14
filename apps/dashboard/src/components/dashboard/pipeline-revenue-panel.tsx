@@ -99,7 +99,7 @@ export function PipelineRevenuePanel({ stages, className }: PipelineRevenuePanel
 
       {/* Footer note */}
       <p className="mt-4 text-[9px] text-on-surface-variant/50">
-        Stima basata su kWp × €1 500/kWp × tasso conversione per stage.
+        Stima basata su kW × €1 500/kW × tasso conversione per stage.
         Non è un valore contrattuale.
       </p>
     </div>

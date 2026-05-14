@@ -281,7 +281,7 @@ export function SolarApiInspector({ lead }: Props) {
             <Metric
               label="Inverter consigliato"
               value={`${derived.recommendedInverterKw} kW`}
-              hint="~90% del DC kWp"
+              hint="~90% del DC kW"
             />
             <Metric
               label="Batteria opzionale"
@@ -291,7 +291,7 @@ export function SolarApiInspector({ lead }: Props) {
           </div>
           {derived.specificYieldKwhPerKwp > 0 && (
             <p className="text-[11px] text-on-surface-variant">
-              Resa specifica {formatNumber(derived.specificYieldKwhPerKwp)} kWh/kWp/anno —{' '}
+              Resa specifica {formatNumber(derived.specificYieldKwhPerKwp)} kWh/kW/anno —{' '}
               {derived.specificYieldKwhPerKwp >= 1100
                 ? 'in linea con la media italiana per impianto ben esposto.'
                 : derived.specificYieldKwhPerKwp >= 900
