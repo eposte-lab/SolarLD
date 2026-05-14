@@ -171,3 +171,79 @@ export async function listPortalEventsForLead(
   if (error) throw new Error(`listPortalEventsForLead: ${error.message}`);
   return (data ?? []) as PortalEventRow[];
 }
+
+export interface PortalSessionStats {
+  sessions: number;
+  total_time_sec: number;
+  deepest_scroll_pct: number;
+  last_event_at: string | null;
+  is_live_now: boolean;
+}
+
+/**
+ * Real-time aggregation of portal session stats — accurate to the
+ * second, computed at render time from raw ``portal_events``.
+ *
+ * Why not just read the denormalised columns on ``leads``? Those are
+ * updated by ``engagement_rollup_cron`` once per night. An operator
+ * who refreshes the lead detail during a live browsing session would
+ * see a stale "0 min" figure. Recomputing here ensures the chip is
+ * fresh on every page load.
+ *
+ * Performance: typical lead has 10-100 events, hard cap at 5000 to
+ * protect against pathological cases. SUM of MAX(elapsed_ms) per
+ * session beats the heartbeat-count × 15s approximation used by the
+ * rollup because it survives missed heartbeats (mobile sleep, tab
+ * background) and gives the actual span from view to last event.
+ */
+export async function getPortalSessionStats(
+  leadId: string,
+): Promise<PortalSessionStats> {
+  const sb = await createSupabaseServerClient();
+  const { data, error } = await sb
+    .from('portal_events')
+    .select('session_id, elapsed_ms, event_kind, metadata, occurred_at')
+    .eq('lead_id', leadId)
+    .order('occurred_at', { ascending: false })
+    .limit(5000);
+  if (error) throw new Error(`getPortalSessionStats: ${error.message}`);
+  const rows = data ?? [];
+  if (rows.length === 0) {
+    return {
+      sessions: 0,
+      total_time_sec: 0,
+      deepest_scroll_pct: 0,
+      last_event_at: null,
+      is_live_now: false,
+    };
+  }
+  // MAX(elapsed_ms) per session = duration of that session.
+  const sessionMax = new Map<string, number>();
+  let maxScroll = 0;
+  for (const row of rows) {
+    const r = row as {
+      session_id: string;
+      elapsed_ms: number | null;
+      event_kind: string;
+      metadata: Record<string, unknown> | null;
+    };
+    const cur = sessionMax.get(r.session_id) ?? 0;
+    const ms = r.elapsed_ms ?? 0;
+    if (ms > cur) sessionMax.set(r.session_id, ms);
+    if (r.event_kind === 'portal.scroll_90') maxScroll = Math.max(maxScroll, 90);
+    else if (r.event_kind === 'portal.scroll_50') maxScroll = Math.max(maxScroll, 50);
+    const pct = r.metadata && typeof r.metadata.pct === 'number' ? r.metadata.pct : null;
+    if (pct !== null) maxScroll = Math.max(maxScroll, pct);
+  }
+  let totalMs = 0;
+  for (const ms of sessionMax.values()) totalMs += ms;
+  const lastEventAt = (rows[0] as { occurred_at: string }).occurred_at;
+  const isLiveNow = Date.now() - new Date(lastEventAt).getTime() < 2 * 60 * 1000;
+  return {
+    sessions: sessionMax.size,
+    total_time_sec: Math.floor(totalMs / 1000),
+    deepest_scroll_pct: Math.round(maxScroll),
+    last_event_at: lastEventAt,
+    is_live_now: isLiveNow,
+  };
+}

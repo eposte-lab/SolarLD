@@ -18,9 +18,10 @@ import { SavingsComparePanel } from './SavingsComparePanel';
 type Props = {
   slug: string;
   brandColor: string;
+  brandName?: string;
 };
 
-export function BollettaSection({ slug, brandColor }: Props) {
+export function BollettaSection({ slug, brandColor, brandName }: Props) {
   const [refreshKey, setRefreshKey] = useState(0);
 
   return (
@@ -34,6 +35,7 @@ export function BollettaSection({ slug, brandColor }: Props) {
         slug={slug}
         refreshKey={refreshKey}
         brandColor={brandColor}
+        brandName={brandName}
       />
     </div>
   );
