@@ -288,9 +288,9 @@ def _lookup_intensity(ateco_code: Any) -> tuple[float, str]:
 SECTOR_KWH_PER_SQM: dict[str, float] = {
     "industry_heavy": 150.0,
     "industry_light": 100.0,
-    "food_production": 220.0,           # forni / impianti freddo
+    "food_production": 220.0,  # forni / impianti freddo
     "logistics": 80.0,
-    "retail_gdo": 280.0,                # cella frigo dominante
+    "retail_gdo": 280.0,  # cella frigo dominante
     "horeca": 200.0,
     "hospitality_large": 180.0,
     "hospitality_food_service": 200.0,
