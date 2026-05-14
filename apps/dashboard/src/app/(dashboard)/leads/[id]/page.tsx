@@ -49,7 +49,6 @@ import type { LeadV3Signal } from '@/lib/data/leads';
 import { getConversationsForLead } from '@/lib/data/conversations';
 import { getLeadReplies } from '@/lib/data/replies';
 import { getCurrentTenantContext } from '@/lib/data/tenant';
-import { sectorLabel } from '@/lib/sector-labels';
 import { canTenantUse } from '@/lib/data/tier';
 import {
   formatDate,
@@ -998,21 +997,19 @@ export default async function LeadDetailPage({ params }: PageProps) {
                   : '—'
               }
             />
-            {/* Territorio di provenienza — lead originato dal funnel
-                v3 (mappatura OSM + scansione Places). Mostra il
-                primary_sector + provincia per dare contesto rapido. */}
-            {lead.roofs?.tenant_target_areas && (
+            {/* Territorio: solo l'id se presente — il join verso
+                tenant_target_areas è rotto al livello FK (puntava a
+                territories v2 legacy). Riabiliteremo con una FK
+                corretta in un follow-up dedicato. */}
+            {lead.roofs?.territory_id && (
               <DataRow
                 label="Territorio (origine)"
                 value={
                   <Link
-                    href={`/leads?territorio=${encodeURIComponent(lead.roofs.tenant_target_areas.id)}`}
+                    href={`/leads?territorio=${encodeURIComponent(lead.roofs.territory_id)}`}
                     className="text-primary hover:underline"
                   >
-                    {sectorLabel(lead.roofs.tenant_target_areas.primary_sector)}
-                    {lead.roofs.tenant_target_areas.province_code
-                      ? ` · ${lead.roofs.tenant_target_areas.province_code}`
-                      : ''}
+                    Mostra altri lead della stessa zona
                   </Link>
                 }
               />
