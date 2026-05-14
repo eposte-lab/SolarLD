@@ -15,6 +15,8 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Literal
 
+import httpx
+
 from fastapi import (
     APIRouter,
     File,
@@ -82,6 +84,8 @@ async def get_public_lead(slug: str) -> dict[str, object]:
     # Fetch tenant branding + About narrative (Sprint 8 Fase A.2/A.3).
     # The portal AboutSection consumes about_md/year_founded/team_size/
     # certifications/hero_image/tagline; legal_* feeds the GDPR footer.
+    # epc_enabled / privacy_policy_url are consumed by the portal EPC
+    # section and the GDPR consent checkbox on the appointment form.
     tenant = (
         sb.table("tenants")
         .select(
@@ -89,7 +93,8 @@ async def get_public_lead(slug: str) -> dict[str, object]:
             "whatsapp_number, contact_email, "
             "legal_name, vat_number, legal_address, "
             "about_md, about_year_founded, about_team_size, "
-            "about_certifications, about_hero_image_url, about_tagline"
+            "about_certifications, about_hero_image_url, about_tagline, "
+            "epc_enabled, privacy_policy_url"
         )
         .eq("id", lead["tenant_id"])
         .limit(1)
@@ -206,6 +211,11 @@ async def request_appointment(
     there via Supabase Realtime. We don't auto-send anything back to
     the lead — the installer calls/emails them through their normal
     channels.
+
+    If the tenant has configured ``appointment_webhook_url``, we fire a
+    POST to that URL with the appointment data (CRM integration: HubSpot,
+    Pipedrive, n8n, Zapier …). The call is fail-open: a timeout or HTTP
+    error never blocks the lead from seeing the confirmation.
     """
     sb = get_service_client()
     lead = _load_lead_by_slug(sb, slug)
@@ -227,20 +237,54 @@ async def request_appointment(
 
     sb.table("leads").update(update_fields).eq("id", lead["id"]).execute()
 
+    event_payload = {
+        "slug": slug,
+        "contact_name": payload.contact_name,
+        "phone": payload.phone,
+        "email": payload.email,
+        "preferred_time": payload.preferred_time,
+        "notes": payload.notes,
+    }
     _emit_public_event(
         sb,
         event_type="lead.appointment_requested",
         tenant_id=lead["tenant_id"],
         lead_id=lead["id"],
-        payload={
-            "slug": slug,
-            "contact_name": payload.contact_name,
-            "phone": payload.phone,
-            "email": payload.email,
-            "preferred_time": payload.preferred_time,
-            "notes": payload.notes,
-        },
+        payload=event_payload,
     )
+
+    # ── CRM webhook (fail-open) ───────────────────────────────────────
+    tenant_row = (
+        sb.table("tenants")
+        .select("appointment_webhook_url")
+        .eq("id", lead["tenant_id"])
+        .limit(1)
+        .maybe_single()
+        .execute()
+    )
+    webhook_url: str | None = (
+        (tenant_row.data or {}).get("appointment_webhook_url") if tenant_row else None
+    )
+    if webhook_url:
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                await client.post(
+                    webhook_url,
+                    json={
+                        "lead_id": lead["id"],
+                        "created_at": datetime.now(tz=timezone.utc).isoformat(),
+                        **event_payload,
+                    },
+                )
+        except Exception as exc:  # noqa: BLE001
+            log.warning(
+                "appointment.webhook_failed",
+                tenant_id=lead["tenant_id"],
+                lead_id=lead["id"],
+                webhook_url=webhook_url,
+                err=str(exc),
+            )
+
     return {"ok": True, "status": LeadStatus.APPOINTMENT.value}
 
 

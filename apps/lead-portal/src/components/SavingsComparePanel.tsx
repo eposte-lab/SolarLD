@@ -9,12 +9,12 @@
  * the BillUploadCard sits above and triggers the re-fetch.
  *
  * Visual logic:
- *   * Stima SolarLD column (left)  — predicted_yearly_kwh + savings
+ *   * "{brandName}" column (left)  — predicted_yearly_kwh + savings
  *   * Bolletta reale column (right) — actual_yearly_kwh + €/kWh tariff
- *   * Delta highlight: amber when actual_savings > predicted (the
- *     pitch is "you're paying above-average tariff, the rooftop
- *     pays back faster than the standard estimate"); mint when in
- *     line with prediction.
+ *   * Prominent savings hero: "Con il solare paghi X€/anno
+ *     invece di Y€/anno" — the number the lead reads first.
+ *   * Delta badge: amber when actual_savings > predicted (tariff
+ *     above-average → faster payback); teal otherwise.
  *
  * The parent page passes a ``refreshKey`` that bumps each time
  * BillUploadCard.onSaved fires, forcing this panel to re-fetch.
@@ -28,6 +28,7 @@ type Props = {
   slug: string;
   refreshKey: number;
   brandColor: string;
+  brandName?: string;
 };
 
 type CompareData = {
@@ -50,7 +51,7 @@ type CompareData = {
 
 type CompareResponse = CompareData | { available: false; reason: string };
 
-export function SavingsComparePanel({ slug, refreshKey, brandColor }: Props) {
+export function SavingsComparePanel({ slug, refreshKey, brandColor, brandName = 'SolarLead' }: Props) {
   const [data, setData] = useState<CompareData | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -93,13 +94,14 @@ export function SavingsComparePanel({ slug, refreshKey, brandColor }: Props) {
     return null;
   }
 
+  // "Con il solare paghi X€/anno invece di Y€/anno"
+  // net_yearly_cost = bolletta_attuale - risparmio_col_solare
+  const netYearlyCost = Math.max(0, data.actual_yearly_eur - data.actual_yearly_savings_eur);
+
   // Amber if actual beats prediction by ≥10% — the pitch is "your
   // tariff is above market average, the rooftop pays back faster".
   const beatsForecast = data.delta_pct >= 10;
   const deltaColor = beatsForecast ? '#F59E0B' : brandColor;
-  const deltaLabel = beatsForecast
-    ? 'Stai pagando più della media: il tetto rende prima'
-    : 'In linea con la nostra stima';
 
   return (
     <section
@@ -111,12 +113,49 @@ export function SavingsComparePanel({ slug, refreshKey, brandColor }: Props) {
         id="savings-compare-heading"
         className="mt-2 font-headline text-2xl font-semibold tracking-tighter text-on-surface md:text-3xl"
       >
-        Stima SolarLD vs la tua bolletta reale
+        Stima {brandName} vs la tua bolletta reale
       </h2>
 
-      <div className="mt-6 grid gap-4 md:grid-cols-2">
+      {/* ── Prominent savings hero ─────────────────────────────── */}
+      <div
+        className="mt-6 rounded-2xl p-5 md:p-7"
+        style={{ backgroundColor: `${brandColor}10`, border: `1.5px solid ${brandColor}30` }}
+      >
+        <p className="text-sm font-medium text-on-surface-variant">
+          Con il fotovoltaico, la tua spesa energetica scende a
+        </p>
+        <div className="mt-2 flex flex-wrap items-end gap-3">
+          <span
+            className="font-headline text-5xl font-bold tracking-tightest md:text-6xl"
+            style={{ color: brandColor }}
+          >
+            {formatEuro(netYearlyCost)}
+          </span>
+          <span className="mb-1 text-base font-medium text-on-surface-variant">/anno</span>
+        </div>
+        <div className="mt-2 flex items-center gap-2 text-sm text-on-surface-variant">
+          <span className="line-through opacity-60">
+            invece di {formatEuro(data.actual_yearly_eur)}/anno
+          </span>
+          <span
+            className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-bold text-white"
+            style={{ backgroundColor: brandColor }}
+          >
+            −{Math.round(
+              ((data.actual_yearly_eur - netYearlyCost) / data.actual_yearly_eur) * 100,
+            )}%
+          </span>
+        </div>
+        <p className="mt-3 text-xs text-on-surface-variant">
+          Risparmio annuo stimato: <strong>{formatEuro(data.actual_yearly_savings_eur)}</strong> ·
+          Rientro reale: <strong>{formatYears(data.actual_payback_years)}</strong>
+        </p>
+      </div>
+
+      {/* ── Side-by-side detail ────────────────────────────────── */}
+      <div className="mt-4 grid gap-4 md:grid-cols-2">
         <div className="bento p-5">
-          <p className="editorial-eyebrow">Stima SolarLD</p>
+          <p className="editorial-eyebrow">Stima {brandName}</p>
           <p className="mt-3 font-headline text-3xl font-semibold tracking-tightest text-on-surface md:text-4xl">
             {formatEuro(data.predicted_yearly_savings_eur)}
             <span className="ml-1 text-sm font-medium text-on-surface-variant">
@@ -167,29 +206,29 @@ export function SavingsComparePanel({ slug, refreshKey, brandColor }: Props) {
         </div>
       </div>
 
-      <div
-        className="mt-5 flex flex-wrap items-center gap-3 rounded-2xl px-5 py-4"
-        style={{ backgroundColor: `${deltaColor}15` }}
-      >
-        <span
-          className="inline-flex h-9 w-9 items-center justify-center rounded-full text-sm font-bold text-white"
-          style={{ backgroundColor: deltaColor }}
-          aria-hidden
+      {/* ── Delta badge ───────────────────────────────────────── */}
+      {beatsForecast && (
+        <div
+          className="mt-5 flex flex-wrap items-center gap-3 rounded-2xl px-5 py-4"
+          style={{ backgroundColor: `${deltaColor}15` }}
         >
-          {data.delta_pct >= 0 ? '+' : ''}
-          {Math.round(data.delta_pct)}%
-        </span>
-        <div className="flex-1">
-          <p className="font-headline text-base font-semibold text-on-surface">
-            {deltaLabel}
-          </p>
-          <p className="text-sm text-on-surface-variant">
-            Differenza annuale: {formatEuro(Math.abs(data.delta_savings_eur))}{' '}
-            {data.delta_savings_eur >= 0 ? 'in più' : 'in meno'} rispetto alla
-            stima media.
-          </p>
+          <span
+            className="inline-flex h-9 w-9 items-center justify-center rounded-full text-sm font-bold text-white"
+            style={{ backgroundColor: deltaColor }}
+            aria-hidden
+          >
+            +{Math.round(data.delta_pct)}%
+          </span>
+          <div className="flex-1">
+            <p className="font-headline text-base font-semibold text-on-surface">
+              La tua tariffa è sopra la media: il tetto rientra prima del previsto
+            </p>
+            <p className="text-sm text-on-surface-variant">
+              Risparmio extra rispetto alla stima: {formatEuro(Math.abs(data.delta_savings_eur))}/anno
+            </p>
+          </div>
         </div>
-      </div>
+      )}
     </section>
   );
 }

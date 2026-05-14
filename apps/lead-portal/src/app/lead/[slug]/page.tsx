@@ -4,6 +4,7 @@ import { AboutSection } from '@/components/AboutSection';
 import { BollettaSection } from '@/components/BollettaSection';
 import { EditorialHero } from '@/components/EditorialHero';
 import { EmailReplyCta } from '@/components/EmailReplyCta';
+import { EpcPropositionSection } from '@/components/EpcPropositionSection';
 import { HeroStat } from '@/components/HeroStat';
 import { fetchPublicLead, leadHeroCopy } from '@/lib/api';
 
@@ -183,9 +184,19 @@ export default async function LeadPage({ params }: PageProps) {
         </p>
       </section>
 
+      {/* ============== EPC commercial proposition (optional) ========== */}
+      {tenant?.epc_enabled && roi.gross_capex_eur ? (
+        <EpcPropositionSection
+          grossCapexEur={roi.gross_capex_eur as number}
+          brandName={tenantName}
+          brandColor={brandColor}
+          brandLogoUrl={tenant.brand_logo_url}
+        />
+      ) : null}
+
       {/* ============== Bolletta upload + Savings compare ============== */}
       <section className="mx-auto max-w-6xl px-6 py-6">
-        <BollettaSection slug={slug} brandColor={brandColor} />
+        <BollettaSection slug={slug} brandColor={brandColor} brandName={tenantName} />
       </section>
 
       {/* ============== About section ============== */}
@@ -269,7 +280,7 @@ export default async function LeadPage({ params }: PageProps) {
             Un tecnico di {tenantName} vi ricontatterà entro 48 ore.
             Nessun impegno, nessun venditore.
           </p>
-          <AppointmentForm slug={slug} brandColor={brandColor} />
+          <AppointmentForm slug={slug} brandColor={brandColor} privacyPolicyUrl={tenant?.privacy_policy_url} />
         </div>
       </section>
 
