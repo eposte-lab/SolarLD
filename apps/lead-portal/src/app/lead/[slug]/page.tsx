@@ -156,6 +156,14 @@ export default async function LeadPage({ params }: PageProps) {
             unit="kWp"
             decimals={1}
             accentColor={brandColor}
+            caption={
+              // Mostra anche l'energia annua per disambiguare "kWp"
+              // (dimensione impianto) da "kWh/anno" (produzione attesa)
+              // — chiede questo cliente Total Trade.
+              roi.yearly_kwh
+                ? `≈ ${Math.round(roi.yearly_kwh).toLocaleString('it-IT')} kWh prodotti/anno`
+                : null
+            }
           />
           <HeroStat
             label="Risparmio annuo"

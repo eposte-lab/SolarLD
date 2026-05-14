@@ -15,6 +15,7 @@ import { redirect } from 'next/navigation';
 
 import { FlussoTestPanel } from '@/components/flusso-test-panel';
 import { ScanResultsPanel } from '@/components/scan-results-panel';
+import { ScanSchedulesPanel } from '@/components/scan-schedules-panel';
 import { TerritorioActions } from '@/components/territorio-actions';
 import { TerritorioConfig } from '@/components/territorio-config';
 import { TerritoryZonesTable } from '@/components/territorio-zones-table';
@@ -176,6 +177,9 @@ export default async function TerritorioPage() {
           </div>
         </BentoCard>
       </BentoGrid>
+
+      {/* ---- Programmazione scansioni — sprint client-feedback E avanzato ---- */}
+      <ScanSchedulesPanel />
 
       {/* ---- Pipeline test panel: live step-by-step status ---- */}
       <FlussoTestPanel
