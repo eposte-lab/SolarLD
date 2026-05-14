@@ -25,6 +25,7 @@ import {
   getScanResults,
   getTerritoryStatus,
   listTargetZones,
+  listZoneMetrics,
 } from '@/lib/data/territory-server';
 import type {
   ScanResultsResponse,
@@ -84,6 +85,15 @@ export default async function TerritorioPage() {
     ]);
   } catch (err) {
     loadError = err instanceof Error ? err.message : 'load_failed';
+  }
+
+  // Sprint 3b: fetch metriche (candidati, lead, status scansione) per ogni zona.
+  // Best-effort: errori non rompono la pagina.
+  let zoneMetrics: Record<string, import('@/components/territorio-zones-table').ZoneMetrics> = {};
+  try {
+    zoneMetrics = await listZoneMetrics(zones.map((z) => z.id));
+  } catch {
+    zoneMetrics = {};
   }
 
   // Scan results are best-effort — don't fail the page if the endpoint
@@ -206,6 +216,7 @@ export default async function TerritorioPage() {
         <TerritoryZonesTable
           zones={zones}
           sectorLabels={SECTOR_LABELS}
+          metricsById={zoneMetrics}
         />
       </section>
     </main>
