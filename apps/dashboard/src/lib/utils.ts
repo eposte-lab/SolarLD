@@ -74,3 +74,31 @@ export function daysSince(iso: string | null | undefined, now = new Date()): num
 export function formatPercent(value: number, digits = 0): string {
   return `${(value * 100).toFixed(digits)}%`;
 }
+
+/**
+ * Format a number of seconds as an Italian-friendly duration:
+ *   `5s`        — < 60s
+ *   `2 min 30s` — < 1h, with seconds when small
+ *   `1h 12min`  — ≥ 1h
+ *   `—`         — null/undefined/0
+ *
+ * Used for portal session totals and similar engagement metrics where
+ * "how long did they actually spend" matters more than wall-clock time.
+ */
+export function formatDuration(seconds: number | null | undefined): string {
+  if (seconds === null || seconds === undefined || !Number.isFinite(seconds) || seconds <= 0) {
+    return '—';
+  }
+  const s = Math.floor(seconds);
+  if (s < 60) return `${s}s`;
+  const totalMin = Math.floor(s / 60);
+  const remSec = s % 60;
+  if (totalMin < 60) {
+    return remSec >= 5 && totalMin < 5
+      ? `${totalMin} min ${remSec}s`
+      : `${totalMin} min`;
+  }
+  const h = Math.floor(totalMin / 60);
+  const remMin = totalMin % 60;
+  return remMin > 0 ? `${h}h ${remMin}min` : `${h}h`;
+}

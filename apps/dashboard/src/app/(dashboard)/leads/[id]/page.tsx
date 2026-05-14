@@ -44,7 +44,7 @@ import { EngagementScoreChip } from '@/components/ui/engagement-score-chip';
 import { StatusChip, TierChip } from '@/components/ui/status-chip';
 import { TierLock } from '@/components/ui/tier-lock';
 import { listCampaignsForLead, listEventsForLead } from '@/lib/data/campaigns';
-import { listPortalEventsForLead } from '@/lib/data/engagement';
+import { getPortalSessionStats, listPortalEventsForLead } from '@/lib/data/engagement';
 import { getLeadById, getLeadSectorSignal, getLeadV3Signal } from '@/lib/data/leads';
 import type { LeadV3Signal } from '@/lib/data/leads';
 import { getConversationsForLead } from '@/lib/data/conversations';
@@ -53,6 +53,7 @@ import { getCurrentTenantContext } from '@/lib/data/tenant';
 import { canTenantUse } from '@/lib/data/tier';
 import {
   formatDate,
+  formatDuration,
   formatEurPlain,
   formatNumber,
   relativeTime,
@@ -178,6 +179,7 @@ export default async function LeadDetailPage({ params }: PageProps) {
     repliesR,
     conversationsR,
     portalEventsR,
+    portalStatsR,
     sectorSignalR,
     v3SignalR,
   ] = await Promise.all([
@@ -187,13 +189,14 @@ export default async function LeadDetailPage({ params }: PageProps) {
     wrap('getLeadReplies', getLeadReplies(id)),
     wrap('getConversationsForLead', getConversationsForLead(id)),
     wrap('listPortalEventsForLead', listPortalEventsForLead(id, 50)),
+    wrap('getPortalSessionStats', getPortalSessionStats(id)),
     wrap('getLeadSectorSignal', getLeadSectorSignal(id)),
     wrap('getLeadV3Signal', getLeadV3Signal(id).catch(() => null)),
   ]);
 
   const errors = [
     leadR, campaignsR, eventsR, repliesR, conversationsR,
-    portalEventsR, sectorSignalR, v3SignalR,
+    portalEventsR, portalStatsR, sectorSignalR, v3SignalR,
   ].filter((r): r is FetchErr => !r.ok);
 
   if (errors.length > 0) {
@@ -245,6 +248,9 @@ export default async function LeadDetailPage({ params }: PageProps) {
   const replies = repliesR.ok ? repliesR.value : [];
   const conversations = conversationsR.ok ? conversationsR.value : [];
   const portalEvents = portalEventsR.ok ? portalEventsR.value : [];
+  const portalStats = portalStatsR.ok
+    ? portalStatsR.value
+    : { sessions: 0, total_time_sec: 0, deepest_scroll_pct: 0, last_event_at: null, is_live_now: false };
   const sectorSignal = sectorSignalR.ok ? sectorSignalR.value : null;
   const v3Signal = v3SignalR.ok ? v3SignalR.value : null;
 
@@ -886,6 +892,44 @@ export default async function LeadDetailPage({ params }: PageProps) {
           })()}
         </div>
 
+        {/* Portal engagement stats — live aggregation of portal_events
+            so the operator sees "minute-level" duration accuracy on
+            page refresh, not the nightly rollup snapshot. The chip row
+            replaces the implicit "you only know if they opened" with
+            the explicit "10 min su 3 sessioni, scroll 87%" answer. */}
+        {portalStats.sessions > 0 && (
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <PortalStatChip
+              icon="⏱️"
+              label="Tempo totale"
+              value={formatDuration(portalStats.total_time_sec)}
+            />
+            <PortalStatChip
+              icon="📅"
+              label={portalStats.sessions === 1 ? 'sessione' : 'sessioni'}
+              value={String(portalStats.sessions)}
+            />
+            <PortalStatChip
+              icon="📍"
+              label="Scroll max"
+              value={`${portalStats.deepest_scroll_pct}%`}
+            />
+            {portalStats.is_live_now && (
+              <span
+                className="inline-flex items-center gap-1.5 rounded-full bg-error-container/80 px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest text-on-error-container"
+                title="Eventi registrati negli ultimi 2 minuti"
+              >
+                <span
+                  className="h-1.5 w-1.5 rounded-full bg-error"
+                  style={{ boxShadow: '0 0 6px currentColor' }}
+                  aria-hidden
+                />
+                Live ora
+              </span>
+            )}
+          </div>
+        )}
+
         {/* Highlight: contact-form inquiries first — these are the
             single strongest intent signal in the entire funnel. The
             timeline below shows everything chronologically; this
@@ -1228,6 +1272,24 @@ export default async function LeadDetailPage({ params }: PageProps) {
 // ---------------------------------------------------------------------------
 // Componenti presentazionali
 // ---------------------------------------------------------------------------
+
+function PortalStatChip({
+  icon,
+  label,
+  value,
+}: {
+  icon: string;
+  label: string;
+  value: string;
+}) {
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-full bg-surface-container px-2.5 py-1 ring-1 ring-on-surface/5">
+      <span aria-hidden>{icon}</span>
+      <span className="font-semibold tabular-nums text-on-surface">{value}</span>
+      <span className="text-on-surface-variant">{label}</span>
+    </span>
+  );
+}
 
 function DataCard({
   title,
