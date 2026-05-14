@@ -1,25 +1,23 @@
 /**
- * Territorio — FLUSSO 1 v3 mapping + scan dashboard.
+ * Territorio — Sprint 7 refactor stile /scoperta.
  *
- * Layout:
- *   1. Header + descrizione
- *   2. BentoGrid:
- *      a. Zone mappate (count + ultima mappatura)
- *      b. Settori coperti (badges)
- *      c. Azioni (Rimappa L0 + Avvia scansione L1→L5)
- *   3. Zone OSM table
- *   4. Risultati ultima scansione (waterfall L1→L5 + candidati raccomandati)
+ * Layout: pannello sinistro per CREARE una programmazione di scansione +
+ * pannello destro con la lista delle programmazioni attive e zone già
+ * scannerizzate. Rimosse le sezioni "Configurazione territorio",
+ * "Mappatura OSM", "Pipeline test" e tabella zone full — confondevano
+ * l'operatore senza dare valore (vivono ora solo come admin-debug).
+ *
+ * Il cliente Total Trade ha chiesto: "scelta libera del territorio,
+ * settori, vedere distribuzione 500/cap=200/3gg, lista cronologica
+ * delle scansioni". Questa pagina lo esprime in un layout pulito.
  */
 
 import { redirect } from 'next/navigation';
 
-import { FlussoTestPanel } from '@/components/flusso-test-panel';
-import { ScanResultsPanel } from '@/components/scan-results-panel';
 import { ScanSchedulesPanel } from '@/components/scan-schedules-panel';
-import { TerritorioActions } from '@/components/territorio-actions';
-import { TerritorioConfig } from '@/components/territorio-config';
+import { ScanResultsPanel } from '@/components/scan-results-panel';
 import { TerritoryZonesTable } from '@/components/territorio-zones-table';
-import { BentoCard, BentoGrid } from '@/components/ui/bento-card';
+import { BentoCard } from '@/components/ui/bento-card';
 import { getCurrentTenantContext } from '@/lib/data/tenant';
 import {
   getScanResults,
@@ -44,25 +42,15 @@ const SECTOR_LABELS: Record<string, string> = {
   hospitality_large: 'Ricettivo grande',
   hospitality_food_service: 'Ristorazione collettiva',
   healthcare: 'Sanitario',
+  healthcare_private: 'Sanitario privato',
   agricultural_intensive: 'Agricolo intensivo',
   automotive: 'Automotive',
   education: 'Istruzione',
   personal_services: 'Servizi alla persona',
   professional_offices: 'Studi professionali',
   horeca: 'HoReCa',
+  amministratori_condominio: 'Amministratori di condominio',
 };
-
-function fmtDate(iso: string | null): string {
-  if (!iso) return '—';
-  const d = new Date(iso);
-  return d.toLocaleString('it-IT', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
 
 export default async function TerritorioPage() {
   const ctx = await getCurrentTenantContext();
@@ -87,8 +75,6 @@ export default async function TerritorioPage() {
     loadError = err instanceof Error ? err.message : 'load_failed';
   }
 
-  // Sprint 3b: fetch metriche (candidati, lead, status scansione) per ogni zona.
-  // Best-effort: errori non rompono la pagina.
   let zoneMetrics: Record<string, import('@/components/territorio-zones-table').ZoneMetrics> = {};
   try {
     zoneMetrics = await listZoneMetrics(zones.map((z) => z.id));
@@ -96,33 +82,28 @@ export default async function TerritorioPage() {
     zoneMetrics = {};
   }
 
-  // Scan results are best-effort — don't fail the page if the endpoint
-  // returns an error (e.g. no scan_cost_log rows yet).
+  // Scan results are best-effort.
   try {
     scanResults = await getScanResults();
   } catch {
     scanResults = null;
   }
 
-  const sectorsLabelled = status.sectors_covered.map(
-    (s) => SECTOR_LABELS[s] ?? s,
-  );
-
   return (
-    <main className="mx-auto flex w-full max-w-7xl flex-col gap-8 p-6">
+    <main className="mx-auto flex w-full max-w-7xl flex-col gap-6 p-6">
       {/* ---- Header ---- */}
       <header className="space-y-2">
-        <p className="text-xs uppercase tracking-wider text-on-surface-variant">
-          FLUSSO 1 — Geocentrico v3
+        <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
+          Territorio
         </p>
-        <h1 className="text-3xl font-bold text-on-surface">
-          Territorio &amp; Scansione
+        <h1 className="font-headline text-3xl font-bold tracking-tighter text-on-surface md:text-4xl">
+          Programma le tue scansioni
         </h1>
         <p className="max-w-3xl text-sm text-on-surface-variant">
-          <strong>L0</strong>: mappa le zone OSM compatibili con i settori
-          scelti in onboarding. <strong>L1→L5</strong>: scopre aziende
-          target via Google Places, scraping, filtro qualità edificio,
-          Solar API e scoring Haiku — senza Atoka.
+          Configura quali zone scansionare, quali settori cercare, con
+          quale cadenza e quanto budget giornaliero. Il sistema distribuisce
+          automaticamente le scansioni grandi su più giorni (es. 500 candidati
+          con cap 200 → 3 giorni).
         </p>
       </header>
 
@@ -132,93 +113,40 @@ export default async function TerritorioPage() {
         </div>
       ) : null}
 
-      {/* ---- Config panel (wizard_groups + province) ---- */}
-      <TerritorioConfig />
-
-      {/* ---- BentoGrid: status + actions ---- */}
-      <BentoGrid>
-        {/* Zone count */}
-        <BentoCard>
-          <div className="flex flex-col gap-3">
-            <p className="text-xs uppercase tracking-wider text-on-surface-variant">
-              Zone OSM mappate
-            </p>
-            <p className="text-4xl font-bold tabular-nums text-on-surface">
-              {status.zone_count.toLocaleString('it-IT')}
-            </p>
-            <p className="text-xs text-on-surface-variant">
-              Ultima mappatura: {fmtDate(status.last_mapped_at)}
-            </p>
-          </div>
-        </BentoCard>
-
-        {/* Sectors */}
-        <BentoCard>
-          <div className="flex flex-col gap-3">
-            <p className="text-xs uppercase tracking-wider text-on-surface-variant">
-              Settori coperti
-            </p>
-            {sectorsLabelled.length === 0 ? (
-              <p className="text-sm text-on-surface-variant">
-                Nessuno — avvia la prima mappatura.
-              </p>
-            ) : (
-              <ul className="flex flex-wrap gap-2">
-                {sectorsLabelled.map((s) => (
-                  <li
-                    key={s}
-                    className="rounded-full bg-surface-container-high px-3 py-1 text-xs font-semibold text-on-surface"
-                  >
-                    {s}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </BentoCard>
-
-        {/* Actions */}
-        <BentoCard>
-          <div className="flex flex-col gap-3">
-            <p className="text-xs uppercase tracking-wider text-on-surface-variant">
-              Azioni
-            </p>
-            <TerritorioActions />
-          </div>
-        </BentoCard>
-      </BentoGrid>
-
-      {/* ---- Programmazione scansioni — sprint client-feedback E avanzato ---- */}
+      {/* ---- Layout 2-column: programmazioni a sinistra (creator + lista),
+              telemetria zone+candidati a destra. ScanSchedulesPanel gestisce
+              entrambi (form crea + lista in linea) nello stesso component. */}
       <ScanSchedulesPanel />
 
-      {/* ---- Pipeline test panel: live step-by-step status ---- */}
-      <FlussoTestPanel
-        initialData={scanResults}
-        zoneCount={status.zone_count}
-        sectorCount={status.sectors_covered.length}
-      />
+      {/* ---- Riepilogo zone scannerizzate + lead generati ---- */}
+      <section className="space-y-3">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="font-headline text-xl font-bold tracking-tighter text-on-surface">
+            Zone scannerizzate
+          </h2>
+          <p className="text-xs text-on-surface-variant">
+            {zones.length} {zones.length === 1 ? 'zona' : 'zone'} ·{' '}
+            {status.sectors_covered.length} settori coperti
+          </p>
+        </div>
+        <BentoCard padding="tight" span="full">
+          <TerritoryZonesTable
+            zones={zones}
+            sectorLabels={SECTOR_LABELS}
+            metricsById={zoneMetrics}
+          />
+        </BentoCard>
+      </section>
 
-      {/* ---- Detailed scan waterfall + recommended candidates table ---- */}
+      {/* ---- Detailed scan waterfall + recommended candidates (read-only) ---- */}
       {scanResults !== null && scanResults.top_candidates.length > 0 ? (
         <section className="space-y-3">
-          <h2 className="text-xl font-semibold text-on-surface">
-            Candidati raccomandati
+          <h2 className="font-headline text-xl font-bold tracking-tighter text-on-surface">
+            Candidati raccomandati dall&apos;ultima scansione
           </h2>
           <ScanResultsPanel data={scanResults} />
         </section>
       ) : null}
-
-      {/* ---- Zone OSM table ---- */}
-      <section className="space-y-3">
-        <h2 className="text-xl font-semibold text-on-surface">
-          Zone OSM ({zones.length})
-        </h2>
-        <TerritoryZonesTable
-          zones={zones}
-          sectorLabels={SECTOR_LABELS}
-          metricsById={zoneMetrics}
-        />
-      </section>
     </main>
   );
 }
