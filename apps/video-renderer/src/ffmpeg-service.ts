@@ -110,7 +110,7 @@ export const escapeDrawtext = (s: string): string =>
  */
 export const buildOverlayFilter = (stats: OverlayStats, clipDurationS: number): string => {
   const fadeStart = Math.max(0, clipDurationS - 1.5);
-  const k = `${Math.round(stats.kwp * 10) / 10} kWp`;
+  const k = `${Math.round(stats.kwp * 10) / 10} kW`;
   const savings = `${formatEuro(stats.yearlySavingsEur)}/anno risparmio`;
   const payback = `Rientro in ~${Math.round(stats.paybackYears * 10) / 10} anni`;
 

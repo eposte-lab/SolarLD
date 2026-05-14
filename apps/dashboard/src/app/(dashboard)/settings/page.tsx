@@ -58,7 +58,7 @@ const MODULE_META: Record<
   },
   tecnico: {
     title: 'Tecnico',
-    blurb: 'Soglie tetto (kWp, ombreggiamento, esposizione) per il Solar gate.',
+    blurb: 'Soglie tetto (kW, ombreggiamento, esposizione) per il Solar gate.',
     Icon: Cog,
   },
   economico: {

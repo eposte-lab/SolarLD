@@ -947,10 +947,10 @@ export default async function LeadDetailPage({ params }: PageProps) {
               }
             />
             <DataRow
-              label="kWp installabili"
+              label="kW installabili"
               value={
                 lead.roofs?.estimated_kwp != null
-                  ? `${formatNumber(lead.roofs.estimated_kwp)} kWp`
+                  ? `${formatNumber(lead.roofs.estimated_kwp)} kW`
                   : '—'
               }
             />

@@ -372,7 +372,7 @@ export default function ScopertaPage() {
                   <div>
                     <div className="text-sm font-semibold">Tetto fotovoltaico</div>
                     <div className="opacity-80">
-                      Convalida con Google Solar (area ≥ 200 m², kWp ≥ 60).
+                      Convalida con Google Solar (area ≥ 200 m², kW ≥ 60).
                       Email + render impianto auto-generati.
                     </div>
                   </div>

@@ -114,7 +114,7 @@ export default async function ContattiPage({
           accent="primary"
         />
         <KpiChipCard
-          label="kWp installabili"
+          label="kW installabili"
           value={formatNumber(summary.total_kwp_installable)}
           hint="potenza totale stimata"
           accent="tertiary"

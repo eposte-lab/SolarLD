@@ -82,7 +82,7 @@ const TEMPLATES: Template[] = [
 
 ho rivisto i dati che il sistema ha calcolato per {{azienda}} e volevo condividere i tre numeri che pensavamo di portarle al sopralluogo:
 
-• Potenza ottimale: circa {{kwp}} kWp
+• Potenza ottimale: circa {{kwp}} kW
 • Risparmio annuo stimato: {{risparmio}}
 • Rientro investimento: {{payback}}
 
@@ -120,7 +120,7 @@ Cordialmente,
 
 vedo che ha avuto modo di guardare la proposta che le abbiamo inviato per {{azienda}}.
 
-Il passo logico ora è il sopralluogo: 40 minuti sul posto, gratuito e senza impegno. Misuriamo tetto e ombre, validiamo i {{kwp}} kWp che il sistema ha stimato, e le portiamo via un preventivo esatto entro 48h.
+Il passo logico ora è il sopralluogo: 40 minuti sul posto, gratuito e senza impegno. Misuriamo tetto e ombre, validiamo i {{kwp}} kW che il sistema ha stimato, e le portiamo via un preventivo esatto entro 48h.
 
 Le va bene se la chiamo nei prossimi giorni per fissarlo? In alternativa, può scegliere lei un orario rispondendo a questa email.
 
@@ -138,7 +138,7 @@ Cordialmente,
 la ringrazio per il tempo dedicato al sopralluogo. Ricapitolo brevemente per sua comodità:
 
 • Misurazione tetto: completata
-• Verifica esposizione: ok per {{kwp}} kWp
+• Verifica esposizione: ok per {{kwp}} kW
 • Stima produttiva annuale: confermata
 
 Sto preparando il preventivo esatto e glielo invio entro 48 ore lavorative. Se nel frattempo le viene un dubbio o una domanda, mi risponda pure direttamente qui.

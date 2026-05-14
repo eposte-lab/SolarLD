@@ -45,10 +45,10 @@ export function ModuleTecnico({ value, onChange }: ModuleTecnicoProps) {
         hint="Applicate dopo l'analisi satellitare del tetto (L4)."
       >
         <NumberField
-          label="kW picco min"
+          label="kW min"
           value={value.min_kwp}
           onChange={(v) => set('min_kwp', v ?? 0)}
-          suffix="kWp"
+          suffix="kW"
           min={0}
           step={5}
         />
