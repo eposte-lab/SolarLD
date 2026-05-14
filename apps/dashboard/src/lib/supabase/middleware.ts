@@ -42,11 +42,32 @@ export async function updateSession(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
 
   const pathname = request.nextUrl.pathname;
+
+  // Public paths that never require auth (and must never redirect-loop).
+  const isPublicPath =
+    pathname.startsWith('/login') ||
+    pathname.startsWith('/signup') ||
+    pathname.startsWith('/access-denied') ||
+    pathname.startsWith('/signout') ||
+    pathname.startsWith('/onboarding') ||
+    pathname.startsWith('/no-tenant') ||
+    pathname.startsWith('/api/');
+
+  // Paths that require an authenticated Supabase session. We keep this
+  // list explicit (rather than "everything not public") to avoid the
+  // /login → layout infinite redirect loop documented above.
   const isProtected =
-    pathname.startsWith('/leads') ||
-    pathname.startsWith('/territories') ||
-    pathname.startsWith('/campaigns') ||
-    pathname.startsWith('/settings');
+    !isPublicPath && (
+      pathname.startsWith('/leads') ||
+      pathname.startsWith('/territories') ||
+      pathname.startsWith('/campaigns') ||
+      pathname.startsWith('/settings') ||
+      pathname.startsWith('/contatti') ||
+      pathname.startsWith('/scoperta') ||
+      pathname.startsWith('/email-templates') ||
+      pathname === '/' ||
+      pathname.startsWith('/dashboard')
+    );
 
   // Unauthenticated → protect dashboard routes.
   if (!user && isProtected) {
@@ -58,21 +79,18 @@ export async function updateSession(request: NextRequest) {
   // ────────────────────────────────────────────────────────────────────────
   // Device-authorization gate (migration 0074).
   //
-  // Runs only for authenticated users on protected paths. Tenants with the
-  // gate disabled (the vast majority) are short-circuited inside
-  // evaluateDeviceGate(). For demo tenants with the gate enabled the
-  // 4th device hits a hard 'block' and is redirected to /access-denied.
+  // Runs for authenticated users on ALL non-public paths so no dashboard
+  // route can be accessed from an unrecognised device. Tenants with the
+  // gate disabled are short-circuited inside evaluateDeviceGate(). For
+  // tenants with the gate enabled, the (max_total+1)-th device gets a
+  // hard 'block' and is redirected to /access-denied.
   //
-  // The /access-denied path itself is excluded so the user can still see
-  // the message; /api/auth/* is excluded so revoke/promote actions can run.
+  // /access-denied is exempt so blocked users can still see the message;
+  // /api/ and /onboarding are exempt for functional reasons.
   // ────────────────────────────────────────────────────────────────────────
-  const isDeviceGateExempt =
-    pathname.startsWith('/access-denied') ||
-    pathname.startsWith('/api/auth/') ||
-    pathname.startsWith('/onboarding') ||
-    pathname.startsWith('/no-tenant');
+  const isDeviceGateExempt = isPublicPath;
 
-  if (user && isProtected && !isDeviceGateExempt) {
+  if (user && !isDeviceGateExempt) {
     try {
       const ip =
         request.headers.get('x-forwarded-for') ??
