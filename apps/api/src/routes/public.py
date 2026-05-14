@@ -93,7 +93,7 @@ async def get_public_lead(slug: str) -> dict[str, object]:
             "legal_name, vat_number, legal_address, "
             "about_md, about_year_founded, about_team_size, "
             "about_certifications, about_hero_image_url, about_tagline, "
-            "epc_enabled, privacy_policy_url"
+            "epc_enabled, privacy_policy_url, website_url"
         )
         .eq("id", lead["tenant_id"])
         .limit(1)

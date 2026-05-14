@@ -157,6 +157,9 @@ async def extract_branding(body: ExtractBrandingInput, ctx: CurrentUser) -> dict
             update["business_name"] = branding.business_name
         if branding.logo_url:
             update["brand_logo_url"] = branding.logo_url
+        # Persist the website_url that produced this extraction so the
+        # portal can render a clickable header logo without re-asking.
+        update["website_url"] = body.website_url.strip()
         if update:
             sb = get_service_client()
             sb.table("tenants").update(update).eq("id", tenant_id).execute()
