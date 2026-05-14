@@ -284,6 +284,12 @@ export function BrandingEditor({ tenant }: BrandingEditorProps) {
             di almeno 80&nbsp;px. Appare sopra il contenuto in Classic e
             nell&apos;header in Bold/Minimal.
           </p>
+          <ExtractBrandingButton
+            onApplied={(applied) => {
+              if (applied.logo_url) setLogoUrl(applied.logo_url);
+              if (applied.business_name) setFromName(applied.business_name);
+            }}
+          />
           <LogoUpload
             tenantId={tenant.id}
             value={logoUrl}
@@ -519,6 +525,153 @@ export function BrandingEditor({ tenant }: BrandingEditorProps) {
           inseriti dall&apos;agente di outreach al momento dell&apos;invio.
         </p>
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ExtractBrandingButton — sprint-4 del feedback Total Trade
+// ---------------------------------------------------------------------------
+//
+// Compila il campo "sito web aziendale" → click "Estrai" → POST a
+// /v1/tenants/me/extract-branding (già live da PR #40) → preview di
+// nome + logo trovati → "Applica" salva sul tenant.
+
+function ExtractBrandingButton({
+  onApplied,
+}: {
+  onApplied: (applied: { business_name?: string; logo_url?: string }) => void;
+}) {
+  const [website, setWebsite] = useState('');
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [preview, setPreview] = useState<{
+    business_name?: string | null;
+    logo_url?: string | null;
+    source?: Record<string, string>;
+  } | null>(null);
+
+  async function fetchExtract(apply: boolean) {
+    setError(null);
+    setLoading(true);
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? '';
+      const sb = createBrowserClient();
+      const { data: { session } } = await sb.auth.getSession();
+      const res = await fetch(`${apiUrl}/v1/tenants/me/extract-branding`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(session?.access_token
+            ? { Authorization: `Bearer ${session.access_token}` }
+            : {}),
+        },
+        body: JSON.stringify({ website_url: website.trim(), apply }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setPreview(data);
+      if (apply) {
+        onApplied({
+          business_name: data.business_name ?? undefined,
+          logo_url: data.logo_url ?? undefined,
+        });
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'extract_failed');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="mt-2 inline-flex items-center gap-2 rounded-full bg-surface-container px-3.5 py-1.5 text-xs font-semibold hover:bg-surface-container-high"
+      >
+        <Sparkles className="h-3.5 w-3.5" /> Estrai automaticamente da sito web
+      </button>
+    );
+  }
+
+  return (
+    <div className="mt-2 space-y-2 rounded-xl bg-surface-container-lowest p-4 ring-1 ring-on-surface/5">
+      <label className="block">
+        <span className="text-xs font-semibold uppercase tracking-widest text-on-surface-variant">
+          URL del sito aziendale
+        </span>
+        <input
+          type="url"
+          value={website}
+          onChange={(e) => setWebsite(e.target.value)}
+          placeholder="https://total-trade.it"
+          className="mt-1 w-full rounded-md border border-outline-variant bg-surface px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+        />
+      </label>
+
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          disabled={!website.trim() || loading}
+          onClick={() => fetchExtract(false)}
+          className="rounded-full bg-primary/10 px-3 py-1.5 text-xs font-semibold text-primary hover:bg-primary/20 disabled:opacity-50"
+        >
+          {loading ? 'Estraggo…' : 'Cerca logo + nome'}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setOpen(false);
+            setPreview(null);
+            setError(null);
+          }}
+          className="rounded-full px-3 py-1.5 text-xs text-on-surface-variant hover:bg-surface-container"
+        >
+          Annulla
+        </button>
+      </div>
+
+      {error && <p className="text-xs text-error">Errore: {error}</p>}
+
+      {preview && (
+        <div className="mt-3 space-y-2 rounded-md bg-surface p-3">
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">
+            Trovato
+          </p>
+          {preview.logo_url ? (
+            <div className="flex items-center gap-3">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={preview.logo_url}
+                alt="logo trovato"
+                className="h-10 w-auto rounded bg-white p-1 ring-1 ring-on-surface/5"
+              />
+              <span className="break-all text-[11px] text-on-surface-variant">
+                {preview.logo_url}
+              </span>
+            </div>
+          ) : (
+            <p className="text-xs text-on-surface-variant">Nessun logo individuato.</p>
+          )}
+          <p className="text-sm">
+            <strong>Nome:</strong>{' '}
+            {preview.business_name ?? '—'}
+          </p>
+          {(preview.logo_url || preview.business_name) && (
+            <button
+              type="button"
+              disabled={loading}
+              onClick={() => fetchExtract(true)}
+              className="mt-1 rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-on-primary hover:opacity-90 disabled:opacity-50"
+            >
+              {loading ? 'Applico…' : 'Applica al brand'}
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
