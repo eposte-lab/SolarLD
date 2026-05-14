@@ -85,6 +85,8 @@ export type PublicLead = {
     /* Sprint client-feedback — EPC commercial + GDPR consent. */
     epc_enabled?: boolean;
     privacy_policy_url?: string | null;
+    /* Sprint 6 — logo cliccabile target URL. */
+    website_url?: string | null;
   } | null;
 };
 

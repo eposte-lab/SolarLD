@@ -57,7 +57,7 @@ export default async function LeadPage({ params }: PageProps) {
       label: 'Potenza installabile',
       value: `${roof.estimated_kwp.toLocaleString('it-IT', {
         maximumFractionDigits: 1,
-      })} kWp`,
+      })} kW`,
     });
   }
   if (roof?.estimated_yearly_kwh) {
@@ -87,21 +87,41 @@ export default async function LeadPage({ params }: PageProps) {
       <header className="bg-surface-container">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-5">
           <div className="flex items-center gap-3">
-            {tenant?.brand_logo_url ? (
-              /* eslint-disable-next-line @next/next/no-img-element */
-              <img
-                src={tenant.brand_logo_url}
-                alt={tenantName}
-                className="h-10 w-auto"
-              />
-            ) : (
-              <span
-                className="font-headline text-xl font-semibold tracking-tighter"
-                style={{ color: brandColor }}
-              >
-                {tenantName}
-              </span>
-            )}
+            {(() => {
+              // Sprint 6: il logo nell'header diventa cliccabile se il
+              // tenant ha configurato il proprio sito web. Click → nuova
+              // tab al sito aziendale (no rischio di mandare via il lead
+              // senza preavviso).
+              const logoContent = tenant?.brand_logo_url ? (
+                /* eslint-disable-next-line @next/next/no-img-element */
+                <img
+                  src={tenant.brand_logo_url}
+                  alt={tenantName}
+                  className="h-10 w-auto"
+                />
+              ) : (
+                <span
+                  className="font-headline text-xl font-semibold tracking-tighter"
+                  style={{ color: brandColor }}
+                >
+                  {tenantName}
+                </span>
+              );
+              if (tenant?.website_url) {
+                return (
+                  <a
+                    href={tenant.website_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="transition-opacity hover:opacity-80"
+                    aria-label={`Visita il sito di ${tenantName}`}
+                  >
+                    {logoContent}
+                  </a>
+                );
+              }
+              return logoContent;
+            })()}
             {tenant?.about_tagline ? (
               <span className="hidden border-l border-outline-variant pl-3 text-xs text-on-surface-variant md:block">
                 {tenant.about_tagline}
@@ -158,11 +178,11 @@ export default async function LeadPage({ params }: PageProps) {
             decimals={0}
             accentColor={brandColor}
             caption={
-              // kWp ora come caption (il "quanto è grande l'impianto")
-              // — la metrica principale è ora la produzione annua
-              // (= il "quanto rende"), come richiesto dal cliente.
+              // kW (no più 'kWp') come caption — il lead non tecnico
+              // non sa cosa significa "picco", quindi semplifichiamo.
+              // La metrica principale è la produzione annua (kWh).
               roi.estimated_kwp
-                ? `${roi.estimated_kwp.toLocaleString('it-IT', { maximumFractionDigits: 1 })} kWp di potenza installata`
+                ? `${roi.estimated_kwp.toLocaleString('it-IT', { maximumFractionDigits: 1 })} kW di potenza installata`
                 : null
             }
           />
@@ -206,83 +226,124 @@ export default async function LeadPage({ params }: PageProps) {
         </p>
       </section>
 
-      {/* ============== Savings hero — IMPATTO REALE ============== */}
-      {/* La card più grande della pagina: traduce produzione + tariffa
-          settore nel "quanto risparmi" con un numero da catturare
-          subito. Visibile pre-bolletta — il SavingsComparePanel sotto
-          la affina dopo l'upload. */}
-      {(roi.realistic_yearly_savings_eur ?? roi.yearly_savings_eur) ? (
-        <section className="mx-auto max-w-6xl px-6 pt-2 pb-4">
-          <div
-            className="relative overflow-hidden rounded-3xl p-8 md:p-12"
-            style={{
-              background: `linear-gradient(135deg, ${brandColor}18 0%, ${brandColor}06 60%, transparent 100%)`,
-              border: `1.5px solid ${brandColor}30`,
-            }}
-          >
-            {/* Decorative pulse — pure CSS, no images */}
-            <span
-              aria-hidden
-              className="absolute -right-12 -top-12 h-40 w-40 rounded-full"
-              style={{
-                background: `radial-gradient(circle, ${brandColor}25 0%, transparent 70%)`,
-                animation: 'pulseGlow 3s ease-in-out infinite',
-              }}
-            />
-            <style>{`
-              @keyframes pulseGlow {
-                0%, 100% { transform: scale(1); opacity: 0.6; }
-                50%      { transform: scale(1.15); opacity: 1; }
-              }
-              @keyframes savingsFadeUp {
-                from { opacity: 0; transform: translateY(20px); }
-                to   { opacity: 1; transform: translateY(0); }
-              }
-              .savings-amount {
-                animation: savingsFadeUp 0.7s cubic-bezier(.22,1,.36,1) 0.1s both;
-              }
-              .savings-tagline {
-                animation: savingsFadeUp 0.6s cubic-bezier(.22,1,.36,1) 0.3s both;
-              }
-              .savings-cumulative {
-                animation: savingsFadeUp 0.6s cubic-bezier(.22,1,.36,1) 0.5s both;
-              }
-            `}</style>
+      {/* ============== Savings hero — PAGHI SOLO €X ANZICHÉ €Y ============== */}
+      {/* La card più grande della pagina. Sprint 6 — refactor totale:
+          * Se EPC abilitato + stima bolletta disponibile → mostra il canone
+            EPC ("paghi solo X invece di Y, con X = 80% bolletta stimata").
+          * Altrimenti → fallback "Risparmio €X/anno" (status quo precedente).
+      */}
+      {(() => {
+        const bill = roi.estimated_current_bill_eur ?? null;
+        const epcCanone = bill ? Math.round(bill * 0.80) : null; // 80% canone
+        const savingsFallback = roi.realistic_yearly_savings_eur ?? roi.yearly_savings_eur ?? null;
+        const showEpcFormat = !!tenant?.epc_enabled && bill && bill > 0 && epcCanone && epcCanone > 0;
+        const hasAnythingToShow = showEpcFormat || (savingsFallback && savingsFallback > 0);
+        if (!hasAnythingToShow) return null;
 
-            <p className="text-xs font-bold uppercase tracking-widest" style={{ color: brandColor }}>
-              Il tuo risparmio con il fotovoltaico
-            </p>
-            <p className="savings-amount mt-4 font-headline text-6xl font-bold leading-none tracking-tightest md:text-8xl"
-              style={{ color: brandColor }}>
-              € {Math.round(
-                (roi.realistic_yearly_savings_eur ?? roi.yearly_savings_eur ?? 0)
-              ).toLocaleString('it-IT')}
-              <span className="ml-2 text-2xl font-medium text-on-surface-variant md:text-3xl">
-                /anno
-              </span>
-            </p>
-            <p className="savings-tagline mt-3 max-w-2xl text-base text-on-surface md:text-lg">
-              Stima sul consumo tipico di un&apos;attività come la vostra.
-              Sono soldi che <strong>non escono più</strong> dalla cassa per
-              l&apos;energia.
-            </p>
-            {(roi.realistic_yearly_savings_eur ?? roi.yearly_savings_eur) && (
-              <div className="savings-cumulative mt-6 inline-flex items-center gap-3 rounded-full bg-surface-container-lowest px-5 py-3 ring-1 ring-on-surface/5">
-                <span className="text-xl" aria-hidden>📈</span>
-                <p className="text-sm text-on-surface">
-                  In 25 anni{' '}
-                  <strong className="font-headline text-lg font-bold" style={{ color: brandColor }}>
-                    € {Math.round(
-                      (roi.realistic_yearly_savings_eur ?? roi.yearly_savings_eur ?? 0) * 25
-                    ).toLocaleString('it-IT')}
-                  </strong>
-                  {' '}di energia risparmiata
-                </p>
-              </div>
-            )}
-          </div>
-        </section>
-      ) : null}
+        return (
+          <section className="mx-auto max-w-6xl px-6 pt-2 pb-4">
+            <div
+              className="relative overflow-hidden rounded-3xl p-8 md:p-12"
+              style={{
+                background: `linear-gradient(135deg, ${brandColor}18 0%, ${brandColor}06 60%, transparent 100%)`,
+                border: `1.5px solid ${brandColor}30`,
+              }}
+            >
+              {/* Decorative pulse */}
+              <span
+                aria-hidden
+                className="absolute -right-12 -top-12 h-40 w-40 rounded-full"
+                style={{
+                  background: `radial-gradient(circle, ${brandColor}25 0%, transparent 70%)`,
+                  animation: 'pulseGlow 3s ease-in-out infinite',
+                }}
+              />
+              <style>{`
+                @keyframes pulseGlow {
+                  0%, 100% { transform: scale(1); opacity: 0.6; }
+                  50%      { transform: scale(1.15); opacity: 1; }
+                }
+                @keyframes savingsFadeUp {
+                  from { opacity: 0; transform: translateY(20px); }
+                  to   { opacity: 1; transform: translateY(0); }
+                }
+                .savings-amount    { animation: savingsFadeUp 0.7s cubic-bezier(.22,1,.36,1) 0.1s both; }
+                .savings-tagline   { animation: savingsFadeUp 0.6s cubic-bezier(.22,1,.36,1) 0.3s both; }
+                .savings-strike    { animation: savingsFadeUp 0.6s cubic-bezier(.22,1,.36,1) 0.4s both; }
+                .savings-cumulative{ animation: savingsFadeUp 0.6s cubic-bezier(.22,1,.36,1) 0.5s both; }
+              `}</style>
+
+              {showEpcFormat ? (
+                <>
+                  <p className="text-xs font-bold uppercase tracking-widest" style={{ color: brandColor }}>
+                    Con il modello {tenantName} EPC
+                  </p>
+                  <p className="text-base font-medium text-on-surface md:text-lg">
+                    Paghi solo
+                  </p>
+                  <p className="savings-amount mt-2 font-headline text-6xl font-bold leading-none tracking-tightest md:text-8xl"
+                    style={{ color: brandColor }}>
+                    € {epcCanone!.toLocaleString('it-IT')}
+                    <span className="ml-2 text-2xl font-medium text-on-surface-variant md:text-3xl">
+                      /anno
+                    </span>
+                  </p>
+                  <p className="savings-strike mt-3 text-base text-on-surface-variant md:text-lg">
+                    anziché{' '}
+                    <span className="text-on-surface line-through decoration-2 decoration-on-surface-variant">
+                      € {bill!.toLocaleString('it-IT')}/anno
+                    </span>{' '}
+                    di bolletta tradizionale
+                  </p>
+                  <p className="savings-tagline mt-3 max-w-2xl text-base text-on-surface md:text-lg">
+                    Zero investimento iniziale. <strong>{tenantName}</strong> sostiene
+                    il costo dell&apos;impianto. Dopo 10 anni l&apos;impianto è vostro
+                    per €100.
+                  </p>
+                  <div className="savings-cumulative mt-6 inline-flex items-center gap-3 rounded-full bg-surface-container-lowest px-5 py-3 ring-1 ring-on-surface/5">
+                    <span className="text-xl" aria-hidden>💰</span>
+                    <p className="text-sm text-on-surface">
+                      In 10 anni{' '}
+                      <strong className="font-headline text-lg font-bold" style={{ color: brandColor }}>
+                        € {Math.round((bill! - epcCanone!) * 10).toLocaleString('it-IT')}
+                      </strong>
+                      {' '}di risparmio reale + impianto in dotazione
+                    </p>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className="text-xs font-bold uppercase tracking-widest" style={{ color: brandColor }}>
+                    Il tuo risparmio con il fotovoltaico
+                  </p>
+                  <p className="savings-amount mt-4 font-headline text-6xl font-bold leading-none tracking-tightest md:text-8xl"
+                    style={{ color: brandColor }}>
+                    € {savingsFallback!.toLocaleString('it-IT')}
+                    <span className="ml-2 text-2xl font-medium text-on-surface-variant md:text-3xl">
+                      /anno
+                    </span>
+                  </p>
+                  <p className="savings-tagline mt-3 max-w-2xl text-base text-on-surface md:text-lg">
+                    Stima sul consumo tipico di un&apos;attività come la vostra.
+                    Sono soldi che <strong>non escono più</strong> dalla cassa per
+                    l&apos;energia.
+                  </p>
+                  <div className="savings-cumulative mt-6 inline-flex items-center gap-3 rounded-full bg-surface-container-lowest px-5 py-3 ring-1 ring-on-surface/5">
+                    <span className="text-xl" aria-hidden>📈</span>
+                    <p className="text-sm text-on-surface">
+                      In 25 anni{' '}
+                      <strong className="font-headline text-lg font-bold" style={{ color: brandColor }}>
+                        € {Math.round(savingsFallback! * 25).toLocaleString('it-IT')}
+                      </strong>
+                      {' '}di energia risparmiata
+                    </p>
+                  </div>
+                </>
+              )}
+            </div>
+          </section>
+        );
+      })()}
 
       {/* ============== "Dietro i numeri" — calcolo trasparente ========== */}
       <BehindTheNumbersPanel
