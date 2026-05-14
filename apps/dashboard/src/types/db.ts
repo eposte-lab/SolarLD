@@ -207,17 +207,13 @@ export interface RoofSummary {
    */
   data_source?: string | null;
   /**
-   * Territorio (tenant_target_areas) di provenienza. Popolato dal hunter
-   * funnel L4 quando un roof viene mappato dentro una zona OSM attiva.
-   * NULL su roof legacy o creati al di fuori del flusso v3.
+   * Territorio (`territories` o `tenant_target_areas`) di provenienza.
+   * NB: la FK punta storicamente a `territories` (v2 legacy) — non
+   * embeddiamo via PostgREST per evitare il bug "missing FK to
+   * tenant_target_areas" che rompe le pagine. Il join lato JS sarà
+   * abilitato quando rinormalizzeremo la FK.
    */
   territory_id?: string | null;
-  tenant_target_areas?: {
-    id: string;
-    primary_sector: string | null;
-    province_code: string | null;
-    area_m2: number | null;
-  } | null;
 }
 
 export interface SubjectSummary {

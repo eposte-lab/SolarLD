@@ -41,8 +41,7 @@ const LIST_COLUMNS = `
                     sede_operativa_source),
   roofs:roofs(address, comune, provincia, cap,
               estimated_kwp, estimated_yearly_kwh, area_sqm,
-              territory_id,
-              tenant_target_areas:territory_id(id, primary_sector, province_code, area_m2))
+              territory_id)
 `.trim();
 
 // Detail page also pulls Solar API fields from `roofs` so the
@@ -54,8 +53,7 @@ const DETAIL_ROOF_COLUMNS = `
   estimated_kwp, estimated_yearly_kwh, area_sqm,
   exposure, pitch_degrees, shading_score, has_existing_pv,
   lat, lng, status, raw_data, derivations, data_source,
-  territory_id,
-  tenant_target_areas:territory_id(id, primary_sector, province_code, area_m2)
+  territory_id
 `.trim();
 
 const DETAIL_COLUMNS = `
