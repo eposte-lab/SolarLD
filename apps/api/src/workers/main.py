@@ -45,7 +45,7 @@ from .cron import (
     practice_deadlines_cron,
     reputation_digest_cron,
     retention_cron,
-    scan_schedules_cron,
+    scan_jobs_dispatcher_cron,
     send_time_rollup_cron,
     sla_first_touch_cron,
     smartlead_warmup_sync_cron,
@@ -411,21 +411,18 @@ async def map_target_areas_task(_ctx: dict[str, Any], payload: dict[str, Any]) -
 async def hunter_funnel_v3_task(_ctx: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
     """FLUSSO 1 v3 — geocentric, no-Atoka funnel for one tenant.
 
-    Triggered by the daily 05:30 UTC cron for every tenant with at
-    least one row in `tenant_target_areas`. Tenants without zones are
-    skipped (no-op) until they complete L0 onboarding.
-
     Payload schema:
       tenant_id: str (UUID)
       max_l1_candidates: int (optional, default 2000)
+      scan_job_id: str | None (optional) — scan_jobs row to update with
+        cap tracking + status transitions
     """
     tenant_id = payload["tenant_id"]
-    # ENTRY marker: emitted as ERROR severity on purpose so it survives
-    # `severity != info` log filters in Railway. Lets us prove the worker
-    # actually picked the job up before the orchestrator does anything.
+    scan_job_id = payload.get("scan_job_id")
     log.error(
         "hunter_funnel_v3_task.entry",
         tenant_id=tenant_id,
+        scan_job_id=scan_job_id,
         max_l1_candidates=payload.get("max_l1_candidates"),
     )
     try:
@@ -437,19 +434,88 @@ async def hunter_funnel_v3_task(_ctx: dict[str, Any], payload: dict[str, Any]) -
             max_l1_candidates=int(payload.get("max_l1_candidates") or 2000),
         )
     except Exception as exc:
-        # Re-raise so ARQ marks the job failed, but log the type+message
-        # explicitly first — the default ARQ traceback dump can be hard to
-        # spot in a flood of structlog rich tracebacks.
         log.error(
             "hunter_funnel_v3_task.crash",
             tenant_id=tenant_id,
+            scan_job_id=scan_job_id,
             err_type=type(exc).__name__,
             err_msg=str(exc)[:500],
         )
+        # Mark the job with the error and re-raise
+        if scan_job_id:
+            try:
+                sb = get_service_client()
+                sb.table("scan_jobs").update({"last_error": str(exc)[:500]}).eq(
+                    "id", scan_job_id
+                ).execute()
+            except Exception:  # noqa: BLE001
+                pass
         raise
+
+    # ── scan_jobs cap tracking + state machine ──────────────────────
+    if scan_job_id:
+        try:
+            from datetime import UTC, datetime
+
+            sb = get_service_client()
+            # L6 leads produced (validated, post-promote)
+            l6_count = int((summary.get("stages") or {}).get("l6", {}).get("promoted") or 0)
+            l1_count = int((summary.get("stages") or {}).get("l1", {}).get("candidates") or 0)
+            today = datetime.now(tz=UTC).date().isoformat()
+
+            cur_res = (
+                sb.table("scan_jobs")
+                .select(
+                    "daily_validated_cap, valid_leads_today, valid_leads_today_date, valid_leads_total, candidates_scanned_total, always_active"
+                )
+                .eq("id", scan_job_id)
+                .limit(1)
+                .maybe_single()
+                .execute()
+            )
+            cur = (cur_res.data or {}) if cur_res else {}
+            cap = int(cur.get("daily_validated_cap") or 200)
+            # Reset midnight se necessario
+            same_day = cur.get("valid_leads_today_date") == today
+            prev_today = int(cur.get("valid_leads_today") or 0) if same_day else 0
+            new_today = prev_today + l6_count
+            new_total = int(cur.get("valid_leads_total") or 0) + l6_count
+            new_scanned = int(cur.get("candidates_scanned_total") or 0) + l1_count
+
+            # Decide next status
+            if l1_count == 0:
+                # Territorio esaurito
+                if cur.get("always_active"):
+                    next_status = "pending"  # restart al prossimo tick
+                else:
+                    next_status = "exhausted"
+            elif new_today >= cap:
+                next_status = "paused_daily_cap"
+            else:
+                next_status = "in_progress"
+
+            sb.table("scan_jobs").update(
+                {
+                    "valid_leads_today": new_today,
+                    "valid_leads_today_date": today,
+                    "valid_leads_total": new_total,
+                    "candidates_scanned_total": new_scanned,
+                    "status": next_status,
+                    "last_run_at": datetime.now(tz=UTC).isoformat(),
+                    "last_error": None,
+                }
+            ).eq("id", scan_job_id).execute()
+        except Exception as exc:  # noqa: BLE001
+            log.warning(
+                "hunter_funnel_v3_task.scan_job_update_failed",
+                scan_job_id=scan_job_id,
+                err=str(exc)[:200],
+            )
+
     log.error(
         "hunter_funnel_v3_task.done",
         tenant_id=tenant_id,
+        scan_job_id=scan_job_id,
         summary=summary,
     )
     return summary
@@ -540,11 +606,11 @@ class WorkerSettings:
         # FLUSSO 1 v3 — fan-out hunter funnel before the warehouse refill
         # so any v3 recommended leads are picked up by daily_pipeline_cron.
         cron(funnel_v3_cron, hour=4, minute=30, run_at_startup=False),
-        # Scan schedules — operator-defined recurring scans (Sprint
-        # client-feedback E). Runs hourly to honour same-day "fire at
-        # 09:00" requests; the cron only fires schedules whose
-        # next_run_at has passed, so the cost stays trivial.
-        cron(scan_schedules_cron, minute=5, run_at_startup=False),
+        # Scan jobs dispatcher — coda di lavori operatore-driven. Runs
+        # ogni ora al :05. Per ogni tenant, prende il job top-priority
+        # (status pending/in_progress, ASC) e enqueue il funnel. Reset
+        # valid_leads_today a mezzanotte UTC. Si ferma per cap.
+        cron(scan_jobs_dispatcher_cron, minute=5, run_at_startup=False),
         cron(daily_pipeline_cron, hour=5, minute=30, run_at_startup=False),
         cron(send_time_rollup_cron, hour=3, minute=45, run_at_startup=False),
         cron(engagement_rollup_cron, hour=4, minute=0, run_at_startup=False),

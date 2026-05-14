@@ -43,6 +43,15 @@ export async function getScanResults(): Promise<ScanResultsResponse> {
   return apiFetchServer<ScanResultsResponse>('/v1/territory/scan-results');
 }
 
+/** Initial server-side fetch of scan_jobs for the page. */
+export async function listScanJobsServer(): Promise<
+  import('./scan-jobs').ScanJob[]
+> {
+  return apiFetchServer<import('./scan-jobs').ScanJob[]>(
+    '/v1/territory/scan-jobs',
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Zone metrics — Sprint 3b
 // ---------------------------------------------------------------------------

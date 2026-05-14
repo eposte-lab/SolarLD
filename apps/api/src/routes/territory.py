@@ -484,138 +484,179 @@ async def scan_results(ctx: CurrentUser) -> ScanResultsResponse:
 # Scan schedules — punto E avanzato (Sprint client-feedback)
 # ===========================================================================
 #
-# Permettono all'operatore di definire scansioni RICORRENTI su un subset
-# di territori + settori, con un budget giornaliero (daily_cap) e una
-# frequenza in giorni (1 = giornaliero, 7 = settimanale, ecc.).
+# scan_jobs (migration 0122): coda di lavori di scansione. Ogni job:
+#   - rappresenta UN territorio (regione/provincia/comune) + settori
+#   - ha un daily_validated_cap (max lead VALIDI post-L5/giorno)
+#   - viene consumato dal cron scan_jobs_dispatcher_cron in priority order
+#   - quando esaurito → status='exhausted' + se always_active → restart
 #
-# Il worker `scan_schedules_cron` in `workers/cron.py` legge ogni mattina
-# le schedule con `next_run_at <= now()` e `status='active'`, esegue
-# `run-funnel` con i parametri della schedule (override di max_l1_candidates
-# = daily_cap, restrizione zone via territory_ids), aggiorna
-# last_run_at + last_run_candidates e ricalcola next_run_at.
+# Workflow:
+#   1. POST /scan-jobs → INSERT + enqueue hunter_funnel_v3_task SUBITO
+#      con scan_job_id (job appare 'in corso' nella UI immediatamente)
+#   2. Worker scansiona finché valid_leads_today < daily_validated_cap
+#      → status='paused_daily_cap' al raggiungimento
+#   3. Mezzanotte tenant tz: reset valid_leads_today=0, status diventa
+#      'in_progress' al prossimo cron tick
+#   4. Quando i candidati territoriali finiscono → status='exhausted'
 
 
-class ScanScheduleCreate(BaseModel):
-    """Body of POST /v1/territory/schedules."""
+class ScanJobCreate(BaseModel):
+    """Body of POST /v1/scan-jobs."""
 
     name: str = Field(min_length=1, max_length=120)
-    territory_ids: list[str] = Field(default_factory=list)
+    region: str | None = Field(default=None, max_length=80)
+    province: str | None = Field(default=None, max_length=4)
+    comune: str | None = Field(default=None, max_length=120)
     sector_filters: list[str] = Field(default_factory=list)
-    daily_cap: int = Field(default=100, ge=1, le=5000)
-    frequency_days: int = Field(default=1, ge=0, le=90)
-    start_at: datetime | None = Field(
-        default=None,
-        description="When to fire the first run. Default: now (run on next cron).",
-    )
+    daily_validated_cap: int = Field(default=200, ge=1, le=5000)
+    always_active: bool = False
 
 
-class ScanScheduleUpdate(BaseModel):
-    """Body of PATCH /v1/territory/schedules/{id}. All fields optional."""
+class ScanJobUpdate(BaseModel):
+    """Body of PATCH /v1/scan-jobs/{id}. All fields optional."""
 
     name: str | None = Field(default=None, min_length=1, max_length=120)
-    territory_ids: list[str] | None = None
     sector_filters: list[str] | None = None
-    daily_cap: int | None = Field(default=None, ge=1, le=5000)
-    frequency_days: int | None = Field(default=None, ge=0, le=90)
+    daily_validated_cap: int | None = Field(default=None, ge=1, le=5000)
+    always_active: bool | None = None
     status: str | None = Field(
         default=None,
-        pattern="^(active|paused|archived)$",
+        pattern="^(pending|in_progress|paused|paused_daily_cap|exhausted|archived)$",
     )
-    next_run_at: datetime | None = None
 
 
-class ScanScheduleOut(BaseModel):
+class ScanJobReorder(BaseModel):
+    """Body of POST /v1/scan-jobs/reorder."""
+
+    job_ids: list[str] = Field(min_length=1)
+
+
+class ScanJobOut(BaseModel):
     id: str
     name: str
-    territory_ids: list[str]
+    region: str | None = None
+    province: str | None = None
+    comune: str | None = None
     sector_filters: list[str]
-    daily_cap: int
-    frequency_days: int
+    daily_validated_cap: int
+    priority: int
     status: str
-    next_run_at: datetime
+    always_active: bool
+    valid_leads_total: int
+    valid_leads_today: int
+    valid_leads_today_date: str | None = None
+    candidates_scanned_total: int
     last_run_at: datetime | None = None
-    last_run_candidates: int | None = None
-    last_run_cost_eur: float | None = None
+    last_error: str | None = None
     created_at: datetime
 
 
 @router.post(
-    "/schedules",
-    response_model=ScanScheduleOut,
+    "/scan-jobs",
+    response_model=ScanJobOut,
     status_code=status.HTTP_201_CREATED,
 )
-async def create_scan_schedule(
-    body: ScanScheduleCreate,
-    ctx: CurrentUser,
-) -> ScanScheduleOut:
-    """Create a recurring scan schedule for the current tenant."""
+async def create_scan_job(body: ScanJobCreate, ctx: CurrentUser) -> ScanJobOut:
+    """Create a new scan job and enqueue it for IMMEDIATE execution.
+
+    The job appears on the right column of /territorio as 'in_progress'
+    while the worker scans. Stops at `daily_validated_cap` validated leads.
+    """
     tenant_id = require_tenant(ctx)
+    if not (body.region or body.province or body.comune):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="territory_required",
+        )
+
     sb = get_service_client()
 
-    next_run = body.start_at or datetime.now(tz=UTC)
+    # Default priority: append to bottom of queue
+    max_prio_res = (
+        sb.table("scan_jobs")
+        .select("priority")
+        .eq("tenant_id", tenant_id)
+        .neq("status", "archived")
+        .order("priority", desc=True)
+        .limit(1)
+        .execute()
+    )
+    next_priority = ((max_prio_res.data or [{"priority": 99}])[0]["priority"] or 99) + 1
 
     payload = {
         "tenant_id": tenant_id,
         "name": body.name,
-        "territory_ids": body.territory_ids,
+        "region": body.region,
+        "province": (body.province or "").upper() or None,
+        "comune": body.comune,
         "sector_filters": body.sector_filters,
-        "daily_cap": body.daily_cap,
-        "frequency_days": body.frequency_days,
-        "status": "active",
-        "next_run_at": next_run.isoformat(),
+        "daily_validated_cap": body.daily_validated_cap,
+        "always_active": body.always_active,
+        "priority": next_priority,
+        "status": "pending",
         "created_by": ctx.user_id,
     }
-    res = sb.table("scan_schedules").insert(payload).execute()
+    res = sb.table("scan_jobs").insert(payload).execute()
     if not res.data:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="create_failed",
         )
-    return ScanScheduleOut(**res.data[0])
+    job_id = res.data[0]["id"]
+
+    # Enqueue immediato — il worker accetta scan_job_id e tracking di cap
+    try:
+        await enqueue(
+            "hunter_funnel_v3_task",
+            {
+                "tenant_id": tenant_id,
+                "scan_job_id": job_id,
+                "max_l1_candidates": body.daily_validated_cap * 5,
+            },
+            job_id=f"scan_job:{job_id}:{int(datetime.now(tz=UTC).timestamp())}",
+        )
+        sb.table("scan_jobs").update({"status": "in_progress"}).eq("id", job_id).execute()
+        res.data[0]["status"] = "in_progress"
+    except Exception:  # noqa: BLE001
+        # Lascia status='pending', il cron lo prenderà al prossimo tick
+        pass
+
+    return ScanJobOut(**res.data[0])
 
 
-@router.get("/schedules", response_model=list[ScanScheduleOut])
-async def list_scan_schedules(ctx: CurrentUser) -> list[ScanScheduleOut]:
-    """List all scan schedules for the current tenant (active + paused)."""
+@router.get("/scan-jobs", response_model=list[ScanJobOut])
+async def list_scan_jobs(ctx: CurrentUser) -> list[ScanJobOut]:
+    """Lista jobs del tenant ordinati per priority ASC (top = next consumed)."""
     tenant_id = require_tenant(ctx)
     sb = get_service_client()
     res = (
-        sb.table("scan_schedules")
+        sb.table("scan_jobs")
         .select("*")
         .eq("tenant_id", tenant_id)
         .neq("status", "archived")
-        .order("created_at", desc=True)
+        .order("priority")
         .execute()
     )
-    return [ScanScheduleOut(**row) for row in (res.data or [])]
+    return [ScanJobOut(**row) for row in (res.data or [])]
 
 
-@router.patch("/schedules/{schedule_id}", response_model=ScanScheduleOut)
-async def update_scan_schedule(
-    schedule_id: str,
-    body: ScanScheduleUpdate,
-    ctx: CurrentUser,
-) -> ScanScheduleOut:
-    """Update a scan schedule. Non-null fields are persisted; others
-    are left unchanged."""
+@router.patch("/scan-jobs/{job_id}", response_model=ScanJobOut)
+async def update_scan_job(job_id: str, body: ScanJobUpdate, ctx: CurrentUser) -> ScanJobOut:
+    """Update parziale (pause/resume, always_active, daily_cap, sector_filters, name)."""
     tenant_id = require_tenant(ctx)
     sb = get_service_client()
 
     update_fields: dict[str, Any] = {}
     if body.name is not None:
         update_fields["name"] = body.name
-    if body.territory_ids is not None:
-        update_fields["territory_ids"] = body.territory_ids
     if body.sector_filters is not None:
         update_fields["sector_filters"] = body.sector_filters
-    if body.daily_cap is not None:
-        update_fields["daily_cap"] = body.daily_cap
-    if body.frequency_days is not None:
-        update_fields["frequency_days"] = body.frequency_days
+    if body.daily_validated_cap is not None:
+        update_fields["daily_validated_cap"] = body.daily_validated_cap
+    if body.always_active is not None:
+        update_fields["always_active"] = body.always_active
     if body.status is not None:
         update_fields["status"] = body.status
-    if body.next_run_at is not None:
-        update_fields["next_run_at"] = body.next_run_at.isoformat()
 
     if not update_fields:
         raise HTTPException(
@@ -624,39 +665,53 @@ async def update_scan_schedule(
         )
 
     res = (
-        sb.table("scan_schedules")
+        sb.table("scan_jobs")
         .update(update_fields)
-        .eq("id", schedule_id)
+        .eq("id", job_id)
         .eq("tenant_id", tenant_id)
         .execute()
     )
     if not res.data:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="schedule_not_found",
+            detail="job_not_found",
         )
-    return ScanScheduleOut(**res.data[0])
+    return ScanJobOut(**res.data[0])
 
 
-@router.delete("/schedules/{schedule_id}", status_code=status.HTTP_200_OK)
-async def delete_scan_schedule(
-    schedule_id: str,
-    ctx: CurrentUser,
-) -> dict[str, Any]:
-    """Archive (soft-delete) a scan schedule. Idempotent."""
+@router.post("/scan-jobs/reorder", status_code=status.HTTP_200_OK)
+async def reorder_scan_jobs(body: ScanJobReorder, ctx: CurrentUser) -> dict[str, Any]:
+    """Reorder priority queue. `job_ids[0]` becomes priority=1, etc.
+
+    Atomic: tutte le UPDATE in una transazione lato Postgres.
+    """
     tenant_id = require_tenant(ctx)
     sb = get_service_client()
 
+    # Build CASE WHEN statement per UPDATE atomico
+    for idx, jid in enumerate(body.job_ids, start=1):
+        sb.table("scan_jobs").update({"priority": idx}).eq("id", jid).eq(
+            "tenant_id", tenant_id
+        ).execute()
+
+    return {"reordered": len(body.job_ids)}
+
+
+@router.delete("/scan-jobs/{job_id}", status_code=status.HTTP_200_OK)
+async def delete_scan_job(job_id: str, ctx: CurrentUser) -> dict[str, Any]:
+    """Archive (soft-delete) il job. Lead già scaricati restano in /leads."""
+    tenant_id = require_tenant(ctx)
+    sb = get_service_client()
     res = (
-        sb.table("scan_schedules")
+        sb.table("scan_jobs")
         .update({"status": "archived"})
-        .eq("id", schedule_id)
+        .eq("id", job_id)
         .eq("tenant_id", tenant_id)
         .execute()
     )
     if not res.data:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="schedule_not_found",
+            detail="job_not_found",
         )
-    return {"archived": True, "id": schedule_id}
+    return {"archived": True, "id": job_id}
