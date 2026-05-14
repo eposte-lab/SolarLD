@@ -47,10 +47,10 @@ def test_compute_roi_b2b_uses_business_rates() -> None:
         subject_type="b2b",
     )
     assert est is not None
-    # CAPEX: 50 * 1200 = 60_000; credito d'imposta 30% → 18_000
-    assert abs(est.gross_capex_eur - 60_000.0) < 1e-6
-    assert abs(est.incentive_eur - 18_000.0) < 1e-6
-    assert abs(est.net_capex_eur - 42_000.0) < 1e-6
+    # CAPEX: 50 * 1000 = 50_000 (Q2 2026 calibration); credito d'imposta 30% → 15_000
+    assert abs(est.gross_capex_eur - 50_000.0) < 1e-6
+    assert abs(est.incentive_eur - 15_000.0) < 1e-6
+    assert abs(est.net_capex_eur - 35_000.0) < 1e-6
     assert est.self_consumption_ratio == SELF_CONSUMPTION_RATIO_B2B
     # B2B enjoys a higher self-consumption ratio, so a bigger slice of
     # the savings is at the grid price, not the export price.
@@ -170,11 +170,11 @@ def test_compute_roi_b2b_seven_metric_fields_present() -> None:
     these fields. They must all be populated and self-consistent for
     a typical B2B sizing.
 
-    Reference: 50 kWp B2B, 65k kWh/yr, Sud Italia.
+    Reference: 50 kWp B2B, 65k kWh/yr, Sud Italia (Q2 2026 calibration).
         net_self_savings_eur = 65000 × 0.65 × 0.22 = 9_295 €
         savings_25y_eur      = 9_295 × 25 × 0.85   ≈ 197_519 €
-        net_capex_eur        = 50 × 1200 × 0.70    = 42_000 €
-        roi_pct_25y          = (197_519 - 42_000) / 42_000 × 100 ≈ 370 %
+        net_capex_eur        = 50 × 1000 × 0.70    = 35_000 €
+        roi_pct_25y          = (197_519 - 35_000) / 35_000 × 100 ≈ 464 %
         co2_kg_per_year      = 65_000 × 0.281      = 18_265 kg
         trees_equivalent     = round(18_265 / 21)  = 870
     """

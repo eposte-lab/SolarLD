@@ -33,7 +33,7 @@ from dataclasses import dataclass
 # ---- Market constants (2026 Q2 calibration) ---------------------------
 
 CAPEX_EUR_PER_KWP_B2C = 1500.0
-CAPEX_EUR_PER_KWP_B2B = 1200.0
+CAPEX_EUR_PER_KWP_B2B = 1000.0  # updated Q2 2026: commercial scale, turnkey, pre-incentive
 GRID_PRICE_EUR_PER_KWH_B2C = 0.25
 GRID_PRICE_EUR_PER_KWH_B2B = 0.22
 SELF_CONSUMPTION_RATIO_B2C = 0.40

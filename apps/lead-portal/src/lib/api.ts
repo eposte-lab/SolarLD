@@ -31,6 +31,13 @@ export type PublicLead = {
     payback_years?: number;
     co2_tonnes_25_years?: number;
     investment_eur?: number;
+    /** Full derivations fields (present when roof.derivations is the source). */
+    gross_capex_eur?: number;
+    net_capex_eur?: number;
+    incentive_eur?: number;
+    yearly_kwh?: number;
+    co2_kg_per_year?: number;
+    panel_count?: number;
   };
   subjects: {
     type: 'b2b' | 'b2c' | 'unknown';
@@ -70,6 +77,9 @@ export type PublicLead = {
     about_certifications: string[] | null;
     about_hero_image_url: string | null;
     about_tagline: string | null;
+    /* Sprint client-feedback — EPC commercial + GDPR consent. */
+    epc_enabled?: boolean;
+    privacy_policy_url?: string | null;
   } | null;
 };
 
