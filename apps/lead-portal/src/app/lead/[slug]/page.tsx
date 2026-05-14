@@ -30,9 +30,13 @@ export default async function LeadPage({ params }: PageProps) {
   //   2. lead.roi_data — legacy snapshot, fallback for leads
   //      created before migration 0094 added the derivations column.
   const { roofs: roof, tenant } = lead;
+  // Defensive: derivations may be null, roi_data may be {} or null in
+  // edge cases. Always end up with an empty object rather than null so
+  // the rest of the rendering can do optional-chain on numeric fields.
   const roi =
     ((roof as { derivations?: typeof lead.roi_data | null } | null)?.derivations) ??
-    lead.roi_data;
+    lead.roi_data ??
+    {};
   const hero = leadHeroCopy(lead);
   const brandColor = tenant?.brand_primary_color || '#0F766E';
   const tenantName = tenant?.business_name ?? 'SolarLead';
@@ -185,9 +189,9 @@ export default async function LeadPage({ params }: PageProps) {
       </section>
 
       {/* ============== EPC commercial proposition (optional) ========== */}
-      {tenant?.epc_enabled && roi.gross_capex_eur ? (
+      {tenant?.epc_enabled && roi?.gross_capex_eur ? (
         <EpcPropositionSection
-          grossCapexEur={roi.gross_capex_eur as number}
+          grossCapexEur={roi.gross_capex_eur}
           brandName={tenantName}
           brandColor={brandColor}
           brandLogoUrl={tenant.brand_logo_url}

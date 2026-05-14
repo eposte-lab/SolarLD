@@ -12,11 +12,10 @@ produce user-visible duplicate effects.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 import httpx
-
 from fastapi import (
     APIRouter,
     File,
@@ -272,7 +271,7 @@ async def request_appointment(
                     webhook_url,
                     json={
                         "lead_id": lead["id"],
-                        "created_at": datetime.now(tz=timezone.utc).isoformat(),
+                        "created_at": datetime.now(tz=UTC).isoformat(),
                         **event_payload,
                     },
                 )
