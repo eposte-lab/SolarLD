@@ -262,3 +262,153 @@ def _lookup_intensity(ateco_code: Any) -> tuple[float, str]:
             return ATECO_KWH_PER_1000_EUR[root], label
 
     return DEFAULT_KWH_PER_1000_EUR, "fallback"
+
+
+# ===========================================================================
+# Roof-area + sector estimator (for ROI rendering, NOT pre-API gating)
+# ===========================================================================
+#
+# Use case
+# --------
+# `stima_potenza_FV` above needs ATECO + revenue to gate Phase-2 spend.
+# But the lead-portal page shows a "bolletta stimata" + "risparmio annuo"
+# to a lead who hasn't uploaded their bill yet — and we don't always have
+# ATECO/revenue for Google-Places-sourced leads.
+#
+# What we DO have (always, from L1 places + L2 solar):
+#   * `predicted_sector` — wizard_group from `scan_candidates.predicted_sector`
+#     (e.g. "automotive", "horeca", "industry_heavy") — L1 classification.
+#   * `roof.area_sqm` — useable rooftop area in m² (Google Solar API).
+#   * `subjects.type` — "b2b" / "b2c".
+#
+# This is enough to give an order-of-magnitude consumption + bill estimate
+# without paying for Atoka. Numbers below come from ARERA, ENEA and ENEL
+# sector benchmarks (kWh/m²/year).
+
+SECTOR_KWH_PER_SQM: dict[str, float] = {
+    "industry_heavy": 150.0,
+    "industry_light": 100.0,
+    "food_production": 220.0,  # forni / impianti freddo
+    "logistics": 80.0,
+    "retail_gdo": 280.0,  # cella frigo dominante
+    "horeca": 200.0,
+    "hospitality_large": 180.0,
+    "hospitality_food_service": 200.0,
+    "healthcare": 230.0,
+    "healthcare_private": 200.0,
+    "agricultural_intensive": 130.0,
+    "automotive": 120.0,
+    "education": 80.0,
+    "personal_services": 130.0,
+    "professional_offices": 80.0,
+}
+
+# Fallback when wizard_group is None or "amministratori_condominio"
+# (no direct site to size). Generic "small commercial" baseline.
+DEFAULT_KWH_PER_SQM = 100.0
+
+# B2C residential: a roof on a house implies 1 household regardless of m².
+# ISTAT 2024 average household electricity consumption.
+B2C_TYPICAL_HOUSEHOLD_KWH = 2_700.0
+
+# Roof area is a proxy for floor area. For single-storey commercial
+# buildings (capannoni, officine, ristoranti mono-piano) it's ~1:1.
+# We apply a small uplift to account for HVAC + lighting that scales
+# slightly faster than floor area.
+ROOF_TO_FLOOR_FACTOR = 1.10
+
+
+@dataclass(frozen=True, slots=True)
+class SectorConsumptionEstimate:
+    """Sector + roof-area-based consumption estimate.
+
+    Used by `roi_service.compute_full_derivations` to render a credible
+    "bolletta stimata" + sized `yearly_savings` on the lead portal
+    BEFORE the lead uploads their actual bill.
+    """
+
+    estimated_consumption_kwh: float
+    estimated_current_bill_eur: float
+    method: str  # "sector_horeca" | "b2c_household" | "fallback_generic"
+    kwh_per_sqm_used: float | None
+
+
+def estimate_consumption_from_roof(
+    *,
+    roof_area_sqm: float | None,
+    predicted_sector: str | None,
+    subject_type: str | None,
+    grid_price_eur_per_kwh: float = 0.22,
+) -> SectorConsumptionEstimate | None:
+    """Sector-aware consumption + bill estimate.
+
+    Returns ``None`` when we have no usable inputs — caller should fall
+    back to the old "production × self_ratio" math in that case.
+
+    Args:
+        roof_area_sqm: From Google Solar API
+            (`buildingInsights.wholeRoofStats.areaMeters2`).
+        predicted_sector: wizard_group from
+            `scan_candidates.predicted_sector` (L1 classification).
+        subject_type: "b2b" / "b2c" / "unknown".
+        grid_price_eur_per_kwh: tariff to convert kWh → bill. Defaults
+            to B2B average; override to 0.25 for B2C.
+    """
+    st = (subject_type or "unknown").lower()
+
+    # B2C: household-based, ignore m²
+    if st == "b2c":
+        consumption = B2C_TYPICAL_HOUSEHOLD_KWH
+        return SectorConsumptionEstimate(
+            estimated_consumption_kwh=consumption,
+            estimated_current_bill_eur=consumption * grid_price_eur_per_kwh,
+            method="b2c_household_2700kwh",
+            kwh_per_sqm_used=None,
+        )
+
+    # B2B: needs roof area
+    if not roof_area_sqm or roof_area_sqm <= 0:
+        return None
+
+    sector = (predicted_sector or "").strip().lower()
+    if sector in SECTOR_KWH_PER_SQM:
+        kwh_per_sqm = SECTOR_KWH_PER_SQM[sector]
+        method = f"sector_{sector}"
+    else:
+        kwh_per_sqm = DEFAULT_KWH_PER_SQM
+        method = "fallback_generic"
+
+    consumption = roof_area_sqm * ROOF_TO_FLOOR_FACTOR * kwh_per_sqm
+    bill = consumption * grid_price_eur_per_kwh
+
+    return SectorConsumptionEstimate(
+        estimated_consumption_kwh=consumption,
+        estimated_current_bill_eur=bill,
+        method=method,
+        kwh_per_sqm_used=kwh_per_sqm,
+    )
+
+
+def realistic_yearly_savings(
+    *,
+    production_kwh: float,
+    consumption_kwh: float,
+    grid_price_eur_per_kwh: float,
+    export_price_eur_per_kwh: float,
+) -> tuple[float, float, float]:
+    """Compute savings using ACTUAL self-consumption physics.
+
+    Returns ``(yearly_savings, self_kwh, export_kwh)``.
+
+    Logic:
+        self_kwh   = min(production, consumption)  — at grid_price
+        export_kwh = max(production - consumption, 0)  — at RID price
+
+    More conservative than the abstract `self_ratio` approach for
+    businesses with large roofs and modest consumption; more generous
+    for businesses where consumption ≥ production.
+    """
+    self_kwh = min(production_kwh, consumption_kwh)
+    export_kwh = max(0.0, production_kwh - consumption_kwh)
+    savings = self_kwh * grid_price_eur_per_kwh + export_kwh * export_price_eur_per_kwh
+    return savings, self_kwh, export_kwh

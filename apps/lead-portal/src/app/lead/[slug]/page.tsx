@@ -159,7 +159,15 @@ export default async function LeadPage({ params }: PageProps) {
           />
           <HeroStat
             label="Risparmio annuo"
-            value={roi.yearly_savings_eur ?? null}
+            value={
+              // Prefer the realistic (sector-aware) savings when
+              // available — it accounts for the lead's likely actual
+              // consumption rather than treating "production × tariff"
+              // as if it were all self-consumed. Falls back to the
+              // legacy figure for leads still pending sector
+              // classification.
+              roi.realistic_yearly_savings_eur ?? roi.yearly_savings_eur ?? null
+            }
             unit="€/anno"
             accentColor={brandColor}
           />
@@ -181,8 +189,33 @@ export default async function LeadPage({ params }: PageProps) {
             accentColor={brandColor}
           />
         </div>
+
+        {/* Bolletta stimata (sector-aware consumption) — only when we
+            have the sector + roof area to compute it credibly. Falls
+            back silently otherwise so the page stays clean. */}
+        {roi.estimated_current_bill_eur != null && (
+          <div
+            className="mt-4 flex flex-wrap items-center gap-3 rounded-2xl px-5 py-4"
+            style={{ backgroundColor: `${brandColor}10`, border: `1px solid ${brandColor}20` }}
+          >
+            <span className="text-2xl" aria-hidden>💡</span>
+            <div className="flex-1">
+              <p className="text-xs font-semibold uppercase tracking-widest text-on-surface-variant">
+                Bolletta annua stimata per la tua attività
+              </p>
+              <p className="mt-1 font-headline text-2xl font-bold tracking-tighter" style={{ color: brandColor }}>
+                ≈ € {Math.round(roi.estimated_current_bill_eur).toLocaleString('it-IT')}/anno
+              </p>
+              <p className="mt-1 text-xs text-on-surface-variant">
+                Basata sul consumo medio di settore e sulla superficie del tuo
+                stabile. Caricare la bolletta reale affina la stima.
+              </p>
+            </div>
+          </div>
+        )}
+
         <p className="mt-3 text-xs text-on-surface-muted">
-          Stime indicative basate sul consumo medio di un cliente simile.
+          Stime indicative basate sul consumo medio del settore.
           Il preventivo formale richiede un sopralluogo gratuito — caricare
           la propria bolletta affina i numeri sopra.
         </p>
