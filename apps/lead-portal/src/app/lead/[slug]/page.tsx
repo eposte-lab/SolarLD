@@ -200,13 +200,11 @@ export default async function LeadPage({ params }: PageProps) {
             accentColor={brandColor}
           />
           {tenant?.epc_enabled ? (
-            // Con l'EPC il cliente non investe nulla: il "rientro" non
-            // ha senso (è zero). Mostriamo il fatto chiave: €0 iniziali.
+            // Con l'EPC il cliente non investe nulla → rientro 0 anni.
             <HeroStat
-              label="Investimento iniziale"
-              value={null}
-              unit=""
-              textValue="€ 0"
+              label="Rientro investimento"
+              value={0}
+              unit="anni"
               accentColor={brandColor}
               caption="Zero investimento con il modello EPC"
             />
