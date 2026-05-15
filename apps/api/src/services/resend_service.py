@@ -76,6 +76,22 @@ class ResendSignatureError(Exception):
 
 
 @dataclass(slots=True)
+class EmailAttachment:
+    """An outbound email attachment.
+
+    When ``content_id`` is set the attachment is *inline* (CID): the HTML
+    body references it as ``cid:<content_id>`` and the client renders it
+    embedded — crucially, Outlook shows CID images without the
+    "download pictures" prompt it applies to remote ``<img src=https…>``.
+    """
+
+    filename: str
+    content_b64: str  # base64-encoded file bytes
+    content_type: str  # e.g. "image/png"
+    content_id: str | None = None
+
+
+@dataclass(slots=True)
 class SendEmailInput:
     from_address: str
     to: list[str]
@@ -85,6 +101,7 @@ class SendEmailInput:
     reply_to: str | None = None
     tags: dict[str, str] | None = None
     headers: dict[str, str] | None = None
+    attachments: list[EmailAttachment] | None = None
 
 
 @dataclass(slots=True)
@@ -130,6 +147,18 @@ def build_send_payload(data: SendEmailInput) -> dict[str, Any]:
         body["tags"] = [{"name": k, "value": v} for k, v in data.tags.items()]
     if data.headers:
         body["headers"] = dict(data.headers)
+    if data.attachments:
+        # Resend attachment shape: base64 ``content`` + ``filename``.
+        # Setting ``content_id`` marks it inline (referenceable as cid:).
+        body["attachments"] = [
+            {
+                "filename": a.filename,
+                "content": a.content_b64,
+                "content_type": a.content_type,
+                **({"content_id": a.content_id} if a.content_id else {}),
+            }
+            for a in data.attachments
+        ]
     return body
 
 

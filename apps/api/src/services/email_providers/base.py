@@ -27,12 +27,13 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from ..resend_service import SendEmailInput
+from ..resend_service import EmailAttachment, SendEmailInput
 
 # Re-export so callers can ``from ..email_providers.base import SendEmailInput``
 # without pulling resend_service into their namespace.
 __all__ = [
     "SendEmailInput",
+    "EmailAttachment",
     "SendResult",
     "ProviderError",
     "EmailProvider",

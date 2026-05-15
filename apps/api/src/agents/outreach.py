@@ -50,9 +50,12 @@ Degradation:
 
 from __future__ import annotations
 
+import base64
 import random as _random
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
+
+import httpx
 
 if TYPE_CHECKING:
     from ..services.neverbounce_service import EmailVerification
@@ -90,6 +93,7 @@ from ..services.pixart_service import (
 from ..services.rate_limit_service import acquire_email_quota
 from ..services.resend_service import (
     RESEND_COST_PER_EMAIL_CENTS,
+    EmailAttachment,
     ResendError,
     SendEmailInput,
 )
@@ -1322,6 +1326,60 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
         _lid_short = (payload.lead_id or "").replace("-", "")[:8]
         extra_headers["Feedback-ID"] = f"{_tid_short}:{_lid_short}:{_step_tag}:solarld"
 
+        # ------------------------------------------------------------------
+        # Render inline (CID) — fix bug Outlook "scarica immagini".
+        #
+        # Outlook blocca per default ogni <img> remota: il destinatario
+        # deve cliccare "scarica immagini" per vedere il render. Una
+        # immagine incorporata via Content-ID fa parte del messaggio e
+        # viene mostrata subito, senza prompt.
+        #
+        # Incorporiamo l'immagine render STATICA: la GIF è troppo pesante
+        # e Outlook desktop non la anima comunque (mostra solo il primo
+        # fotogramma). La versione animata resta sul portale lead.
+        #
+        # Fail-safe: se il download fallisce o l'immagine è troppo
+        # grande, si lascia l'URL remoto (comportamento storico) — non
+        # blocchiamo mai l'invio per questo.
+        # ------------------------------------------------------------------
+        render_attachment: EmailAttachment | None = None
+        _render_candidates = [
+            lead.get("rendering_image_url"),
+            lead.get("rendering_gif_cdn_url"),
+            lead.get("rendering_gif_url"),
+        ]
+        _cid_source = (
+            lead.get("rendering_image_url")
+            or lead.get("rendering_gif_cdn_url")
+            or lead.get("rendering_gif_url")
+        )
+        if _cid_source and any(u and u in rendered.html for u in _render_candidates):
+            _fetched = await _fetch_render_for_cid(_cid_source)
+            if _fetched is not None:
+                _b64, _ctype, _fname = _fetched
+                _html_cid = rendered.html
+                for _u in _render_candidates:
+                    if _u:
+                        _html_cid = _html_cid.replace(_u, f"cid:{RENDER_CID}")
+                from ..services.email_template_service import RenderedEmail
+
+                rendered = RenderedEmail(
+                    subject=rendered.subject,
+                    html=_html_cid,
+                    text=rendered.text,
+                )
+                render_attachment = EmailAttachment(
+                    filename=_fname,
+                    content_b64=_b64,
+                    content_type=_ctype,
+                    content_id=RENDER_CID,
+                )
+                log.info(
+                    "outreach.render_embedded_cid",
+                    lead_id=payload.lead_id,
+                    content_type=_ctype,
+                )
+
         send_input = SendEmailInput(
             from_address=from_address,
             to=[recipient],
@@ -1335,6 +1393,7 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
                 "template": _template_id_for(subject_type),
             },
             headers=extra_headers or None,
+            attachments=[render_attachment] if render_attachment else None,
         )
 
         # ------------------------------------------------------------------
@@ -2248,6 +2307,45 @@ def _tracking_pixel_url(
         base = (settings.api_base_url or "").rstrip("/")
     slug = public_slug.strip()
     return f"{base}/v1/public/track/open/{slug}"
+
+
+# Cap sull'immagine render incorporata: oltre questa soglia l'email
+# diventerebbe troppo pesante per la deliverability → si ripiega sull'URL
+# remoto (comportamento storico). 2 MB di bytes ≈ 2.7 MB in base64.
+_RENDER_CID_MAX_BYTES = 2_000_000
+# Content-ID dell'immagine render incorporata inline nell'email.
+RENDER_CID = "lead-render"
+
+
+async def _fetch_render_for_cid(url: str) -> tuple[str, str, str] | None:
+    """Scarica l'immagine render per incorporarla inline (CID).
+
+    Ritorna ``(base64, content_type, filename)`` oppure ``None`` su
+    qualsiasi errore o se l'immagine è troppo grande — in tal caso il
+    chiamante lascia l'``<img src>`` remoto (Outlook continuerà a
+    chiedere "scarica immagini", ma l'invio non si rompe mai).
+    """
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(url)
+        if resp.status_code != 200:
+            return None
+        data = resp.content
+        if not data or len(data) > _RENDER_CID_MAX_BYTES:
+            return None
+        ctype = (resp.headers.get("content-type") or "").split(";")[0].strip()
+        lower = url.lower()
+        if not ctype.startswith("image/"):
+            if lower.endswith((".jpg", ".jpeg")):
+                ctype = "image/jpeg"
+            elif lower.endswith(".gif"):
+                ctype = "image/gif"
+            else:
+                ctype = "image/png"
+        ext = {"image/jpeg": "jpg", "image/gif": "gif"}.get(ctype, "png")
+        return base64.b64encode(data).decode("ascii"), ctype, f"impianto.{ext}"
+    except Exception:  # noqa: BLE001
+        return None
 
 
 # ---------------------------------------------------------------------------
