@@ -57,7 +57,7 @@ export function IconOwnership(props: IconProps) {
   );
 }
 
-/** Cerchio col più — vantaggio (stile slide Plenitude). */
+/** Cerchio col più — vantaggio. */
 export function IconPlus(props: IconProps) {
   return (
     <svg {...base(props)}>
@@ -67,7 +67,7 @@ export function IconPlus(props: IconProps) {
   );
 }
 
-/** Cerchio col meno — svantaggio (stile slide Plenitude). */
+/** Cerchio col meno — svantaggio. */
 export function IconMinus(props: IconProps) {
   return (
     <svg {...base(props)}>
