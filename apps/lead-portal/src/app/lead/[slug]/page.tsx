@@ -199,13 +199,26 @@ export default async function LeadPage({ params }: PageProps) {
             unit="€/anno"
             accentColor={brandColor}
           />
-          <HeroStat
-            label="Rientro stimato"
-            value={roi.payback_years ?? null}
-            unit="anni"
-            decimals={1}
-            accentColor={brandColor}
-          />
+          {tenant?.epc_enabled ? (
+            // Con l'EPC il cliente non investe nulla: il "rientro" non
+            // ha senso (è zero). Mostriamo il fatto chiave: €0 iniziali.
+            <HeroStat
+              label="Investimento iniziale"
+              value={null}
+              unit=""
+              textValue="€ 0"
+              accentColor={brandColor}
+              caption="Zero investimento con il modello EPC"
+            />
+          ) : (
+            <HeroStat
+              label="Rientro stimato"
+              value={roi.payback_years ?? null}
+              unit="anni"
+              decimals={1}
+              accentColor={brandColor}
+            />
+          )}
           <HeroStat
             label="CO₂ evitata (25 anni)"
             value={
