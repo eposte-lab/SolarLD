@@ -33,6 +33,11 @@ from typing import Any
 SELF_CONSUMPTION_RATIO_B2C = 0.40
 SELF_CONSUMPTION_RATIO_B2B = 0.65
 EXPORT_PRICE_EUR_PER_KWH = 0.09
+# Il fotovoltaico non azzera mai la bolletta: consumo notturno e
+# stagionale + costi fissi (quota fissa, oneri di sistema, IVA sul
+# residuo) lasciano sempre una quota incomprimibile. Limitiamo il
+# taglio di bolletta da autoconsumo al 70% — oltre non è realistico.
+SELF_CONSUMPTION_BILL_CAP = 0.70
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,9 +141,15 @@ def compute_savings_compare(
     st = (subject_type or "unknown").lower()
     self_ratio = SELF_CONSUMPTION_RATIO_B2B if st == "b2b" else SELF_CONSUMPTION_RATIO_B2C
 
-    self_kwh = predicted_yearly_kwh * self_ratio
-    export_kwh = predicted_yearly_kwh * (1.0 - self_ratio)
-    actual_savings = self_kwh * tariff + export_kwh * EXPORT_PRICE_EUR_PER_KWH
+    # L'autoconsumo non può superare ciò che il cliente consuma davvero:
+    # senza questo bound un impianto grande su un consumatore piccolo
+    # "azzererebbe" la bolletta, cosa impossibile.
+    self_kwh = min(predicted_yearly_kwh * self_ratio, bolletta_kwh_yearly)
+    export_kwh = max(0.0, predicted_yearly_kwh - self_kwh)
+    # Taglio di bolletta da autoconsumo, limitato al 70%: una quota
+    # residua (notte, stagione, costi fissi) resta sempre.
+    bill_offset_eur = min(self_kwh * tariff, bolletta_eur_yearly * SELF_CONSUMPTION_BILL_CAP)
+    actual_savings = bill_offset_eur + export_kwh * EXPORT_PRICE_EUR_PER_KWH
 
     actual_payback: float | None = None
     if net_capex_eur and net_capex_eur > 0 and actual_savings > 0:
