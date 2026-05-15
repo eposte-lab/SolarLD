@@ -27,6 +27,7 @@ Cost: zero (no external API calls, only DB writes).
 from __future__ import annotations
 
 import hashlib
+import re
 import secrets
 from typing import TYPE_CHECKING, Any
 
@@ -43,7 +44,10 @@ log = get_logger(__name__)
 # `scan_candidates` row but is NOT promoted to a `leads` row.
 #
 #   * `solar_verdict='accepted'`: roof passed the Solar API gate.
-#   * `email present`: at least one usable contact email after L2 + extraction.
+#   * `valid email`: at least one usable contact email after L2 +
+#     extraction, AND it must be a well-formed address. L'email è un
+#     requisito di convalida del contatto: un lead senza email valida
+#     non è contattabile e non va promosso a `leads`.
 #
 # Score and predicted_sector were previously hard gates (score≥70, sector
 # in tenant.target_wizard_groups). We dropped them because the demo flow
@@ -57,6 +61,19 @@ log = get_logger(__name__)
 # `tenants.daily_target_send_cap` (default 10) as the upper bound — set
 # during onboarding, mirrors the daily warehouse refill ceiling.
 DEFAULT_LEAD_CAP_PER_TENANT = 10
+
+
+# Validazione di formato dell'email prima della promozione a lead.
+# `local@domain.tld` con TLD di almeno 2 lettere — esclude stringhe
+# tronche tipo "info@" o "nome@dominio" senza TLD.
+_EMAIL_RE = re.compile(r"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$")
+
+
+def _is_valid_email(value: str | None) -> bool:
+    """True solo se ``value`` è un indirizzo email ben formato."""
+    if not value:
+        return False
+    return bool(_EMAIL_RE.fullmatch(value.strip()))
 
 
 def _tier_for(score: int) -> str:
@@ -114,7 +131,9 @@ async def run_level6_promote_to_leads(
     def _is_perfect(c: ScoredV3Candidate) -> bool:
         if c.solar_verdict != "accepted":
             return False
-        return bool(c.contact and c.contact.best_email)
+        # L'email deve essere presente E ben formata: senza un indirizzo
+        # valido il lead non è contattabile.
+        return bool(c.contact) and _is_valid_email(c.contact.best_email)
 
     recommended = [s for s in scored if _is_perfect(s)]
     if not recommended:

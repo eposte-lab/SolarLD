@@ -659,8 +659,9 @@ async def scan_jobs_dispatcher_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
         "status", "exhausted"
     ).execute()
 
-    # Promuovi paused_daily_cap → in_progress dopo il reset
-    sb.table("scan_jobs").update({"status": "in_progress"}).eq("status", "paused_daily_cap").eq(
+    # Promuovi paused_daily_cap → pending dopo il reset (il job torna
+    # in coda; `in_progress` è riservato all'esecuzione effettiva).
+    sb.table("scan_jobs").update({"status": "pending"}).eq("status", "paused_daily_cap").eq(
         "valid_leads_today_date", today.isoformat()
     ).eq("valid_leads_today", 0).execute()
 
