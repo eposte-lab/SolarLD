@@ -37,9 +37,10 @@ type Props = {
 
 /** Anni di contratto EPC prima della cessione dell'impianto al cliente. */
 const CONTRACT_YEARS = 10;
-/** Quota del risparmio che il cliente trattiene durante il contratto EPC
+/** Quota del risparmio che il cliente trattiene durante il contratto
+ *  EPC: ~20% di sconto sulla bolletta fino alla cessione dell'impianto
  *  (il resto remunera Total Trade/Plenitude). Stima tarabile. */
-const EPC_CLIENT_SHARE = 0.3;
+const EPC_CLIENT_SHARE = 0.2;
 
 /** Trigger one-shot: `inView` diventa true quando l'elemento entra nel
  *  viewport, poi l'observer si disconnette. */
@@ -131,6 +132,7 @@ function CashFlowChart({
   gMin,
   colorFor,
   baseDelay,
+  heightClass = 'h-56',
 }: {
   points: ChartPoint[];
   zeroTopPct: number;
@@ -138,10 +140,11 @@ function CashFlowChart({
   gMin: number;
   colorFor: (p: ChartPoint) => string;
   baseDelay: number;
+  heightClass?: string;
 }) {
   return (
     <div>
-      <div className="relative h-56">
+      <div className={`relative ${heightClass}`}>
         {/* Linea dello zero */}
         <div
           className="absolute inset-x-0 border-t border-dashed border-on-surface/25"
@@ -418,27 +421,27 @@ export function EpcPropositionSection({
             Investimento diretto vs EPC {brandName}
           </h3>
           <p className="mt-1 text-[11px] text-on-surface-variant">
-            Posizione di cassa cumulata anno per anno. La linea
-            tratteggiata è il punto di pareggio.
+            Posizione di cassa anno per anno. La linea tratteggiata è il
+            punto di pareggio: con l&apos;EPC non ci finite mai sotto.
           </p>
 
-          <div className="mt-6 grid gap-8 md:grid-cols-2">
-            {/* INVESTIMENTO DIRETTO */}
-            <div>
-              <div className="mb-2 inline-flex items-center rounded-full bg-amber-100 px-3 py-1">
-                <span className="text-xs font-semibold text-amber-900">
+          <div className="mt-6 grid items-start gap-5 md:grid-cols-[0.8fr_1.2fr]">
+            {/* INVESTIMENTO DIRETTO — opzione secondaria, smorzata */}
+            <div className="rounded-2xl bg-surface-container p-4 opacity-70 md:p-5">
+              <div className="mb-2 inline-flex items-center rounded-full bg-surface-container-high px-3 py-1">
+                <span className="text-xs font-semibold text-on-surface-variant">
                   Investimento diretto
                 </span>
               </div>
               <ul className="mb-4 mt-1.5 space-y-1.5">
-                <ProCon positive color={brandColor}>
-                  L&apos;impianto è di vostra proprietà da subito
+                <ProCon positive={false} color={brandColor}>
+                  Esborso iniziale a vostro carico
                 </ProCon>
                 <ProCon positive={false} color={brandColor}>
-                  Sostenete voi l&apos;intera spesa d&apos;investimento
+                  Anni in rosso prima del rientro
                 </ProCon>
                 <ProCon positive={false} color={brandColor}>
-                  Gestione e manutenzione a vostro carico
+                  Rischio tecnico e gestione su di voi
                 </ProCon>
               </ul>
               <CashFlowChart
@@ -447,36 +450,48 @@ export function EpcPropositionSection({
                 gMax={gMax}
                 gMin={gMin}
                 baseDelay={6.0}
-                colorFor={(p) => (p.value >= 0 ? '#6B9B6B' : '#D4612A')}
+                heightClass="h-40"
+                colorFor={(p) => (p.value >= 0 ? '#A8AFB5' : '#9AA0A6')}
               />
               <p className="mt-2 text-[11px] text-on-surface-variant">
-                Sotto lo zero = anni di rientro dell&apos;investimento
-                {paybackYears ? ` (~${paybackYears} anni)` : ''}.
+                Capitale immobilizzato e in rosso per
+                {paybackYears ? ` ~${paybackYears} anni` : ' diversi anni'}.
               </p>
             </div>
 
-            {/* EPC */}
-            <div>
-              <div
-                className="mb-2 inline-flex items-center rounded-full px-3 py-1"
-                style={{ backgroundColor: `${brandColor}20` }}
-              >
+            {/* EPC — opzione consigliata, in evidenza */}
+            <div
+              className="rounded-2xl p-4 ring-2 md:p-5"
+              style={{
+                backgroundColor: `${brandColor}0A`,
+                boxShadow: `0 0 0 2px ${brandColor}`,
+              }}
+            >
+              <div className="mb-2 flex flex-wrap items-center gap-2">
                 <span
-                  className="text-xs font-semibold"
-                  style={{ color: brandColor }}
+                  className="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold"
+                  style={{ backgroundColor: `${brandColor}20`, color: brandColor }}
                 >
                   EPC {brandName}
+                </span>
+                <span
+                  className="inline-flex items-center rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-white"
+                  style={{ backgroundColor: brandColor }}
+                >
+                  Consigliato
                 </span>
               </div>
               <ul className="mb-4 mt-1.5 space-y-1.5">
                 <ProCon positive color={brandColor}>
-                  Zero spese d&apos;investimento, rischio tecnico su di noi
+                  Zero investimento — rischio tecnico tutto su di noi
                 </ProCon>
                 <ProCon positive color={brandColor}>
-                  In positivo dal primo giorno
+                  Già durante il contratto risparmiate circa il{' '}
+                  <strong>20% sulla bolletta</strong>
                 </ProCon>
-                <ProCon positive={false} color={brandColor}>
-                  Durante il contratto si condivide parte del risparmio
+                <ProCon positive color={brandColor}>
+                  Dopo {CONTRACT_YEARS} anni l&apos;impianto è ceduto a voi:
+                  da lì il risparmio è pieno
                 </ProCon>
               </ul>
               <CashFlowChart
@@ -485,13 +500,15 @@ export function EpcPropositionSection({
                 gMax={gMax}
                 gMin={gMin}
                 baseDelay={6.9}
+                heightClass="h-56"
                 colorFor={(p) =>
-                  p.year <= CONTRACT_YEARS ? `${brandColor}88` : brandColor
+                  p.year <= CONTRACT_YEARS ? `${brandColor}99` : brandColor
                 }
               />
               <p className="mt-2 text-[11px] text-on-surface-variant">
-                Sempre sopra lo zero. Dopo {CONTRACT_YEARS} anni
-                l&apos;impianto è vostro e il risparmio è pieno.
+                Sempre in positivo: ~20% di sconto in bolletta per{' '}
+                {CONTRACT_YEARS} anni, poi l&apos;impianto è vostro e il
+                risparmio diventa pieno.
               </p>
             </div>
           </div>
@@ -524,8 +541,8 @@ export function EpcPropositionSection({
             </p>
             <p className="mt-0.5 text-xs text-on-surface-variant">
               {paybackYears
-                ? `Con l'investimento diretto rientrereste dopo ~${paybackYears} anni. Con l'EPC ${brandName} siete in positivo dal primo giorno — e a fine contratto l'impianto è vostro.`
-                : `Con l'EPC ${brandName} non immobilizzate capitale e a fine contratto l'impianto è vostro.`}
+                ? `Con l'investimento diretto rientrereste dopo ~${paybackYears} anni di capitale in rosso. Con l'EPC ${brandName} non immobilizzate nulla: già durante il contratto risparmiate circa il 20% sulla bolletta e dopo ${CONTRACT_YEARS} anni l'impianto è ceduto a voi.`
+                : `Con l'EPC ${brandName} non immobilizzate capitale: ~20% di risparmio in bolletta durante il contratto e dopo ${CONTRACT_YEARS} anni l'impianto è vostro.`}
             </p>
           </div>
         </div>

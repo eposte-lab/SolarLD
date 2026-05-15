@@ -1,7 +1,6 @@
 import { notFound, redirect } from 'next/navigation';
 
 import { AboutSection } from '@/components/AboutSection';
-import { BehindTheNumbersPanel } from '@/components/BehindTheNumbersPanel';
 import { BollettaSection } from '@/components/BollettaSection';
 import { EditorialHero } from '@/components/EditorialHero';
 import { EmailReplyCta } from '@/components/EmailReplyCta';
@@ -226,107 +225,6 @@ export default async function LeadPage({ params }: PageProps) {
         </p>
       </section>
 
-      {/* ============== Savings hero — RISPARMIO €X/ANNO ============== */}
-      {/* Inquadramento sul RISPARMIO (dato derivato dalla potenza
-          dell'impianto), non sul canone "paghi solo X": non conosciamo
-          la bolletta reale del cliente, quindi non promettiamo una cifra
-          che fingeremmo di sapere. Card compatta. */}
-      {(() => {
-        const savings =
-          roi.realistic_yearly_savings_eur ?? roi.yearly_savings_eur ?? null;
-        if (!savings || savings <= 0) return null;
-        const epc = !!tenant?.epc_enabled;
-
-        return (
-          <section className="mx-auto max-w-6xl px-6 pt-2 pb-4">
-            <div
-              className="relative overflow-hidden rounded-3xl p-6 md:p-8"
-              style={{
-                background: `linear-gradient(135deg, ${brandColor}18 0%, ${brandColor}06 60%, transparent 100%)`,
-                border: `1.5px solid ${brandColor}30`,
-              }}
-            >
-              <span
-                aria-hidden
-                className="absolute -right-12 -top-12 h-40 w-40 rounded-full"
-                style={{
-                  background: `radial-gradient(circle, ${brandColor}25 0%, transparent 70%)`,
-                  animation: 'pulseGlow 3s ease-in-out infinite',
-                }}
-              />
-              <style>{`
-                @keyframes pulseGlow {
-                  0%, 100% { transform: scale(1); opacity: 0.6; }
-                  50%      { transform: scale(1.15); opacity: 1; }
-                }
-                @keyframes savingsFadeUp {
-                  from { opacity: 0; transform: translateY(20px); }
-                  to   { opacity: 1; transform: translateY(0); }
-                }
-                .savings-amount    { animation: savingsFadeUp 0.7s cubic-bezier(.22,1,.36,1) 0.1s both; }
-                .savings-tagline   { animation: savingsFadeUp 0.6s cubic-bezier(.22,1,.36,1) 0.3s both; }
-                .savings-cumulative{ animation: savingsFadeUp 0.6s cubic-bezier(.22,1,.36,1) 0.5s both; }
-              `}</style>
-
-              <p
-                className="text-xs font-bold uppercase tracking-widest"
-                style={{ color: brandColor }}
-              >
-                Risparmio di spese energetiche
-              </p>
-              <p
-                className="savings-amount mt-2 font-headline text-5xl font-bold leading-none tracking-tightest md:text-6xl"
-                style={{ color: brandColor }}
-              >
-                € {savings.toLocaleString('it-IT')}
-                <span className="ml-2 text-xl font-medium text-on-surface-variant md:text-2xl">
-                  /anno
-                </span>
-              </p>
-              <p className="savings-tagline mt-3 max-w-2xl text-sm text-on-surface md:text-base">
-                {epc ? (
-                  <>
-                    Risparmio stimato sulla potenza dell&apos;impianto
-                    installabile. Con il modello EPC <strong>{tenantName}</strong>{' '}
-                    non investite nulla: l&apos;impianto è nostro e a fine
-                    contratto diventa vostro.
-                  </>
-                ) : (
-                  <>
-                    Risparmio stimato sulla potenza dell&apos;impianto
-                    installabile. Sono spese energetiche che{' '}
-                    <strong>non escono più</strong> dalla cassa.
-                  </>
-                )}
-              </p>
-              <div className="savings-cumulative mt-5 inline-flex items-center rounded-full bg-surface-container-lowest px-4 py-2.5 ring-1 ring-on-surface/5">
-                <p className="text-sm text-on-surface">
-                  In 25 anni{' '}
-                  <strong
-                    className="font-headline text-base font-bold"
-                    style={{ color: brandColor }}
-                  >
-                    € {Math.round(savings * 25).toLocaleString('it-IT')}
-                  </strong>{' '}
-                  di spese energetiche risparmiate
-                </p>
-              </div>
-            </div>
-          </section>
-        );
-      })()}
-
-      {/* ============== "Dietro i numeri" — calcolo trasparente ========== */}
-      <BehindTheNumbersPanel
-        brandColor={brandColor}
-        productionKwh={roi.yearly_kwh ?? null}
-        consumptionKwh={roi.estimated_consumption_kwh ?? null}
-        consumptionMethod={roi.consumption_estimate_method ?? null}
-        selfKwh={(roi as Record<string, unknown>).realistic_self_kwh as number | null | undefined}
-        exportKwh={(roi as Record<string, unknown>).realistic_export_kwh as number | null | undefined}
-        totalSavingsEur={roi.realistic_yearly_savings_eur ?? roi.yearly_savings_eur ?? null}
-      />
-
       {/* ============== EPC commercial proposition (optional) ========== */}
       {tenant?.epc_enabled && roi?.gross_capex_eur ? (
         <EpcPropositionSection
@@ -348,6 +246,8 @@ export default async function LeadPage({ params }: PageProps) {
         <section className="mx-auto max-w-6xl px-6 py-6">
           <AboutSection
             businessName={tenantName}
+            brandLogoUrl={tenant.brand_logo_url}
+            brandColor={brandColor}
             tagline={tenant.about_tagline}
             aboutMd={tenant.about_md}
             yearFounded={tenant.about_year_founded}
