@@ -122,6 +122,9 @@ export function SavingsComparePanel({
     const epcBill = Math.max(0, bill - epcSaving);
     const saving10y = epcSaving * EPC_CONTRACT_YEARS;
     const pctOff = bill > 0 ? Math.round((epcSaving / bill) * 100) : 0;
+    // Il confronto "oggi paghi / con l'EPC" si mostra a importo mensile.
+    const billMonthly = bill / 12;
+    const epcBillMonthly = epcBill / 12;
 
     return (
       <section
@@ -147,9 +150,9 @@ export function SavingsComparePanel({
               Oggi paghi
             </p>
             <p className="mt-2 font-headline text-3xl font-bold tracking-tightest text-on-surface md:text-4xl">
-              {formatEuro(bill)}
+              {formatEuro(billMonthly)}
               <span className="ml-1 text-sm font-medium text-on-surface-variant">
-                /anno
+                /mese
               </span>
             </p>
           </div>
@@ -197,9 +200,9 @@ export function SavingsComparePanel({
               className="mt-2 font-headline text-3xl font-bold tracking-tightest md:text-4xl"
               style={{ color: brandColor }}
             >
-              {formatEuro(epcBill)}
+              {formatEuro(epcBillMonthly)}
               <span className="ml-1 text-sm font-medium text-on-surface-variant">
-                /anno
+                /mese
               </span>
             </p>
           </div>
