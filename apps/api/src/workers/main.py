@@ -425,6 +425,8 @@ async def hunter_funnel_v3_task(_ctx: dict[str, Any], payload: dict[str, Any]) -
         scan_job_id=scan_job_id,
         max_l1_candidates=payload.get("max_l1_candidates"),
     )
+    summary: dict[str, Any] = {}
+    crash_exc: Exception | None = None
     try:
         config = await get_tenant_config(tenant_id)
         summary = await run_funnel_v3(
@@ -434,6 +436,7 @@ async def hunter_funnel_v3_task(_ctx: dict[str, Any], payload: dict[str, Any]) -
             max_l1_candidates=int(payload.get("max_l1_candidates") or 2000),
         )
     except Exception as exc:
+        crash_exc = exc
         log.error(
             "hunter_funnel_v3_task.crash",
             tenant_id=tenant_id,
@@ -441,73 +444,87 @@ async def hunter_funnel_v3_task(_ctx: dict[str, Any], payload: dict[str, Any]) -
             err_type=type(exc).__name__,
             err_msg=str(exc)[:500],
         )
-        # Mark the job with the error and re-raise
-        if scan_job_id:
-            try:
-                sb = get_service_client()
-                sb.table("scan_jobs").update({"last_error": str(exc)[:500]}).eq(
-                    "id", scan_job_id
-                ).execute()
-            except Exception:  # noqa: BLE001
-                pass
-        raise
 
     # ── scan_jobs cap tracking + state machine ──────────────────────
+    # Eseguito SEMPRE, anche dopo un crash: lo scan_job non deve mai
+    # restare bloccato su uno stato fuorviante. `in_progress` significa
+    # "in esecuzione adesso" (lo imposta il dispatcher all'enqueue); fra
+    # un run e l'altro il job torna a `pending` ("In coda"), così la
+    # label nel dashboard riflette la realtà — il dispatcher ridispaccia
+    # comunque sia i job `pending` che `in_progress`.
     if scan_job_id:
         try:
             from datetime import UTC, datetime
 
             sb = get_service_client()
-            # L6 leads produced (validated, post-promote)
-            l6_count = int((summary.get("stages") or {}).get("l6", {}).get("promoted") or 0)
-            l1_count = int((summary.get("stages") or {}).get("l1", {}).get("candidates") or 0)
-            today = datetime.now(tz=UTC).date().isoformat()
+            now_iso = datetime.now(tz=UTC).isoformat()
 
-            cur_res = (
-                sb.table("scan_jobs")
-                .select(
-                    "daily_validated_cap, valid_leads_today, valid_leads_today_date, valid_leads_total, candidates_scanned_total, always_active"
-                )
-                .eq("id", scan_job_id)
-                .limit(1)
-                .maybe_single()
-                .execute()
-            )
-            cur = (cur_res.data or {}) if cur_res else {}
-            cap = int(cur.get("daily_validated_cap") or 200)
-            # Reset midnight se necessario
-            same_day = cur.get("valid_leads_today_date") == today
-            prev_today = int(cur.get("valid_leads_today") or 0) if same_day else 0
-            new_today = prev_today + l6_count
-            new_total = int(cur.get("valid_leads_total") or 0) + l6_count
-            new_scanned = int(cur.get("candidates_scanned_total") or 0) + l1_count
-
-            # Decide next status
-            if l1_count == 0:
-                # Territorio esaurito: restart se always_active, altrimenti stop
-                next_status = "pending" if cur.get("always_active") else "exhausted"
-            elif new_today >= cap:
-                next_status = "paused_daily_cap"
+            if crash_exc is not None:
+                # Crash: registra l'errore e riporta il job a `pending`
+                # così viene ridispacciato senza restare "In corso".
+                sb.table("scan_jobs").update(
+                    {
+                        "status": "pending",
+                        "last_error": str(crash_exc)[:500],
+                        "last_run_at": now_iso,
+                    }
+                ).eq("id", scan_job_id).execute()
             else:
-                next_status = "in_progress"
+                # L6 leads produced (validated, post-promote)
+                l6_count = int((summary.get("stages") or {}).get("l6", {}).get("promoted") or 0)
+                l1_count = int((summary.get("stages") or {}).get("l1", {}).get("candidates") or 0)
+                today = datetime.now(tz=UTC).date().isoformat()
 
-            sb.table("scan_jobs").update(
-                {
-                    "valid_leads_today": new_today,
-                    "valid_leads_today_date": today,
-                    "valid_leads_total": new_total,
-                    "candidates_scanned_total": new_scanned,
-                    "status": next_status,
-                    "last_run_at": datetime.now(tz=UTC).isoformat(),
-                    "last_error": None,
-                }
-            ).eq("id", scan_job_id).execute()
+                cur_res = (
+                    sb.table("scan_jobs")
+                    .select(
+                        "daily_validated_cap, valid_leads_today, valid_leads_today_date, valid_leads_total, candidates_scanned_total, always_active"
+                    )
+                    .eq("id", scan_job_id)
+                    .limit(1)
+                    .maybe_single()
+                    .execute()
+                )
+                cur = (cur_res.data or {}) if cur_res else {}
+                cap = int(cur.get("daily_validated_cap") or 200)
+                # Reset midnight se necessario
+                same_day = cur.get("valid_leads_today_date") == today
+                prev_today = int(cur.get("valid_leads_today") or 0) if same_day else 0
+                new_today = prev_today + l6_count
+                new_total = int(cur.get("valid_leads_total") or 0) + l6_count
+                new_scanned = int(cur.get("candidates_scanned_total") or 0) + l1_count
+
+                # Decide next status. Il run è terminato: il job non è
+                # più "in esecuzione", quindi mai `in_progress` qui.
+                if l1_count == 0:
+                    # Territorio esaurito: restart se always_active, altrimenti stop
+                    next_status = "pending" if cur.get("always_active") else "exhausted"
+                elif new_today >= cap:
+                    next_status = "paused_daily_cap"
+                else:
+                    # Territorio ancora da scansionare: torna in coda.
+                    next_status = "pending"
+
+                sb.table("scan_jobs").update(
+                    {
+                        "valid_leads_today": new_today,
+                        "valid_leads_today_date": today,
+                        "valid_leads_total": new_total,
+                        "candidates_scanned_total": new_scanned,
+                        "status": next_status,
+                        "last_run_at": now_iso,
+                        "last_error": None,
+                    }
+                ).eq("id", scan_job_id).execute()
         except Exception as exc:  # noqa: BLE001
             log.warning(
                 "hunter_funnel_v3_task.scan_job_update_failed",
                 scan_job_id=scan_job_id,
                 err=str(exc)[:200],
             )
+
+    if crash_exc is not None:
+        raise crash_exc
 
     log.error(
         "hunter_funnel_v3_task.done",
