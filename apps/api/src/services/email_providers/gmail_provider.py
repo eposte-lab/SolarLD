@@ -364,6 +364,26 @@ def _build_mime_raw(data: SendEmailInput) -> str:
     msg.set_content(text_body, subtype="plain", charset="utf-8")
     if data.html:
         msg.add_alternative(data.html, subtype="html")
+        # Inline (CID) attachments: nest them under the HTML part as a
+        # multipart/related so clients render them embedded.
+        if data.attachments:
+            html_part = msg.get_payload()[-1]
+            for att in data.attachments:
+                raw = base64.b64decode(att.content_b64)
+                maintype, _, subtype = att.content_type.partition("/")
+                html_part.add_related(
+                    raw,
+                    maintype or "image",
+                    subtype or "png",
+                    filename=att.filename,
+                )
+                related = html_part.get_payload()[-1]
+                if att.content_id:
+                    related["Content-ID"] = f"<{att.content_id}>"
+                    if related.get("Content-Disposition"):
+                        related.replace_header("Content-Disposition", "inline")
+                    else:
+                        related["Content-Disposition"] = "inline"
 
     raw_bytes = msg.as_bytes()
     return base64.urlsafe_b64encode(raw_bytes).decode("ascii")

@@ -13,6 +13,7 @@ import hmac
 import pytest
 
 from src.services.resend_service import (
+    EmailAttachment,
     ResendError,
     SendEmailInput,
     build_send_payload,
@@ -77,6 +78,43 @@ def test_build_send_payload_includes_text_and_headers() -> None:
     assert body["text"] == "plain"
     assert body["reply_to"] == "support@y.it"
     assert body["headers"] == {"X-Campaign": "spring"}
+
+
+def test_build_send_payload_inline_cid_attachment() -> None:
+    """Inline render attachment carries content_id so the HTML can
+    reference it as cid: — this is what makes Outlook show it without
+    the 'download pictures' prompt."""
+    body = build_send_payload(
+        SendEmailInput(
+            from_address="x@y.it",
+            to=["a@b.com"],
+            subject="s",
+            html='<img src="cid:lead-render">',
+            attachments=[
+                EmailAttachment(
+                    filename="impianto.png",
+                    content_b64="aGVsbG8=",
+                    content_type="image/png",
+                    content_id="lead-render",
+                )
+            ],
+        )
+    )
+    assert body["attachments"] == [
+        {
+            "filename": "impianto.png",
+            "content": "aGVsbG8=",
+            "content_type": "image/png",
+            "content_id": "lead-render",
+        }
+    ]
+
+
+def test_build_send_payload_omits_attachments_when_none() -> None:
+    body = build_send_payload(
+        SendEmailInput(from_address="x@y.it", to=["a@b.com"], subject="s", html="<p/>")
+    )
+    assert "attachments" not in body
 
 
 # ---------------------------------------------------------------------------
