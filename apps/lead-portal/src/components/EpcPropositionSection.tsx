@@ -310,17 +310,13 @@ export function EpcPropositionSection({
         .epc-playing .epc-scribble path { stroke-dasharray: 600; animation: epcScribble 0.9s cubic-bezier(.4,0,.2,1) 2.2s both; }
         .epc-playing .epc-zero     { animation: epcPop 0.8s cubic-bezier(.34,1.4,.5,1) 3.1s both; }
         .epc-playing .epc-b0       { animation: epcFadeUp 0.7s cubic-bezier(.22,1,.36,1) 4.0s both; }
-        .epc-playing .epc-b1       { animation: epcFadeUp 0.7s cubic-bezier(.22,1,.36,1) 4.25s both; }
-        .epc-playing .epc-b2       { animation: epcFadeUp 0.7s cubic-bezier(.22,1,.36,1) 4.5s both; }
-        .epc-playing .epc-tl0      { animation: epcFadeUp 0.6s cubic-bezier(.22,1,.36,1) 5.2s both; }
-        .epc-playing .epc-tl1      { animation: epcFadeUp 0.6s cubic-bezier(.22,1,.36,1) 5.45s both; }
-        .epc-playing .epc-tl2      { animation: epcFadeUp 0.6s cubic-bezier(.22,1,.36,1) 5.7s both; }
-        .epc-playing .epc-compare  { animation: epcFadeUp 0.7s cubic-bezier(.22,1,.36,1) 6.4s both; }
+        .epc-playing .epc-b1       { animation: epcFadeUp 0.7s cubic-bezier(.22,1,.36,1) 4.3s both; }
+        .epc-playing .epc-b2       { animation: epcFadeUp 0.7s cubic-bezier(.22,1,.36,1) 4.6s both; }
+        .epc-playing .epc-compare  { animation: epcFadeUp 0.7s cubic-bezier(.22,1,.36,1) 5.3s both; }
         .epc-playing .epc-cfbar-up   { animation: epcGrowUp 0.75s cubic-bezier(.22,1,.36,1) both; }
         .epc-playing .epc-cfbar-down { animation: epcGrowDown 0.75s cubic-bezier(.22,1,.36,1) both; }
-        .epc-playing .epc-gift     { animation: epcPop 0.8s cubic-bezier(.34,1.4,.5,1) 9.6s both; }
-        .epc-playing .epc-callout  { animation: epcFadeUp 0.7s cubic-bezier(.22,1,.36,1) 10.2s both; }
-        .epc-playing .epc-footer   { animation: epcFadeIn 0.6s ease 10.9s both; }
+        .epc-playing .epc-callout  { animation: epcFadeUp 0.7s cubic-bezier(.22,1,.36,1) 8.7s both; }
+        .epc-playing .epc-footer   { animation: epcFadeIn 0.6s ease 9.4s both; }
 
         @media (prefers-reduced-motion: reduce) {
           .epc-anim, .epc-cfbar { opacity: 1 !important; transform: none !important; }
@@ -443,42 +439,6 @@ export function EpcPropositionSection({
         />
       </div>
 
-      {/* PERCORSO EPC — timeline 3 tappe */}
-      <div className="mt-8">
-        <p className="text-xs font-bold uppercase tracking-widest text-on-surface-variant">
-          Il tuo percorso EPC
-        </p>
-        <h3 className="mt-1 font-headline text-xl font-semibold tracking-tighter text-on-surface md:text-2xl">
-          Dal primo giorno all&apos;impianto vostro
-        </h3>
-        <div className="mt-5 grid gap-4 md:grid-cols-3">
-          <TimelinePhase
-            className="epc-anim epc-tl0"
-            step="Oggi"
-            icon={<IconZeroInvest size={24} />}
-            title="Firmate. Investite € 0."
-            body={`${brandName} progetta e installa l'impianto a proprie spese. Non tirate fuori un euro e non vi prendete nessun rischio.`}
-            brandColor={brandColor}
-          />
-          <TimelinePhase
-            className="epc-anim epc-tl1"
-            step={`I primi ${CONTRACT_YEARS} anni`}
-            icon={<IconImmediateSaving size={24} />}
-            title="~20% di risparmio, zero pensieri"
-            body="Risparmiate in bolletta da subito. Manutenzione e rischio tecnico restano a carico nostro — per voi nessuno stress."
-            brandColor={brandColor}
-          />
-          <TimelinePhase
-            className="epc-anim epc-tl2"
-            step={`Dal ${CONTRACT_YEARS}° anno`}
-            icon={<IconOwnership size={24} />}
-            title="L'impianto è vostro, per sempre"
-            body="A fine contratto l'impianto viene ceduto alla vostra azienda: da lì il 100% del risparmio resta a voi."
-            brandColor={brandColor}
-          />
-        </div>
-      </div>
-
       {/* CONFRONTO — Investimento diretto vs EPC */}
       {showChart && (
         <div className="epc-anim epc-compare mt-8 rounded-2xl bg-surface-container-lowest p-6 shadow-ambient md:p-8">
@@ -517,7 +477,7 @@ export function EpcPropositionSection({
                 zeroTopPct={zeroTopPct}
                 gMax={gMax}
                 gMin={gMin}
-                baseDelay={7.0}
+                baseDelay={6.0}
                 heightClass="h-40"
                 colorFor={(_p, idx) => DIRECT_BAR_COLORS[idx] ?? '#5E7E2E'}
               />
@@ -567,7 +527,7 @@ export function EpcPropositionSection({
                 zeroTopPct={zeroTopPct}
                 gMax={gMax}
                 gMin={gMin}
-                baseDelay={7.7}
+                baseDelay={6.9}
                 heightClass="h-56"
                 colorFor={(_p, idx) => EPC_BAR_COLORS[idx] ?? '#158A40'}
               />
@@ -601,7 +561,7 @@ export function EpcPropositionSection({
                 target={grossCapexEur}
                 start={played}
                 duration={1500}
-                delayMs={10400}
+                delayMs={8900}
                 style={{ color: brandColor }}
               />
             </p>
@@ -613,33 +573,6 @@ export function EpcPropositionSection({
           </div>
         </div>
       )}
-
-      {/* IL REGALO — valore dell'impianto ceduto a fine contratto */}
-      <div
-        className="epc-anim epc-gift mt-6 rounded-2xl p-6 md:p-7"
-        style={{
-          background: `linear-gradient(135deg, ${brandColor}1A 0%, ${brandColor}08 100%)`,
-          border: `1.5px solid ${brandColor}40`,
-        }}
-      >
-        <p
-          className="text-xs font-bold uppercase tracking-widest"
-          style={{ color: brandColor }}
-        >
-          A fine contratto, in regalo
-        </p>
-        <p className="mt-2 font-headline text-2xl font-bold tracking-tight text-on-surface md:text-3xl">
-          Vi cediamo un impianto da{' '}
-          <span style={{ color: brandColor }}>
-            € {grossCapexEur.toLocaleString('it-IT')}
-          </span>
-        </p>
-        <p className="mt-2 max-w-2xl text-sm text-on-surface-variant">
-          Dopo {CONTRACT_YEARS} anni l&apos;impianto diventa di proprietà
-          della vostra azienda — gratis. Da quel momento il 100% del
-          risparmio resta a voi, per sempre.
-        </p>
-      </div>
 
       {/* FOOTER */}
       <div className="epc-anim epc-footer mt-6 flex items-center gap-3 rounded-xl bg-surface-container-low p-4">
@@ -689,53 +622,6 @@ function BenefitCard({
       >
         {icon}
       </span>
-      <p className="mt-3 font-headline text-base font-semibold tracking-tight text-on-surface">
-        {title}
-      </p>
-      <p className="mt-1.5 text-sm leading-relaxed text-on-surface-variant">
-        {body}
-      </p>
-    </div>
-  );
-}
-
-function TimelinePhase({
-  step,
-  icon,
-  title,
-  body,
-  brandColor,
-  className,
-}: {
-  step: string;
-  icon: React.ReactNode;
-  title: string;
-  body: string;
-  brandColor: string;
-  className?: string;
-}) {
-  return (
-    <div
-      className={`rounded-2xl p-5 ${className ?? ''}`}
-      style={{
-        backgroundColor: `${brandColor}08`,
-        border: `1px solid ${brandColor}20`,
-      }}
-    >
-      <div className="flex items-center gap-2.5">
-        <span
-          className="inline-flex h-10 w-10 items-center justify-center rounded-xl"
-          style={{ backgroundColor: `${brandColor}14`, color: brandColor }}
-        >
-          {icon}
-        </span>
-        <span
-          className="text-[11px] font-bold uppercase tracking-widest"
-          style={{ color: brandColor }}
-        >
-          {step}
-        </span>
-      </div>
       <p className="mt-3 font-headline text-base font-semibold tracking-tight text-on-surface">
         {title}
       </p>
