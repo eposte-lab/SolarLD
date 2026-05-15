@@ -111,9 +111,13 @@ export function SavingsComparePanel({
   // ── Modello EPC ─────────────────────────────────────────────────
   if (epc) {
     const bill = Math.max(0, data.actual_yearly_eur);
-    // Il risparmio EPC è il 20% del VALORE DELL'ENERGIA PRODOTTA
-    // dall'impianto stimato nel dossier — non una % della bolletta.
-    const plantValue = Math.max(0, data.predicted_yearly_savings_eur);
+    // Il risparmio EPC è il 20% del VALORE IN DENARO dell'energia che
+    // l'impianto produce: kWh prodotti × tariffa reale del cliente
+    // (dalla bolletta caricata). Non è una % della bolletta.
+    const plantValue = Math.max(
+      0,
+      data.predicted_yearly_kwh * data.actual_tariff_eur_per_kwh,
+    );
     const epcSaving = plantValue * EPC_CLIENT_SHARE;
     const epcBill = Math.max(0, bill - epcSaving);
     const saving10y = epcSaving * EPC_CONTRACT_YEARS;
