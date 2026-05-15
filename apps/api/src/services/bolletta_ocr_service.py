@@ -274,15 +274,15 @@ def parse_ocr_response(text: str) -> dict[str, Any] | None:
     except (TypeError, ValueError):
         return None
 
-    # Clamp to plausible Italian-residential ranges. A villa uses
-    # ~6000 kWh/yr and pays ~€2500; a small business ~30k kWh /
-    # ~€8k. We refuse values that are clearly wrong (negative,
-    # > 250k kWh, > 100k€) — Claude is told to lower confidence
-    # when uncertain, but bad-faith inputs (a meme image instead
-    # of a bill) can still slip a "10000000" through.
-    if not (0 <= kwh <= 250_000):
+    # Clamp to plausible ranges. Il target del prodotto sono clienti
+    # INDUSTRIALI (capannoni, industria pesante) con consumi anche di
+    # 1-2 GWh/anno e bollette da centinaia di migliaia di euro: le
+    # vecchie soglie residenziali (250k kWh / 100k€) scartavano
+    # bollette industriali legittime. Soglie alzate per coprire grandi
+    # consumatori; oltre questi limiti è quasi certamente un errore OCR.
+    if not (0 <= kwh <= 10_000_000):
         return None
-    if not (0 <= eur <= 100_000):
+    if not (0 <= eur <= 2_000_000):
         return None
     if not (1 <= months <= 12):
         return None

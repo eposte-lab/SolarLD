@@ -8,9 +8,10 @@
  * BillUploadCard sits above and triggers the re-fetch.
  *
  * Due modalità:
- *   * `epc` → modello EPC: la bolletta caricata diventa il punto di
- *     partenza. "Oggi paghi €X → con l'EPC €Y (−20%), e dopo 10 anni
- *     l'impianto è tuo". Niente payback (l'EPC è a investimento zero).
+ *   * `epc` → modello EPC: "Oggi paghi €X" (dalla bolletta) → "con
+ *     l'EPC €Y". Il risparmio è il 20% del valore dell'energia
+ *     prodotta dall'impianto stimato nel dossier (non una % della
+ *     bolletta). Niente payback (l'EPC è a investimento zero).
  *   * altrimenti → confronto stima vs bolletta reale (modello classico
  *     "compri tu l'impianto").
  *
@@ -30,8 +31,11 @@ type Props = {
   epc?: boolean;
 };
 
-/** Quota di bolletta che il cliente risparmia durante il contratto EPC. */
-const EPC_BILL_SAVING_PCT = 0.2;
+/** Quota dell'energia PRODOTTA dall'impianto che diventa risparmio del
+ *  cliente durante il contratto EPC. Il 20% si calcola sul valore di
+ *  quanto produce l'impianto (stima del dossier), non sulla bolletta:
+ *  se l'impianto produce €1.000/mese di energia, €200/mese di risparmio. */
+const EPC_CLIENT_SHARE = 0.2;
 /** Durata del contratto EPC prima della cessione dell'impianto. */
 const EPC_CONTRACT_YEARS = 10;
 
@@ -107,9 +111,13 @@ export function SavingsComparePanel({
   // ── Modello EPC ─────────────────────────────────────────────────
   if (epc) {
     const bill = Math.max(0, data.actual_yearly_eur);
-    const epcBill = bill * (1 - EPC_BILL_SAVING_PCT);
-    const epcSaving = bill * EPC_BILL_SAVING_PCT;
+    // Il risparmio EPC è il 20% del VALORE DELL'ENERGIA PRODOTTA
+    // dall'impianto stimato nel dossier — non una % della bolletta.
+    const plantValue = Math.max(0, data.predicted_yearly_savings_eur);
+    const epcSaving = plantValue * EPC_CLIENT_SHARE;
+    const epcBill = Math.max(0, bill - epcSaving);
     const saving10y = epcSaving * EPC_CONTRACT_YEARS;
+    const pctOff = bill > 0 ? Math.round((epcSaving / bill) * 100) : 0;
 
     return (
       <section
@@ -124,7 +132,8 @@ export function SavingsComparePanel({
           Quanto risparmi con l&apos;EPC {brandName}
         </h2>
         <p className="mt-2 text-sm text-on-surface-variant">
-          Calcolato sulla bolletta che hai caricato.
+          La bolletta caricata è il punto di partenza; il risparmio è il
+          20% dell&apos;energia prodotta dall&apos;impianto stimato.
         </p>
 
         {/* Oggi → con l'EPC */}
@@ -171,12 +180,14 @@ export function SavingsComparePanel({
               >
                 Con l&apos;EPC paghi
               </p>
-              <span
-                className="rounded-full px-2 py-0.5 text-[10px] font-bold text-white"
-                style={{ backgroundColor: brandColor }}
-              >
-                −20%
-              </span>
+              {pctOff > 0 ? (
+                <span
+                  className="rounded-full px-2 py-0.5 text-[10px] font-bold text-white"
+                  style={{ backgroundColor: brandColor }}
+                >
+                  −{pctOff}%
+                </span>
+              ) : null}
             </div>
             <p
               className="mt-2 font-headline text-3xl font-bold tracking-tightest md:text-4xl"
@@ -203,7 +214,8 @@ export function SavingsComparePanel({
             <strong style={{ color: brandColor }}>
               {formatEuro(epcSaving)}/anno
             </strong>{' '}
-            sulla bolletta, con <strong>zero investimento</strong>. In{' '}
+            in bolletta — il 20% dell&apos;energia prodotta
+            dall&apos;impianto, con <strong>zero investimento</strong>. In{' '}
             {EPC_CONTRACT_YEARS} anni di contratto sono{' '}
             <strong style={{ color: brandColor }}>
               {formatEuro(saving10y)}
