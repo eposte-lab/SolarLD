@@ -2,8 +2,8 @@
 
 Sprint 8 Fase B.2.
 
-Italian utility bills (Enel, ENI Plenitude, A2A, Iren, Acea, Hera,
-Sorgenia, ...) all share a similar header layout: total kWh consumed
+Italian utility bills (Enel, A2A, Iren, Acea, Hera, Sorgenia, Edison,
+...) all share a similar header layout: total kWh consumed
 in the period, total euro charged, billing period dates. The exact
 labels differ ("Consumo annuo stimato" vs "Consumo del periodo" vs
 "Energia utilizzata"), and many bills are scanned as PDF or photo.
@@ -58,8 +58,8 @@ OCR_PROVIDER_TAG = "claude-sonnet-vision"
 SYSTEM_PROMPT = (
     "You are a careful Italian utility-bill data-extraction assistant. "
     "You receive an image (or scanned PDF page) of a luce/gas/elettricità "
-    "bolletta from an Italian provider (Enel, ENI Plenitude, A2A, Iren, "
-    "Acea, Hera, Sorgenia, Edison, etc.). Reply with EXACTLY the JSON "
+    "bolletta from an Italian provider (Enel, A2A, Iren, Acea, Hera, "
+    "Sorgenia, Edison, etc.). Reply with EXACTLY the JSON "
     "object the user describes — no prose, no code fences. If a value "
     "is uncertain, lower the confidence; never invent values."
 )
@@ -79,7 +79,7 @@ Extract the following fields from this Italian utility bill image:
   - billing_period_months: the number of months actually shown on this
     bill (1, 2, 3, 6, or 12 typically).
 
-  - provider_name: e.g. "Enel Energia", "ENI Plenitude", "A2A", or
+  - provider_name: e.g. "Enel Energia", "A2A", "Sorgenia", or
     "unknown".
 
   - confidence: your confidence the extraction is correct, 0.0 to 1.0.
@@ -173,7 +173,7 @@ async def extract_from_image(
             return OcrResult(success=False, error="pdf_unreadable")
         image_bytes = rendered
         mime_type = "image/png"
-        # A 200-DPI A4 PNG of an Enel/ENI bill is typically 3-7 MB; if
+        # A 200-DPI A4 PNG of a utility bill is typically 3-7 MB; if
         # it exceeds the Vision API limit (5 MB) we'd silently fail at
         # the API call. Re-check post-rasterize.
         if len(image_bytes) > _MAX_IMAGE_BYTES:

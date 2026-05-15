@@ -9,10 +9,10 @@
  *     `.epc-playing` abilita le keyframe). Risolve il "sembra statico".
  *   - Timeline distesa ~10s, ritmo calmo.
  *   - Icone line-art personalizzate (`./icons/epc-icons`), zero emoji.
- *   - Confronto a due colonne in stile Plenitude: "Investimento diretto"
- *     (compri tu l'impianto: esborso iniziale → tempo di ritorno) vs
- *     "EPC Total Trade" (zero investimento, positivo dal giorno 1, a
- *     fine contratto l'impianto è tuo).
+ *   - Confronto a due colonne: "Investimento diretto" (compri tu
+ *     l'impianto: esborso iniziale → tempo di ritorno) vs "EPC Total
+ *     Trade" (zero investimento, positivo dal giorno 1, a fine
+ *     contratto l'impianto è tuo).
  *
  * Puro CSS keyframes + RAF. Nessun video, nessuna libreria di animazione.
  */
@@ -38,8 +38,8 @@ type Props = {
 /** Anni di contratto EPC prima della cessione dell'impianto al cliente. */
 const CONTRACT_YEARS = 10;
 /** Quota del risparmio che il cliente trattiene durante il contratto
- *  EPC: ~20% di sconto sulla bolletta fino alla cessione dell'impianto
- *  (il resto remunera Total Trade/Plenitude). Stima tarabile. */
+ *  EPC: ~20% di sconto sulla bolletta fino alla cessione dell'impianto.
+ *  Stima tarabile. */
 const EPC_CLIENT_SHARE = 0.2;
 
 /** Colori delle barre della colonna "Investimento diretto", anno per
@@ -54,6 +54,20 @@ const DIRECT_BAR_COLORS = [
   '#8C9433',
   '#74882F',
   '#5E7E2E',
+];
+
+/** Colori delle barre della colonna "EPC Total Trade": verde acceso —
+ *  l'opzione vincente, sempre in positivo. Sfuma da un verde chiaro
+ *  brillante a un verde pieno. */
+const EPC_BAR_COLORS = [
+  '#5BE08A',
+  '#48D97D',
+  '#36D070',
+  '#27C763',
+  '#1CBD57',
+  '#19AC4F',
+  '#179B47',
+  '#158A40',
 ];
 
 /** Trigger one-shot: `inView` diventa true quando l'elemento entra nel
@@ -515,9 +529,7 @@ export function EpcPropositionSection({
                 gMin={gMin}
                 baseDelay={6.9}
                 heightClass="h-56"
-                colorFor={(p) =>
-                  p.year <= CONTRACT_YEARS ? `${brandColor}99` : brandColor
-                }
+                colorFor={(_p, idx) => EPC_BAR_COLORS[idx] ?? '#158A40'}
               />
               <p className="mt-2 text-[11px] text-on-surface-variant">
                 Sempre in positivo: ~20% di sconto in bolletta per{' '}
