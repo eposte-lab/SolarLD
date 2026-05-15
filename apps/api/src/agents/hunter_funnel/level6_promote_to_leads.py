@@ -206,7 +206,11 @@ async def run_level6_promote_to_leads(
             place_id = sc.get("google_place_id") or ""
 
             # --- Subject: lookup-or-create (idempotent on tenant_id+roof_id) ---
-            existing = (
+            # NB: variabile distinta da `existing` (il conteggio lead usato
+            # dal cap check a riga ~165) — riusare lo stesso nome qui
+            # riassegnava `existing` a un APIResponse e l'iterazione
+            # successiva crashava su `existing + inserted`.
+            existing_subj = (
                 sb.table("subjects")
                 .select("id")
                 .eq("tenant_id", ctx.tenant_id)
@@ -214,8 +218,8 @@ async def run_level6_promote_to_leads(
                 .limit(1)
                 .execute()
             )
-            if existing.data:
-                subject_id = existing.data[0]["id"]
+            if existing_subj.data:
+                subject_id = existing_subj.data[0]["id"]
             else:
                 ateco_codes = sc.get("predicted_ateco_codes") or []
                 primary_ateco = ateco_codes[0] if ateco_codes else None
