@@ -22,6 +22,9 @@ type Props = {
   /** Optional second-line caption — used to clarify ambiguous units
    *  (es. "Potenza installabile: 75 kWp" → caption "≈ 107.590 kWh/anno"). */
   caption?: string | null;
+  /** Quando valorizzato sostituisce il valore numerico con un testo
+   *  libero (es. "€ 0", "Da subito") — per KPI non numerici. */
+  textValue?: string;
 };
 
 export function HeroStat({
@@ -31,15 +34,19 @@ export function HeroStat({
   decimals = 0,
   accentColor = '#1F8F76',
   caption,
+  textValue,
 }: Props) {
+  const useText = typeof textValue === 'string' && textValue.length > 0;
   const isNumeric =
-    value !== null && value !== undefined && !Number.isNaN(value);
-  const formatted = isNumeric
-    ? value!.toLocaleString('it-IT', {
-        minimumFractionDigits: decimals,
-        maximumFractionDigits: decimals,
-      })
-    : '—';
+    !useText && value !== null && value !== undefined && !Number.isNaN(value);
+  const formatted = useText
+    ? textValue
+    : isNumeric
+      ? value!.toLocaleString('it-IT', {
+          minimumFractionDigits: decimals,
+          maximumFractionDigits: decimals,
+        })
+      : '—';
 
   return (
     <div className="bento p-5">
