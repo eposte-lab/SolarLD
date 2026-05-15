@@ -42,6 +42,20 @@ const CONTRACT_YEARS = 10;
  *  (il resto remunera Total Trade/Plenitude). Stima tarabile. */
 const EPC_CLIENT_SHARE = 0.2;
 
+/** Colori delle barre della colonna "Investimento diretto", anno per
+ *  anno [1,3,5,7,10,15,20,25]: primi anni in rosso (sei in perdita),
+ *  poi arancione, infine sfuma a verde man mano che rientri. */
+const DIRECT_BAR_COLORS = [
+  '#DC2626',
+  '#DC2626',
+  '#E0822A',
+  '#E0822A',
+  '#A6A036',
+  '#8C9433',
+  '#74882F',
+  '#5E7E2E',
+];
+
 /** Trigger one-shot: `inView` diventa true quando l'elemento entra nel
  *  viewport, poi l'observer si disconnette. */
 function useInViewOnce<T extends HTMLElement>(): [
@@ -138,7 +152,7 @@ function CashFlowChart({
   zeroTopPct: number;
   gMax: number;
   gMin: number;
-  colorFor: (p: ChartPoint) => string;
+  colorFor: (p: ChartPoint, idx: number) => string;
   baseDelay: number;
   heightClass?: string;
 }) {
@@ -159,7 +173,7 @@ function CashFlowChart({
               : (Math.abs(p.value) / (Math.abs(gMin) || 1)) * (100 - zeroTopPct);
             const barStyle: React.CSSProperties = {
               height: `${Math.max(barPct, 1)}%`,
-              background: colorFor(p),
+              background: colorFor(p, idx),
               animationDelay: `${baseDelay + idx * 0.16}s`,
             };
             if (positive) barStyle.bottom = `${100 - zeroTopPct}%`;
@@ -451,7 +465,7 @@ export function EpcPropositionSection({
                 gMin={gMin}
                 baseDelay={6.0}
                 heightClass="h-40"
-                colorFor={(p) => (p.value >= 0 ? '#A8AFB5' : '#9AA0A6')}
+                colorFor={(_p, idx) => DIRECT_BAR_COLORS[idx] ?? '#5E7E2E'}
               />
               <p className="mt-2 text-[11px] text-on-surface-variant">
                 Capitale immobilizzato e in rosso per
