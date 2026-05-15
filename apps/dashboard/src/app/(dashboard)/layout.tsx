@@ -6,7 +6,6 @@ import { BackButton } from '@/components/ui/back-button';
 import { NavigationProgress } from '@/components/ui/navigation-progress';
 import { NotificationsBell } from '@/components/ui/notifications-bell';
 import { SideNav, type NavSection } from '@/components/ui/side-nav';
-import { getTopHotLead } from '@/lib/data/leads';
 import {
   countUnreadNotifications,
   listRecentNotifications,
@@ -37,6 +36,7 @@ const NAV_SECTIONS: NavSection[] = [
   {
     label: 'Acquisizione',
     items: [
+      { href: '/', label: 'Panoramica', icon: 'dashboard' },
       { href: '/leads', label: 'Lead Attivi', icon: 'leads' },
       { href: '/leads/follow-up', label: 'Follow-up', icon: 'invii' },
       { href: '/contatti', label: 'Contatti', icon: 'contatti' },
@@ -48,7 +48,6 @@ const NAV_SECTIONS: NavSection[] = [
   {
     label: 'Operatività',
     items: [
-      { href: '/', label: 'Panoramica', icon: 'dashboard' },
       { href: '/funnel', label: 'Funnel', icon: 'funnel' },
       { href: '/invii', label: 'Invii', icon: 'invii' },
       { href: '/ab-testing', label: 'Esperimenti A/B', icon: 'experiments' },
@@ -89,20 +88,16 @@ export default async function DashboardLayout({
     }
   }
 
-  // Onboarding gate + notifications + hot-lead hero CTA in parallel.
-  // The wizard check must resolve before rendering (potential redirect);
-  // notifications and hot-lead can fall back gracefully.
+  // Onboarding gate + notifications in parallel. The wizard check must
+  // resolve before rendering (potential redirect); notifications can
+  // fall back gracefully.
   let unread = 0;
   let recent: Awaited<ReturnType<typeof listRecentNotifications>> = [];
-  let hotLead: Awaited<ReturnType<typeof getTopHotLead>> = null;
   const [pending] = await Promise.all([
     isOnboardingPending(ctx.tenant.id),
     Promise.all([countUnreadNotifications(), listRecentNotifications(20)])
       .then(([u, r]) => { unread = u; recent = r; })
       .catch(() => { /* bell degrades gracefully */ }),
-    getTopHotLead()
-      .then((l) => { hotLead = l; })
-      .catch(() => { /* hero CTA degrades to fallback */ }),
   ]);
 
   if (pending) {
@@ -129,7 +124,6 @@ export default async function DashboardLayout({
         sections={visibleSections}
         tenant={{ business_name: ctx.tenant.business_name }}
         user_email={ctx.user_email}
-        hotLead={hotLead}
       />
       <main className="flex-1 px-6 py-8 md:px-10">
         <div className="mx-auto max-w-[1400px]">

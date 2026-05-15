@@ -100,25 +100,12 @@ export interface NavSection {
   items: NavItem[];
 }
 
-export interface HotLeadHero {
-  id: string;
-  display_name: string;
-  engagement_score: number;
-  last_event_at: string | null;
-}
-
 export interface SideNavProps {
   /** Either a flat list (legacy) or grouped sections (preferred). */
   items?: NavItem[];
   sections?: NavSection[];
   tenant: { business_name: string };
   user_email: string | null;
-  /**
-   * Top-engagement lead surfaced as the hero CTA. When null the
-   * sidebar falls back to the legacy "Configura territorio" button
-   * (relevant for fresh tenants with zero portal activity).
-   */
-  hotLead?: HotLeadHero | null;
 }
 
 /**
@@ -179,34 +166,18 @@ function NavLink({ item, active }: { item: NavItem; active: boolean }) {
 }
 
 /**
- * Hero CTA at the top of the sidebar.
- *
- * Single line: just "Lead più caldo" → /leads/{topLeadId}. No emoji,
- * no name, no score in the chrome — keep the rail clean and trust
- * the lead detail page to show the details. Falls back to the
- * legacy "Configura territorio" gradient button when no engagement
- * signal exists yet (fresh tenant).
+ * Hero CTA at the top of the sidebar — apre il flusso di acquisizione
+ * territoriale (/territorio), l'azione primaria dell'operatore.
  */
-function HeroCta({ hotLead }: { hotLead: HotLeadHero | null }) {
-  if (!hotLead) {
-    return (
-      <GradientButton
-        href="/territorio"
-        size="md"
-        className="mb-6 w-full justify-center"
-      >
-        <Plus size={16} strokeWidth={2.25} aria-hidden />
-        Configura territorio
-      </GradientButton>
-    );
-  }
+function HeroCta() {
   return (
     <GradientButton
-      href={`/leads/${hotLead.id}`}
+      href="/territorio"
       size="md"
       className="mb-6 w-full justify-center"
     >
-      Lead più caldo
+      <Plus size={16} strokeWidth={2.25} aria-hidden />
+      Aggiungi territorio
     </GradientButton>
   );
 }
@@ -216,7 +187,6 @@ export function SideNav({
   sections,
   tenant,
   user_email,
-  hotLead,
 }: SideNavProps) {
   const pathname = usePathname() ?? '/';
 
@@ -248,8 +218,8 @@ export function SideNav({
         </div>
       </div>
 
-      {/* Hero CTA — hot lead first, fallback to setup if no engagement yet */}
-      <HeroCta hotLead={hotLead ?? null} />
+      {/* Hero CTA — azione primaria: aggiungi territorio */}
+      <HeroCta />
 
 
       {/* Grouped nav */}
