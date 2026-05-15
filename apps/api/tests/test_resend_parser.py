@@ -112,9 +112,7 @@ def test_build_send_payload_inline_cid_attachment() -> None:
 
 def test_build_send_payload_omits_attachments_when_none() -> None:
     body = build_send_payload(
-        SendEmailInput(
-            from_address="x@y.it", to=["a@b.com"], subject="s", html="<p/>"
-        )
+        SendEmailInput(from_address="x@y.it", to=["a@b.com"], subject="s", html="<p/>")
     )
     assert "attachments" not in body
 
