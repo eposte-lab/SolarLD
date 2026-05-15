@@ -9,6 +9,17 @@
  * azioni rapide (pausa, rilancia, archivia, modifica).
  */
 
+import {
+  AlertTriangle,
+  Archive,
+  GripVertical,
+  Inbox,
+  MapPin,
+  Pause,
+  Play,
+  Repeat,
+  RotateCw,
+} from 'lucide-react';
 import { useState, type DragEvent } from 'react';
 
 import {
@@ -22,14 +33,14 @@ import { relativeTime } from '@/lib/utils';
 
 const STATUS_META: Record<
   ScanJob['status'],
-  { emoji: string; label: string; tone: string }
+  { label: string; tone: string }
 > = {
-  pending: { emoji: '⏳', label: 'in coda', tone: 'bg-surface-container text-on-surface-variant' },
-  in_progress: { emoji: '🟢', label: 'in corso', tone: 'bg-primary-container text-on-primary-container' },
-  paused: { emoji: '⏸', label: 'in pausa', tone: 'bg-amber-100 text-amber-900' },
-  paused_daily_cap: { emoji: '🟡', label: 'cap giornaliero', tone: 'bg-amber-100 text-amber-900' },
-  exhausted: { emoji: '✅', label: 'esaurita', tone: 'bg-tertiary-container text-on-tertiary-container' },
-  archived: { emoji: '📦', label: 'archiviata', tone: 'bg-surface-container text-on-surface-variant' },
+  pending: { label: 'In coda', tone: 'bg-surface-container text-on-surface-variant' },
+  in_progress: { label: 'In corso', tone: 'bg-primary-container text-on-primary-container' },
+  paused: { label: 'In pausa', tone: 'bg-amber-100 text-amber-900' },
+  paused_daily_cap: { label: 'Cap giornaliero', tone: 'bg-amber-100 text-amber-900' },
+  exhausted: { label: 'Esaurita', tone: 'bg-tertiary-container text-on-tertiary-container' },
+  archived: { label: 'Archiviata', tone: 'bg-surface-container text-on-surface-variant' },
 };
 
 type Props = {
@@ -111,7 +122,12 @@ export function ScanJobsQueue({ jobs, onMutate }: Props) {
   if (jobs.length === 0) {
     return (
       <div className="rounded-2xl bg-surface-container-low p-12 text-center ring-1 ring-on-surface/5">
-        <p className="text-2xl" aria-hidden>🗂️</p>
+        <Inbox
+          size={28}
+          strokeWidth={1.75}
+          className="mx-auto text-on-surface-variant"
+          aria-hidden
+        />
         <p className="mt-3 font-headline text-base font-semibold text-on-surface">
           Nessuna scansione ancora
         </p>
@@ -125,8 +141,8 @@ export function ScanJobsQueue({ jobs, onMutate }: Props) {
   return (
     <div className="space-y-3">
       {error && (
-        <p className="rounded-md bg-error-container px-3 py-2 text-xs text-on-error-container">
-          ⚠ {error}
+        <p className="flex items-center gap-1.5 rounded-md bg-error-container px-3 py-2 text-xs text-on-error-container">
+          <AlertTriangle size={13} strokeWidth={2} aria-hidden /> {error}
         </p>
       )}
       <ul className="space-y-2">
@@ -148,27 +164,40 @@ export function ScanJobsQueue({ jobs, onMutate }: Props) {
                   className="mt-1 cursor-grab text-on-surface-variant hover:text-on-surface active:cursor-grabbing"
                   aria-label="Trascina per riordinare"
                 >
-                  ⋮⋮
+                  <GripVertical size={16} strokeWidth={2} aria-hidden />
                 </span>
                 <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-baseline gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <h4 className="truncate font-headline text-base font-semibold tracking-tight text-on-surface">
                       {job.name}
                     </h4>
-                    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest ${meta.tone}`}>
-                      <span aria-hidden>{meta.emoji}</span> {meta.label}
+                    <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest ${meta.tone}`}>
+                      <span
+                        className="h-1.5 w-1.5 rounded-full bg-current opacity-70"
+                        aria-hidden
+                      />
+                      {meta.label}
                     </span>
                     {job.always_active && (
-                      <span className="rounded-full bg-secondary-container px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest text-on-secondary-container">
-                        ♾ sempre attivo
+                      <span className="inline-flex items-center gap-1 rounded-full bg-secondary-container px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest text-on-secondary-container">
+                        <Repeat size={10} strokeWidth={2.25} aria-hidden />
+                        Sempre attivo
                       </span>
                     )}
                   </div>
-                  <p className="mt-0.5 text-xs text-on-surface-variant">
-                    🗺️ {territoryLabel(job) || '—'} ·{' '}
-                    {job.sector_filters.length === 0
-                      ? 'tutti i settori'
-                      : job.sector_filters.map((s) => SECTOR_LABELS[s] ?? s).join(', ')}
+                  <p className="mt-1 flex items-start gap-1.5 text-xs text-on-surface-variant">
+                    <MapPin
+                      size={13}
+                      strokeWidth={2}
+                      className="mt-px shrink-0"
+                      aria-hidden
+                    />
+                    <span>
+                      {territoryLabel(job) || '—'} ·{' '}
+                      {job.sector_filters.length === 0
+                        ? 'tutti i settori'
+                        : job.sector_filters.map((s) => SECTOR_LABELS[s] ?? s).join(', ')}
+                    </span>
                   </p>
 
                   {/* Progress bar daily cap */}
@@ -191,35 +220,48 @@ export function ScanJobsQueue({ jobs, onMutate }: Props) {
                   </div>
 
                   {job.last_error && (
-                    <p className="mt-2 truncate text-[11px] text-error" title={job.last_error}>
-                      ⚠ {job.last_error}
+                    <p className="mt-2 flex items-center gap-1 truncate text-[11px] text-error" title={job.last_error}>
+                      <AlertTriangle size={12} strokeWidth={2} className="shrink-0" aria-hidden />
+                      {job.last_error}
                     </p>
                   )}
 
-                  <div className="mt-2.5 flex flex-wrap gap-1.5">
+                  <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
                     {job.status === 'exhausted' ? (
                       <button
                         type="button"
                         onClick={() => relaunch(job)}
-                        className="rounded-full bg-primary px-2.5 py-1 text-[10px] font-semibold uppercase tracking-widest text-on-primary hover:opacity-90"
+                        className="inline-flex items-center gap-1 rounded-full bg-primary px-2.5 py-1 text-[10px] font-semibold uppercase tracking-widest text-on-primary hover:opacity-90"
                       >
-                        ↻ Rilancia
+                        <RotateCw size={11} strokeWidth={2.25} aria-hidden />
+                        Rilancia
                       </button>
                     ) : (
                       <button
                         type="button"
                         onClick={() => togglePause(job)}
-                        className="rounded-full bg-surface-container px-2.5 py-1 text-[10px] font-semibold uppercase tracking-widest text-on-surface hover:bg-surface-container-high"
+                        className="inline-flex items-center gap-1 rounded-full bg-surface-container px-2.5 py-1 text-[10px] font-semibold uppercase tracking-widest text-on-surface hover:bg-surface-container-high"
                       >
-                        {job.status === 'paused' ? '▶ Riprendi' : '⏸ Pausa'}
+                        {job.status === 'paused' ? (
+                          <>
+                            <Play size={11} strokeWidth={2.25} aria-hidden />
+                            Riprendi
+                          </>
+                        ) : (
+                          <>
+                            <Pause size={11} strokeWidth={2.25} aria-hidden />
+                            Pausa
+                          </>
+                        )}
                       </button>
                     )}
                     <button
                       type="button"
                       onClick={() => archive(job)}
-                      className="rounded-full bg-surface-container px-2.5 py-1 text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant hover:bg-error-container hover:text-on-error-container"
+                      className="inline-flex items-center gap-1 rounded-full bg-surface-container px-2.5 py-1 text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant hover:bg-error-container hover:text-on-error-container"
                     >
-                      📦 Archivia
+                      <Archive size={11} strokeWidth={2.25} aria-hidden />
+                      Archivia
                     </button>
                     {job.last_run_at && (
                       <span className="ml-auto text-[10px] text-on-surface-variant">
