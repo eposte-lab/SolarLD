@@ -9,12 +9,12 @@
  * BillUploadCard sits above and triggers the re-fetch.
  *
  * Visual logic:
- *   * Prominent savings hero: "Con il solare paghi X€/anno invece di
- *     Y€/anno" — the number the lead reads first.
+ *   * Prominent savings hero: "Con il fotovoltaico risparmi X€/anno" —
+ *     il risparmio è limitato lato backend (l'autoconsumo non supera il
+ *     consumo reale, taglio bolletta ≤ 70%) così non promettiamo mai
+ *     una bolletta azzerata.
  *   * "Stima {brandName}" column (left)  — predicted_yearly_kwh + savings
  *   * Bolletta reale column (right) — actual_yearly_kwh + €/kWh tariff
- *   * Amber delta badge when actual_savings > predicted (tariff above
- *     market average → faster payback).
  *
  * The parent page passes a ``refreshKey`` that bumps each time
  * BillUploadCard.onSaved fires, forcing this panel to re-fetch.
@@ -94,18 +94,6 @@ export function SavingsComparePanel({ slug, refreshKey, brandColor, brandName = 
     return null;
   }
 
-  // "Con il solare paghi X€/anno invece di Y€/anno"
-  const netYearlyCost = Math.max(0, data.actual_yearly_eur - data.actual_yearly_savings_eur);
-  const savingsPct =
-    data.actual_yearly_eur > 0
-      ? Math.round(((data.actual_yearly_eur - netYearlyCost) / data.actual_yearly_eur) * 100)
-      : 0;
-
-  // Amber if actual beats prediction by ≥10% — the pitch is "your
-  // tariff is above market average, the rooftop pays back faster".
-  const beatsForecast = data.delta_pct >= 10;
-  const deltaColor = beatsForecast ? '#F59E0B' : brandColor;
-
   return (
     <section
       className="bento-glass p-6 md:p-8"
@@ -125,33 +113,21 @@ export function SavingsComparePanel({ slug, refreshKey, brandColor, brandName = 
         style={{ backgroundColor: `${brandColor}10`, border: `1.5px solid ${brandColor}30` }}
       >
         <p className="text-sm font-medium text-on-surface-variant">
-          Con il fotovoltaico, la tua spesa energetica scende a
+          Con il fotovoltaico risparmi
         </p>
         <div className="mt-2 flex flex-wrap items-end gap-3">
           <span
             className="font-headline text-5xl font-bold tracking-tightest md:text-6xl"
             style={{ color: brandColor }}
           >
-            {formatEuro(netYearlyCost)}
+            {formatEuro(data.actual_yearly_savings_eur)}
           </span>
           <span className="mb-1 text-base font-medium text-on-surface-variant">/anno</span>
         </div>
-        <div className="mt-2 flex items-center gap-2 text-sm text-on-surface-variant">
-          <span className="line-through opacity-60">
-            invece di {formatEuro(data.actual_yearly_eur)}/anno
-          </span>
-          {savingsPct > 0 && (
-            <span
-              className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-bold text-white"
-              style={{ backgroundColor: brandColor }}
-            >
-              −{savingsPct}%
-            </span>
-          )}
-        </div>
         <p className="mt-3 text-xs text-on-surface-variant">
-          Risparmio annuo stimato: <strong>{formatEuro(data.actual_yearly_savings_eur)}</strong> ·
-          Rientro reale: <strong>{formatYears(data.actual_payback_years)}</strong>
+          Sulla tua bolletta attuale di{' '}
+          <strong>{formatEuro(data.actual_yearly_eur)}/anno</strong> · Rientro
+          reale: <strong>{formatYears(data.actual_payback_years)}</strong>
         </p>
       </div>
 
@@ -209,29 +185,6 @@ export function SavingsComparePanel({ slug, refreshKey, brandColor, brandName = 
         </div>
       </div>
 
-      {/* ── Delta badge ───────────────────────────────────────── */}
-      {beatsForecast && (
-        <div
-          className="mt-5 flex flex-wrap items-center gap-3 rounded-2xl px-5 py-4"
-          style={{ backgroundColor: `${deltaColor}15` }}
-        >
-          <span
-            className="inline-flex h-9 w-9 items-center justify-center rounded-full text-sm font-bold text-white"
-            style={{ backgroundColor: deltaColor }}
-            aria-hidden
-          >
-            +{Math.round(data.delta_pct)}%
-          </span>
-          <div className="flex-1">
-            <p className="font-headline text-base font-semibold text-on-surface">
-              La tua tariffa è sopra la media: il tetto rientra prima del previsto
-            </p>
-            <p className="text-sm text-on-surface-variant">
-              Risparmio extra rispetto alla stima: {formatEuro(Math.abs(data.delta_savings_eur))}/anno
-            </p>
-          </div>
-        </div>
-      )}
     </section>
   );
 }
