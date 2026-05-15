@@ -1,24 +1,31 @@
 'use client';
 
 /**
- * EpcPropositionSection — EPC commercial pitch (enhanced motion).
+ * EpcPropositionSection — pitch commerciale del modello EPC.
  *
- * Sprint 2 del feedback Total Trade: rendere la motion graphic DAVVERO
- * impattante. Cambiamenti rispetto alla v1:
- *   - Counter CSS animato (€0 → €X) sul costo iniziale, durata 1.2s
- *   - Strikethrough drammatico in SVG (linea sketch a mano libera,
- *     spessa, leggermente irregolare) invece della linea piatta
- *   - Card "0 €" che esplode dal centro dopo lo strikethrough
- *   - Benefit card con scale-in bouncing + icona che ruota al mount
- *   - Bar chart h-56 (più tall) + glow pulsante sulla colonna anno 10
- *   - Delta counter animato (€0 → €394.853)
- *   - Sequenza totale compressa a < 3 secondi
+ * Redesign feedback Total Trade:
+ *   - La motion NON parte più al mount: un IntersectionObserver attiva
+ *     la sequenza quando la sezione entra nel viewport (la classe
+ *     `.epc-playing` abilita le keyframe). Risolve il "sembra statico".
+ *   - Timeline distesa ~10s, ritmo calmo.
+ *   - Icone line-art personalizzate (`./icons/epc-icons`), zero emoji.
+ *   - Confronto a due colonne in stile Plenitude: "Investimento diretto"
+ *     (compri tu l'impianto: esborso iniziale → tempo di ritorno) vs
+ *     "EPC Total Trade" (zero investimento, positivo dal giorno 1, a
+ *     fine contratto l'impianto è tuo).
  *
- * Tutto puro CSS keyframes + SVG path. Zero video, zero rendering.
+ * Puro CSS keyframes + RAF. Nessun video, nessuna libreria di animazione.
  */
 
-import React, { useEffect, useState } from 'react';
-import { formatEuro } from '@/lib/api';
+import React, { useEffect, useRef, useState } from 'react';
+
+import {
+  IconImmediateSaving,
+  IconMinus,
+  IconOwnership,
+  IconPlus,
+  IconZeroInvest,
+} from './icons/epc-icons';
 
 type Props = {
   grossCapexEur: number;
@@ -28,15 +35,57 @@ type Props = {
   yearlySavingsEur?: number | null;
 };
 
-/** Counter component — animates from 0 to target over `duration` ms. */
+/** Anni di contratto EPC prima della cessione dell'impianto al cliente. */
+const CONTRACT_YEARS = 10;
+/** Quota del risparmio che il cliente trattiene durante il contratto EPC
+ *  (il resto remunera Total Trade/Plenitude). Stima tarabile. */
+const EPC_CLIENT_SHARE = 0.3;
+
+/** Trigger one-shot: `inView` diventa true quando l'elemento entra nel
+ *  viewport, poi l'observer si disconnette. */
+function useInViewOnce<T extends HTMLElement>(): [
+  React.RefObject<T | null>,
+  boolean,
+] {
+  const ref = useRef<T>(null);
+  const [inView, setInView] = useState(false);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || inView) return;
+    if (typeof IntersectionObserver === 'undefined') {
+      setInView(true);
+      return;
+    }
+    const obs = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          if (e.isIntersecting) {
+            setInView(true);
+            obs.disconnect();
+          }
+        }
+      },
+      { threshold: 0.2 },
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [inView]);
+
+  return [ref, inView];
+}
+
+/** Counter € animato. Parte solo quando `start` diventa true. */
 function AnimatedEuroCounter({
   target,
-  duration = 1200,
+  start,
+  duration = 1800,
   delayMs = 0,
   className,
   style,
 }: {
   target: number;
+  start: boolean;
   duration?: number;
   delayMs?: number;
   className?: string;
@@ -45,28 +94,118 @@ function AnimatedEuroCounter({
   const [value, setValue] = useState(0);
 
   useEffect(() => {
-    const start = performance.now() + delayMs;
+    if (!start) return;
+    const startAt = performance.now() + delayMs;
     let raf = 0;
     const step = (now: number) => {
-      const elapsed = now - start;
+      const elapsed = now - startAt;
       if (elapsed < 0) {
         raf = requestAnimationFrame(step);
         return;
       }
       const t = Math.min(1, elapsed / duration);
-      // ease-out cubic
       const eased = 1 - Math.pow(1 - t, 3);
       setValue(Math.round(target * eased));
       if (t < 1) raf = requestAnimationFrame(step);
     };
     raf = requestAnimationFrame(step);
     return () => cancelAnimationFrame(raf);
-  }, [target, duration, delayMs]);
+  }, [start, target, duration, delayMs]);
 
   return (
     <span className={className} style={style}>
       € {value.toLocaleString('it-IT')}
     </span>
+  );
+}
+
+type ChartPoint = { year: number; value: number };
+
+/** Colonna grafico cash-flow con asse dello zero. Le barre positive
+ *  crescono verso l'alto dalla linea dello zero, le negative verso il
+ *  basso. Tutte le colonne condividono la stessa scala. */
+function CashFlowChart({
+  points,
+  zeroTopPct,
+  gMax,
+  gMin,
+  colorFor,
+  baseDelay,
+}: {
+  points: ChartPoint[];
+  zeroTopPct: number;
+  gMax: number;
+  gMin: number;
+  colorFor: (p: ChartPoint) => string;
+  baseDelay: number;
+}) {
+  return (
+    <div>
+      <div className="relative h-56">
+        {/* Linea dello zero */}
+        <div
+          className="absolute inset-x-0 border-t border-dashed border-on-surface/25"
+          style={{ top: `${zeroTopPct}%` }}
+          aria-hidden
+        />
+        <div className="absolute inset-0 flex items-stretch gap-1.5">
+          {points.map((p, idx) => {
+            const positive = p.value >= 0;
+            const barPct = positive
+              ? (p.value / (gMax || 1)) * zeroTopPct
+              : (Math.abs(p.value) / (Math.abs(gMin) || 1)) * (100 - zeroTopPct);
+            const barStyle: React.CSSProperties = {
+              height: `${Math.max(barPct, 1)}%`,
+              background: colorFor(p),
+              animationDelay: `${baseDelay + idx * 0.16}s`,
+            };
+            if (positive) barStyle.bottom = `${100 - zeroTopPct}%`;
+            else barStyle.top = `${zeroTopPct}%`;
+            return (
+              <div key={p.year} className="relative flex-1" aria-hidden>
+                <div
+                  className={`epc-cfbar absolute inset-x-0 ${
+                    positive
+                      ? 'epc-cfbar-up rounded-t-sm'
+                      : 'epc-cfbar-down rounded-b-sm'
+                  }`}
+                  style={barStyle}
+                />
+              </div>
+            );
+          })}
+        </div>
+      </div>
+      <div className="mt-1.5 flex gap-1.5">
+        {points.map((p) => (
+          <span
+            key={p.year}
+            className="flex-1 text-center text-[10px] tabular-nums text-on-surface-variant"
+          >
+            {p.year}a
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ProCon({
+  positive,
+  children,
+  color,
+}: {
+  positive: boolean;
+  children: React.ReactNode;
+  color: string;
+}) {
+  return (
+    <li className="flex items-start gap-2 text-[13px] leading-snug text-on-surface">
+      <span className="mt-px shrink-0" style={{ color: positive ? color : '#C2410C' }}>
+        {positive ? <IconPlus size={16} /> : <IconMinus size={16} />}
+      </span>
+      <span>{children}</span>
+    </li>
   );
 }
 
@@ -77,102 +216,112 @@ export function EpcPropositionSection({
   brandLogoUrl,
   yearlySavingsEur,
 }: Props) {
+  const [ref, played] = useInViewOnce<HTMLElement>();
+
   const annualSavings = Math.max(0, yearlySavingsEur ?? 0);
   const years = [1, 3, 5, 7, 10, 15, 20, 25];
 
-  const maxCumulative = Math.max(annualSavings * 25 * 5, 1);
-  function heightWithout(year: number) {
-    return Math.min(100, ((annualSavings * 5 * year) / maxCumulative) * 100);
-  }
-  function heightWith(year: number) {
-    if (year <= 10) {
-      return Math.min(100, ((annualSavings * 4 * year) / maxCumulative) * 100);
-    }
-    return Math.min(100, ((annualSavings * 4 * 10) / maxCumulative) * 100);
-  }
+  // Cash-flow cumulato.
+  const directNet = (y: number) => -grossCapexEur + annualSavings * y;
+  const epcNet = (y: number) =>
+    y <= CONTRACT_YEARS
+      ? annualSavings * EPC_CLIENT_SHARE * y
+      : annualSavings * EPC_CLIENT_SHARE * CONTRACT_YEARS +
+        annualSavings * (y - CONTRACT_YEARS);
 
-  const deltaEur = Math.round(annualSavings * 5 * 25 - annualSavings * 4 * 10);
+  const directPoints: ChartPoint[] = years.map((y) => ({ year: y, value: directNet(y) }));
+  const epcPoints: ChartPoint[] = years.map((y) => ({ year: y, value: epcNet(y) }));
+
+  // Scala condivisa fra le due colonne.
+  const allVals = [...directPoints, ...epcPoints].map((p) => p.value);
+  const gMax = Math.max(...allVals, 1);
+  const gMin = Math.min(...allVals, 0);
+  const range = gMax - gMin || 1;
+  const zeroTopPct = (gMax / range) * 100;
+
+  const paybackYears =
+    annualSavings > 0 ? Math.max(1, Math.round(grossCapexEur / annualSavings)) : null;
+
+  const showChart = annualSavings > 0;
 
   return (
     <section
-      className="mx-auto max-w-6xl px-6 py-8"
+      ref={ref}
+      className={`mx-auto max-w-6xl px-6 py-8 ${played ? 'epc-playing' : ''}`}
       aria-labelledby="epc-heading"
     >
       <style>{`
-        @keyframes fadeUp {
-          from { opacity: 0; transform: translateY(14px); }
+        @keyframes epcFadeUp {
+          from { opacity: 0; transform: translateY(16px); }
           to   { opacity: 1; transform: translateY(0); }
         }
-        @keyframes scribbleDraw {
+        @keyframes epcScribble {
           from { stroke-dashoffset: 600; }
           to   { stroke-dashoffset: 0; }
         }
-        @keyframes popBounce {
-          0%   { opacity: 0; transform: scale(0); }
-          60%  { opacity: 1; transform: scale(1.08); }
-          80%  { transform: scale(0.96); }
+        @keyframes epcPop {
+          0%   { opacity: 0; transform: scale(0.4); }
+          65%  { opacity: 1; transform: scale(1.05); }
           100% { transform: scale(1); }
         }
-        @keyframes iconSpin {
-          from { transform: rotate(0deg); }
-          to   { transform: rotate(360deg); }
-        }
-        @keyframes growBar {
-          from { transform: scaleY(0); }
-          to   { transform: scaleY(1); }
-        }
-        @keyframes glowPulse {
-          0%, 100% { box-shadow: 0 0 0 0 currentColor; }
-          50%      { box-shadow: 0 0 12px 4px currentColor; }
-        }
-        @keyframes fadeIn {
-          from { opacity: 0; }
-          to   { opacity: 1; }
-        }
+        @keyframes epcGrowUp   { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+        @keyframes epcGrowDown { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+        @keyframes epcFadeIn   { from { opacity: 0; } to { opacity: 1; } }
 
-        .epc-cost-card      { animation: fadeUp 0.45s cubic-bezier(.22,1,.36,1) both; }
-        .epc-scribble path  { stroke-dasharray: 600; animation: scribbleDraw 0.65s cubic-bezier(.4,.0,.2,1) 1.4s both; }
-        .epc-zero-card      { animation: popBounce 0.55s cubic-bezier(.34,1.56,.64,1) 2.0s both; }
-        .epc-benefit-0      { animation: popBounce 0.5s cubic-bezier(.34,1.56,.64,1) 2.4s both; }
-        .epc-benefit-1      { animation: popBounce 0.5s cubic-bezier(.34,1.56,.64,1) 2.55s both; }
-        .epc-benefit-2      { animation: popBounce 0.5s cubic-bezier(.34,1.56,.64,1) 2.7s both; }
-        .epc-icon           { animation: iconSpin 0.8s cubic-bezier(.4,0,.2,1) 2.4s both; display: inline-block; }
-        .epc-chart          { animation: fadeUp 0.5s ease 2.9s both; }
-        .epc-bar            { transform-origin: bottom; animation: growBar 0.7s cubic-bezier(.22,1,.36,1) both; }
-        .epc-bar-glow       { animation: glowPulse 2s ease-in-out 3.6s infinite; }
-        .epc-footer         { animation: fadeIn 0.4s ease 3.4s both; }
+        /* Stato pre-play: tutto fermo e nascosto finché la sezione non
+           entra nel viewport. */
+        .epc-anim       { opacity: 0; }
+        .epc-cfbar      { transform: scaleY(0); }
+        .epc-cfbar-up   { transform-origin: bottom; }
+        .epc-cfbar-down { transform-origin: top; }
+
+        .epc-playing .epc-cost     { animation: epcFadeUp 0.7s cubic-bezier(.22,1,.36,1) 0.2s both; }
+        .epc-playing .epc-scribble path { stroke-dasharray: 600; animation: epcScribble 0.9s cubic-bezier(.4,0,.2,1) 2.2s both; }
+        .epc-playing .epc-zero     { animation: epcPop 0.8s cubic-bezier(.34,1.4,.5,1) 3.1s both; }
+        .epc-playing .epc-b0       { animation: epcFadeUp 0.7s cubic-bezier(.22,1,.36,1) 4.0s both; }
+        .epc-playing .epc-b1       { animation: epcFadeUp 0.7s cubic-bezier(.22,1,.36,1) 4.3s both; }
+        .epc-playing .epc-b2       { animation: epcFadeUp 0.7s cubic-bezier(.22,1,.36,1) 4.6s both; }
+        .epc-playing .epc-compare  { animation: epcFadeUp 0.7s cubic-bezier(.22,1,.36,1) 5.3s both; }
+        .epc-playing .epc-cfbar-up   { animation: epcGrowUp 0.75s cubic-bezier(.22,1,.36,1) both; }
+        .epc-playing .epc-cfbar-down { animation: epcGrowDown 0.75s cubic-bezier(.22,1,.36,1) both; }
+        .epc-playing .epc-callout  { animation: epcFadeUp 0.7s cubic-bezier(.22,1,.36,1) 8.7s both; }
+        .epc-playing .epc-footer   { animation: epcFadeIn 0.6s ease 9.4s both; }
+
+        @media (prefers-reduced-motion: reduce) {
+          .epc-anim, .epc-cfbar { opacity: 1 !important; transform: none !important; }
+          .epc-playing *        { animation-duration: 0.01s !important; }
+        }
       `}</style>
 
       <p className="editorial-eyebrow" style={{ color: brandColor }}>
-        Modello EPC · Nessun investimento
+        Modello EPC · Investi zero
       </p>
       <h2
         id="epc-heading"
         className="mt-2 font-headline text-2xl font-semibold tracking-tighter text-on-surface md:text-3xl"
       >
-        {brandName} sostiene l&apos;investimento per voi
+        {brandName} sostiene l&apos;investimento, voi raccogliete il risparmio
       </h2>
       <p className="mt-2 max-w-xl text-sm text-on-surface-variant">
-        Con il modello EPC non pagate nulla per l&apos;installazione:
-        l&apos;impianto è di {brandName}, voi raccogliete il risparmio
-        fin dal primo giorno.
+        Con il contratto EPC non pagate nulla per l&apos;installazione:
+        l&apos;impianto è di {brandName}, voi risparmiate fin dal primo
+        giorno e a fine contratto l&apos;impianto diventa vostro.
       </p>
 
-      {/* COST CARD + ANIMATED STRIKETHROUGH + ZERO CARD */}
-      <div className="mt-8 grid items-center gap-4 sm:grid-cols-[auto_auto_auto] sm:gap-6">
-        {/* Cost card with animated counter + scribble strike */}
-        <div className="epc-cost-card relative inline-block rounded-2xl bg-surface-container-lowest p-6 shadow-ambient">
+      {/* COSTO IMPIANTO → €0 */}
+      <div className="mt-8 grid items-center gap-4 sm:grid-cols-[1fr_auto_1fr] sm:gap-6">
+        <div className="epc-anim epc-cost relative rounded-2xl bg-surface-container-lowest p-6 shadow-ambient">
           <p className="text-xs font-semibold uppercase tracking-widest text-on-surface-variant">
             Investimento impianto
           </p>
           <div className="relative mt-2 inline-block">
             <AnimatedEuroCounter
               target={grossCapexEur}
-              duration={1100}
-              delayMs={200}
+              start={played}
+              duration={1900}
+              delayMs={500}
               className="font-headline text-4xl font-bold tracking-tightest text-on-surface md:text-5xl"
             />
-            {/* SVG scribble strike — sembra una linea fatta a mano libera */}
             <svg
               className="epc-scribble pointer-events-none absolute -inset-x-2 inset-y-0 h-full w-[calc(100%+1rem)]"
               viewBox="0 0 300 80"
@@ -189,29 +338,38 @@ export function EpcPropositionSection({
             </svg>
           </div>
           <p className="mt-3 text-xs text-on-surface-variant">
-            Costo che {brandName} sostiene al posto vostro
+            Il costo che {brandName} sostiene al posto vostro
           </p>
         </div>
 
-        {/* Arrow */}
         <div
           aria-hidden
-          className="hidden text-3xl sm:block"
-          style={{ color: brandColor, opacity: 0.5 }}
+          className="mx-auto hidden sm:block"
+          style={{ color: brandColor, opacity: 0.45 }}
         >
-          →
+          <svg width="34" height="20" viewBox="0 0 34 20" fill="none">
+            <path
+              d="M2 10h28M22 3l9 7-9 7"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
         </div>
 
-        {/* Zero card — pop-bounces in after strike */}
         <div
-          className="epc-zero-card rounded-2xl p-6 text-center shadow-ambient"
+          className="epc-anim epc-zero rounded-2xl p-6 text-center shadow-ambient"
           style={{
             background: `linear-gradient(135deg, ${brandColor}22 0%, ${brandColor}06 100%)`,
             border: `2px solid ${brandColor}`,
           }}
         >
-          <p className="text-xs font-semibold uppercase tracking-widest" style={{ color: brandColor }}>
-            Quanto paghi tu
+          <p
+            className="text-xs font-semibold uppercase tracking-widest"
+            style={{ color: brandColor }}
+          >
+            Quanto pagate voi
           </p>
           <p
             className="mt-2 font-headline text-5xl font-bold tracking-tightest md:text-6xl"
@@ -220,164 +378,161 @@ export function EpcPropositionSection({
             € 0
           </p>
           <p className="mt-2 text-xs font-medium" style={{ color: brandColor }}>
-            ✨ Da subito
+            Da subito, per tutta la durata del contratto
           </p>
         </div>
       </div>
 
-      {/* Three benefit cards — pop-bounce + spinning icons */}
+      {/* BENEFIT */}
       <div className="mt-6 grid gap-4 sm:grid-cols-3">
-        <BenefitCard className="epc-benefit-0" icon="🏗️" title="Zero investimento"
-          body={`${brandName} installa, mantiene e gestisce l'impianto. Voi non spendete nulla.`}
+        <BenefitCard
+          className="epc-anim epc-b0"
+          icon={<IconZeroInvest size={26} />}
+          title="Zero investimento"
+          body={`${brandName} progetta, installa e gestisce l'impianto. Voi non immobilizzate capitale.`}
           brandColor={brandColor}
         />
-        <BenefitCard className="epc-benefit-1" icon="⚡" title="Risparmio immediato"
-          body="Dal primo giorno pagate l'energia meno cara. Risparmio tipico: 20% sulla bolletta attuale."
+        <BenefitCard
+          className="epc-anim epc-b1"
+          icon={<IconImmediateSaving size={26} />}
+          title="Risparmio immediato"
+          body="Dal primo giorno pagate l'energia meno cara: il rischio tecnico è a carico nostro."
           brandColor={brandColor}
         />
-        <BenefitCard className="epc-benefit-2" icon="🔑" title="Dopo 10 anni è vostro"
-          body={`L'impianto vi viene ceduto a €100. Da quel momento il risparmio è al 100%.`}
+        <BenefitCard
+          className="epc-anim epc-b2"
+          icon={<IconOwnership size={26} />}
+          title="A fine contratto è vostro"
+          body={`Dopo ${CONTRACT_YEARS} anni l'impianto vi viene ceduto: da lì il 100% del risparmio resta a voi.`}
           brandColor={brandColor}
         />
       </div>
 
-      {/* Bar chart — taller, glow on year 10 */}
-      {annualSavings > 0 && (
-        <div className="epc-chart mt-8 rounded-2xl bg-surface-container-lowest p-6 shadow-ambient md:p-8">
+      {/* CONFRONTO — Investimento diretto vs EPC */}
+      {showChart && (
+        <div className="epc-anim epc-compare mt-8 rounded-2xl bg-surface-container-lowest p-6 shadow-ambient md:p-8">
           <p className="text-xs font-bold uppercase tracking-widest text-on-surface-variant">
-            Quanto pagate nei prossimi 25 anni
+            Due modi di mettere il fotovoltaico
           </p>
           <h3 className="mt-1 font-headline text-xl font-semibold tracking-tighter text-on-surface md:text-2xl">
-            Senza {brandName} vs Con EPC
+            Investimento diretto vs EPC {brandName}
           </h3>
+          <p className="mt-1 text-[11px] text-on-surface-variant">
+            Posizione di cassa cumulata anno per anno. La linea
+            tratteggiata è il punto di pareggio.
+          </p>
 
-          <div className="mt-6 grid gap-6 md:grid-cols-2">
-            {/* WITHOUT EPC */}
+          <div className="mt-6 grid gap-8 md:grid-cols-2">
+            {/* INVESTIMENTO DIRETTO */}
             <div>
-              <div className="mb-2 inline-flex items-center gap-2 rounded-full bg-amber-100 px-3 py-1">
-                <span aria-hidden>💸</span>
+              <div className="mb-2 inline-flex items-center rounded-full bg-amber-100 px-3 py-1">
                 <span className="text-xs font-semibold text-amber-900">
-                  Senza fotovoltaico
+                  Investimento diretto
                 </span>
               </div>
-              <p className="text-[11px] text-on-surface-variant">
-                Continuate a pagare la bolletta. Spesa cumulativa che cresce
-                ogni anno, senza freno.
-              </p>
-              <div className="mt-4 flex h-56 items-end gap-1.5 border-b border-outline-variant">
-                {years.map((year, idx) => (
-                  <div
-                    key={year}
-                    className="epc-bar flex-1 rounded-t-md"
-                    style={{
-                      height: `${heightWithout(year)}%`,
-                      backgroundColor: '#F59E0B',
-                      animationDelay: `${3.0 + idx * 0.07}s`,
-                    }}
-                    title={`Anno ${year}: ~€${Math.round(annualSavings * 5 * year).toLocaleString('it-IT')} cumulati`}
-                    aria-hidden
-                  />
-                ))}
-              </div>
-              <div className="mt-1 flex justify-between text-[10px] tabular-nums text-on-surface-variant">
-                {years.map((y) => (
-                  <span key={y}>{y}a</span>
-                ))}
-              </div>
-              <p className="mt-3 text-sm font-medium text-on-surface">
-                Totale 25 anni:{' '}
-                <strong className="text-amber-700">
-                  € {Math.round(annualSavings * 5 * 25).toLocaleString('it-IT')}
-                </strong>
+              <ul className="mb-4 mt-1.5 space-y-1.5">
+                <ProCon positive color={brandColor}>
+                  L&apos;impianto è di vostra proprietà da subito
+                </ProCon>
+                <ProCon positive={false} color={brandColor}>
+                  Sostenete voi l&apos;intera spesa d&apos;investimento
+                </ProCon>
+                <ProCon positive={false} color={brandColor}>
+                  Gestione e manutenzione a vostro carico
+                </ProCon>
+              </ul>
+              <CashFlowChart
+                points={directPoints}
+                zeroTopPct={zeroTopPct}
+                gMax={gMax}
+                gMin={gMin}
+                baseDelay={6.0}
+                colorFor={(p) => (p.value >= 0 ? '#6B9B6B' : '#D4612A')}
+              />
+              <p className="mt-2 text-[11px] text-on-surface-variant">
+                Sotto lo zero = anni di rientro dell&apos;investimento
+                {paybackYears ? ` (~${paybackYears} anni)` : ''}.
               </p>
             </div>
 
-            {/* WITH EPC */}
+            {/* EPC */}
             <div>
-              <div className="mb-2 inline-flex items-center gap-2 rounded-full"
-                style={{ backgroundColor: `${brandColor}20` }}>
-                <span className="inline-block px-3 py-1">
-                  <span aria-hidden>🌿</span>{' '}
-                  <span className="text-xs font-semibold" style={{ color: brandColor }}>
-                    Con {brandName} EPC
-                  </span>
+              <div
+                className="mb-2 inline-flex items-center rounded-full px-3 py-1"
+                style={{ backgroundColor: `${brandColor}20` }}
+              >
+                <span
+                  className="text-xs font-semibold"
+                  style={{ color: brandColor }}
+                >
+                  EPC {brandName}
                 </span>
               </div>
-              <p className="text-[11px] text-on-surface-variant">
-                Canone simbolico per 10 anni, poi l&apos;impianto è vostro
-                a €100. Da lì in poi spesa zero.
-              </p>
-              <div className="mt-4 flex h-56 items-end gap-1.5 border-b border-outline-variant">
-                {years.map((year, idx) => {
-                  const isPivotYear = year === 10;
-                  return (
-                    <div
-                      key={year}
-                      className={`epc-bar flex-1 rounded-t-md ${isPivotYear ? 'epc-bar-glow' : ''}`}
-                      style={{
-                        height: `${heightWith(year)}%`,
-                        backgroundColor: brandColor,
-                        animationDelay: `${3.0 + idx * 0.07}s`,
-                        color: brandColor,
-                      }}
-                      title={
-                        isPivotYear
-                          ? `Anno 10: impianto ceduto a €100, da qui spesa zero`
-                          : `Anno ${year}: €${Math.round(year <= 10 ? annualSavings * 4 * year : annualSavings * 4 * 10).toLocaleString('it-IT')} pagati`
-                      }
-                      aria-hidden
-                    />
-                  );
-                })}
-              </div>
-              <div className="mt-1 flex justify-between text-[10px] tabular-nums text-on-surface-variant">
-                {years.map((y) => (
-                  <span
-                    key={y}
-                    style={y === 10 ? { color: brandColor, fontWeight: 700 } : undefined}
-                  >
-                    {y}a
-                  </span>
-                ))}
-              </div>
-              <p className="mt-3 text-sm font-medium text-on-surface">
-                Totale 25 anni:{' '}
-                <strong style={{ color: brandColor }}>
-                  € {Math.round(annualSavings * 4 * 10).toLocaleString('it-IT')}
-                </strong>{' '}
-                <span className="text-on-surface-variant">
-                  (solo i primi 10 anni)
-                </span>
+              <ul className="mb-4 mt-1.5 space-y-1.5">
+                <ProCon positive color={brandColor}>
+                  Zero spese d&apos;investimento, rischio tecnico su di noi
+                </ProCon>
+                <ProCon positive color={brandColor}>
+                  In positivo dal primo giorno
+                </ProCon>
+                <ProCon positive={false} color={brandColor}>
+                  Durante il contratto si condivide parte del risparmio
+                </ProCon>
+              </ul>
+              <CashFlowChart
+                points={epcPoints}
+                zeroTopPct={zeroTopPct}
+                gMax={gMax}
+                gMin={gMin}
+                baseDelay={6.9}
+                colorFor={(p) =>
+                  p.year <= CONTRACT_YEARS ? `${brandColor}88` : brandColor
+                }
+              />
+              <p className="mt-2 text-[11px] text-on-surface-variant">
+                Sempre sopra lo zero. Dopo {CONTRACT_YEARS} anni
+                l&apos;impianto è vostro e il risparmio è pieno.
               </p>
             </div>
           </div>
 
-          {/* Bottom-line delta — animated counter */}
+          {/* CALLOUT */}
           <div
-            className="mt-6 rounded-xl p-4"
-            style={{ backgroundColor: `${brandColor}10`, border: `1px solid ${brandColor}25` }}
+            className="epc-anim epc-callout mt-6 rounded-xl p-4"
+            style={{
+              backgroundColor: `${brandColor}10`,
+              border: `1px solid ${brandColor}25`,
+            }}
           >
-            <p className="text-xs font-semibold uppercase tracking-widest" style={{ color: brandColor }}>
-              Vantaggio EPC in 25 anni
+            <p
+              className="text-xs font-semibold uppercase tracking-widest"
+              style={{ color: brandColor }}
+            >
+              Capitale che non immobilizzate con l&apos;EPC
             </p>
-            <p className="mt-1 font-headline text-3xl font-bold tracking-tight" style={{ color: brandColor }}>
-              −{' '}
+            <p
+              className="mt-1 font-headline text-3xl font-bold tracking-tight md:text-4xl"
+              style={{ color: brandColor }}
+            >
               <AnimatedEuroCounter
-                target={deltaEur}
+                target={grossCapexEur}
+                start={played}
                 duration={1500}
-                delayMs={3500}
+                delayMs={8900}
                 style={{ color: brandColor }}
               />
             </p>
             <p className="mt-0.5 text-xs text-on-surface-variant">
-              Spesa energetica evitata grazie al modello EPC
+              {paybackYears
+                ? `Con l'investimento diretto rientrereste dopo ~${paybackYears} anni. Con l'EPC ${brandName} siete in positivo dal primo giorno — e a fine contratto l'impianto è vostro.`
+                : `Con l'EPC ${brandName} non immobilizzate capitale e a fine contratto l'impianto è vostro.`}
             </p>
           </div>
         </div>
       )}
 
-      {/* Brand footer note */}
-      <div className="epc-footer mt-6 flex items-center gap-3 rounded-xl bg-surface-container-low p-4">
+      {/* FOOTER */}
+      <div className="epc-anim epc-footer mt-6 flex items-center gap-3 rounded-xl bg-surface-container-low p-4">
         {brandLogoUrl ? (
           /* eslint-disable-next-line @next/next/no-img-element */
           <img src={brandLogoUrl} alt={brandName} className="h-8 w-auto" />
@@ -390,7 +545,7 @@ export function EpcPropositionSection({
           </span>
         )}
         <p className="text-xs text-on-surface-variant">
-          Modello EPC certificato · Contratto trasparente · Nessun costo nascosto
+          Modello EPC · Contratto trasparente · Nessun costo nascosto
         </p>
       </div>
     </section>
@@ -404,7 +559,7 @@ function BenefitCard({
   brandColor,
   className,
 }: {
-  icon: string;
+  icon: React.ReactNode;
   title: string;
   body: string;
   brandColor: string;
@@ -413,19 +568,23 @@ function BenefitCard({
   return (
     <div
       className={`rounded-2xl p-5 ${className ?? ''}`}
-      style={{ backgroundColor: `${brandColor}08`, border: `1px solid ${brandColor}20` }}
+      style={{
+        backgroundColor: `${brandColor}08`,
+        border: `1px solid ${brandColor}20`,
+      }}
     >
-      <span className="epc-icon text-2xl" aria-hidden>
+      <span
+        className="inline-flex h-11 w-11 items-center justify-center rounded-xl"
+        style={{ backgroundColor: `${brandColor}14`, color: brandColor }}
+      >
         {icon}
       </span>
       <p className="mt-3 font-headline text-base font-semibold tracking-tight text-on-surface">
         {title}
       </p>
-      <p className="mt-1.5 text-sm leading-relaxed text-on-surface-variant">{body}</p>
+      <p className="mt-1.5 text-sm leading-relaxed text-on-surface-variant">
+        {body}
+      </p>
     </div>
   );
 }
-
-// Make formatEuro available even if unused — keeps imports stable.
-const _keepFormatEuro = formatEuro;
-void _keepFormatEuro;
