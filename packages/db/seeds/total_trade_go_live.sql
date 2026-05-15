@@ -16,7 +16,7 @@ UPDATE tenants SET
   business_name = 'Total Trade',
   website_url = 'https://www.totaltrade.it',
   email_from_name = 'Total Trade',
-  brand_primary_color = '#0F766E',                -- placeholder verde teal, da sostituire col blu Total Trade
+  brand_primary_color = '#183054',                -- navy Total Trade (estratto dal logo) — vedi migration 0125
   brand_logo_url = 'https://solar-ld-lead-portal.vercel.app/total-trade-logo.png',  -- vedi migration 0124
   legal_name = 'Total Trade S.r.l.',              -- placeholder, da visura camerale
   privacy_policy_url = NULL,                       -- fallback /privacy SolarLead
@@ -54,7 +54,9 @@ WHERE tenant_id = 'df08df04-4c90-4613-b21e-80879fc958d1'
 --     - Logo: estratto dal brochure PDF, committato come asset statico
 --       apps/lead-portal/public/total-trade-logo.png — brand_logo_url
 --       valorizzato dalla migration 0124. DONE.
---     - Colore primario hex esatto → brand_primary_color
+--     - Colore primario: navy #183054 estratto dal logo, agganciato a
+--       portale/dashboard/email via migration 0125. DONE (eventuale
+--       hex ufficiale da brand book lo sostituisce in /settings/branding).
 --     - Visura camerale → legal_name, vat_number, codice_fiscale, legal_address, numero_cciaa
 --     - URL privacy policy Total Trade → privacy_policy_url (se ne hanno una)
 --     - URL CRM webhook → appointment_webhook_url
