@@ -592,8 +592,10 @@ class ManualBollettaBody(BaseModel):
         corrects the values (passes ``upload_id`` of the prior row)
     """
 
-    kwh_yearly: float = Field(..., gt=0, le=250_000)
-    eur_yearly: float = Field(..., gt=0, le=100_000)
+    # Soglie industriali (vedi bolletta_ocr_service): i clienti target
+    # sono capannoni/industria con consumi fino a ~GWh/anno.
+    kwh_yearly: float = Field(..., gt=0, le=10_000_000)
+    eur_yearly: float = Field(..., gt=0, le=2_000_000)
     upload_id: str | None = Field(
         default=None,
         description="If patching an existing OCR row, the upload_id "
