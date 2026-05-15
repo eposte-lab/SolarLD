@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import { notFound, redirect } from 'next/navigation';
 
 import { AboutSection } from '@/components/AboutSection';
@@ -14,6 +15,26 @@ import { VisitTracker } from './VisitTracker';
 import { WhatsAppCta } from './WhatsAppCta';
 
 type PageProps = { params: Promise<{ slug: string }> };
+
+/** Favicon + titolo per-tenant: il portale del lead usa il logo
+ *  dell'azienda cliente come favicon, così la scheda browser è
+ *  brandizzata sul cliente (es. Total Trade) e non su SolarLead. */
+export async function generateMetadata({
+  params,
+}: PageProps): Promise<Metadata> {
+  const { slug } = await params;
+  const result = await fetchPublicLead(slug);
+  if (result.kind !== 'ok') return {};
+  const tenant = result.lead.tenant;
+  const name = tenant?.business_name?.trim();
+  const logo = tenant?.brand_logo_url?.trim();
+  return {
+    title: name
+      ? `${name} — Il tuo tetto con il fotovoltaico`
+      : 'Il tuo tetto con il fotovoltaico',
+    ...(logo ? { icons: { icon: logo } } : {}),
+  };
+}
 
 export default async function LeadPage({ params }: PageProps) {
   const { slug } = await params;
