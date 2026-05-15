@@ -36,7 +36,6 @@ import {
   Terminal,
   Users,
 } from 'lucide-react';
-import { BrandLogo } from '@/components/ui/brand-logo';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
@@ -202,15 +201,18 @@ export function SideNav({
 
   return (
     <nav className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col bg-surface-container-lowest/80 backdrop-blur-glass-sm p-5 ghost-border md:flex">
-      {/* Brand lockup */}
+      {/* Brand lockup — co-brand Total Trade: albero multicolore (legge
+          su qualsiasi sfondo) + wordmark "Solar Trade Lead". */}
       <div className="mb-7 flex items-center gap-2.5 px-1.5">
-        {/* Logo rendered directly — no coloured badge wrapper so the
-            circular mark with its own white/green/gold palette reads
-            cleanly on the dark sidebar without a "box-in-box" effect. */}
-        <BrandLogo size={40} title="SolarLead" className="rounded-full" />
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src="/total-trade-mark.png"
+          alt="Total Trade"
+          className="h-10 w-auto shrink-0"
+        />
         <div className="leading-tight">
           <h1 className="font-headline text-[17px] font-bold tracking-tightest text-on-surface">
-            SolarLead
+            Solar Trade Lead
           </h1>
           <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-on-surface-variant">
             Installer Pro
