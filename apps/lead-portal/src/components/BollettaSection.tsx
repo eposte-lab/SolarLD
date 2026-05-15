@@ -19,9 +19,10 @@ type Props = {
   slug: string;
   brandColor: string;
   brandName?: string;
+  epc?: boolean;
 };
 
-export function BollettaSection({ slug, brandColor, brandName }: Props) {
+export function BollettaSection({ slug, brandColor, brandName, epc }: Props) {
   const [refreshKey, setRefreshKey] = useState(0);
 
   return (
@@ -36,6 +37,7 @@ export function BollettaSection({ slug, brandColor, brandName }: Props) {
         refreshKey={refreshKey}
         brandColor={brandColor}
         brandName={brandName}
+        epc={epc}
       />
     </div>
   );

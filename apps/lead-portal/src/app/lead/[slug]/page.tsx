@@ -238,7 +238,12 @@ export default async function LeadPage({ params }: PageProps) {
 
       {/* ============== Bolletta upload + Savings compare ============== */}
       <section className="mx-auto max-w-6xl px-6 py-6">
-        <BollettaSection slug={slug} brandColor={brandColor} brandName={tenantName} />
+        <BollettaSection
+          slug={slug}
+          brandColor={brandColor}
+          brandName={tenantName}
+          epc={!!tenant?.epc_enabled}
+        />
       </section>
 
       {/* ============== About section ============== */}

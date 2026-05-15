@@ -1,23 +1,21 @@
 'use client';
 
 /**
- * SavingsComparePanel — predicted vs actual savings, side-by-side.
+ * SavingsComparePanel — risparmio calcolato sulla bolletta caricata.
  *
- * Sprint 8 Fase B.4 + Sprint client-feedback (EPC + savings hero).
  * Renders the result of GET /v1/public/lead/{slug}/savings-compare.
  * Returns null until at least one bolletta has been uploaded — the
  * BillUploadCard sits above and triggers the re-fetch.
  *
- * Visual logic:
- *   * Prominent savings hero: "Con il fotovoltaico risparmi X€/anno" —
- *     il risparmio è limitato lato backend (l'autoconsumo non supera il
- *     consumo reale, taglio bolletta ≤ 70%) così non promettiamo mai
- *     una bolletta azzerata.
- *   * "Stima {brandName}" column (left)  — predicted_yearly_kwh + savings
- *   * Bolletta reale column (right) — actual_yearly_kwh + €/kWh tariff
+ * Due modalità:
+ *   * `epc` → modello EPC: la bolletta caricata diventa il punto di
+ *     partenza. "Oggi paghi €X → con l'EPC €Y (−20%), e dopo 10 anni
+ *     l'impianto è tuo". Niente payback (l'EPC è a investimento zero).
+ *   * altrimenti → confronto stima vs bolletta reale (modello classico
+ *     "compri tu l'impianto").
  *
- * The parent page passes a ``refreshKey`` that bumps each time
- * BillUploadCard.onSaved fires, forcing this panel to re-fetch.
+ * Il parent passa un ``refreshKey`` che cambia a ogni upload, forzando
+ * il re-fetch del pannello.
  */
 
 import { useEffect, useState } from 'react';
@@ -29,7 +27,13 @@ type Props = {
   refreshKey: number;
   brandColor: string;
   brandName?: string;
+  epc?: boolean;
 };
+
+/** Quota di bolletta che il cliente risparmia durante il contratto EPC. */
+const EPC_BILL_SAVING_PCT = 0.2;
+/** Durata del contratto EPC prima della cessione dell'impianto. */
+const EPC_CONTRACT_YEARS = 10;
 
 type CompareData = {
   available: true;
@@ -51,7 +55,13 @@ type CompareData = {
 
 type CompareResponse = CompareData | { available: false; reason: string };
 
-export function SavingsComparePanel({ slug, refreshKey, brandColor, brandName = 'SolarLead' }: Props) {
+export function SavingsComparePanel({
+  slug,
+  refreshKey,
+  brandColor,
+  brandName = 'SolarLead',
+  epc = false,
+}: Props) {
   const [data, setData] = useState<CompareData | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -94,6 +104,122 @@ export function SavingsComparePanel({ slug, refreshKey, brandColor, brandName = 
     return null;
   }
 
+  // ── Modello EPC ─────────────────────────────────────────────────
+  if (epc) {
+    const bill = Math.max(0, data.actual_yearly_eur);
+    const epcBill = bill * (1 - EPC_BILL_SAVING_PCT);
+    const epcSaving = bill * EPC_BILL_SAVING_PCT;
+    const saving10y = epcSaving * EPC_CONTRACT_YEARS;
+
+    return (
+      <section
+        className="bento-glass p-6 md:p-8"
+        aria-labelledby="savings-compare-heading"
+      >
+        <p className="editorial-eyebrow">La tua bolletta con l&apos;EPC</p>
+        <h2
+          id="savings-compare-heading"
+          className="mt-2 font-headline text-2xl font-semibold tracking-tighter text-on-surface md:text-3xl"
+        >
+          Quanto risparmi con l&apos;EPC {brandName}
+        </h2>
+        <p className="mt-2 text-sm text-on-surface-variant">
+          Calcolato sulla bolletta che hai caricato.
+        </p>
+
+        {/* Oggi → con l'EPC */}
+        <div className="mt-6 grid gap-4 sm:grid-cols-[1fr_auto_1fr] sm:items-center">
+          <div className="rounded-2xl bg-surface-container p-5">
+            <p className="text-xs font-semibold uppercase tracking-widest text-on-surface-variant">
+              Oggi paghi
+            </p>
+            <p className="mt-2 font-headline text-3xl font-bold tracking-tightest text-on-surface md:text-4xl">
+              {formatEuro(bill)}
+              <span className="ml-1 text-sm font-medium text-on-surface-variant">
+                /anno
+              </span>
+            </p>
+          </div>
+
+          <div
+            aria-hidden
+            className="mx-auto hidden sm:block"
+            style={{ color: brandColor, opacity: 0.45 }}
+          >
+            <svg width="34" height="20" viewBox="0 0 34 20" fill="none">
+              <path
+                d="M2 10h28M22 3l9 7-9 7"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </div>
+
+          <div
+            className="rounded-2xl p-5"
+            style={{
+              backgroundColor: `${brandColor}10`,
+              border: `1.5px solid ${brandColor}30`,
+            }}
+          >
+            <div className="flex flex-wrap items-center gap-2">
+              <p
+                className="text-xs font-semibold uppercase tracking-widest"
+                style={{ color: brandColor }}
+              >
+                Con l&apos;EPC paghi
+              </p>
+              <span
+                className="rounded-full px-2 py-0.5 text-[10px] font-bold text-white"
+                style={{ backgroundColor: brandColor }}
+              >
+                −20%
+              </span>
+            </div>
+            <p
+              className="mt-2 font-headline text-3xl font-bold tracking-tightest md:text-4xl"
+              style={{ color: brandColor }}
+            >
+              {formatEuro(epcBill)}
+              <span className="ml-1 text-sm font-medium text-on-surface-variant">
+                /anno
+              </span>
+            </p>
+          </div>
+        </div>
+
+        {/* Risparmio + cessione */}
+        <div
+          className="mt-4 rounded-2xl p-5"
+          style={{
+            backgroundColor: `${brandColor}0A`,
+            border: `1px solid ${brandColor}20`,
+          }}
+        >
+          <p className="text-sm text-on-surface">
+            Risparmi{' '}
+            <strong style={{ color: brandColor }}>
+              {formatEuro(epcSaving)}/anno
+            </strong>{' '}
+            sulla bolletta, con <strong>zero investimento</strong>. In{' '}
+            {EPC_CONTRACT_YEARS} anni di contratto sono{' '}
+            <strong style={{ color: brandColor }}>
+              {formatEuro(saving10y)}
+            </strong>
+            .
+          </p>
+          <p className="mt-2 text-xs text-on-surface-variant">
+            Dopo {EPC_CONTRACT_YEARS} anni l&apos;impianto viene ceduto alla
+            tua azienda: da lì il risparmio diventa pieno.
+          </p>
+        </div>
+      </section>
+    );
+  }
+
+  // ── Modello classico: stima vs bolletta reale ───────────────────
   return (
     <section
       className="bento-glass p-6 md:p-8"
@@ -184,7 +310,6 @@ export function SavingsComparePanel({ slug, refreshKey, brandColor, brandName = 
           </dl>
         </div>
       </div>
-
     </section>
   );
 }
