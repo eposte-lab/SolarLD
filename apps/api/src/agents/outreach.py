@@ -248,6 +248,8 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
                 "daily_target_send_cap, "
                 # Migration 0115 — kill-switch for customer demos.
                 "outreach_blocked, "
+                # Migration 0128 — tenant-level test recipient override.
+                "test_recipient_override, "
                 # Sprint 9 Fase C: custom template + template family
                 "email_template_family, custom_email_template_active, "
                 "custom_email_template_path"
@@ -480,12 +482,26 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
         # the rendering + send flow runs identically — the only difference
         # is the To: header.
         # ------------------------------------------------------------------
+        # Priority: per-send override (dashboard send-test form) >
+        # tenant-level override (migration 0128 — "demo della demo" test
+        # scenario, redirects EVERY send incl. cron follow-ups) > real lead.
+        tenant_test_recipient = (tenant_row.get("test_recipient_override") or "").strip()
         if payload.recipient_override:
             recipient = payload.recipient_override.strip().lower()
             log.info(
                 "outreach.recipient_override_in_use",
                 lead_id=payload.lead_id,
                 tenant_id=payload.tenant_id,
+                source="payload",
+                override_domain=recipient.split("@", 1)[1] if "@" in recipient else "",
+            )
+        elif tenant_test_recipient:
+            recipient = tenant_test_recipient.lower()
+            log.info(
+                "outreach.recipient_override_in_use",
+                lead_id=payload.lead_id,
+                tenant_id=payload.tenant_id,
+                source="tenant",
                 override_domain=recipient.split("@", 1)[1] if "@" in recipient else "",
             )
         else:
@@ -1466,8 +1482,13 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
         # explicitly supplies a `recipient_override` we DO want the email
         # to go out — they're sending it to themselves to verify the
         # template renders correctly. Bypass the switch in that case.
+        # Same for the tenant-level `test_recipient_override` (migration
+        # 0128): during the test scenario every send is already rerouted
+        # to the test inbox, so the kill-switch must not also block it.
         kill_switch_active = (
-            bool(tenant_row.get("outreach_blocked")) and not payload.recipient_override
+            bool(tenant_row.get("outreach_blocked"))
+            and not payload.recipient_override
+            and not tenant_test_recipient
         )
         if kill_switch_active:
             log.info(
