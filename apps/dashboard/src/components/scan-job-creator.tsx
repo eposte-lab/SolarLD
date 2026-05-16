@@ -47,7 +47,15 @@ const PROVINCE_BY_REGION: Record<string, string[]> = {
   'Veneto': ['BL', 'PD', 'RO', 'TV', 'VE', 'VI', 'VR'],
 };
 
-const SECTORS = Object.keys(SECTOR_LABELS);
+// Settori esclusi dalla scansione Territorio: gli amministratori di
+// condominio non sono reperibili su Google Maps — vanno cercati per
+// codice ATECO via OpenAPI.it (sezione Scoperta). Restano disponibili
+// lì, non qui.
+const TERRITORY_EXCLUDED_SECTORS = new Set(['amministratori_condominio']);
+
+const SECTORS = Object.keys(SECTOR_LABELS).filter(
+  (s) => !TERRITORY_EXCLUDED_SECTORS.has(s),
+);
 
 type Props = {
   onCreated: () => void;
