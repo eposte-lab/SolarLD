@@ -17,7 +17,7 @@ export default async function LeadVideoPage({ params }: PageProps) {
   if (result.kind === 'not_found' || result.kind === 'gone') notFound();
 
   const lead = result.lead;
-  const portalHref = `/lead/${slug}`;
+  const portalHref = `/dossier/${slug}`;
 
   const displayName =
     lead.subjects?.business_name?.trim() ||

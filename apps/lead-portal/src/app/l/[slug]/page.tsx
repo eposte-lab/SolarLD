@@ -1,24 +1,23 @@
 import { permanentRedirect } from 'next/navigation';
 
 /**
- * Legacy alias for `/lead/[slug]`.
+ * Legacy alias for `/dossier/[slug]`.
  *
  * Sprint 8 Fase A.1 — every email outreach.py sent before the path fix
- * (`/l/{slug}` → `/lead/{slug}`) emitted CTAs targeting this route. The
- * Next.js portal page actually lives at `/lead/[slug]`, so without this
- * alias every old email link returns 404.
+ * (`/l/{slug}` → portale) emitted CTAs targeting this route. La pagina
+ * del portale vive a `/dossier/[slug]` (ex `/lead/[slug]`), quindi senza
+ * questo alias ogni vecchio link email tornerebbe 404.
  *
- * 308 permanent redirect preserves the slug, keeps tracking host CNAMEs
- * working, and signals to clients/proxies that the canonical URL has
- * moved — they'll prefer `/lead/...` on subsequent fetches if cached.
+ * 308 permanent redirect preserva lo slug, mantiene funzionanti i CNAME
+ * di tracking e segnala a client/proxy che l'URL canonico è cambiato.
  *
- * The forward path emits `/lead/...` directly (see
- * `apps/api/src/agents/outreach.py::_public_lead_url`), so this route
- * should fire only for already-sent emails.
+ * Il forward path emette `/dossier/...` direttamente (vedi
+ * `apps/api/src/agents/outreach.py::_public_lead_url`), quindi questa
+ * route scatta solo per email già inviate.
  */
 type PageProps = { params: Promise<{ slug: string }> };
 
 export default async function LegacyLeadAliasPage({ params }: PageProps) {
   const { slug } = await params;
-  permanentRedirect(`/lead/${encodeURIComponent(slug)}`);
+  permanentRedirect(`/dossier/${encodeURIComponent(slug)}`);
 }
