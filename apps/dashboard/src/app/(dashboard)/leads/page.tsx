@@ -70,7 +70,7 @@ const STATUSES: { value: '' | LeadStatus; label: string }[] = [
   { value: 'clicked', label: 'Click' },
   { value: 'engaged', label: 'Engaged' },
   { value: 'whatsapp', label: 'WhatsApp' },
-  { value: 'appointment', label: 'Appuntamento' },
+  { value: 'appointment', label: 'Ha richiesto contatto' },
   { value: 'closed_won', label: 'Chiuso (win)' },
   { value: 'closed_lost', label: 'Chiuso (perso)' },
 ];
