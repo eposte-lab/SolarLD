@@ -2194,9 +2194,9 @@ def _portal_origin(tracking_host: str | None) -> str:
     Defensive against operator misconfiguration: the
     ``NEXT_PUBLIC_LEAD_PORTAL_URL`` env-var has been observed in the wild
     pointing at e.g. ``https://app.example.com/portal`` (the dashboard's
-    own /portal section), which produced ``/portal/lead/{slug}`` URLs
+    own /portal section), which produced ``/portal/dossier/{slug}`` URLs
     that 404 on the lead-portal Next.js app — its only valid lead path
-    is ``/lead/{slug}``. We strip any trailing path component from the
+    is ``/dossier/{slug}``. We strip any trailing path component from the
     env-var and log a warning so the misconfiguration surfaces in
     Railway logs and gets fixed on the next deploy.
     """
@@ -2220,7 +2220,7 @@ def _portal_origin(tracking_host: str | None) -> str:
             stripped_path=parsed.path,
             note=(
                 "NEXT_PUBLIC_LEAD_PORTAL_URL contained a path; using origin "
-                "only. The portal lives at /lead/{slug} on the lead-portal "
+                "only. The portal lives at /dossier/{slug} on the lead-portal "
                 "Next.js app — set the env-var to the root URL only."
             ),
         )
@@ -2240,13 +2240,13 @@ def _public_lead_url(
     domain — better deliverability + brand alignment.
 
     Path note:
-        The portal page lives at ``/lead/[slug]`` in the Next.js app. A
-        legacy ``/l/[slug]`` alias route exists for backwards compatibility
-        with already-sent emails (it redirects server-side to ``/lead/...``).
+        The portal page lives at ``/dossier/[slug]`` in the Next.js app.
+        Legacy ``/l/[slug]`` and ``/lead/[slug]`` routes redirect there
+        server-side, so emails sent before the rename keep working.
     """
     origin = _portal_origin(tracking_host)
     slug = (public_slug or "").strip()
-    return f"{origin}/lead/{slug}" if slug else origin
+    return f"{origin}/dossier/{slug}" if slug else origin
 
 
 def _optout_url(
@@ -2312,7 +2312,7 @@ def _video_landing_url(
     if not portal_video_slug:
         return None
     base = _portal_origin(tracking_host)
-    return f"{base}/lead/{portal_video_slug.strip()}/video"
+    return f"{base}/dossier/{portal_video_slug.strip()}/video"
 
 
 def _tracking_pixel_url(

@@ -12,6 +12,18 @@ const nextConfig: NextConfig = {
       },
     ],
   },
+  async redirects() {
+    return [
+      // Il portale è passato da /lead/[slug] a /dossier/[slug]. Le email
+      // outreach già inviate puntano ancora a /lead/... → redirect
+      // permanente così nessun link storico si rompe.
+      {
+        source: '/lead/:path*',
+        destination: '/dossier/:path*',
+        permanent: true,
+      },
+    ];
+  },
   async headers() {
     return [
       {

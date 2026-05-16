@@ -310,11 +310,11 @@ export default async function LeadDetailPage({ params }: PageProps) {
   // value:
   //   * strip any path / query / hash that crept in (e.g. someone pasted
   //     a `?_vercel_share=…` deployment-protection bypass URL — that
-  //     token would otherwise eat the /lead/<slug> suffix and the portal
+  //     token would otherwise eat the /dossier/<slug> suffix and the portal
   //     would just show the welcome screen).
   //   * strip trailing slashes.
   // Bail to '#' when the lead row has no slug yet, instead of building
-  // `/lead/null` which 404s on the portal.
+  // `/dossier/null` which 404s on the portal.
   const rawPortalEnv =
     process.env.NEXT_PUBLIC_LEAD_PORTAL_URL || 'http://localhost:3001';
   let portalUrl: string;
@@ -325,7 +325,7 @@ export default async function LeadDetailPage({ params }: PageProps) {
     portalUrl = rawPortalEnv.replace(/\/+$/, '');
   }
   const publicLeadLink = lead.public_slug
-    ? `${portalUrl}/lead/${lead.public_slug}`
+    ? `${portalUrl}/dossier/${lead.public_slug}`
     : '#';
   const alreadySent = lead.outreach_sent_at != null;
 
