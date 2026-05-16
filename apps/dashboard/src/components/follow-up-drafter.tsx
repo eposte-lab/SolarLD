@@ -477,7 +477,7 @@ function FollowUpDialog({
                     maxLength={8000}
                     className={cn(
                       'w-full resize-y rounded-lg border border-outline-variant/40 bg-surface-container-lowest',
-                      'px-3 py-2 font-mono text-xs text-on-surface placeholder-on-surface-variant/60',
+                      'px-3 py-2 text-sm leading-relaxed text-on-surface placeholder-on-surface-variant/60',
                       'focus:border-primary/60 focus:outline-none',
                       'disabled:opacity-60',
                     )}
