@@ -18,7 +18,9 @@ UPDATE tenants SET
   email_from_name = 'Total Trade',
   brand_primary_color = '#183054',                -- navy Total Trade (estratto dal logo) — vedi migration 0125
   brand_logo_url = 'https://portale.solarlead.it/total-trade-logo.png',  -- sottodominio portale — vedi migration 0124, 0129
-  legal_name = 'Total Trade S.r.l.',              -- placeholder, da visura camerale
+  legal_name = 'Total Trade S.r.l.',              -- visura camerale — vedi migration 0131
+  vat_number = 'IT07874501211',                    -- P.IVA Total Trade — vedi migration 0131
+  legal_address = 'Via Alessandro Scarlatti 105, 80127 Napoli (NA)',  -- sede legale — vedi migration 0131
   privacy_policy_url = NULL,                       -- fallback /privacy SolarLead
   appointment_webhook_url = NULL,                  -- da definire (HubSpot/Pipedrive/email)
   daily_target_send_cap = 50,                      -- primo test conservativo
