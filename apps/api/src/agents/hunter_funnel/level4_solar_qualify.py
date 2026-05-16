@@ -143,8 +143,8 @@ async def _persist_roof_and_link(
         real_address = None
 
     fallback_address = (
-        ((insight.locality or "") + " " + (insight.postal_code or "")).strip() or None
-    )
+        (insight.locality or "") + " " + (insight.postal_code or "")
+    ).strip() or None
 
     row: dict[str, Any] = {
         "tenant_id": tenant_id,
