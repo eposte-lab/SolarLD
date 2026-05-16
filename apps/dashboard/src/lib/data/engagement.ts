@@ -231,6 +231,12 @@ export async function getPortalSessionStats(
       event_kind: string;
       metadata: Record<string, unknown> | null;
     };
+    // Server-generated session ids (server:{uuid}) mark backend actions
+    // — e.g. the OCR-side portal.bolletta_uploaded fire — not real portal
+    // browsing sessions. Counting them inflates the session total (a lead
+    // that uploads N bills would show N sessions). Mirrors the same guard
+    // in the Python engagement rollup.
+    if (r.session_id?.startsWith('server:')) continue;
     const ms = r.elapsed_ms ?? 0;
     const cur = sessionMax.get(r.session_id);
     if (cur === undefined || ms > cur) {
