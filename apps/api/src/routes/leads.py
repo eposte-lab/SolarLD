@@ -983,6 +983,64 @@ def _fallback_body(
     )
 
 
+def _resolve_followup_placeholders(
+    text: str,
+    *,
+    subject: dict[str, Any],
+    roof: dict[str, Any],
+    roi: dict[str, Any],
+    tenant: dict[str, Any],
+) -> str:
+    """Risolve i segnaposto {{...}} dei template follow-up coi dati reali
+    del lead, prima dell'invio. Qualsiasi {{...}} residuo (chiave
+    sconosciuta o senza valore) viene rimosso: nessun segnaposto letterale
+    finisce nell'email inviata.
+    """
+    import re as _re
+
+    def _euro(value: Any) -> str:
+        try:
+            n = int(round(float(value)))
+        except (TypeError, ValueError):
+            return ""
+        return "€" + f"{n:,}".replace(",", ".")
+
+    kwp_raw = roi.get("estimated_kwp") or roof.get("estimated_kwp")
+    try:
+        kwp = str(int(round(float(kwp_raw)))) if kwp_raw is not None else ""
+    except (TypeError, ValueError):
+        kwp = ""
+
+    payback_raw = roi.get("payback_years")
+    try:
+        payback = f"{float(payback_raw):.0f} anni" if payback_raw is not None else ""
+    except (TypeError, ValueError):
+        payback = ""
+
+    # "risparmio minimo": stima arrotondata per difetto al migliaio —
+    # lettura conservativa di "anche solo X all'anno".
+    savings_raw = roi.get("annual_savings_eur")
+    try:
+        risparmio_min = (
+            _euro((int(float(savings_raw)) // 1000) * 1000) if savings_raw is not None else ""
+        )
+    except (TypeError, ValueError):
+        risparmio_min = ""
+
+    values: dict[str, str] = {
+        "nome": (subject.get("owner_first_name") or "").strip(),
+        "azienda": (subject.get("business_name") or "").strip(),
+        "comune": (roof.get("comune") or "").strip(),
+        "kwp": kwp,
+        "risparmio": _euro(savings_raw),
+        "risparmio_annuo_minimo": risparmio_min,
+        "payback": payback,
+        "firma": (tenant.get("email_signature") or tenant.get("business_name") or "").strip(),
+    }
+
+    return _re.sub(r"\{\{([a-z_]+)\}\}", lambda m: values.get(m.group(1), ""), text)
+
+
 def _text_to_html(text: str, *, tenant: dict[str, Any] | None = None) -> str:
     """Plain-text → professional anti-spam HTML email.
 
@@ -1014,6 +1072,21 @@ def _text_to_html(text: str, *, tenant: dict[str, Any] | None = None) -> str:
     tenant = tenant or {}
     business_name = (tenant.get("business_name") or "").strip()
     contact_email = (tenant.get("contact_email") or "").strip()
+    brand_logo = (tenant.get("brand_logo_url") or "").strip()
+
+    # Header con il logo del tenant. Una sola immagine in cima a
+    # un'email ricca di testo è prassi standard e non un trigger spam
+    # (diverso da un'email "solo-immagine"). Assente → header vuoto.
+    logo_row = (
+        '      <tr><td style="padding: 28px 36px 0 36px;">\n'
+        f'        <img src="{_html.escape(brand_logo)}" '
+        f'alt="{_html.escape(business_name) or "Logo"}" '
+        'style="height:34px; width:auto; display:block; border:0;">\n'
+        "      </td></tr>\n"
+        if brand_logo
+        else ""
+    )
+    body_pad_top = "20px" if brand_logo else "36px"
 
     # Footer signature block — neutral when tenant is missing.
     footer_lines: list[str] = []
@@ -1053,7 +1126,8 @@ def _text_to_html(text: str, *, tenant: dict[str, Any] | None = None) -> str:
         'border="0" width="100%" '
         'style="max-width: 600px; background: #ffffff; border-radius: 12px; '
         'box-shadow: 0 1px 3px rgba(0,0,0,0.06); overflow: hidden;">\n'
-        '      <tr><td style="padding: 36px 36px 20px 36px;">\n'
+        f"{logo_row}"
+        f'      <tr><td style="padding: {body_pad_top} 36px 20px 36px;">\n'
         f"        {body_html}\n"
         "      </td></tr>\n"
         '      <tr><td style="padding: 0 36px 36px 36px;">\n'
@@ -1095,7 +1169,9 @@ async def send_draft(
         sb.table("leads")
         .select(
             "id, tenant_id, pipeline_status, outreach_sent_at, outreach_channel, "
-            "subjects(decision_maker_email, owner_first_name, business_name)"
+            "roi_data, "
+            "subjects(decision_maker_email, owner_first_name, business_name), "
+            "roofs(comune, estimated_kwp)"
         )
         .eq("id", lead_id)
         .eq("tenant_id", tenant_id)
@@ -1110,7 +1186,7 @@ async def send_draft(
         sb.table("tenants")
         .select(
             "tier, settings, business_name, email_from_domain, email_from_name, "
-            "contact_email, followup_from_email"
+            "contact_email, followup_from_email, brand_logo_url, email_signature"
         )
         .eq("id", tenant_id)
         .limit(1)
@@ -1152,14 +1228,26 @@ async def send_draft(
             else f"{name or 'SolarLead'} <outreach@solarlead.it>"
         )
 
-    html_body = _text_to_html(body.body, tenant=tenant)
+    # Risolvi i segnaposto {{...}} dei template coi dati reali del lead
+    # (oggetto + corpo) prima dell'invio: nessun {{...}} letterale in posta.
+    roof = lead.get("roofs") or {}
+    if isinstance(roof, list):
+        roof = roof[0] if roof else {}
+    roi = lead.get("roi_data") or {}
+    resolved_subject = _resolve_followup_placeholders(
+        body.subject, subject=subj, roof=roof, roi=roi, tenant=tenant
+    )
+    resolved_body = _resolve_followup_placeholders(
+        body.body, subject=subj, roof=roof, roi=roi, tenant=tenant
+    )
+    html_body = _text_to_html(resolved_body, tenant=tenant)
 
     email_input = SendEmailInput(
         from_address=from_address,
         to=[to_email],
-        subject=body.subject,
+        subject=resolved_subject,
         html=html_body,
-        text=body.body,
+        text=resolved_body,
         reply_to=tenant.get("contact_email"),
         tags={"lead_id": lead_id, "type": "manual_followup"},
     )
