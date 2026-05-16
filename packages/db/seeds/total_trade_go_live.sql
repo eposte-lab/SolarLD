@@ -17,7 +17,7 @@ UPDATE tenants SET
   website_url = 'https://www.totaltrade.it',
   email_from_name = 'Total Trade',
   brand_primary_color = '#183054',                -- navy Total Trade (estratto dal logo) — vedi migration 0125
-  brand_logo_url = 'https://solar-ld-lead-portal.vercel.app/total-trade-logo.png',  -- vedi migration 0124
+  brand_logo_url = 'https://portale.solarlead.it/total-trade-logo.png',  -- sottodominio portale — vedi migration 0124, 0129
   legal_name = 'Total Trade S.r.l.',              -- placeholder, da visura camerale
   privacy_policy_url = NULL,                       -- fallback /privacy SolarLead
   appointment_webhook_url = NULL,                  -- da definire (HubSpot/Pipedrive/email)
