@@ -193,7 +193,6 @@ export interface OutreachSendDetail {
   experiment_variant: string | null;
   leads: {
     id: string;
-    hq_address: string | null;
     pipeline_status: string | null;
     outreach_delivered_at: string | null;
     outreach_opened_at: string | null;
@@ -217,7 +216,7 @@ const SEND_DETAIL_COLUMNS = `
   rendering_gif_url, rendering_video_url, rendering_image_url,
   inbox_id, experiment_id, experiment_variant,
   leads:leads(
-    id, hq_address, pipeline_status,
+    id, pipeline_status,
     outreach_delivered_at, outreach_opened_at, outreach_clicked_at,
     rendering_image_url, rendering_gif_url, rendering_video_url,
     portal_video_slug,
