@@ -39,12 +39,15 @@ class Settings(BaseSettings):
     # Default matches:
     #   - any *.vercel.app           (Vercel preview + production deployments)
     #   - any *.up.railway.app       (Railway preview deployments)
-    #   - any *.solarld.app          (custom production domain)
+    #   - any *.solarld.app          (legacy custom domain)
+    #   - solarlead.it + sottodomini (dashboard su solarlead.it, portale
+    #     lead su portale.solarlead.it — produzione)
     #   - localhost / 127.0.0.1 with any port
     cors_origin_regex: str = (
         r"^https://([a-z0-9-]+\.)*vercel\.app$"
         r"|^https://([a-z0-9-]+\.)*up\.railway\.app$"
         r"|^https://([a-z0-9-]+\.)*solarld\.app$"
+        r"|^https://([a-z0-9-]+\.)*solarlead\.it$"
         r"|^http://localhost(:\d+)?$"
         r"|^http://127\.0\.0\.1(:\d+)?$"
     )
