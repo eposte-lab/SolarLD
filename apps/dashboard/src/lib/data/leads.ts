@@ -166,7 +166,14 @@ export async function listLeads(opts: {
   let q = supabase.from('leads').select(LIST_COLUMNS, { count: 'exact' });
 
   if (opts.filter?.status) q = q.eq('pipeline_status', opts.filter.status);
-  if (opts.filter?.tier) q = q.eq('score_tier', opts.filter.tier);
+  // "Priorità" filtra per tier di ENGAGEMENT (comportamento reale), non
+  // per lo score_tier ICP statico — così il filtro è coerente con il
+  // chip engagement mostrato in tabella. Soglie allineate a
+  // engagementTier(): hot >=60, warm 25-59, cold <25.
+  if (opts.filter?.tier === 'hot') q = q.gte('engagement_score', 60);
+  else if (opts.filter?.tier === 'warm')
+    q = q.gte('engagement_score', 25).lt('engagement_score', 60);
+  else if (opts.filter?.tier === 'cold') q = q.lt('engagement_score', 25);
 
   // Free-text: matches business_name OR owner_last_name via a loose ilike.
   // Doing it as two separate PostgREST `or` clauses on joined columns is

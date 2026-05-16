@@ -39,9 +39,8 @@ type Search = Promise<{
   status?: string;
   q?: string;
   mode?: string;
-  // Activity filters: '1' = require, '0' = require-absent, undefined = any.
+  // Activity filters: '1' = require, undefined = any.
   read?: string;
-  clicked?: string;
   portal?: string;
   // Management mode: 'manual' (hot, system stopped) | 'auto' | undefined.
   gestione?: string;
@@ -87,7 +86,6 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
     status: (sp.status as LeadStatus) || undefined,
     q: sp.q || undefined,
     read: parseTriState(sp.read),
-    clicked: parseTriState(sp.clicked),
     portalVisited: parseTriState(sp.portal),
     management:
       sp.gestione === 'manual' || sp.gestione === 'auto'
@@ -131,7 +129,6 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
     if (filter.status) params.set('status', filter.status);
     if (filter.q) params.set('q', filter.q);
     if (sp.read !== undefined) params.set('read', sp.read);
-    if (sp.clicked !== undefined) params.set('clicked', sp.clicked);
     if (sp.portal !== undefined) params.set('portal', sp.portal);
     if (sp.gestione !== undefined) params.set('gestione', sp.gestione);
     if (sp.territorio !== undefined) params.set('territorio', sp.territorio);
@@ -269,7 +266,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
       {!isHotMode && (
         <BentoCard padding="tight" span="full">
           <div className="flex flex-wrap gap-6 px-2 py-2">
-            <FilterGroup label="Tier">
+            <FilterGroup label="Priorità">
               {TIERS.map((t) => (
                 <FilterChip
                   key={t.value || 'all'}
@@ -291,52 +288,26 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
                 </FilterChip>
               ))}
             </FilterGroup>
-            <FilterGroup label="Lettura email">
-              <FilterChip
-                active={sp.read === undefined}
-                href={queryFor({ read: undefined, page: undefined })}
-              >
-                Tutti
-              </FilterChip>
+            {/* Attività — segnali di engagement reali, accorpati in un
+                solo gruppo: chip indipendenti che si accendono/spengono. */}
+            <FilterGroup label="Attività">
               <FilterChip
                 active={sp.read === '1'}
-                href={queryFor({ read: '1', page: undefined })}
+                href={queryFor({
+                  read: sp.read === '1' ? undefined : '1',
+                  page: undefined,
+                })}
               >
-                Letta
-              </FilterChip>
-              <FilterChip
-                active={sp.read === '0'}
-                href={queryFor({ read: '0', page: undefined })}
-              >
-                Non letta
-              </FilterChip>
-            </FilterGroup>
-            <FilterGroup label="Click">
-              <FilterChip
-                active={sp.clicked === undefined}
-                href={queryFor({ clicked: undefined, page: undefined })}
-              >
-                Tutti
-              </FilterChip>
-              <FilterChip
-                active={sp.clicked === '1'}
-                href={queryFor({ clicked: '1', page: undefined })}
-              >
-                Cliccata
-              </FilterChip>
-            </FilterGroup>
-            <FilterGroup label="Portale">
-              <FilterChip
-                active={sp.portal === undefined}
-                href={queryFor({ portal: undefined, page: undefined })}
-              >
-                Tutti
+                Email aperta
               </FilterChip>
               <FilterChip
                 active={sp.portal === '1'}
-                href={queryFor({ portal: '1', page: undefined })}
+                href={queryFor({
+                  portal: sp.portal === '1' ? undefined : '1',
+                  page: undefined,
+                })}
               >
-                Visitato
+                Portale visitato
               </FilterChip>
             </FilterGroup>
             <FilterGroup label="Gestione">
