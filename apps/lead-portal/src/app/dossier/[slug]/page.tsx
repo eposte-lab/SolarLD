@@ -3,6 +3,7 @@ import { notFound, redirect } from 'next/navigation';
 
 import { AboutSection } from '@/components/AboutSection';
 import { BollettaSection } from '@/components/BollettaSection';
+import { DossierExpired } from '@/components/DossierExpired';
 import { EditorialHero } from '@/components/EditorialHero';
 import { EmailReplyCta } from '@/components/EmailReplyCta';
 import { EpcPropositionSection } from '@/components/EpcPropositionSection';
@@ -15,6 +16,11 @@ import { VisitTracker } from './VisitTracker';
 import { WhatsAppCta } from './WhatsAppCta';
 
 type PageProps = { params: Promise<{ slug: string }> };
+
+/** Giorni dopo l'invio oltre i quali il link del dossier scade.
+ *  Il dossier è pubblico (slug non indovinabile, noindex): la scadenza
+ *  limita la finestra di esposizione dei dati del prospect. */
+const DOSSIER_TTL_DAYS = 30;
 
 /** Favicon + titolo per-tenant: il portale del lead usa il logo
  *  dell'azienda cliente come favicon, così la scheda browser è
@@ -43,6 +49,23 @@ export default async function LeadPage({ params }: PageProps) {
   if (result.kind === 'gone') redirect(`/optout/${encodeURIComponent(slug)}?already=1`);
 
   const lead = result.lead;
+
+  // Scadenza link — privacy. Il dossier scade DOSSIER_TTL_DAYS giorni
+  // dopo l'invio dell'email. Un lead non ancora contattato
+  // (outreach_sent_at null) non scade: può essere in anteprima operatore.
+  if (lead.outreach_sent_at) {
+    const ageDays =
+      (Date.now() - new Date(lead.outreach_sent_at).getTime()) / 86_400_000;
+    if (ageDays > DOSSIER_TTL_DAYS) {
+      return (
+        <DossierExpired
+          tenantName={lead.tenant?.business_name ?? 'SolarLead'}
+          brandColor={lead.tenant?.brand_primary_color || '#0F766E'}
+          contactEmail={lead.tenant?.contact_email ?? null}
+        />
+      );
+    }
+  }
   // ROI source priority — single source of truth (Sprint 1.1):
   //   1. roof.derivations — canonical snapshot from
   //      compute_full_derivations, refreshed when the prospect
@@ -405,6 +428,13 @@ export default async function LeadPage({ params }: PageProps) {
               ) : null}
             </div>
           </div>
+          <p className="mt-4 border-t border-outline-variant/50 pt-4 leading-relaxed">
+            Questa è una pagina personale generata da {tenantName} per la
+            tua azienda. I dati sono trattati per finalità commerciali B2B
+            sulla base del legittimo interesse, su un link non indicizzato
+            dai motori di ricerca e con scadenza automatica. Puoi opporti
+            al trattamento in qualsiasi momento dal link qui sopra.
+          </p>
         </div>
       </footer>
     </main>
