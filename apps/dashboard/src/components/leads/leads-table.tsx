@@ -28,27 +28,18 @@ import { Fragment, useState } from 'react';
 import { EngagementScoreChip } from '@/components/ui/engagement-score-chip';
 import { FollowUpStateChip } from '@/components/ui/follow-up-state-chip';
 import { SortableTh } from '@/components/ui/sortable-th';
-import { StatusChip, TierChip } from '@/components/ui/status-chip';
+import { StatusChip } from '@/components/ui/status-chip';
 import { useSortableData } from '@/hooks/use-sortable-data';
 import { followUpState } from '@/lib/data/followup-state';
 import { cn, daysSince, relativeTime } from '@/lib/utils';
 import type { ImminencePrediction } from '@/lib/data/imminence';
 import type { LeadListRow } from '@/types/db';
 
-const TIER_ORDER: Record<string, number> = {
-  hot: 3,
-  warm: 2,
-  cold: 1,
-  rejected: 0,
-};
-
 type SortKey =
   | 'name'
   | 'type'
   | 'comune'
   | 'kwp'
-  | 'score'
-  | 'tier'
   | 'engagement'
   | 'followup'
   | 'status'
@@ -117,10 +108,6 @@ export function LeadsTable({
         return lead.roofs?.comune ?? '';
       case 'kwp':
         return lead.roofs?.estimated_kwp ?? null;
-      case 'score':
-        return lead.score;
-      case 'tier':
-        return TIER_ORDER[lead.score_tier] ?? 0;
       case 'engagement':
         return lead.engagement_score ?? null;
       case 'followup':
@@ -166,8 +153,6 @@ export function LeadsTable({
             <SortableTh sortKey="type" active={sortKey} dir={sortDir} onSort={requestSort} className="px-5 py-3">Tipo</SortableTh>
             <SortableTh sortKey="comune" active={sortKey} dir={sortDir} onSort={requestSort} className="px-5 py-3">Comune</SortableTh>
             <SortableTh sortKey="kwp" active={sortKey} dir={sortDir} onSort={requestSort} className="px-5 py-3" align="right">kW</SortableTh>
-            <SortableTh sortKey="score" active={sortKey} dir={sortDir} onSort={requestSort} className="px-5 py-3" align="right">Score</SortableTh>
-            <SortableTh sortKey="tier" active={sortKey} dir={sortDir} onSort={requestSort} className="px-5 py-3">Tier</SortableTh>
             <SortableTh sortKey="engagement" active={sortKey} dir={sortDir} onSort={requestSort} className="px-5 py-3">Engagement</SortableTh>
             <SortableTh sortKey="followup" active={sortKey} dir={sortDir} onSort={requestSort} className="px-5 py-3">Follow-up</SortableTh>
             <SortableTh sortKey="status" active={sortKey} dir={sortDir} onSort={requestSort} className="px-5 py-3">Stato</SortableTh>
@@ -245,6 +230,12 @@ export function LeadsTable({
                         </button>
                       )}
                     </div>
+                    <div
+                      className="mt-0.5 text-[10px] font-medium uppercase tracking-wider text-on-surface-variant"
+                      title="Score ICP iniziale (settore, dimensione, distanza) — fisso dall'import"
+                    >
+                      Score ICP {lead.score}
+                    </div>
                   </td>
                   <td className="px-5 py-4 text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">
                     {lead.subjects?.type ?? '—'}
@@ -254,12 +245,6 @@ export function LeadsTable({
                   </td>
                   <td className="px-5 py-4 text-right tabular-nums">
                     {lead.roofs?.estimated_kwp ?? '—'}
-                  </td>
-                  <td className="px-5 py-4 text-right font-headline font-bold tabular-nums">
-                    {lead.score}
-                  </td>
-                  <td className="px-5 py-4">
-                    <TierChip tier={lead.score_tier} />
                   </td>
                   <td className="px-5 py-4">
                     <EngagementScoreChip
@@ -293,7 +278,7 @@ export function LeadsTable({
                 </tr>
                 {isAi && isExpanded && (
                   <tr className="bg-primary/5">
-                    <td colSpan={11} className="px-8 py-4">
+                    <td colSpan={9} className="px-8 py-4">
                       <ImminenceDetail prediction={prediction} />
                     </td>
                   </tr>
