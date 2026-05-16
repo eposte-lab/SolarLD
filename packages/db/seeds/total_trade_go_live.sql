@@ -22,6 +22,7 @@ UPDATE tenants SET
   vat_number = 'IT07874501211',                    -- P.IVA Total Trade — vedi migration 0131
   legal_address = 'Via Alessandro Scarlatti 105, 80127 Napoli (NA)',  -- sede legale — vedi migration 0131
   contact_email = 'info@totaltrade.it',           -- email contatto — vedi migration 0132
+  email_signature = 'Il team Total Trade',         -- firma follow-up — vedi migration 0133
   privacy_policy_url = NULL,                       -- fallback /privacy SolarLead
   appointment_webhook_url = NULL,                  -- da definire (HubSpot/Pipedrive/email)
   daily_target_send_cap = 50,                      -- primo test conservativo
