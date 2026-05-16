@@ -1,0 +1,995 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Solar Lead — L'AI Operating System per il fotovoltaico</title>
+<meta name="description" content="Solar Lead automatizza acquisizione, follow-up e conversione commerciale per aziende fotovoltaiche con agenti AI, pipeline intelligenti e automazioni operative." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+/* ============================================================
+   SOLAR LEAD — landing page · single-file, no build
+   ============================================================ */
+:root{
+  --black:#04060d;
+  --black-2:#070b16;
+  --midnight:#0a1530;
+  --ink:#0c1424;
+  --green:#34e3a4;
+  --green-soft:#5cf0bd;
+  --cyan:#3ad8ff;
+  --violet:#7c8cff;
+  --text:#eef3ff;
+  --text-dim:#9fb0cc;
+  --text-faint:#5f7090;
+  --line:rgba(120,160,220,.12);
+  --glass:rgba(18,28,50,.55);
+  --radius:20px;
+  --maxw:1240px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{
+  font-family:'Inter',system-ui,-apple-system,sans-serif;
+  background:var(--black);
+  color:var(--text);
+  -webkit-font-smoothing:antialiased;
+  overflow-x:hidden;
+  line-height:1.6;
+}
+h1,h2,h3,.display{font-family:'Space Grotesk','Inter',sans-serif;letter-spacing:-.02em;line-height:1.08}
+a{color:inherit;text-decoration:none}
+img{max-width:100%}
+.wrap{max-width:var(--maxw);margin:0 auto;padding:0 28px}
+section{position:relative}
+
+/* ---------- ambient background ---------- */
+.bg-fx{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden}
+.bg-fx .orb{position:absolute;border-radius:50%;filter:blur(120px);opacity:.55}
+.orb-1{width:620px;height:620px;background:radial-gradient(circle,#1c3a6e,transparent 70%);top:-220px;left:-160px}
+.orb-2{width:560px;height:560px;background:radial-gradient(circle,rgba(52,227,164,.32),transparent 70%);top:38%;right:-220px}
+.orb-3{width:520px;height:520px;background:radial-gradient(circle,rgba(58,216,255,.20),transparent 70%);bottom:-160px;left:30%}
+.grid-fx{position:absolute;inset:0;
+  background-image:linear-gradient(rgba(120,160,220,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(120,160,220,.05) 1px,transparent 1px);
+  background-size:64px 64px;
+  mask-image:radial-gradient(ellipse 80% 60% at 50% 0%,#000 30%,transparent 75%);
+}
+.noise{position:fixed;inset:0;z-index:1;pointer-events:none;opacity:.035;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")}
+main{position:relative;z-index:2}
+
+/* ---------- nav ---------- */
+header.nav{position:fixed;top:0;left:0;right:0;z-index:50;transition:.35s ease}
+header.nav .inner{max-width:var(--maxw);margin:14px auto;padding:12px 22px;display:flex;align-items:center;justify-content:space-between;
+  border:1px solid var(--line);border-radius:16px;background:rgba(8,12,22,.5);backdrop-filter:blur(18px);transition:.35s}
+header.nav.scrolled .inner{background:rgba(6,9,18,.85);box-shadow:0 18px 50px -20px rgba(0,0,0,.8)}
+.logo{display:flex;align-items:center;gap:11px;font-family:'Space Grotesk';font-weight:600;font-size:18px}
+.logo .mark{width:30px;height:30px;border-radius:9px;position:relative;
+  background:linear-gradient(140deg,var(--green),var(--cyan));box-shadow:0 0 22px rgba(52,227,164,.55)}
+.logo .mark::after{content:"";position:absolute;inset:7px;border-radius:5px;background:var(--black-2)}
+.logo .mark::before{content:"";position:absolute;inset:0;border-radius:9px;
+  background:conic-gradient(from 0deg,transparent,rgba(255,255,255,.6),transparent);animation:spin 6s linear infinite;opacity:.5}
+@keyframes spin{to{transform:rotate(360deg)}}
+nav.links{display:flex;gap:30px}
+nav.links a{font-size:14px;color:var(--text-dim);font-weight:500;transition:.2s}
+nav.links a:hover{color:var(--text)}
+.nav-cta{display:flex;align-items:center;gap:14px}
+.burger{display:none;flex-direction:column;gap:5px;cursor:pointer;padding:6px}
+.burger span{width:22px;height:2px;background:var(--text);border-radius:2px}
+
+/* ---------- buttons ---------- */
+.btn{display:inline-flex;align-items:center;gap:9px;font-weight:600;font-size:14.5px;
+  padding:13px 22px;border-radius:13px;cursor:pointer;border:1px solid transparent;transition:.25s ease;white-space:nowrap}
+.btn-primary{background:linear-gradient(135deg,var(--green),var(--cyan));color:#02110c;
+  box-shadow:0 10px 40px -10px rgba(52,227,164,.6),inset 0 1px 0 rgba(255,255,255,.4)}
+.btn-primary:hover{transform:translateY(-2px);box-shadow:0 18px 55px -12px rgba(52,227,164,.8)}
+.btn-ghost{background:rgba(255,255,255,.04);border-color:var(--line);color:var(--text)}
+.btn-ghost:hover{background:rgba(255,255,255,.09);border-color:rgba(120,160,220,.3);transform:translateY(-2px)}
+.btn-sm{padding:10px 17px;font-size:13.5px}
+.btn .dot{width:7px;height:7px;border-radius:50%;background:#02110c}
+.btn-ghost .dot{background:var(--green);box-shadow:0 0 10px var(--green);animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+
+/* ---------- eyebrow / chips ---------- */
+.eyebrow{display:inline-flex;align-items:center;gap:9px;font-size:12px;font-weight:600;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--green-soft);padding:7px 14px;border-radius:100px;
+  border:1px solid rgba(52,227,164,.25);background:rgba(52,227,164,.07)}
+.eyebrow .live{width:6px;height:6px;border-radius:50%;background:var(--green);box-shadow:0 0 10px var(--green);animation:pulse 1.8s infinite}
+
+/* ---------- hero ---------- */
+.hero{padding:178px 0 90px}
+.hero-grid{display:grid;grid-template-columns:1.04fr 1fr;gap:54px;align-items:center}
+.hero h1{font-size:clamp(36px,4.6vw,62px);font-weight:700;margin:22px 0 20px}
+.hero h1 .grad{background:linear-gradient(120deg,var(--green),var(--cyan) 60%,var(--violet));
+  -webkit-background-clip:text;background-clip:text;color:transparent}
+.hero p.sub{font-size:clamp(16px,1.5vw,19px);color:var(--text-dim);max-width:560px;margin-bottom:30px}
+.hero-cta{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:34px}
+.trust{font-size:12.5px;color:var(--text-faint);display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.trust b{color:var(--text-dim);font-weight:500}
+.trust .sep{width:3px;height:3px;border-radius:50%;background:var(--text-faint)}
+.badges{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-top:34px;max-width:540px}
+.badge{border:1px solid var(--line);border-radius:14px;padding:15px 17px;background:var(--glass);backdrop-filter:blur(12px);
+  display:flex;flex-direction:column;gap:2px;transition:.3s}
+.badge:hover{border-color:rgba(52,227,164,.3);transform:translateY(-3px)}
+.badge .v{font-family:'Space Grotesk';font-size:24px;font-weight:700;color:var(--green-soft)}
+.badge .l{font-size:12.5px;color:var(--text-faint)}
+
+/* ---------- glass dashboard ---------- */
+.dash{position:relative;border:1px solid var(--line);border-radius:24px;padding:20px;
+  background:linear-gradient(165deg,rgba(20,32,58,.7),rgba(8,12,22,.85));backdrop-filter:blur(22px);
+  box-shadow:0 50px 120px -40px rgba(0,0,0,.9),inset 0 1px 0 rgba(255,255,255,.07)}
+.dash::before{content:"";position:absolute;inset:-1px;border-radius:24px;padding:1px;
+  background:linear-gradient(150deg,rgba(52,227,164,.45),transparent 40%,transparent 70%,rgba(58,216,255,.4));
+  -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
+  -webkit-mask-composite:xor;mask-composite:exclude;pointer-events:none}
+.dash-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+.dash-head .t{font-family:'Space Grotesk';font-weight:600;font-size:14px;display:flex;align-items:center;gap:9px}
+.dash-head .t .ai{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 12px var(--green);animation:pulse 1.6s infinite}
+.dash-head .tag{font-size:11px;color:var(--text-faint);border:1px solid var(--line);padding:4px 9px;border-radius:7px}
+.dash-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
+.kpi{border:1px solid var(--line);border-radius:13px;padding:13px 14px;background:rgba(255,255,255,.025)}
+.kpi .lbl{font-size:11px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.08em}
+.kpi .num{font-family:'Space Grotesk';font-size:25px;font-weight:700;margin-top:4px}
+.kpi .num.g{color:var(--green-soft)}
+.kpi .num.c{color:var(--cyan)}
+.kpi .delta{font-size:11.5px;color:var(--green);margin-top:2px}
+.spark{display:flex;align-items:flex-end;gap:3px;height:34px;margin-top:8px}
+.spark i{flex:1;background:linear-gradient(to top,rgba(52,227,164,.25),var(--green));border-radius:2px;min-height:4px;
+  animation:sparkrise 1s ease backwards}
+@keyframes sparkrise{from{height:0}}
+.dash-panel{border:1px solid var(--line);border-radius:13px;padding:13px 14px;background:rgba(255,255,255,.025);margin-bottom:12px}
+.dash-panel .ph{font-size:11.5px;color:var(--text-faint);display:flex;justify-content:space-between;margin-bottom:9px}
+.bar-line{display:flex;align-items:center;gap:9px;margin:7px 0;font-size:12px}
+.bar-line .nm{width:74px;color:var(--text-dim);flex-shrink:0}
+.bar-track{flex:1;height:7px;background:rgba(255,255,255,.05);border-radius:6px;overflow:hidden}
+.bar-fill{height:100%;border-radius:6px;background:linear-gradient(90deg,var(--green),var(--cyan));width:0;
+  transition:width 1.4s cubic-bezier(.2,.8,.2,1)}
+.bar-line .pc{width:34px;text-align:right;color:var(--text-dim);font-variant-numeric:tabular-nums}
+.ai-note{display:flex;gap:10px;align-items:flex-start;border:1px solid rgba(52,227,164,.22);
+  background:rgba(52,227,164,.06);border-radius:12px;padding:11px 13px;font-size:12.5px;color:var(--text-dim)}
+.ai-note .ic{width:24px;height:24px;border-radius:7px;flex-shrink:0;display:grid;place-items:center;
+  background:linear-gradient(135deg,var(--green),var(--cyan));color:#02110c;font-weight:700;font-size:12px}
+.ai-note b{color:var(--text)}
+.float-note{position:absolute;border:1px solid var(--line);border-radius:13px;padding:11px 14px;
+  background:rgba(10,16,30,.92);backdrop-filter:blur(14px);font-size:12px;display:flex;align-items:center;gap:10px;
+  box-shadow:0 24px 60px -22px rgba(0,0,0,.9);animation:float 5s ease-in-out infinite}
+.float-note .pin{width:9px;height:9px;border-radius:50%;background:var(--green);box-shadow:0 0 12px var(--green)}
+.fn-1{top:-22px;right:36px;animation-delay:0s}
+.fn-2{bottom:54px;left:-44px;animation-delay:1.6s}
+@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-12px)}}
+
+/* ---------- section heading ---------- */
+.sec{padding:104px 0}
+.sec-head{max-width:680px;margin-bottom:54px}
+.sec-head.center{margin-left:auto;margin-right:auto;text-align:center}
+.sec-head h2{font-size:clamp(28px,3.4vw,46px);font-weight:700;margin:16px 0 14px}
+.sec-head p{color:var(--text-dim);font-size:16.5px}
+.sec-head .grad{background:linear-gradient(120deg,var(--green),var(--cyan));-webkit-background-clip:text;background-clip:text;color:transparent}
+
+/* ---------- reveal ---------- */
+.reveal{opacity:0;transform:translateY(34px);transition:opacity .8s ease,transform .8s cubic-bezier(.2,.8,.2,1)}
+.reveal.in{opacity:1;transform:none}
+.reveal[data-d="1"]{transition-delay:.09s}
+.reveal[data-d="2"]{transition-delay:.18s}
+.reveal[data-d="3"]{transition-delay:.27s}
+.reveal[data-d="4"]{transition-delay:.36s}
+
+/* ---------- flow (non è un CRM) ---------- */
+.flow{display:grid;grid-template-columns:repeat(5,1fr);gap:14px}
+.flow-step{position:relative;border:1px solid var(--line);border-radius:16px;padding:22px 18px;
+  background:var(--glass);backdrop-filter:blur(12px);transition:.35s}
+.flow-step:hover{transform:translateY(-6px);border-color:rgba(52,227,164,.3);
+  box-shadow:0 30px 70px -34px rgba(52,227,164,.4)}
+.flow-step .n{font-family:'Space Grotesk';font-size:13px;font-weight:700;color:#02110c;
+  width:30px;height:30px;border-radius:9px;display:grid;place-items:center;
+  background:linear-gradient(135deg,var(--green),var(--cyan));margin-bottom:14px}
+.flow-step h4{font-size:15.5px;font-weight:600;margin-bottom:6px}
+.flow-step p{font-size:13px;color:var(--text-faint)}
+.flow-step .arrow{position:absolute;right:-12px;top:50%;transform:translateY(-50%);color:var(--green);
+  font-size:18px;z-index:3}
+.flow-step:last-child .arrow{display:none}
+
+/* ---------- feature cards ---------- */
+.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+.card{border:1px solid var(--line);border-radius:18px;padding:24px;background:var(--glass);
+  backdrop-filter:blur(12px);transition:.35s;position:relative;overflow:hidden}
+.card::after{content:"";position:absolute;inset:0;border-radius:18px;opacity:0;transition:.35s;
+  background:radial-gradient(380px circle at var(--mx,50%) var(--my,0%),rgba(52,227,164,.13),transparent 60%)}
+.card:hover{transform:translateY(-6px);border-color:rgba(52,227,164,.28)}
+.card:hover::after{opacity:1}
+.card .ic{width:46px;height:46px;border-radius:13px;display:grid;place-items:center;margin-bottom:16px;
+  background:linear-gradient(140deg,rgba(52,227,164,.18),rgba(58,216,255,.12));border:1px solid rgba(52,227,164,.22);
+  font-size:21px}
+.card h3{font-size:17px;font-weight:600;margin-bottom:8px}
+.card p{font-size:13.5px;color:var(--text-dim)}
+
+/* ---------- split ---------- */
+.split{display:grid;grid-template-columns:1fr 1fr;gap:48px;align-items:center}
+.split.rev .visual{order:2}
+.visual-box{border:1px solid var(--line);border-radius:22px;padding:22px;background:linear-gradient(165deg,rgba(20,32,58,.6),rgba(8,12,22,.85));
+  backdrop-filter:blur(18px);box-shadow:0 40px 100px -40px rgba(0,0,0,.85),inset 0 1px 0 rgba(255,255,255,.06)}
+.feat-list{list-style:none;margin-top:22px;display:flex;flex-direction:column;gap:13px}
+.feat-list li{display:flex;gap:12px;align-items:flex-start;font-size:14.5px;color:var(--text-dim)}
+.feat-list .ck{width:22px;height:22px;border-radius:7px;flex-shrink:0;display:grid;place-items:center;
+  background:rgba(52,227,164,.12);border:1px solid rgba(52,227,164,.3);color:var(--green);font-size:12px;font-weight:700}
+
+/* ---------- map ---------- */
+.map-stage{position:relative;border:1px solid var(--line);border-radius:22px;overflow:hidden;
+  background:radial-gradient(ellipse at 50% 40%,rgba(16,28,52,.9),rgba(4,6,13,.96));aspect-ratio:16/10}
+.map-stage canvas{position:absolute;inset:0;width:100%;height:100%}
+.map-legend{position:absolute;left:16px;bottom:16px;display:flex;gap:14px;font-size:11.5px;color:var(--text-dim);
+  background:rgba(6,9,18,.7);border:1px solid var(--line);border-radius:11px;padding:9px 13px;backdrop-filter:blur(10px)}
+.map-legend i{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:6px;vertical-align:middle}
+.map-stat{position:absolute;right:16px;top:16px;background:rgba(6,9,18,.78);border:1px solid var(--line);
+  border-radius:13px;padding:13px 16px;backdrop-filter:blur(12px);font-size:12px}
+.map-stat .v{font-family:'Space Grotesk';font-size:22px;font-weight:700;color:var(--green-soft)}
+
+/* ---------- pipeline ---------- */
+.pipe{border:1px solid var(--line);border-radius:22px;padding:30px;background:var(--glass);backdrop-filter:blur(14px)}
+.pipe-kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-bottom:28px}
+.pipe-kpi .v{font-family:'Space Grotesk';font-size:clamp(28px,3.4vw,42px);font-weight:700;
+  background:linear-gradient(120deg,var(--green),var(--cyan));-webkit-background-clip:text;background-clip:text;color:transparent}
+.pipe-kpi .l{font-size:13px;color:var(--text-faint);margin-top:2px}
+.pipe-stage{margin:15px 0}
+.pipe-stage .top{display:flex;justify-content:space-between;font-size:13.5px;margin-bottom:7px}
+.pipe-stage .top .nm{color:var(--text-dim);font-weight:500}
+.pipe-stage .top .vl{font-family:'Space Grotesk';font-weight:600}
+.pipe-track{height:13px;border-radius:8px;background:rgba(255,255,255,.04);overflow:hidden}
+.pipe-fill{height:100%;border-radius:8px;width:0;transition:width 1.5s cubic-bezier(.2,.8,.2,1);
+  background:linear-gradient(90deg,var(--green),var(--cyan));box-shadow:0 0 24px rgba(52,227,164,.4)}
+
+/* ---------- insights ---------- */
+.insights{display:grid;grid-template-columns:repeat(2,1fr);gap:16px}
+.insight{border:1px solid var(--line);border-radius:16px;padding:18px 20px;background:var(--glass);
+  backdrop-filter:blur(12px);display:flex;gap:14px;align-items:flex-start;transition:.35s}
+.insight:hover{transform:translateY(-4px);border-color:rgba(52,227,164,.3)}
+.insight .ic{width:40px;height:40px;border-radius:11px;flex-shrink:0;display:grid;place-items:center;font-size:17px;
+  background:linear-gradient(140deg,rgba(52,227,164,.16),rgba(58,216,255,.1));border:1px solid rgba(52,227,164,.22)}
+.insight .tx h4{font-size:14.5px;font-weight:600;margin-bottom:3px}
+.insight .tx p{font-size:12.5px;color:var(--text-faint)}
+.insight .live-tag{margin-left:auto;font-size:10px;color:var(--green);border:1px solid rgba(52,227,164,.3);
+  padding:3px 7px;border-radius:6px;flex-shrink:0}
+
+/* ---------- automations workflow ---------- */
+.flowmap{border:1px solid var(--line);border-radius:22px;padding:30px;background:var(--glass);backdrop-filter:blur(14px)}
+.flowmap-track{display:flex;align-items:center;gap:0;flex-wrap:wrap}
+.node{flex:1;min-width:130px;border:1px solid var(--line);border-radius:14px;padding:16px;text-align:center;
+  background:rgba(255,255,255,.025);position:relative}
+.node .nk{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-faint)}
+.node .nv{font-family:'Space Grotesk';font-size:14.5px;font-weight:600;margin-top:5px}
+.node.ai{border-color:rgba(52,227,164,.4);background:rgba(52,227,164,.07);box-shadow:0 0 30px -8px rgba(52,227,164,.4)}
+.connector{width:34px;height:2px;flex-shrink:0;background:linear-gradient(90deg,var(--green),var(--cyan));position:relative}
+.connector::after{content:"";position:absolute;right:-1px;top:50%;transform:translateY(-50%);
+  width:6px;height:6px;border-radius:50%;background:var(--cyan);box-shadow:0 0 10px var(--cyan)}
+.connector .pkt{position:absolute;top:50%;left:0;transform:translateY(-50%);width:6px;height:6px;border-radius:50%;
+  background:#fff;box-shadow:0 0 10px #fff;animation:travel 2.4s linear infinite}
+@keyframes travel{from{left:0}to{left:100%}}
+
+/* ---------- performance ---------- */
+.perf{display:grid;grid-template-columns:repeat(4,1fr);gap:18px}
+.perf-cell{border:1px solid var(--line);border-radius:18px;padding:26px 22px;background:var(--glass);
+  backdrop-filter:blur(12px);text-align:center;transition:.35s}
+.perf-cell:hover{transform:translateY(-5px);border-color:rgba(52,227,164,.3)}
+.perf-cell .v{font-family:'Space Grotesk';font-size:clamp(32px,3.6vw,46px);font-weight:700;
+  background:linear-gradient(120deg,var(--green),var(--cyan));-webkit-background-clip:text;background-clip:text;color:transparent}
+.perf-cell .l{font-size:13px;color:var(--text-dim);margin-top:6px}
+
+/* ---------- testimonials ---------- */
+.quotes{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+.quote{border:1px solid var(--line);border-radius:18px;padding:24px;background:var(--glass);backdrop-filter:blur(12px);
+  display:flex;flex-direction:column;gap:16px;transition:.35s}
+.quote:hover{transform:translateY(-5px);border-color:rgba(52,227,164,.26)}
+.quote p{font-size:14.5px;color:var(--text);line-height:1.6}
+.quote .who{display:flex;align-items:center;gap:11px;margin-top:auto}
+.quote .av{width:38px;height:38px;border-radius:11px;display:grid;place-items:center;font-family:'Space Grotesk';
+  font-weight:700;font-size:14px;color:#02110c;background:linear-gradient(135deg,var(--green),var(--cyan))}
+.quote .who .nm{font-size:13.5px;font-weight:600}
+.quote .who .rl{font-size:12px;color:var(--text-faint)}
+.quote .stars{color:var(--green);font-size:13px;letter-spacing:2px}
+
+/* ---------- pricing ---------- */
+.prices{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;align-items:stretch}
+.price{border:1px solid var(--line);border-radius:20px;padding:28px;background:var(--glass);backdrop-filter:blur(14px);
+  display:flex;flex-direction:column;transition:.35s;position:relative}
+.price:hover{transform:translateY(-6px)}
+.price.feat{border-color:rgba(52,227,164,.45);background:linear-gradient(170deg,rgba(52,227,164,.09),rgba(10,16,30,.7));
+  box-shadow:0 40px 90px -40px rgba(52,227,164,.5)}
+.price .pin{position:absolute;top:-12px;left:28px;font-size:11px;font-weight:700;letter-spacing:.08em;
+  text-transform:uppercase;padding:5px 12px;border-radius:8px;color:#02110c;
+  background:linear-gradient(135deg,var(--green),var(--cyan))}
+.price .pname{font-family:'Space Grotesk';font-size:16px;font-weight:600}
+.price .pdesc{font-size:12.5px;color:var(--text-faint);margin:4px 0 18px;min-height:34px}
+.price .amount{font-family:'Space Grotesk';font-size:38px;font-weight:700}
+.price .amount span{font-size:14px;color:var(--text-faint);font-weight:400}
+.price ul{list-style:none;margin:20px 0 24px;display:flex;flex-direction:column;gap:11px}
+.price li{font-size:13.5px;color:var(--text-dim);display:flex;gap:9px;align-items:flex-start}
+.price li::before{content:"✓";color:var(--green);font-weight:700}
+.price .btn{justify-content:center;width:100%;margin-top:auto}
+
+/* ---------- final cta ---------- */
+.final{padding:118px 0}
+.final-box{position:relative;border:1px solid var(--line);border-radius:28px;padding:74px 40px;text-align:center;
+  overflow:hidden;background:linear-gradient(165deg,rgba(20,38,64,.8),rgba(6,10,20,.92))}
+.final-box::before{content:"";position:absolute;width:600px;height:600px;border-radius:50%;
+  background:radial-gradient(circle,rgba(52,227,164,.22),transparent 65%);top:-280px;left:50%;transform:translateX(-50%)}
+.final-box h2{position:relative;font-size:clamp(30px,4vw,52px);font-weight:700;margin-bottom:16px}
+.final-box h2 .grad{background:linear-gradient(120deg,var(--green),var(--cyan));-webkit-background-clip:text;background-clip:text;color:transparent}
+.final-box p{position:relative;color:var(--text-dim);max-width:540px;margin:0 auto 30px;font-size:16.5px}
+.final-box .hcta{position:relative;display:flex;gap:14px;justify-content:center;flex-wrap:wrap}
+
+/* ---------- footer ---------- */
+footer{border-top:1px solid var(--line);padding:54px 0 38px}
+.foot-grid{display:grid;grid-template-columns:1.5fr 1fr 1fr 1fr;gap:34px;margin-bottom:38px}
+.foot-grid p{font-size:13px;color:var(--text-faint);margin-top:12px;max-width:280px}
+.foot-col h5{font-size:12px;text-transform:uppercase;letter-spacing:.1em;color:var(--text-faint);margin-bottom:14px}
+.foot-col a{display:block;font-size:13.5px;color:var(--text-dim);margin-bottom:9px;transition:.2s}
+.foot-col a:hover{color:var(--green-soft)}
+.foot-bot{display:flex;justify-content:space-between;border-top:1px solid var(--line);padding-top:24px;
+  font-size:12.5px;color:var(--text-faint);flex-wrap:wrap;gap:10px}
+
+/* ---------- responsive ---------- */
+@media(max-width:1000px){
+  .hero-grid,.split,.split.rev{grid-template-columns:1fr;gap:40px}
+  .split.rev .visual{order:0}
+  .cards,.quotes,.prices{grid-template-columns:1fr 1fr}
+  .perf{grid-template-columns:1fr 1fr}
+  .flow{grid-template-columns:1fr 1fr}
+  .flow-step .arrow{display:none}
+  .insights{grid-template-columns:1fr}
+}
+@media(max-width:680px){
+  .wrap{padding:0 18px}
+  nav.links,.nav-cta .btn{display:none}
+  .burger{display:flex}
+  .hero{padding:130px 0 60px}
+  .cards,.quotes,.prices,.perf,.flow,.pipe-kpis,.badges{grid-template-columns:1fr}
+  .flowmap-track{flex-direction:column}
+  .connector{width:2px;height:26px}
+  .connector .pkt{animation:travelv 2.4s linear infinite}
+  @keyframes travelv{from{top:0}to{top:100%}}
+  .foot-grid{grid-template-columns:1fr 1fr}
+  .final-box{padding:54px 22px}
+  header.nav .inner{margin:10px 14px}
+  .mobile-menu.open{display:flex}
+}
+.mobile-menu{display:none;flex-direction:column;gap:4px;position:fixed;top:80px;left:14px;right:14px;z-index:49;
+  border:1px solid var(--line);border-radius:16px;background:rgba(6,9,18,.97);backdrop-filter:blur(20px);padding:14px}
+.mobile-menu a{padding:12px;font-size:15px;color:var(--text-dim);border-radius:10px}
+.mobile-menu a:hover{background:rgba(255,255,255,.05);color:var(--text)}
+.mobile-menu .btn{justify-content:center;margin-top:6px}
+</style>
+</head>
+<body>
+
+<div class="bg-fx">
+  <div class="grid-fx"></div>
+  <div class="orb orb-1"></div>
+  <div class="orb orb-2"></div>
+  <div class="orb orb-3"></div>
+</div>
+<div class="noise"></div>
+
+<!-- ============ NAV ============ -->
+<header class="nav" id="nav">
+  <div class="inner">
+    <a href="#" class="logo"><span class="mark"></span> Solar Lead</a>
+    <nav class="links">
+      <a href="#crm">Piattaforma</a>
+      <a href="#ai">AI Operativa</a>
+      <a href="#map">Mappa</a>
+      <a href="#automazioni">Automazioni</a>
+      <a href="#prezzi">Prezzi</a>
+    </nav>
+    <div class="nav-cta">
+      <a href="#demo" class="btn btn-ghost btn-sm"><span class="dot"></span> Sistema in azione</a>
+      <a href="#demo" class="btn btn-primary btn-sm">Richiedi demo</a>
+      <div class="burger" id="burger"><span></span><span></span><span></span></div>
+    </div>
+  </div>
+</header>
+<div class="mobile-menu" id="mobileMenu">
+  <a href="#crm">Piattaforma</a>
+  <a href="#ai">AI Operativa</a>
+  <a href="#map">Mappa</a>
+  <a href="#automazioni">Automazioni</a>
+  <a href="#prezzi">Prezzi</a>
+  <a href="#demo" class="btn btn-primary">Richiedi demo</a>
+</div>
+
+<main>
+
+<!-- ============ HERO ============ -->
+<section class="hero">
+  <div class="wrap hero-grid">
+    <div class="hero-copy">
+      <span class="eyebrow reveal"><span class="live"></span> AI Operating System · Fotovoltaico</span>
+      <h1 class="reveal" data-d="1">L'AI che <span class="grad">trova, segue e converte</span> clienti fotovoltaici automaticamente.</h1>
+      <p class="sub reveal" data-d="2">Solar Lead automatizza acquisizione, follow-up e conversione commerciale con agenti AI, pipeline intelligenti e automazioni operative.</p>
+      <div class="hero-cta reveal" data-d="3">
+        <a href="#demo" class="btn btn-primary">Richiedi demo <span class="dot"></span></a>
+        <a href="#crm" class="btn btn-ghost"><span class="dot"></span> Guarda il sistema in azione</a>
+      </div>
+      <div class="trust reveal" data-d="4">
+        <b>Aziende energia</b><span class="sep"></span>
+        <b>Installatori fotovoltaici</b><span class="sep"></span>
+        <b>Consulenti energetici</b><span class="sep"></span>
+        <b>Partner attivi</b>
+      </div>
+      <div class="badges">
+        <div class="badge reveal" data-d="1"><span class="v" data-count="312" data-suffix="%" data-prefix="+">+0%</span><span class="l">Risposta lead</span></div>
+        <div class="badge reveal" data-d="2"><span class="v" data-count="70" data-suffix="%" data-prefix="−">−0%</span><span class="l">Tempo operativo</span></div>
+        <div class="badge reveal" data-d="3"><span class="v">24/7</span><span class="l">Follow-up AI</span></div>
+        <div class="badge reveal" data-d="4"><span class="v">Auto</span><span class="l">Conversioni</span></div>
+      </div>
+    </div>
+
+    <!-- live dashboard -->
+    <div class="hero-visual reveal" data-d="2" style="position:relative">
+      <div class="float-note fn-1"><span class="pin"></span> Nuovo lead warm · Brescia</div>
+      <div class="float-note fn-2"><span class="pin"></span> AI: email inviata · +1 appuntamento</div>
+      <div class="dash">
+        <div class="dash-head">
+          <div class="t"><span class="ai"></span> Solar Lead · Command Center</div>
+          <div class="tag">LIVE</div>
+        </div>
+        <div class="dash-row">
+          <div class="kpi">
+            <div class="lbl">Pipeline revenue</div>
+            <div class="num g">€<span data-count="1284" data-live="1">0</span>K</div>
+            <div class="delta">▲ 18,4% questa settimana</div>
+          </div>
+          <div class="kpi">
+            <div class="lbl">Lead qualificati</div>
+            <div class="num c"><span data-count="2417" data-live="1">0</span></div>
+            <div class="delta">▲ 92 nelle ultime 24h</div>
+          </div>
+        </div>
+        <div class="dash-panel">
+          <div class="ph"><span>Pipeline conversione</span><span>real-time</span></div>
+          <div class="bar-line"><span class="nm">Inviati</span><span class="bar-track"><span class="bar-fill" data-w="100"></span></span><span class="pc">100%</span></div>
+          <div class="bar-line"><span class="nm">Aperti</span><span class="bar-track"><span class="bar-fill" data-w="68"></span></span><span class="pc">68%</span></div>
+          <div class="bar-line"><span class="nm">Risposta</span><span class="bar-track"><span class="bar-fill" data-w="41"></span></span><span class="pc">41%</span></div>
+          <div class="bar-line"><span class="nm">Appuntam.</span><span class="bar-track"><span class="bar-fill" data-w="23"></span></span><span class="pc">23%</span></div>
+        </div>
+        <div class="dash-row">
+          <div class="kpi">
+            <div class="lbl">Lead score top</div>
+            <div class="num g">94<span style="font-size:14px;color:var(--text-faint)">/100</span></div>
+            <div class="spark" data-spark></div>
+          </div>
+          <div class="kpi">
+            <div class="lbl">Deliverability</div>
+            <div class="num c">99,2%</div>
+            <div class="spark" data-spark></div>
+          </div>
+        </div>
+        <div class="ai-note">
+          <span class="ic">AI</span>
+          <span><b>9 lead warm</b> pronti al contatto. Miglior orario stimato <b>09:12</b>. Vuoi che l'AI avvii la sequenza?</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ NON È UN CRM ============ -->
+<section class="sec" id="crm">
+  <div class="wrap">
+    <div class="sec-head center reveal">
+      <span class="eyebrow">Non è un gestionale</span>
+      <h2>Non gestisce solo lead. <span class="grad">Li muove.</span></h2>
+      <p>Un CRM aspetta che tu agisca. Solar Lead agisce per te: ogni lead entra in un flusso operativo che l'AI esegue dall'inizio alla firma.</p>
+    </div>
+    <div class="flow">
+      <div class="flow-step reveal" data-d="1"><div class="n">01</div><h4>Azienda trovata</h4><p>L'AI individua aziende fotovoltaiche e energivore sul territorio.</p><span class="arrow">→</span></div>
+      <div class="flow-step reveal" data-d="2"><div class="n">02</div><h4>Analizza engagement</h4><p>Valuta segnali, interesse e potenziale di conversione.</p><span class="arrow">→</span></div>
+      <div class="flow-step reveal" data-d="3"><div class="n">03</div><h4>Email personalizzata</h4><p>Genera il messaggio giusto per quel lead, in automatico.</p><span class="arrow">→</span></div>
+      <div class="flow-step reveal" data-d="4"><div class="n">04</div><h4>Follow-up automatico</h4><p>Sequenze intelligenti finché il lead non risponde.</p><span class="arrow">→</span></div>
+      <div class="flow-step reveal" data-d="4"><div class="n">05</div><h4>Appuntamento</h4><p>Prenota la call e passa il lead caldo al commerciale.</p></div>
+    </div>
+    <p class="reveal" style="text-align:center;margin-top:34px;color:var(--text-dim);font-size:15px">
+      <b style="color:var(--text)">Tu controlli. L'AI esegue.</b>
+    </p>
+  </div>
+</section>
+
+<!-- ============ AI OPERATIVA ============ -->
+<section class="sec" id="ai">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <span class="eyebrow"><span class="live"></span> AI Operativa</span>
+      <h2>Un <span class="grad">sistema operativo commerciale</span>. Non un assistente.</h2>
+      <p>Solar Lead non suggerisce e basta: prioritizza, decide e agisce. È il Jarvis del commerciale fotovoltaico — sempre sveglio, sempre operativo.</p>
+    </div>
+    <div class="cards">
+      <div class="card reveal" data-d="1" data-tilt><div class="ic">⚡</div><h3>Prioritizzazione lead</h3><p>L'AI ordina ogni giorno i lead per probabilità di conversione: lavori sempre il più caldo per primo.</p></div>
+      <div class="card reveal" data-d="2" data-tilt><div class="ic">◎</div><h3>Scoring intelligente</h3><p>Ogni lead riceve uno score predittivo che combina settore, segnali e comportamento reale.</p></div>
+      <div class="card reveal" data-d="3" data-tilt><div class="ic">✶</div><h3>AI insights automatici</h3><p>Pattern, anomalie e opportunità emergono da soli — senza che tu interroghi un report.</p></div>
+      <div class="card reveal" data-d="1" data-tilt><div class="ic">↻</div><h3>Follow-up automatici</h3><p>Sequenze adattive che cambiano tono e tempistica in base alla reazione del lead.</p></div>
+      <div class="card reveal" data-d="2" data-tilt><div class="ic">◆</div><h3>AI decision making</h3><p>Quando inviare, a chi, con quale messaggio: decisioni operative prese in autonomia.</p></div>
+      <div class="card reveal" data-d="3" data-tilt><div class="ic">🜂</div><h3>Lead warm detection</h3><p>Il sistema riconosce i segnali di interesse e ti avvisa nell'istante in cui un lead si scalda.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ LEAD MAP ============ -->
+<section class="sec" id="map">
+  <div class="wrap split">
+    <div class="visual reveal">
+      <div class="map-stage">
+        <canvas id="radarCanvas"></canvas>
+        <div class="map-stat"><div class="v">+1.840</div><div style="color:var(--text-faint)">aziende mappate</div></div>
+        <div class="map-legend">
+          <span><i style="background:var(--green);box-shadow:0 0 8px var(--green)"></i>Hotspot</span>
+          <span><i style="background:var(--cyan)"></i>Lead attivi</span>
+          <span><i style="background:var(--text-faint)"></i>Coperti</span>
+        </div>
+      </div>
+    </div>
+    <div class="copy reveal" data-d="1">
+      <span class="eyebrow">Lead Map</span>
+      <h2 style="font-size:clamp(28px,3.2vw,42px);font-weight:700;margin:16px 0 14px">Vedi dove si <span class="grad">muove il mercato</span>.</h2>
+      <p style="color:var(--text-dim);font-size:16px">Una mappa viva del tuo territorio: aziende attive, province, hotspot di conversione e segnali di engagement in tempo reale. Il radar AI scansiona di continuo e illumina le zone dove c'è domanda adesso.</p>
+      <ul class="feat-list">
+        <li><span class="ck">✓</span> Hotspot di conversione per provincia e comune</li>
+        <li><span class="ck">✓</span> Radar AI che scansiona il territorio in continuo</li>
+        <li><span class="ck">✓</span> Segnali di engagement geolocalizzati e dinamici</li>
+        <li><span class="ck">✓</span> Connessioni live tra zone, lead e campagne attive</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ============ PIPELINE REVENUE ============ -->
+<section class="sec" id="pipeline">
+  <div class="wrap">
+    <div class="sec-head center reveal">
+      <span class="eyebrow">Pipeline Revenue</span>
+      <h2>La tua <span class="grad">macchina commerciale</span>, automatizzata.</h2>
+      <p>Ogni stadio della pipeline misurato in tempo reale — dall'invio alla firma.</p>
+    </div>
+    <div class="pipe reveal" data-d="1">
+      <div class="pipe-kpis">
+        <div class="pipe-kpi"><div class="v">€<span data-count="3"
+          data-decimals="1">0</span>M</div><div class="l">Pipeline totale generata</div></div>
+        <div class="pipe-kpi"><div class="v">€<span data-count="940">0</span>K</div><div class="l">Revenue stimata in corso</div></div>
+        <div class="pipe-kpi"><div class="v"><span data-count="23" data-suffix="%">0</span></div><div class="l">Conversion rate medio</div></div>
+      </div>
+      <div class="pipe-stage"><div class="top"><span class="nm">Inviati</span><span class="vl">12.480</span></div><div class="pipe-track"><span class="pipe-fill" data-w="100"></span></div></div>
+      <div class="pipe-stage"><div class="top"><span class="nm">Aperti</span><span class="vl">8.486</span></div><div class="pipe-track"><span class="pipe-fill" data-w="68"></span></div></div>
+      <div class="pipe-stage"><div class="top"><span class="nm">Risposta</span><span class="vl">5.117</span></div><div class="pipe-track"><span class="pipe-fill" data-w="41"></span></div></div>
+      <div class="pipe-stage"><div class="top"><span class="nm">Appuntamento</span><span class="vl">2.870</span></div><div class="pipe-track"><span class="pipe-fill" data-w="23"></span></div></div>
+      <div class="pipe-stage"><div class="top"><span class="nm">Firmati</span><span class="vl">1.123</span></div><div class="pipe-track"><span class="pipe-fill" data-w="9"></span></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ EMAIL AI ============ -->
+<section class="sec" id="email">
+  <div class="wrap split rev">
+    <div class="visual reveal">
+      <div class="visual-box">
+        <div class="dash-head"><div class="t"><span class="ai"></span> Email AI · Composer</div><div class="tag">A/B LIVE</div></div>
+        <div class="dash-panel" style="margin-bottom:10px">
+          <div class="ph"><span>Oggetto · variante A</span><span style="color:var(--green)">+34% open</span></div>
+          <div style="font-size:13.5px;color:var(--text)">"Il tuo capannone produce già — manca solo l'impianto"</div>
+        </div>
+        <div class="dash-panel" style="margin-bottom:10px">
+          <div class="ph"><span>Oggetto · variante B</span><span style="color:var(--text-faint)">in test</span></div>
+          <div style="font-size:13.5px;color:var(--text-dim)">"3 aziende della tua zona hanno già scelto il fotovoltaico"</div>
+        </div>
+        <div class="dash-row" style="margin-bottom:0">
+          <div class="kpi"><div class="lbl">Deliverability</div><div class="num g">99,2%</div></div>
+          <div class="kpi"><div class="lbl">Domain warm-up</div><div class="num c">Ottimo</div></div>
+        </div>
+        <div class="ai-note" style="margin-top:12px"><span class="ic">AI</span><span>Riscrittura suggerita: tono più diretto sul <b>ROI a 12 mesi</b>. Applicare a tutta la sequenza?</span></div>
+      </div>
+    </div>
+    <div class="copy reveal" data-d="1">
+      <span class="eyebrow">Email AI</span>
+      <h2 style="font-size:clamp(28px,3.2vw,42px);font-weight:700;margin:16px 0 14px">Ogni email <span class="grad">ottimizzata per convertire</span>.</h2>
+      <p style="color:var(--text-dim);font-size:16px">L'AI scrive, testa e migliora ogni messaggio. Template intelligenti, A/B testing automatico e protezione della deliverability — perché l'email migliore non serve se finisce in spam.</p>
+      <ul class="feat-list">
+        <li><span class="ck">✓</span> Template intelligenti generati per ogni lead</li>
+        <li><span class="ck">✓</span> A/B testing automatico su oggetto e copy</li>
+        <li><span class="ck">✓</span> Deliverability score e warm-up domini</li>
+        <li><span class="ck">✓</span> Sequenze di follow-up adattive</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ============ TERRITORIO ============ -->
+<section class="sec" id="territorio">
+  <div class="wrap split">
+    <div class="visual reveal">
+      <div class="visual-box">
+        <div class="dash-head"><div class="t"><span class="ai"></span> Gestione Territorio</div><div class="tag">12 ZONE</div></div>
+        <div class="bar-line" style="font-size:13px;margin:11px 0"><span class="nm" style="width:96px">Lombardia</span><span class="bar-track"><span class="bar-fill" data-w="84"></span></span><span class="pc">84%</span></div>
+        <div class="bar-line" style="font-size:13px;margin:11px 0"><span class="nm" style="width:96px">Veneto</span><span class="bar-track"><span class="bar-fill" data-w="61"></span></span><span class="pc">61%</span></div>
+        <div class="bar-line" style="font-size:13px;margin:11px 0"><span class="nm" style="width:96px">Emilia-R.</span><span class="bar-track"><span class="bar-fill" data-w="47"></span></span><span class="pc">47%</span></div>
+        <div class="bar-line" style="font-size:13px;margin:11px 0"><span class="nm" style="width:96px">Piemonte</span><span class="bar-track"><span class="bar-fill" data-w="33"></span></span><span class="pc">33%</span></div>
+        <div class="ai-note" style="margin-top:14px"><span class="ic">AI</span><span><b>Provincia di Brescia</b> sopra media conversione. Suggerito espandere la copertura.</span></div>
+      </div>
+    </div>
+    <div class="copy reveal" data-d="1">
+      <span class="eyebrow">Territorio</span>
+      <h2 style="font-size:clamp(28px,3.2vw,42px);font-weight:700;margin:16px 0 14px">Il tuo mercato, <span class="grad">zona per zona</span>.</h2>
+      <p style="color:var(--text-dim);font-size:16px">Assegna province, distribuisci i lead per area e misura la copertura commerciale. Solar Lead trasforma la geografia in una strategia di espansione.</p>
+      <ul class="feat-list">
+        <li><span class="ck">✓</span> Gestione zone e assegnazione province</li>
+        <li><span class="ck">✓</span> Distribuzione lead per area commerciale</li>
+        <li><span class="ck">✓</span> Copertura e saturazione misurate in tempo reale</li>
+        <li><span class="ck">✓</span> Espansione geografica guidata dai dati</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ============ AI INSIGHTS ============ -->
+<section class="sec" id="insights">
+  <div class="wrap">
+    <div class="sec-head center reveal">
+      <span class="eyebrow"><span class="live"></span> AI Insights</span>
+      <h2>L'AI <span class="grad">vede prima di te</span>.</h2>
+      <p>Insight operativi che compaiono da soli — non report da leggere, ma azioni da fare adesso.</p>
+    </div>
+    <div class="insights">
+      <div class="insight reveal" data-d="1"><span class="ic">🜂</span><div class="tx"><h4>9 lead warm da contattare</h4><p>Hanno aperto il dossier più volte nelle ultime 48h.</p></div><span class="live-tag">ORA</span></div>
+      <div class="insight reveal" data-d="2"><span class="ic">◎</span><div class="tx"><h4>2 aziende mostrano forte interesse</h4><p>Engagement score sopra 80 — pronte alla call.</p></div><span class="live-tag">ORA</span></div>
+      <div class="insight reveal" data-d="3"><span class="ic">▲</span><div class="tx"><h4>Brescia sopra media conversione</h4><p>+17% rispetto alla media nazionale questo mese.</p></div><span class="live-tag">TREND</span></div>
+      <div class="insight reveal" data-d="4"><span class="ic">⧖</span><div class="tx"><h4>Miglior orario invio: 09:12</h4><p>Picco di apertura stimato per il tuo segmento.</p></div><span class="live-tag">AI</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ AUTOMAZIONI ============ -->
+<section class="sec" id="automazioni">
+  <div class="wrap">
+    <div class="sec-head center reveal">
+      <span class="eyebrow">Automazioni</span>
+      <h2>Workflow <span class="grad">agentici</span>, non semplici regole.</h2>
+      <p>Trigger, sequenze ed escalation: l'AI orchestra ogni passaggio fino all'appuntamento.</p>
+    </div>
+    <div class="flowmap reveal" data-d="1">
+      <div class="flowmap-track">
+        <div class="node"><div class="nk">Trigger</div><div class="nv">Lead acquisito</div></div>
+        <div class="connector"><span class="pkt"></span></div>
+        <div class="node ai"><div class="nk">AI</div><div class="nv">Scoring + analisi</div></div>
+        <div class="connector"><span class="pkt"></span></div>
+        <div class="node"><div class="nk">Sequenza</div><div class="nv">Email + follow-up</div></div>
+        <div class="connector"><span class="pkt"></span></div>
+        <div class="node ai"><div class="nk">AI</div><div class="nv">Reminder + escalation</div></div>
+        <div class="connector"><span class="pkt"></span></div>
+        <div class="node"><div class="nk">Output</div><div class="nv">Appuntamento</div></div>
+      </div>
+      <div class="cards" style="margin-top:24px">
+        <div class="card"><div class="ic">⟁</div><h3>Trigger intelligenti</h3><p>Ogni evento del lead può avviare un flusso operativo dedicato.</p></div>
+        <div class="card"><div class="ic">↻</div><h3>Sequenze adattive</h3><p>Le automazioni cambiano in base alla reazione reale del lead.</p></div>
+        <div class="card"><div class="ic">⇡</div><h3>Escalation AI</h3><p>Quando un lead diventa caldo, l'AI lo promuove e avvisa il team.</p></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ PERFORMANCE ============ -->
+<section class="sec" id="performance">
+  <div class="wrap">
+    <div class="sec-head center reveal">
+      <span class="eyebrow">Performance</span>
+      <h2>Numeri che <span class="grad">parlano da soli</span>.</h2>
+    </div>
+    <div class="perf">
+      <div class="perf-cell reveal" data-d="1"><div class="v"><span data-count="48" data-suffix="K">0</span></div><div class="l">Lead generati</div></div>
+      <div class="perf-cell reveal" data-d="2"><div class="v"><span data-count="312" data-prefix="+" data-suffix="%">0</span></div><div class="l">Tasso di risposta</div></div>
+      <div class="perf-cell reveal" data-d="3"><div class="v"><span data-count="70" data-suffix="%">0</span></div><div class="l">Tempo risparmiato</div></div>
+      <div class="perf-cell reveal" data-d="4"><div class="v"><span data-count="6">0</span>×</div><div class="l">ROI medio</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ TESTIMONIALS ============ -->
+<section class="sec" id="testimonials">
+  <div class="wrap">
+    <div class="sec-head center reveal">
+      <span class="eyebrow">Founder energy</span>
+      <h2>Chi ha già <span class="grad">automatizzato il commerciale</span>.</h2>
+    </div>
+    <div class="quotes">
+      <div class="quote reveal" data-d="1">
+        <div class="stars">★★★★★</div>
+        <p>"Abbiamo automatizzato il commerciale. Il team lavora il doppio dei lead con metà dell'effort — e nessuno torna più indietro."</p>
+        <div class="who"><div class="av">MR</div><div><div class="nm">Marco Riva</div><div class="rl">CEO · azienda fotovoltaica</div></div></div>
+      </div>
+      <div class="quote reveal" data-d="2">
+        <div class="stars">★★★★★</div>
+        <p>"Prima rincorrevamo i lead. Ora ci arrivano già caldi, con la sequenza fatta. Solar Lead è l'infrastruttura che ci mancava."</p>
+        <div class="who"><div class="av">GF</div><div><div class="nm">Giulia Ferri</div><div class="rl">Founder · agenzia lead generation</div></div></div>
+      </div>
+      <div class="quote reveal" data-d="3">
+        <div class="stars">★★★★★</div>
+        <p>"L'AI prioritizza, scrive e fa follow-up. Io chiudo. È la prima volta che un software mi fa davvero risparmiare tempo."</p>
+        <div class="who"><div class="av">AC</div><div><div class="nm">Andrea Conti</div><div class="rl">Consulente energetico</div></div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ PRICING ============ -->
+<section class="sec" id="prezzi">
+  <div class="wrap">
+    <div class="sec-head center reveal">
+      <span class="eyebrow">Prezzi</span>
+      <h2>Setup rapido. <span class="grad">AI già pronta.</span></h2>
+      <p>Onboarding incluso, supporto dedicato e agenti AI configurati dal primo giorno.</p>
+    </div>
+    <div class="prices">
+      <div class="price reveal" data-d="1">
+        <div class="pname">Starter</div>
+        <div class="pdesc">Per installatori che vogliono iniziare ad automatizzare.</div>
+        <div class="amount">€290<span>/mese</span></div>
+        <ul>
+          <li>Acquisizione lead AI</li>
+          <li>Follow-up automatici</li>
+          <li>Email AI + deliverability</li>
+          <li>1 zona territoriale</li>
+        </ul>
+        <a href="#demo" class="btn btn-ghost">Attiva Solar Lead</a>
+      </div>
+      <div class="price feat reveal" data-d="2">
+        <div class="pin">Più scelto</div>
+        <div class="pname">Growth</div>
+        <div class="pdesc">Per aziende che vogliono una macchina commerciale completa.</div>
+        <div class="amount">€690<span>/mese</span></div>
+        <ul>
+          <li>Tutto in Starter</li>
+          <li>AI insights + scoring predittivo</li>
+          <li>Lead Map &amp; radar territoriale</li>
+          <li>Automazioni agentiche illimitate</li>
+          <li>Zone illimitate</li>
+        </ul>
+        <a href="#demo" class="btn btn-primary">Attiva Solar Lead</a>
+      </div>
+      <div class="price reveal" data-d="3">
+        <div class="pname">Scale</div>
+        <div class="pdesc">Per reti commerciali e gruppi multi-sede.</div>
+        <div class="amount">Su misura</div>
+        <ul>
+          <li>Tutto in Growth</li>
+          <li>Agenti AI dedicati</li>
+          <li>Multi-team &amp; multi-territorio</li>
+          <li>Onboarding e supporto prioritario</li>
+        </ul>
+        <a href="#demo" class="btn btn-ghost">Parla con noi</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ FINAL CTA ============ -->
+<section class="final" id="demo">
+  <div class="wrap">
+    <div class="final-box reveal">
+      <span class="eyebrow"><span class="live"></span> Solar Lead</span>
+      <h2 style="margin-top:18px">Il tuo prossimo cliente è <span class="grad">già online</span>.<br />L'AI lo sta già seguendo.</h2>
+      <p>Attiva Solar Lead e lascia che gli agenti AI trovino, qualifichino e convertano i clienti fotovoltaici — mentre tu chiudi.</p>
+      <div class="hcta">
+        <a href="#" class="btn btn-primary">Richiedi una demo <span class="dot"></span></a>
+        <a href="#crm" class="btn btn-ghost"><span class="dot"></span> Guarda il sistema in azione</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<!-- ============ FOOTER ============ -->
+<footer>
+  <div class="wrap">
+    <div class="foot-grid">
+      <div class="foot-col">
+        <a href="#" class="logo"><span class="mark"></span> Solar Lead</a>
+        <p>L'AI Operating System per il settore fotovoltaico. Acquisizione, follow-up e conversione, automatizzati.</p>
+      </div>
+      <div class="foot-col">
+        <h5>Piattaforma</h5>
+        <a href="#ai">AI Operativa</a><a href="#map">Lead Map</a><a href="#pipeline">Pipeline</a><a href="#automazioni">Automazioni</a>
+      </div>
+      <div class="foot-col">
+        <h5>Soluzioni</h5>
+        <a href="#email">Email AI</a><a href="#territorio">Territorio</a><a href="#insights">AI Insights</a><a href="#performance">Performance</a>
+      </div>
+      <div class="foot-col">
+        <h5>Azienda</h5>
+        <a href="#prezzi">Prezzi</a><a href="#demo">Richiedi demo</a><a href="#testimonials">Clienti</a><a href="#">Contatti</a>
+      </div>
+    </div>
+    <div class="foot-bot">
+      <span>© 2026 Solar Lead — AI per il fotovoltaico.</span>
+      <span>Privacy · Termini · Cookie</span>
+    </div>
+  </div>
+</footer>
+
+<script>
+/* ---------- nav scroll state ---------- */
+const nav=document.getElementById('nav');
+addEventListener('scroll',()=>nav.classList.toggle('scrolled',scrollY>30),{passive:true});
+
+/* ---------- mobile menu ---------- */
+const burger=document.getElementById('burger'),mm=document.getElementById('mobileMenu');
+burger.addEventListener('click',()=>mm.classList.toggle('open'));
+mm.querySelectorAll('a').forEach(a=>a.addEventListener('click',()=>mm.classList.remove('open')));
+
+/* ---------- reveal on scroll ---------- */
+const io=new IntersectionObserver((es)=>{
+  es.forEach(e=>{if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target);onReveal(e.target);}});
+},{threshold:.16});
+document.querySelectorAll('.reveal').forEach(el=>io.observe(el));
+
+/* ---------- count-up ---------- */
+function countUp(el){
+  const target=parseFloat(el.dataset.count);
+  const dec=parseInt(el.dataset.decimals||'0');
+  const pre=el.dataset.prefix||'';
+  const suf=el.dataset.suffix||'';
+  const dur=1500;let t0=null;
+  function step(ts){
+    if(!t0)t0=ts;
+    const p=Math.min((ts-t0)/dur,1);
+    const e=1-Math.pow(1-p,3);
+    const val=target*e;
+    el.textContent=pre+(dec?val.toFixed(dec):Math.round(val).toLocaleString('it-IT'))+suf;
+    if(p<1)requestAnimationFrame(step);
+    else el.textContent=pre+(dec?target.toFixed(dec):Math.round(target).toLocaleString('it-IT'))+suf;
+  }
+  requestAnimationFrame(step);
+}
+
+/* ---------- spark bars ---------- */
+function fillSpark(el){
+  if(el.dataset.done)return;el.dataset.done='1';
+  for(let i=0;i<14;i++){
+    const b=document.createElement('i');
+    b.style.height=(20+Math.random()*80)+'%';
+    b.style.animationDelay=(i*0.05)+'s';
+    el.appendChild(b);
+  }
+}
+
+/* ---------- when an element reveals, trigger its dynamic bits ---------- */
+function onReveal(root){
+  root.querySelectorAll('[data-count]').forEach(countUp);
+  if(root.matches('[data-count]'))countUp(root);
+  root.querySelectorAll('.bar-fill,.pipe-fill').forEach(b=>b.style.width=b.dataset.w+'%');
+  root.querySelectorAll('[data-spark]').forEach(fillSpark);
+  if(root.matches('[data-spark]'))fillSpark(root);
+}
+
+/* hero dashboard animates immediately */
+addEventListener('load',()=>{
+  document.querySelectorAll('.dash [data-count]').forEach(countUp);
+  document.querySelectorAll('.dash .bar-fill').forEach(b=>b.style.width=b.dataset.w+'%');
+  document.querySelectorAll('.dash [data-spark]').forEach(fillSpark);
+});
+
+/* ---------- live ticking on hero KPIs ---------- */
+setInterval(()=>{
+  document.querySelectorAll('.dash [data-live]').forEach(el=>{
+    const base=parseInt(el.dataset.base||el.textContent.replace(/\D/g,'')||'0');
+    el.dataset.base=base;
+    const v=base+Math.floor(Math.random()*7);
+    el.textContent=v.toLocaleString('it-IT');
+  });
+},2600);
+
+/* ---------- card glow follows cursor ---------- */
+document.querySelectorAll('.card[data-tilt]').forEach(c=>{
+  c.addEventListener('pointermove',e=>{
+    const r=c.getBoundingClientRect();
+    c.style.setProperty('--mx',(e.clientX-r.left)+'px');
+    c.style.setProperty('--my',(e.clientY-r.top)+'px');
+  });
+});
+
+/* ---------- radar map canvas ---------- */
+(function(){
+  const cv=document.getElementById('radarCanvas');if(!cv)return;
+  const ctx=cv.getContext('2d');
+  let W,H,dpr;
+  function size(){
+    dpr=Math.min(devicePixelRatio||1,2);
+    const r=cv.getBoundingClientRect();
+    W=r.width;H=r.height;
+    cv.width=W*dpr;cv.height=H*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);
+  }
+  size();addEventListener('resize',size);
+  // scattered "company" points
+  const pts=[];
+  for(let i=0;i<46;i++){
+    pts.push({
+      x:Math.random(),y:Math.random(),
+      hot:Math.random()<0.28,
+      ph:Math.random()*Math.PI*2,
+      sp:0.6+Math.random()*1.4
+    });
+  }
+  let t=0;
+  function loop(){
+    t+=0.016;
+    ctx.clearRect(0,0,W,H);
+    const cx=W/2,cy=H*0.46;
+    const maxR=Math.min(W,H)*0.62;
+    // concentric rings
+    ctx.strokeStyle='rgba(120,160,220,.10)';ctx.lineWidth=1;
+    for(let i=1;i<=4;i++){ctx.beginPath();ctx.arc(cx,cy,maxR*i/4,0,Math.PI*2);ctx.stroke();}
+    // radar sweep
+    const sweep=(t*0.6)%(Math.PI*2);
+    const g=ctx.createConicGradient?ctx.createConicGradient(sweep,cx,cy):null;
+    if(g){
+      g.addColorStop(0,'rgba(52,227,164,.28)');
+      g.addColorStop(0.08,'rgba(52,227,164,0)');
+      g.addColorStop(1,'rgba(52,227,164,0)');
+      ctx.fillStyle=g;
+      ctx.beginPath();ctx.arc(cx,cy,maxR,0,Math.PI*2);ctx.fill();
+    }
+    // sweep line
+    ctx.strokeStyle='rgba(52,227,164,.5)';ctx.lineWidth=1.5;
+    ctx.beginPath();ctx.moveTo(cx,cy);
+    ctx.lineTo(cx+Math.cos(sweep)*maxR,cy+Math.sin(sweep)*maxR);ctx.stroke();
+    // points
+    pts.forEach(p=>{
+      const px=p.x*W,py=p.y*H;
+      const dx=px-cx,dy=py-cy;
+      const dist=Math.hypot(dx,dy);
+      if(dist>maxR)return;
+      const ang=(Math.atan2(dy,dx)+Math.PI*2)%(Math.PI*2);
+      let da=(sweep-ang+Math.PI*2)%(Math.PI*2);
+      const lit=da<0.6?1-da/0.6:0;            // glow just after sweep passes
+      const pulse=0.5+0.5*Math.sin(t*p.sp+p.ph);
+      const base=p.hot?'52,227,164':'58,216,255';
+      // halo
+      if(p.hot){
+        ctx.fillStyle='rgba('+base+','+(0.06+lit*0.18)+')';
+        ctx.beginPath();ctx.arc(px,py,9+pulse*6+lit*8,0,Math.PI*2);ctx.fill();
+      }
+      ctx.fillStyle='rgba('+base+','+(0.45+lit*0.55)+')';
+      ctx.beginPath();ctx.arc(px,py,p.hot?3.1:2.2,0,Math.PI*2);ctx.fill();
+      // connections between nearby hot points
+      if(p.hot){
+        pts.forEach(q=>{
+          if(q===p||!q.hot)return;
+          const qx=q.x*W,qy=q.y*H;
+          const d=Math.hypot(qx-px,qy-py);
+          if(d<W*0.2){
+            ctx.strokeStyle='rgba(52,227,164,'+(0.05+lit*0.1)+')';
+            ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(px,py);ctx.lineTo(qx,qy);ctx.stroke();
+          }
+        });
+      }
+    });
+    // center
+    ctx.fillStyle='rgba(52,227,164,.9)';
+    ctx.beginPath();ctx.arc(cx,cy,3.4,0,Math.PI*2);ctx.fill();
+    ctx.strokeStyle='rgba(52,227,164,'+(0.4+0.3*Math.sin(t*2))+')';
+    ctx.lineWidth=1.4;
+    ctx.beginPath();ctx.arc(cx,cy,8+4*Math.sin(t*2),0,Math.PI*2);ctx.stroke();
+    requestAnimationFrame(loop);
+  }
+  loop();
+})();
+
+/* ---------- smooth anchor offset ---------- */
+document.querySelectorAll('a[href^="#"]').forEach(a=>{
+  a.addEventListener('click',e=>{
+    const id=a.getAttribute('href');
+    if(id.length<2)return;
+    const t=document.querySelector(id);
+    if(t){e.preventDefault();window.scrollTo({top:t.offsetTop-90,behavior:'smooth'});}
+  });
+});
+</script>
+</body>
+</html>
