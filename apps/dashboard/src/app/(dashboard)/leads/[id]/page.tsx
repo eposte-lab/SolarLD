@@ -17,12 +17,18 @@
  */
 
 import {
+  AlertTriangle,
   ArrowLeft,
   ArrowUpRight,
+  ChevronsDown,
+  Clock,
   ExternalLink,
+  Eye,
   FileText,
   FolderOpen,
+  Inbox,
   Mail,
+  type LucideIcon,
 } from 'lucide-react';
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
@@ -586,7 +592,7 @@ export default async function LeadDetailPage({ params }: PageProps) {
                     className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1.5 text-[11px] font-semibold text-amber-900 ring-1 ring-amber-200"
                     title={lead.creative_skipped_reason}
                   >
-                    <span aria-hidden>⚠</span>
+                    <AlertTriangle size={13} strokeWidth={2.25} aria-hidden />
                     Video non generato · {humanReadableSkipReason(lead.creative_skipped_reason)}
                   </span>
                 )}
@@ -727,7 +733,7 @@ export default async function LeadDetailPage({ params }: PageProps) {
               className="inline-flex items-center gap-1.5 rounded-lg bg-amber-50 px-3 py-1.5 text-[11px] font-semibold text-amber-900 ring-1 ring-amber-200"
               title={lead.creative_skipped_reason}
             >
-              <span aria-hidden>⚠</span>
+              <AlertTriangle size={13} strokeWidth={2.25} aria-hidden />
               Ultimo tentativo: {humanReadableSkipReason(lead.creative_skipped_reason)}
             </p>
           )}
@@ -1061,17 +1067,17 @@ export default async function LeadDetailPage({ params }: PageProps) {
         {portalStats.sessions > 0 && (
           <div className="flex flex-wrap items-center gap-2 text-xs">
             <PortalStatChip
-              icon="⏱️"
+              icon={Clock}
               label="Tempo totale"
               value={formatDuration(portalStats.total_time_sec)}
             />
             <PortalStatChip
-              icon="📅"
+              icon={Eye}
               label={portalStats.sessions === 1 ? 'sessione' : 'sessioni'}
               value={String(portalStats.sessions)}
             />
             <PortalStatChip
-              icon="📍"
+              icon={ChevronsDown}
               label="Scroll max"
               value={`${portalStats.deepest_scroll_pct}%`}
             />
@@ -1104,7 +1110,8 @@ export default async function LeadDetailPage({ params }: PageProps) {
           return (
             <div className="rounded-xl bg-tertiary-container/40 p-4 ring-1 ring-tertiary/40">
               <p className="mb-2 inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-widest text-on-tertiary-container">
-                🔥 Richiesta di contatto
+                <Inbox size={13} strokeWidth={2.25} aria-hidden />
+                Richiesta di contatto
               </p>
               <ul className="space-y-2">
                 {inquiries.map((iq) => {
@@ -1433,17 +1440,17 @@ export default async function LeadDetailPage({ params }: PageProps) {
 // ---------------------------------------------------------------------------
 
 function PortalStatChip({
-  icon,
+  icon: Icon,
   label,
   value,
 }: {
-  icon: string;
+  icon: LucideIcon;
   label: string;
   value: string;
 }) {
   return (
     <span className="inline-flex items-center gap-1.5 rounded-full bg-surface-container px-2.5 py-1 ring-1 ring-on-surface/5">
-      <span aria-hidden>{icon}</span>
+      <Icon size={13} strokeWidth={2} className="text-on-surface-variant" aria-hidden />
       <span className="font-semibold tabular-nums text-on-surface">{value}</span>
       <span className="text-on-surface-variant">{label}</span>
     </span>
