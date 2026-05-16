@@ -458,7 +458,16 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
         # force=True bypasses the window gate (admin test / manual re-send
         # from the dashboard). Step 1+ sends all honour the gate.
         # ------------------------------------------------------------------
-        if not payload.force and not is_within_send_window():
+        # The send-window gate (Mon-Fri business hours, Europe/Rome)
+        # protects real prospects and sender reputation. Test/demo sends
+        # carry an override — per-send `recipient_override` or tenant-level
+        # `test_recipient_override` (migration 0128) — and always land in a
+        # controlled inbox, so the window does not apply. Same principle as
+        # the kill-switch bypass further down.
+        send_override_active = bool(payload.recipient_override) or bool(
+            (tenant_row.get("test_recipient_override") or "").strip()
+        )
+        if not payload.force and not send_override_active and not is_within_send_window():
             log.info(
                 "outreach.outside_send_window",
                 lead_id=payload.lead_id,
