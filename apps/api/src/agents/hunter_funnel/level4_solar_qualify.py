@@ -119,6 +119,33 @@ async def _persist_roof_and_link(
 
     Returns the new roof UUID, or None if the insert failed.
     """
+    # La Google Solar API (buildingInsights) restituisce solo locality +
+    # postal_code, spesso il solo CAP → roofs.address finiva valorizzato
+    # con "80026" invece dell'indirizzo reale. L'indirizzo completo è
+    # stato catturato in L1 dall'enrichment di Google Places: lo leggiamo
+    # e lo usiamo per roofs.address (fallback al vecchio comportamento se
+    # assente).
+    real_address: str | None = None
+    try:
+        addr_res = (
+            sb.table("scan_candidates")
+            .select("enrichment")
+            .eq("id", str(candidate_id))
+            .limit(1)
+            .maybe_single()
+            .execute()
+        )
+        places_blob = ((addr_res.data or {}).get("enrichment") or {}).get("places") or {}
+        formatted = (places_blob.get("formatted_address") or "").strip()
+        if formatted:
+            real_address = formatted
+    except Exception:  # noqa: BLE001
+        real_address = None
+
+    fallback_address = (
+        (insight.locality or "") + " " + (insight.postal_code or "")
+    ).strip() or None
+
     row: dict[str, Any] = {
         "tenant_id": tenant_id,
         "lat": insight.lat,
@@ -132,7 +159,7 @@ async def _persist_roof_and_link(
         "pitch_degrees": insight.pitch_degrees,
         "shading_score": insight.shading_score,
         "raw_data": insight.raw,
-        "address": ((insight.locality or "") + " " + (insight.postal_code or "")).strip() or None,
+        "address": real_address or fallback_address,
         "comune": insight.locality,
         "cap": insight.postal_code,
         "status": "identified",
