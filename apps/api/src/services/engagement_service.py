@@ -192,7 +192,13 @@ async def run_engagement_rollup(
             continue
         stats = by_lead.setdefault(lid, LeadEngagementStats(lead_id=lid, tenant_id=tid))
         sid = row.get("session_id")
-        if sid:
+        # Server-generated session ids (``server:{uuid}``) mark backend
+        # actions — e.g. the OCR-side ``portal.bolletta_uploaded`` fire in
+        # routes/public.py — not real portal browsing sessions. Counting
+        # them as sessions awards a spurious +50 each, so a lead that
+        # uploads N bills looks falsely "hot". The bolletta signal itself
+        # still scores via W_BOLLETTA_UPLOADED below.
+        if sid and not str(sid).startswith("server:"):
             stats.sessions.add(str(sid))
 
         kind = row.get("event_kind") or ""
