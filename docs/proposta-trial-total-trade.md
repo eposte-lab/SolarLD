@@ -1,7 +1,7 @@
 # Proposta Trial — Solar Lead per Total Trade
 
 **Durata:** 14 giorni · **Tenant dedicato:** Total Trade
-**Documento per:** Total Trade — _bozza commerciale, da completare con volume e prezzo concordati_
+**Documento per:** Total Trade
 
 ---
 
@@ -61,12 +61,15 @@ trasparente.
 
 ### 3.2 Infrastruttura fissa
 
-Servizi attivi a prescindere dal volume (deliverability, casella di
-invio dedicata, canale WhatsApp):
+Servizi attivi a prescindere dal volume. Configurazione di questa
+trial: **2 domini di invio** e **4 caselle (inbox) dedicate**.
 
 | Voce | Costo mensile | Quota 14 giorni |
 |---|---|---|
-| Infrastruttura completa | €273 / mese | **~€127** |
+| Deliverability, warm-up e monitoraggio (2 domini) | €187 | ~€87 |
+| Caselle di invio dedicate (4 inbox × €36) | €144 | ~€67 |
+| Canale WhatsApp | €50 | ~€23 |
+| **Totale infrastruttura** | **€381 / mese** | **~€178** |
 
 ### 3.3 Costo pieno per lead consegnato
 
@@ -76,29 +79,33 @@ Sommando rendering, invio, validazione, scoring e quota di scansione:
 
 ---
 
-## 4. Scenari di volume
+## 4. Configurazione e costo della trial
 
-Stima del costo della trial in base al numero di lead effettivamente
-consegnati e contattati nei 14 giorni:
+**Configurazione concordata:** 200 lead · 2 domini di invio · 4 inbox dedicate · 14 giorni.
 
-| Lead consegnati | Costo variabile (×€0,65) | Infrastruttura (14gg) | **Costo totale trial** |
-|---|---|---|---|
-| 100 | €65 | €127 | **€192** |
-| 250 | €162 | €127 | **€289** |
-| 500 | €325 | €127 | **€452** |
+| Voce | Calcolo | Importo |
+|---|---|---|
+| Costo variabile (lead lavorati) | 200 lead × €0,65 | €130 |
+| Infrastruttura (vedi §3.2, quota 14 giorni) | €381/mese prorata | €178 |
+| **Costo vivo totale della trial** | | **≈ €308** |
 
-> I numeri sopra sono il **costo vivo** della trial. Il volume effettivo
-> dipende dal territorio e dai settori concordati.
-
-**Volume concordato per questa trial:** `[ inserire numero lead ]`
-**Costo stimato corrispondente:** `[ €… ]`
+> Il costo variabile copre rendering, invio, validazione e scoring AI
+> dei 200 lead. L'infrastruttura copre i 2 domini e le 4 caselle di
+> invio per l'intera durata della trial.
 
 ---
 
 ## 5. Prezzo della trial e passaggio a regime
 
-**Prezzo proposto della trial:** `[ inserire prezzo — es. trial a costo
-coperto, scontata, o gratuita come investimento commerciale ]`
+| Voce | Importo |
+|---|---|
+| Costo vivo della trial (vedi §4) | €308 |
+| Margine | €150 |
+| **Prezzo della trial — 14 giorni, 200 lead** | **€458** |
+
+La quota include la configurazione completa del tenant, i 2 domini e le
+4 caselle di invio, l'onboarding e il supporto per tutta la durata
+della trial.
 
 Al termine dei 14 giorni, Total Trade può attivare uno dei piani
 continuativi:
@@ -144,5 +151,4 @@ reali** una volta completata la verifica finale.
 
 ---
 
-_Documento di lavoro — completare le voci tra `[ … ]` con volume e
-prezzo concordati prima dell'invio al cliente._
+_Trial: 14 giorni · 200 lead · 2 domini · 4 inbox — €458._
