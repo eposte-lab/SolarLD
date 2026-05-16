@@ -89,7 +89,7 @@ const STATUS_LABEL: Record<LeadStatus, string> = {
   clicked: 'Link cliccato',
   engaged: 'Caldo',
   whatsapp: 'WhatsApp attivo',
-  appointment: 'Appuntamento fissato',
+  appointment: 'Ha richiesto contatto',
   closed_won: 'Contratto firmato',
   closed_lost: 'Perso',
   blacklisted: 'Blacklist',
@@ -134,6 +134,12 @@ export function getPipelineLabel(
   status: LeadStatus,
   pipelineLabels?: string[],
 ): string {
+  // `appointment` = il prospect ha compilato il form di richiesta
+  // contatto. È un'azione inbound di sistema, non uno stadio rinominabile
+  // del funnel: mostra sempre l'etichetta fissa così l'operatore
+  // riconosce la richiesta in qualsiasi tenant, anche con pipeline_labels
+  // personalizzati.
+  if (status === 'appointment') return STATUS_LABEL.appointment;
   if (pipelineLabels && pipelineLabels.length > 0) {
     const bucket = STATUS_BUCKET[status];
     const custom = pipelineLabels[bucket];

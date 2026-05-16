@@ -211,8 +211,10 @@ async def request_appointment(slug: str, payload: AppointmentRequest) -> dict[st
 
     If the tenant has ``appointment_webhook_url`` configured, we POST
     the form data to that URL (CRM integration: HubSpot, Pipedrive, n8n,
-    Zapier, …). The call is fail-open: a webhook timeout or HTTP error
-    never blocks the lead from seeing the confirmation.
+    Zapier, …). The payload carries ``source="Solar Lead"`` and the
+    ``dossier_url`` so the contact lands in the client CRM tagged with
+    its origin and a link to the proposal. The call is fail-open: a
+    webhook timeout or HTTP error never blocks the confirmation.
     """
     sb = get_service_client()
     lead = _load_lead_by_slug(sb, slug)
@@ -263,6 +265,12 @@ async def request_appointment(slug: str, payload: AppointmentRequest) -> dict[st
         (tenant_row.data or {}).get("appointment_webhook_url") if tenant_row else None
     )
     if webhook_url:
+        from ..core.config import settings
+
+        # Link al dossier che il prospect ha visto, così nel CRM del
+        # cliente il contatto arriva con il riferimento alla proposta.
+        portal_origin = (settings.next_public_lead_portal_url or "").rstrip("/")
+        dossier_url = f"{portal_origin}/dossier/{slug}" if portal_origin else None
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
                 await client.post(
@@ -270,6 +278,11 @@ async def request_appointment(slug: str, payload: AppointmentRequest) -> dict[st
                     json={
                         "lead_id": lead["id"],
                         "created_at": datetime.now(tz=UTC).isoformat(),
+                        # Tag di provenienza: nel CRM del cliente il
+                        # contatto risulta generato dalla piattaforma
+                        # Solar Lead, con il link alla proposta/dossier.
+                        "source": "Solar Lead",
+                        "dossier_url": dossier_url,
                         **event_payload,
                     },
                 )
