@@ -83,7 +83,10 @@ export function postPortalEvent(
   const url = `${API_URL}/v1/public/portal/track`;
   try {
     if (typeof navigator !== 'undefined' && navigator.sendBeacon) {
-      navigator.sendBeacon(url, new Blob([body], { type: 'application/json' }));
+      // text/plain è un Content-Type CORS-safelisted: il beacon parte
+      // cross-origin come "simple request", senza preflight CORS — così
+      // il tracking funziona a prescindere dalla allowlist dell'API.
+      navigator.sendBeacon(url, new Blob([body], { type: 'text/plain' }));
       return;
     }
   } catch {
@@ -180,9 +183,10 @@ export function startPortalTracker(
     const url = `${API_URL}/v1/public/portal/track`;
     try {
       if (typeof navigator !== 'undefined' && navigator.sendBeacon) {
+        // text/plain: CORS-safelisted → niente preflight cross-origin.
         navigator.sendBeacon(
           url,
-          new Blob([body], { type: 'application/json' }),
+          new Blob([body], { type: 'text/plain' }),
         );
         return;
       }
@@ -191,7 +195,7 @@ export function startPortalTracker(
     }
     void fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'text/plain' },
       body,
       keepalive: true,
     }).catch(() => undefined);

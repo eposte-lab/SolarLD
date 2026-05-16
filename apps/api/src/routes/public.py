@@ -21,6 +21,7 @@ from fastapi import (
     File,
     HTTPException,
     Query,
+    Request,
     Response,
     UploadFile,
     status,
@@ -922,15 +923,27 @@ class PortalTrackEvent(BaseModel):
 
 
 @router.post("/portal/track", status_code=status.HTTP_204_NO_CONTENT)
-async def portal_track(event: PortalTrackEvent) -> Response:
+async def portal_track(request: Request) -> Response:
     """Ingest one engagement event from the lead-portal.
 
     Returns 204 No Content on success **and** on non-critical soft
-    failures (rate-limit hit, Redis outage, unresolved slug). The only
-    400 paths are schema-level — enforced by Pydantic. This matches
-    ``navigator.sendBeacon`` semantics (client can't react to 4xx
-    anyway) and keeps the portal snappy.
+    failures (rate-limit hit, Redis outage, unresolved slug, body
+    malformato). This matches ``navigator.sendBeacon`` semantics (the
+    client can't react to 4xx anyway) and keeps the portal snappy.
+
+    Il body viene letto grezzo e validato a mano: il client invia il
+    beacon con Content-Type ``text/plain`` (CORS-safelisted → nessun
+    preflight cross-origin), quindi l'endpoint accetta indifferentemente
+    ``text/plain`` e ``application/json``.
     """
+    import json as _json
+
+    try:
+        raw = await request.body()
+        event = PortalTrackEvent.model_validate(_json.loads(raw or b"{}"))
+    except Exception:  # noqa: BLE001
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
     # Fast-path guardrail in case a deferred tool mutates the enum
     # without updating the closed set above.
     if event.event_kind not in _ALLOWED_EVENT_KINDS:
