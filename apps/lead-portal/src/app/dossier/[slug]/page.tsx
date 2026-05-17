@@ -384,7 +384,12 @@ export default async function LeadPage({ params }: PageProps) {
             Un tecnico di {tenantName} vi ricontatterà entro 48 ore.
             Nessun impegno, nessun venditore.
           </p>
-          <AppointmentForm slug={slug} brandColor={brandColor} privacyPolicyUrl={tenant?.privacy_policy_url} />
+          <AppointmentForm
+            slug={slug}
+            brandColor={brandColor}
+            privacyPolicyUrl={tenant?.privacy_policy_url}
+            tenantName={tenantName}
+          />
         </div>
       </section>
 
@@ -413,7 +418,7 @@ export default async function LeadPage({ params }: PageProps) {
                 Non voglio più ricevere comunicazioni
               </a>
               <a
-                href="/privacy"
+                href={`/privacy?slug=${encodeURIComponent(slug)}`}
                 className="underline hover:text-on-surface-variant"
               >
                 Privacy policy

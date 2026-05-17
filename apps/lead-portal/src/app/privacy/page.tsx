@@ -1,6 +1,8 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 
+import { fetchPublicLead, type PublicLead } from '@/lib/api';
+
 export const metadata: Metadata = {
   title: 'Informativa Privacy · SolarLead',
   description:
@@ -18,17 +20,35 @@ export const metadata: Metadata = {
  * è Titolare del trattamento per i propri prospect; SolarLead è
  * Responsabile (data processor) tramite contratto ex art. 28 GDPR.
  */
-export default function PrivacyPolicyPage() {
+export default async function PrivacyPolicyPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ slug?: string }>;
+}) {
   const lastUpdated = '14 maggio 2026';
+  // Con `?slug=` l'informativa è intestata al tenant (Titolare del
+  // trattamento) del lead; senza slug resta la versione generica di
+  // piattaforma.
+  const { slug } = await searchParams;
+  let tenant: PublicLead['tenant'] = null;
+  if (slug) {
+    const res = await fetchPublicLead(slug);
+    if (res.kind === 'ok') tenant = res.lead.tenant;
+  }
+  const titolare = tenant?.legal_name || tenant?.business_name || null;
 
   return (
     <main className="min-h-screen bg-surface text-on-surface">
       <header className="bg-surface-container">
         <div className="mx-auto max-w-3xl px-6 py-8">
           <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
-            <Link href="/" className="hover:underline">
-              SolarLead
-            </Link>
+            {titolare ? (
+              titolare
+            ) : (
+              <Link href="/" className="hover:underline">
+                SolarLead
+              </Link>
+            )}
             {' · '}Informativa
           </p>
           <h1 className="mt-2 font-headline text-3xl font-bold tracking-tighter md:text-4xl">
@@ -67,22 +87,57 @@ export default function PrivacyPolicyPage() {
         </Section>
 
         <Section title="2. Titolare del trattamento">
-          <P>
-            <strong>Titolare del trattamento</strong> è l&apos;azienda
-            installatrice che vi ha contattato e i cui dati identificativi
-            (ragione sociale, sede legale, P.IVA, recapiti) sono indicati
-            nel footer della pagina del dossier e nelle comunicazioni che
-            avete ricevuto.
-          </P>
-          <P>
-            Per esercitare i vostri diritti potete contattare direttamente
-            il Titolare ai recapiti indicati, oppure scrivere all&apos;indirizzo
-            email di supporto della Piattaforma:{' '}
-            <a href="mailto:privacy@solarlead.it" className="underline">
-              privacy@solarlead.it
-            </a>
-            .
-          </P>
+          {titolare ? (
+            <>
+              <P>
+                <strong>Titolare del trattamento</strong> è{' '}
+                <strong>{titolare}</strong>
+                {tenant?.legal_address ? `, con sede in ${tenant.legal_address}` : ''}
+                {tenant?.vat_number ? ` — P.IVA ${tenant.vat_number}` : ''}.
+              </P>
+              <P>
+                Per esercitare i vostri diritti potete contattare
+                direttamente il Titolare
+                {tenant?.contact_email ? (
+                  <>
+                    {' '}all&apos;indirizzo{' '}
+                    <a
+                      href={`mailto:${tenant.contact_email}`}
+                      className="underline"
+                    >
+                      {tenant.contact_email}
+                    </a>
+                  </>
+                ) : (
+                  ' ai recapiti indicati nel footer della pagina del dossier'
+                )}
+                .
+              </P>
+            </>
+          ) : (
+            <>
+              <P>
+                <strong>Titolare del trattamento</strong> è l&apos;azienda
+                installatrice che vi ha contattato e i cui dati
+                identificativi (ragione sociale, sede legale, P.IVA,
+                recapiti) sono indicati nel footer della pagina del dossier
+                e nelle comunicazioni che avete ricevuto.
+              </P>
+              <P>
+                Per esercitare i vostri diritti potete contattare
+                direttamente il Titolare ai recapiti indicati, oppure
+                scrivere all&apos;indirizzo email di supporto della
+                Piattaforma:{' '}
+                <a
+                  href="mailto:privacy@solarlead.it"
+                  className="underline"
+                >
+                  privacy@solarlead.it
+                </a>
+                .
+              </P>
+            </>
+          )}
         </Section>
 
         <Section title="3. Responsabile del trattamento (Piattaforma)">
