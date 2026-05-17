@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Proposta Trial — Total Trade</title>
+<style>
+  /* ---------------------------------------------------------------
+     Documento stampabile A4 — apri nel browser e fai
+     "Stampa → Salva come PDF" per ottenere il PDF.
+     --------------------------------------------------------------- */
+  :root {
+    --navy: #183054;
+    --navy-soft: #2a4a78;
+    --ink: #1d2433;
+    --muted: #5b6678;
+    --line: #dfe3ea;
+    --bg-soft: #f4f6f9;
+    --accent: #16a34a;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+    color: var(--ink);
+    font-size: 13px;
+    line-height: 1.55;
+  }
+  body { background: #e9ecf1; padding: 24px; }
+  .page {
+    width: 210mm;
+    min-height: 297mm;
+    margin: 0 auto 24px;
+    background: #fff;
+    padding: 22mm 20mm;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.12);
+  }
+  h1, h2, h3 { color: var(--navy); line-height: 1.2; }
+  h1 { font-size: 30px; font-weight: 800; letter-spacing: -0.02em; }
+  h2 {
+    font-size: 17px; font-weight: 800; margin: 26px 0 10px;
+    padding-bottom: 6px; border-bottom: 2px solid var(--line);
+  }
+  h3 { font-size: 13px; font-weight: 800; margin: 14px 0 4px; }
+  p { margin: 6px 0; }
+  strong { color: var(--navy); }
+  .eyebrow {
+    font-size: 10px; font-weight: 800; letter-spacing: 0.16em;
+    text-transform: uppercase; color: var(--navy-soft);
+  }
+  .lead { font-size: 14px; color: var(--muted); margin-top: 6px; }
+  .brandbar {
+    display: flex; align-items: baseline; justify-content: space-between;
+    border-bottom: 3px solid var(--navy); padding-bottom: 10px; margin-bottom: 4px;
+  }
+  .brandbar .name { font-size: 18px; font-weight: 800; color: var(--navy); letter-spacing: -0.01em; }
+  .brandbar .by { font-size: 10px; color: var(--muted); }
+  ul { margin: 6px 0 6px 18px; }
+  li { margin: 3px 0; }
+  .phase {
+    display: flex; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line);
+  }
+  .phase:last-child { border-bottom: 0; }
+  .phase .n {
+    flex: 0 0 26px; height: 26px; border-radius: 50%;
+    background: var(--navy); color: #fff; font-weight: 800; font-size: 12px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .phase .when { font-size: 10px; font-weight: 700; color: var(--accent); text-transform: uppercase; letter-spacing: 0.06em; }
+  table { width: 100%; border-collapse: collapse; margin: 8px 0; }
+  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); }
+  th { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .total td {
+    border-top: 2px solid var(--navy); border-bottom: 0;
+    font-weight: 800; color: var(--navy); font-size: 15px;
+  }
+  .pricebox {
+    background: var(--navy); color: #fff; border-radius: 12px;
+    padding: 18px 22px; display: flex; align-items: center;
+    justify-content: space-between; margin: 12px 0;
+  }
+  .pricebox .big { font-size: 34px; font-weight: 800; letter-spacing: -0.02em; }
+  .pricebox .sub { font-size: 11px; opacity: 0.8; }
+  .card {
+    background: var(--bg-soft); border: 1px solid var(--line);
+    border-radius: 10px; padding: 12px 14px; margin: 8px 0;
+  }
+  .muted { color: var(--muted); }
+  .small { font-size: 11px; }
+  footer {
+    margin-top: 22px; padding-top: 10px; border-top: 1px solid var(--line);
+    font-size: 10px; color: var(--muted); display: flex; justify-content: space-between;
+  }
+  @media print {
+    body { background: #fff; padding: 0; }
+    .page { box-shadow: none; margin: 0; width: auto; min-height: auto; }
+  }
+  @page { size: A4; margin: 0; }
+</style>
+</head>
+<body>
+
+<!-- ===================== PAGINA 1 ===================== -->
+<section class="page">
+  <div class="brandbar">
+    <span class="name">TOTAL TRADE</span>
+    <span class="by">Proposta operativa · Trial fotovoltaico</span>
+  </div>
+
+  <p class="eyebrow" style="margin-top:26px;">Proposta di avvio — periodo di prova</p>
+  <h1>Trial Total Trade: 50 contatti qualificati, pronti da chiamare</h1>
+  <p class="lead">
+    Un test reale e a costo contenuto del sistema di acquisizione lead per
+    il fotovoltaico: una campagna mirata su 50 contatti selezionati per
+    codice ATECO, dall'individuazione delle aziende fino al dossier
+    personalizzato e al primo contatto. Senza impegni a lungo termine.
+  </p>
+
+  <h2>1. Cos'è il trial</h2>
+  <p>
+    Il trial è una <strong>campagna completa in scala ridotta</strong>: invece di
+    partire con volumi a regime, Total Trade prova l'intero flusso su un
+    blocco controllato di <strong>50 contatti</strong>. È pensato per verificare
+    sul campo, con i propri occhi e i propri numeri, due cose:
+  </p>
+  <ul>
+    <li>la <strong>qualità dei lead</strong> generati e dei dossier inviati;</li>
+    <li>quanti contatti <strong>rispondono e chiedono un sopralluogo</strong>,
+        cioè il ritorno concreto della campagna.</li>
+  </ul>
+  <p>
+    Tutto è intestato a Total Trade: logo, colori, dati aziendali, dominio
+    email. Il lead non vede mai la piattaforma — vede l'azienda.
+  </p>
+
+  <h2>2. La selezione dei contatti — per codice ATECO</h2>
+  <p>
+    Il blocco di 50 contatti viene individuato in modo mirato tramite il
+    <strong>codice ATECO</strong> della categoria scelta da Total Trade, in
+    un'area geografica definita. Esempio della prima campagna trial:
+  </p>
+  <div class="card">
+    <h3 style="margin-top:0;">Target: amministratori di condominio</h3>
+    <p class="small muted" style="margin:2px 0 0;">
+      Categoria ad alto potenziale per il fotovoltaico condominiale: un
+      singolo amministratore gestisce più edifici, quindi ogni contatto
+      utile può valere più impianti.
+    </p>
+  </div>
+  <p>
+    Per ciascuno dei 50 contatti il sistema raccoglie i dati aziendali,
+    individua l'email del referente e la <strong>valida</strong> prima dell'invio,
+    così la campagna parte solo su indirizzi reali.
+  </p>
+
+  <h2>3. Prospetto esecutivo — come si svolge</h2>
+
+  <div class="phase">
+    <div class="n">1</div>
+    <div>
+      <div class="when">Giorno 0 · Setup</div>
+      <strong>Configurazione account Total Trade.</strong>
+      Logo, colori, dati legali, dominio email di invio. Si concorda
+      l'area geografica e il codice ATECO da targettizzare.
+    </div>
+  </div>
+  <div class="phase">
+    <div class="n">2</div>
+    <div>
+      <div class="when">Giorni 1–2 · Scansione</div>
+      <strong>Individuazione dei 50 contatti.</strong>
+      Il sistema cerca le aziende del codice ATECO scelto nell'area
+      indicata, ne ricava i recapiti e valida le email.
+    </div>
+  </div>
+  <div class="phase">
+    <div class="n">3</div>
+    <div>
+      <div class="when">Giorni 2–4 · Generazione</div>
+      <strong>Analisi e dossier personalizzati.</strong>
+      Per ogni contatto: analisi solare del tetto (potenza, resa,
+      risparmio stimato), rendering "prima/dopo" dell'impianto e
+      una pagina-dossier dedicata.
+    </div>
+  </div>
+  <div class="phase">
+    <div class="n">4</div>
+    <div>
+      <div class="when">Giorni 4–5 · Primo contatto</div>
+      <strong>Invio dell'outreach.</strong>
+      Email brandizzata Total Trade con il dossier del singolo lead,
+      seguita da follow-up automatici per chi non risponde subito.
+    </div>
+  </div>
+  <div class="phase">
+    <div class="n">5</div>
+    <div>
+      <div class="when">In corso · Gestione</div>
+      <strong>Dashboard e lead caldi.</strong>
+      Total Trade vede in tempo reale chi apre, chi visita il dossier e
+      chi richiede un contatto. Si chiama solo chi ha alzato la mano.
+    </div>
+  </div>
+
+  <footer>
+    <span>Total Trade S.r.l. — Proposta Trial</span>
+    <span>Pagina 1 / 2</span>
+  </footer>
+</section>
+
+<!-- ===================== PAGINA 2 ===================== -->
+<section class="page">
+  <div class="brandbar">
+    <span class="name">TOTAL TRADE</span>
+    <span class="by">Proposta operativa · Trial fotovoltaico</span>
+  </div>
+
+  <h2 style="margin-top:24px;">4. Cosa è incluso nel trial</h2>
+  <table>
+    <thead>
+      <tr><th>Voce</th><th>Dettaglio</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><strong>Setup account</strong></td><td>Brand, dominio email, area e codice ATECO</td></tr>
+      <tr><td><strong>50 contatti</strong></td><td>Individuati per codice ATECO, email validate</td></tr>
+      <tr><td><strong>50 analisi solari</strong></td><td>Potenza impianto, resa annua, risparmio stimato</td></tr>
+      <tr><td><strong>50 rendering + dossier</strong></td><td>Immagine "prima/dopo" e pagina personalizzata per lead</td></tr>
+      <tr><td><strong>Campagna email</strong></td><td>Invio brandizzato + follow-up automatici</td></tr>
+      <tr><td><strong>Dashboard</strong></td><td>Lead caldi, engagement, richieste di contatto</td></tr>
+    </tbody>
+  </table>
+
+  <h2>5. Costo del trial</h2>
+  <div class="pricebox">
+    <div>
+      <div class="sub">Pacchetto trial — tutto incluso</div>
+      <div class="big">€ 350</div>
+    </div>
+    <div class="sub" style="text-align:right; max-width:46%;">
+      Importo unico, IVA esclusa.<br />Nessun canone, nessun rinnovo
+      automatico.
+    </div>
+  </div>
+  <p class="small muted">
+    Il prezzo copre l'intero ciclo descritto sopra per i 50 contatti:
+    setup, scansione, analisi, rendering, dossier, campagna email e
+    accesso alla dashboard per il periodo del trial. Non ci sono costi
+    nascosti né addebiti a consumo durante la prova.
+  </p>
+
+  <h2>6. Cosa serve da Total Trade</h2>
+  <ul>
+    <li>Logo, colori e dati legali dell'azienda (per la brandizzazione);</li>
+    <li>l'<strong>area geografica</strong> e il <strong>codice ATECO</strong> da
+        targettizzare (es. amministratori di condominio);</li>
+    <li>una casella email per l'invio (la configuriamo noi);</li>
+    <li>la disponibilità a <strong>richiamare i lead caldi</strong> che il
+        sistema segnala.</li>
+  </ul>
+
+  <h2>7. Dopo il trial</h2>
+  <p>
+    Al termine si valutano insieme i risultati: contatti raggiunti,
+    aperture, dossier visitati, richieste di sopralluogo. Se i numeri
+    convincono, si passa a un piano a volumi pieni; in caso contrario il
+    trial si chiude senza alcun vincolo.
+  </p>
+
+  <div class="card" style="margin-top:14px;">
+    <strong>In sintesi.</strong> Con €350 una tantum, Total Trade mette
+    alla prova l'intero sistema su 50 amministratori di condominio reali —
+    dall'individuazione al primo contatto — e misura quanti diventano
+    appuntamenti, prima di qualsiasi impegno più ampio.
+  </div>
+
+  <footer>
+    <span>Total Trade S.r.l. — Proposta Trial · documento non contrattuale</span>
+    <span>Pagina 2 / 2</span>
+  </footer>
+</section>
+
+</body>
+</html>
