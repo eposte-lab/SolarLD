@@ -76,7 +76,7 @@ export function EditorialHero({
     return (
       <div
         className="relative overflow-hidden rounded-3xl shadow-ambient-lg"
-        style={{ aspectRatio: '16 / 9' }}
+        style={{ aspectRatio: '1 / 1' }}
       >
         <video
           ref={videoRef}
