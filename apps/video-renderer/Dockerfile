@@ -10,23 +10,31 @@
 #
 # Why no Chromium any more: the previous Remotion + Three.js path
 # required a headless Chrome to render React compositions. With the
-# move to a hosted model, the only local heavy lifting is ffmpeg —
-# which we get bundled via @ffmpeg-installer/ffmpeg (no system binary
-# needed). This shrinks the image from ~1.2 GB to ~300 MB and removes
-# the X11 / chromium libstack from the runtime surface.
+# move to ffmpeg-only rendering the only local heavy lifting is ffmpeg.
+#
+# Why system ffmpeg (not @ffmpeg-installer): that npm package ships a
+# 2018 static build whose libavfilter predates the `xfade` filter
+# (added in ffmpeg 4.3, 2020). The crossfade transition needs `xfade`,
+# so we install Debian's ffmpeg (5.1.x on bookworm) and point the
+# service at it via FFMPEG_PATH. The npm binary stays a local-dev
+# fallback only.
 # ──────────────────────────────────────────────────────────────────────────────
 
 FROM node:22-bookworm-slim
 
-# Minimal system deps:
+# System deps:
 #   ca-certificates: HTTPS to Replicate + Supabase
-#   fonts-dejavu-core: drawtext fallback (the bundled @ffmpeg-installer
-#     ffmpeg picks the first system font when no fontfile is specified;
-#     DejaVu Sans is the standard Linux default and renders € correctly)
+#   ffmpeg: video pipeline — crossfade `xfade` needs ffmpeg >= 4.3
+#   fonts-dejavu-core: drawtext bold font (DejaVuSans-Bold renders € correctly)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
+    ffmpeg \
     fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
+
+# ffmpeg-service.ts resolves its binary from FFMPEG_PATH first, then
+# falls back to the bundled @ffmpeg-installer binary for local dev.
+ENV FFMPEG_PATH=/usr/bin/ffmpeg
 
 WORKDIR /app
 
