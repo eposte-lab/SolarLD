@@ -79,6 +79,7 @@ class InstallerFeedback(StrEnum):
     QUALIFIED = "qualified"
     NOT_INTERESTED = "not_interested"
     NOT_REACHABLE = "not_reachable"
+    APPOINTMENT_SET = "appointment_set"
     CONTRACT_SIGNED = "contract_signed"
     WRONG_DATA = "wrong_data"
 

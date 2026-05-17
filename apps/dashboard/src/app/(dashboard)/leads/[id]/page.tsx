@@ -362,7 +362,9 @@ export default async function LeadDetailPage({ params }: PageProps) {
     portalVisitedAt:
       lead.last_portal_event_at ?? lead.dashboard_visited_at ?? null,
     bollettaUploadedAt: latestEventAt(['lead.bolletta_uploaded']),
-    appointmentRequestedAt: latestEventAt(['lead.appointment_requested']),
+    appointmentRequestedAt:
+      latestEventAt(['lead.appointment_requested']) ??
+      (lead.feedback === 'appointment_set' ? lead.feedback_at : null),
   };
 
   // Stile condiviso dei bottoni della barra azioni (header).

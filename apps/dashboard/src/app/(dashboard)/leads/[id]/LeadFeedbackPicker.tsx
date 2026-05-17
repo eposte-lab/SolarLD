@@ -23,6 +23,7 @@ import { api, ApiError } from '@/lib/api-client';
 
 type Feedback =
   | 'qualified'
+  | 'appointment_set'
   | 'not_interested'
   | 'not_reachable'
   | 'contract_signed'
@@ -40,6 +41,7 @@ const OPTIONS: Option[] = [
     label: 'Contratto firmato',
     toneClass: 'text-emerald-300',
   },
+  { value: 'appointment_set', label: 'Appuntamento fissato', toneClass: 'text-emerald-300' },
   { value: 'qualified', label: 'Qualificato / interessato', toneClass: 'text-primary' },
   { value: 'not_reachable', label: 'Non raggiungibile', toneClass: 'text-amber-300' },
   { value: 'not_interested', label: 'Non interessato', toneClass: 'text-rose-300' },
