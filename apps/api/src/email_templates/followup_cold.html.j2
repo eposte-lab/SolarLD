@@ -32,7 +32,7 @@
             <p style="margin:0 0 8px; font-size:12px; color:#6b6b6b; text-transform:uppercase; letter-spacing:0.5px;">
               Per {{ greeting_name }}
             </p>
-            <h1 style="margin:0 0 18px; font-size:22px; line-height:28px; font-weight:700; color:#0b3d2e;">
+            <h1 style="margin:0 0 18px; font-size:22px; line-height:28px; font-weight:700; color:{{ brand_primary_color }};">
               {{ headline | default('Un dato che vale la pena rivedere', true) }}
             </h1>
             <p style="margin:0 0 16px; font-size:15px; line-height:23px; color:#2b2b2b;">
@@ -44,14 +44,14 @@
             {%- if roi and roi.yearly_savings_eur is defined %}
             <div style="background:#f5f2eb; border-left:4px solid {{ brand_color_accent | default('#F4A300', true) }}; padding:14px 18px; border-radius:4px; margin:0 0 22px;">
               <p style="margin:0 0 2px; font-size:11px; color:#6b6b6b; text-transform:uppercase; letter-spacing:0.6px;">Stima per la vostra sede</p>
-              <p style="margin:0; font-size:26px; line-height:32px; font-weight:700; color:#0b3d2e;">€{{ roi.yearly_savings_eur | int | format_money }}<span style="font-size:14px; font-weight:400; color:#6b6b6b;">/anno</span></p>
+              <p style="margin:0; font-size:26px; line-height:32px; font-weight:700; color:{{ brand_primary_color }};">€{{ roi.yearly_savings_eur | int | format_money }}<span style="font-size:14px; font-weight:400; color:#6b6b6b;">/anno</span></p>
             </div>
             {%- endif %}
             <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="margin:0 0 18px;">
               <tr><td align="center">
                 <table role="presentation" border="0" cellpadding="0" cellspacing="0">
                   <tr><td style="background-color:{{ brand_color_accent | default('#F4A300', true) }}; border-radius:6px;">
-                    <a href="{{ lead_url }}" target="_blank" style="display:inline-block; padding:14px 28px; font-size:14px; font-weight:700; color:#0b3d2e; text-decoration:none;">
+                    <a href="{{ lead_url }}" target="_blank" style="display:inline-block; padding:14px 28px; font-size:14px; font-weight:700; color:{{ brand_primary_color }}; text-decoration:none;">
                       {{ cta_primary_label | default('Apri l&apos;analisi (2 minuti)', true) }} &rarr;
                     </a>
                   </td></tr>

@@ -29,14 +29,14 @@
           <p style="margin:0 0 8px; font-size:12px; color:#6b6b6b; text-transform:uppercase; letter-spacing:0.5px;">
             Proposta concreta · per {{ greeting_name }}
           </p>
-          <h1 style="margin:0 0 18px; font-size:24px; line-height:30px; font-weight:700; color:#0b3d2e;">
+          <h1 style="margin:0 0 18px; font-size:24px; line-height:30px; font-weight:700; color:{{ brand_primary_color }};">
             {{ headline | default('Possiamo chiudere i numeri in 15 minuti', true) }}
           </h1>
           <p style="margin:0 0 18px; font-size:15px; line-height:23px; color:#2b2b2b;">
             {{ copy_opening_line | default('Vi rispondo con un&apos;idea pratica: blocchiamo 15 minuti in agenda per rivedere insieme i numeri della vostra simulazione e capire se ha senso passare alla fase di sopralluogo.', true) }}
           </p>
           <p style="margin:0 0 22px; font-size:14px; line-height:22px; color:#444;">
-            {{ main_copy_1 | default('Un&apos;azienda simile alla vostra (stesso settore, stessa fascia di consumi) ha installato un impianto da ~80 kW lo scorso autunno e dopo 4 mesi sta vedendo i risultati attesi sul ROI.', true) }}
+            {{ main_copy_1 | default('Le aziende del vostro settore che scelgono il fotovoltaico riducono in modo concreto la bolletta e si proteggono dai rincari dell&apos;energia.', true) }}
           </p>
           {%- if roi and roi.yearly_savings_eur is defined %}
           <div style="background:{{ brand_primary_color | default('#0B3D2E', true) }}; padding:18px 22px; border-radius:6px; margin:0 0 22px; color:#fff;">
@@ -49,7 +49,7 @@
             <tr><td align="center">
               <table role="presentation" border="0" cellpadding="0" cellspacing="0">
                 <tr><td style="background-color:{{ brand_color_accent | default('#F4A300', true) }}; border-radius:6px;">
-                  <a href="{{ lead_url }}" target="_blank" style="display:inline-block; padding:16px 32px; font-size:15px; font-weight:700; color:#0b3d2e; text-decoration:none;">
+                  <a href="{{ lead_url }}" target="_blank" style="display:inline-block; padding:16px 32px; font-size:15px; font-weight:700; color:{{ brand_primary_color }}; text-decoration:none;">
                     {{ cta_primary_label | default('Prenota 15 minuti', true) }} &rarr;
                   </a>
                 </td></tr>
