@@ -12,9 +12,12 @@
  * Node). Trade-off: limited typography, but for 3 lines of stats on a
  * dark gradient it looks clean enough.
  *
- * Bundled ffmpeg via @ffmpeg-installer/ffmpeg so we don't depend on the
- * Docker host's apt package version (Debian slim ships 5.x; we want a
- * known-good binary).
+ * FFmpeg binary resolution: FFMPEG_PATH wins (the Docker image sets it
+ * to the system ffmpeg, 5.1.x on bookworm). It falls back to the
+ * @ffmpeg-installer binary for local dev. The system binary is
+ * required in production because @ffmpeg-installer ships a 2018 build
+ * whose libavfilter predates the `xfade` filter (ffmpeg 4.3, 2020)
+ * used by the crossfade transition.
  */
 import path from 'node:path';
 import { promises as fs } from 'node:fs';
@@ -22,7 +25,7 @@ import { spawn } from 'node:child_process';
 
 import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
 
-const FFMPEG_BIN: string = ffmpegInstaller.path;
+const FFMPEG_BIN: string = process.env.FFMPEG_PATH ?? ffmpegInstaller.path;
 
 /** Verde del bagliore dell'overlay (emerald). Non è il brand color del
  *  tenant (spesso navy): il "verde = risparmio" è una costante voluta. */
