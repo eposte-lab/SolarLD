@@ -38,6 +38,45 @@ from ..services.bolletta_ocr_service import (
     OcrResult,
     extract_from_image,
 )
+from ..services.engagement_service import (
+    W_APPOINTMENT_CLICK as _W_APPOINTMENT_CLICK,
+)
+from ..services.engagement_service import (
+    W_AUDIO_ON as _W_AUDIO_ON,
+)
+from ..services.engagement_service import (
+    W_BOLLETTA_UPLOADED as _W_BOLLETTA_UPLOADED,
+)
+from ..services.engagement_service import (
+    W_CTA_HOVER as _W_CTA_HOVER,
+)
+from ..services.engagement_service import (
+    W_EMAIL_REPLY_CLICK as _W_EMAIL_REPLY_CLICK,
+)
+from ..services.engagement_service import (
+    W_ROI_VIEWED as _W_ROI_VIEWED,
+)
+from ..services.engagement_service import (
+    W_SCROLL_50 as _W_SCROLL_50,
+)
+from ..services.engagement_service import (
+    W_SCROLL_90 as _W_SCROLL_90,
+)
+from ..services.engagement_service import (
+    W_SESSION as _W_SESSION,
+)
+from ..services.engagement_service import (
+    W_VIDEO_COMPLETE as _W_VIDEO_COMPLETE,
+)
+from ..services.engagement_service import (
+    W_VIDEO_FULLSCREEN as _W_VIDEO_FULLSCREEN,
+)
+from ..services.engagement_service import (
+    W_VIDEO_PLAY as _W_VIDEO_PLAY,
+)
+from ..services.engagement_service import (
+    W_WHATSAPP_CLICK as _W_WHATSAPP_CLICK,
+)
 from ..services.savings_compare_service import compute_savings_compare
 
 log = get_logger(__name__)
@@ -842,52 +881,36 @@ _BEACON_KEY_TTL = 90  # seconds
 
 
 # ---------------------------------------------------------------------------
-# Real-time engagement scoring (Sprint 8 Fase C.1)
+# Real-time engagement scoring (Sprint 8 Fase C.1 — formula v3)
 # ---------------------------------------------------------------------------
 #
 # Per-event score deltas applied via the ``bump_engagement_score``
 # Postgres function (migration 0066). Cumulative, clamped to [0, 100]
 # inside the RPC.
 #
-# Calibration philosophy (post-demo recalibration with operator):
-#   * Landing alone is HUGE intent — the lead opened the cold email,
-#     clicked the CTA, AND landed on the portal. That single chain
-#     should put them at "warm" (50) immediately.
-#   * Bolletta upload is the next big step (deliberate action with
-#     time investment) → should push to ~70.
-#   * A direct contact click (WhatsApp / appointment) is the goal
-#     state → should push to 90-100.
-#   * Email reply click is similar (the lead is engaging in the
-#     conversation) → 100.
-#   * Mid-funnel signals (scroll, ROI viewed, video play) stay smaller
-#     because they're attention proxies, not intent.
-#
-# Anything not listed contributes 0 (heartbeats, leaves).
-#
-# Keep these in lockstep with the ground-truth weights in
-# ``apps/api/src/services/engagement_service.py`` — they mirror the
-# cron formula so the realtime score never diverges by more than
-# the daily decay step.
+# I delta sono DERIVATI dai pesi di ``engagement_service.py`` (unica
+# fonte): "quel che vede l'operatore = quel che ottiene il lead". Il
+# bump in tempo reale non conosce lo storico → non applica i tetti di
+# fascia e sovrastima leggermente; il rollup notturno è la verità e
+# riconcilia con i tetti. Eventi non elencati = 0 (heartbeat, leave).
 
 _EVENT_DELTA: dict[str, int] = {
-    # Landing — opening the cold email + clicking CTA + arriving here
-    # is a real intent chain. One bump pushes the lead to "warm".
-    "portal.view": 50,
-    # Curiosity signals (mid-funnel attention proxies)
-    "portal.scroll_50": 3,
-    "portal.scroll_90": 7,
-    "portal.roi_viewed": 10,
-    "portal.cta_hover": 2,
-    # Engagement signals
-    "portal.video_play": 15,
-    "portal.video_complete": 25,
-    "portal.audio_on": 8,
-    "portal.video_fullscreen": 8,
-    # High-intent actions (these complete the funnel)
-    "portal.bolletta_uploaded": 20,  # 50 (view) + 20 = 70
-    "portal.whatsapp_click": 20,  # 50 (view) + 20 = 70 (or 90 with bolletta)
-    "portal.appointment_click": 30,  # 50 (view) + 30 = 80 (or 100 with bolletta)
-    "portal.email_reply_click": 30,  # equivalent intent to appointment
+    # Fascia 1 — Attenzione
+    "portal.view": _W_SESSION,
+    "portal.scroll_50": _W_SCROLL_50,
+    "portal.scroll_90": _W_SCROLL_90,
+    "portal.cta_hover": _W_CTA_HOVER,
+    # Fascia 2 — Coinvolgimento
+    "portal.roi_viewed": _W_ROI_VIEWED,
+    "portal.video_play": _W_VIDEO_PLAY,
+    "portal.video_complete": _W_VIDEO_COMPLETE,
+    "portal.audio_on": _W_AUDIO_ON,
+    "portal.video_fullscreen": _W_VIDEO_FULLSCREEN,
+    # Fascia 3 — Intenzione
+    "portal.bolletta_uploaded": _W_BOLLETTA_UPLOADED,
+    "portal.whatsapp_click": _W_WHATSAPP_CLICK,
+    "portal.appointment_click": _W_APPOINTMENT_CLICK,
+    "portal.email_reply_click": _W_EMAIL_REPLY_CLICK,
 }
 
 
