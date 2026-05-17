@@ -9,10 +9,13 @@ export function AppointmentForm({
   slug,
   brandColor,
   privacyPolicyUrl,
+  tenantName,
 }: {
   slug: string;
   brandColor: string;
   privacyPolicyUrl?: string | null;
+  /** Titolare del trattamento — nominato nel testo del consenso. */
+  tenantName: string;
 }) {
   const [status, setStatus] = useState<Status>('idle');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -83,7 +86,8 @@ export function AppointmentForm({
     );
   }
 
-  const privacyHref = privacyPolicyUrl || '/privacy';
+  const privacyHref =
+    privacyPolicyUrl || `/privacy?slug=${encodeURIComponent(slug)}`;
 
   return (
     <form onSubmit={handleSubmit} className="mt-4 space-y-3">
@@ -133,9 +137,10 @@ export function AppointmentForm({
           style={{ accentColor: brandColor }}
         />
         <span>
-          Acconsento al trattamento dei miei dati personali ai sensi del{' '}
-          Regolamento UE 2016/679 (GDPR) per essere ricontattato in merito
-          alla richiesta di sopralluogo.{' '}
+          Acconsento al trattamento dei miei dati personali da parte di{' '}
+          {tenantName}, Titolare del trattamento, ai sensi del Regolamento
+          UE 2016/679 (GDPR) per essere ricontattato in merito alla
+          richiesta di sopralluogo.{' '}
           <a
             href={privacyHref}
             target="_blank"
