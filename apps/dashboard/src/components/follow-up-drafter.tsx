@@ -28,6 +28,11 @@ import { AlertTriangle, Mail, Send, Sparkles, X } from 'lucide-react';
 
 import { api, ApiError } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
+import {
+  mergeFollowupTemplates,
+  type FollowupTemplate,
+  type FollowupTemplateOverrides,
+} from '@/lib/followup-templates';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -57,96 +62,9 @@ interface Props {
   senderEmail: string | null;
   /** Display name for the sender (tenants.email_from_name / business_name). */
   senderName: string;
+  /** Override per-tenant dei template (tenants.followup_templates). */
+  tenantTemplates?: FollowupTemplateOverrides | null;
 }
-
-// ---------------------------------------------------------------------------
-// Pre-built templates with variable placeholders
-// ---------------------------------------------------------------------------
-
-interface Template {
-  id: string;
-  label: string;
-  description: string;
-  subject: string;
-  body: string;
-}
-
-const TEMPLATES: Template[] = [
-  {
-    id: 'recap_roi',
-    label: 'Recap ROI',
-    description:
-      'Per lead che hanno aperto il portale o cliccato la CTA. Riassume i numeri concreti e propone un sopralluogo.',
-    subject: '{{azienda}} — i suoi numeri sul fotovoltaico',
-    body: `Buongiorno {{nome}},
-
-ho rivisto i dati che il sistema ha calcolato per {{azienda}} e volevo condividere i tre numeri che pensavamo di portarle al sopralluogo:
-
-• Potenza ottimale: circa {{kwp}} kW
-• Risparmio annuo stimato: {{risparmio}}
-• Rientro investimento: {{payback}}
-
-Sono numeri pensati sul tetto della sua sede a {{comune}} — non un preventivo generico. Le proporrei un sopralluogo gratuito (40 minuti circa) per validare i dati direttamente sul posto e poi metterle in mano un preventivo definitivo.
-
-Mi farebbe sapere se la prossima settimana ha una mezz'oretta libera tra mercoledì e venerdì?
-
-A presto,
-{{firma}}`,
-  },
-  {
-    id: 'reattivazione_fredda',
-    label: 'Riattivazione lead freddo',
-    description:
-      "Lead che ha aperto la prima email ma non ha cliccato. Tono leggero, niente pressione, una sola domanda chiara.",
-    subject: 'Una domanda veloce per {{azienda}}',
-    body: `Buongiorno {{nome}},
-
-mi rendo conto che il fotovoltaico non è in cima alla lista delle priorità di chi gestisce {{azienda}} — capita.
-
-Le faccio solo una domanda secca: oggi quanto le costa l'energia in un anno medio? Se fosse anche solo {{risparmio_annuo_minimo}} all'anno, varrebbe la pena guardarci dentro per 30 minuti.
-
-Le mando in allegato lo studio personalizzato sul suo tetto a {{comune}}. Se le interessa parlarne, basta che mi risponda anche solo "sì".
-
-Cordialmente,
-{{firma}}`,
-  },
-  {
-    id: 'sopralluogo_invite',
-    label: 'Invito al sopralluogo',
-    description:
-      'Diretta — quando il lead ha già mostrato interesse (portale ≥30s, scroll ≥60%) e va portato in agenda.',
-    subject: 'Sopralluogo gratuito su {{azienda}} — disponibilità prossima settimana?',
-    body: `Buongiorno {{nome}},
-
-vedo che ha avuto modo di guardare la proposta che le abbiamo inviato per {{azienda}}.
-
-Il passo logico ora è il sopralluogo: 40 minuti sul posto, gratuito e senza impegno. Misuriamo tetto e ombre, validiamo i {{kwp}} kW che il sistema ha stimato, e le portiamo via un preventivo esatto entro 48h.
-
-Le va bene se la chiamo nei prossimi giorni per fissarlo? In alternativa, può scegliere lei un orario rispondendo a questa email.
-
-Cordialmente,
-{{firma}}`,
-  },
-  {
-    id: 'recap_post_visita',
-    label: 'Dopo il sopralluogo',
-    description:
-      'Lead che ha già fatto il sopralluogo. Riassume i passi successivi senza chiedere ancora una decisione.',
-    subject: 'Riepilogo sopralluogo — {{azienda}}',
-    body: `Buongiorno {{nome}},
-
-la ringrazio per il tempo dedicato al sopralluogo. Ricapitolo brevemente per sua comodità:
-
-• Misurazione tetto: completata
-• Verifica esposizione: ok per {{kwp}} kW
-• Stima produttiva annuale: confermata
-
-Sto preparando il preventivo esatto e glielo invio entro 48 ore lavorative. Se nel frattempo le viene un dubbio o una domanda, mi risponda pure direttamente qui.
-
-A presto,
-{{firma}}`,
-  },
-];
 
 // ---------------------------------------------------------------------------
 // Component
@@ -158,6 +76,7 @@ export function FollowUpDrafter({
   recipientEmail,
   senderEmail,
   senderName,
+  tenantTemplates,
 }: Props) {
   const [open, setOpen] = useState(false);
 
@@ -215,6 +134,7 @@ export function FollowUpDrafter({
           recipientEmail={recipientEmail}
           senderEmail={senderEmail}
           senderName={senderName}
+          tenantTemplates={tenantTemplates}
           onClose={() => setOpen(false)}
         />
       )}
@@ -231,12 +151,14 @@ function FollowUpDialog({
   recipientEmail,
   senderEmail,
   senderName,
+  tenantTemplates,
   onClose,
 }: {
   leadId: string;
   recipientEmail: string;
   senderEmail: string | null;
   senderName: string;
+  tenantTemplates: FollowupTemplateOverrides | null | undefined;
   onClose: () => void;
 }) {
   const router = useRouter();
@@ -244,8 +166,10 @@ function FollowUpDialog({
   const [phase, setPhase] = useState<Phase>('compose');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Non-null assertion: TEMPLATES is a const literal with at least one entry.
-  const defaultTemplate = TEMPLATES[0]!;
+  // I template del tenant (override su tenants.followup_templates)
+  // sovrascritti sui default; almeno una voce è sempre presente.
+  const templates = mergeFollowupTemplates(tenantTemplates);
+  const defaultTemplate = templates[0]!;
   const [activeTemplateId, setActiveTemplateId] = useState<string>(defaultTemplate.id);
   const [aiBusy, setAiBusy] = useState(false);
   const [aiAttempted, setAiAttempted] = useState(false);
@@ -274,7 +198,7 @@ function FollowUpDialog({
   }, []);
 
   function applyTemplate(id: string) {
-    const tpl = TEMPLATES.find((t) => t.id === id);
+    const tpl = templates.find((t) => t.id === id);
     if (!tpl) return;
     setActiveTemplateId(id);
     setSubject(tpl.subject);
@@ -411,6 +335,7 @@ function FollowUpDialog({
 
               {mode === 'template' && (
                 <TemplatePicker
+                  templates={templates}
                   active={activeTemplateId}
                   onSelect={applyTemplate}
                 />
@@ -581,15 +506,17 @@ function ModeTab({
 }
 
 function TemplatePicker({
+  templates,
   active,
   onSelect,
 }: {
+  templates: FollowupTemplate[];
   active: string;
   onSelect: (id: string) => void;
 }) {
   return (
     <div className="mb-4 grid gap-2 sm:grid-cols-2">
-      {TEMPLATES.map((tpl) => (
+      {templates.map((tpl) => (
         <button
           key={tpl.id}
           onClick={() => onSelect(tpl.id)}

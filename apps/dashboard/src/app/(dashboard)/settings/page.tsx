@@ -361,6 +361,11 @@ function IntegrationsCard({ tenant, isDemo }: { tenant: TenantRow; isDemo: boole
           lockedReason={isDemo ? 'Configurato in onboarding' : undefined}
         />
         <IntegrationLink
+          href="/settings/follow-up-templates"
+          title="Template follow-up"
+          blurb="I 4 testi precompilati del modulo 'Scrivi follow-up' — oggetto e corpo, modificabili per tutto il team."
+        />
+        <IntegrationLink
           href="/experiments"
           title="A/B Testing email"
           blurb="Testa due oggetti email in parallelo. Il sistema dichiara automaticamente il vincitore quando ha sufficiente confidenza statistica."
