@@ -33,10 +33,8 @@ interface PillSpec {
   label: string;
   Icon: typeof Send;
   at: string | null;
-  /** When false the pill is dimmed (not yet happened). */
+  /** True when the step has happened (node lit, connector filled). */
   active: boolean;
-  /** Highlight the conversion step. */
-  accent?: 'engagement' | 'conversion';
 }
 
 export function LeadActivityStrip({
@@ -60,7 +58,6 @@ export function LeadActivityStrip({
       Icon: MailCheck,
       at: flags.outreachOpenedAt,
       active: flags.outreachOpenedAt != null,
-      accent: 'engagement',
     },
     {
       key: 'clicked',
@@ -68,7 +65,6 @@ export function LeadActivityStrip({
       Icon: MousePointerClick,
       at: flags.outreachClickedAt,
       active: flags.outreachClickedAt != null,
-      accent: 'engagement',
     },
     {
       key: 'portal',
@@ -76,7 +72,6 @@ export function LeadActivityStrip({
       Icon: Globe,
       at: flags.portalVisitedAt,
       active: flags.portalVisitedAt != null,
-      accent: 'engagement',
     },
     {
       key: 'bolletta',
@@ -84,7 +79,6 @@ export function LeadActivityStrip({
       Icon: FileText,
       at: flags.bollettaUploadedAt,
       active: flags.bollettaUploadedAt != null,
-      accent: 'engagement',
     },
     {
       key: 'appointment',
@@ -92,55 +86,66 @@ export function LeadActivityStrip({
       Icon: CalendarCheck,
       at: flags.appointmentRequestedAt,
       active: flags.appointmentRequestedAt != null,
-      accent: 'conversion',
     },
   ];
 
-  const nodeStyle = (p: PillSpec): string => {
-    if (!p.active) return 'bg-surface-container text-on-surface-variant';
-    if (p.accent === 'conversion') {
-      return 'bg-tertiary-container text-on-tertiary-container';
-    }
-    if (p.accent === 'engagement') {
-      return 'bg-secondary-container text-on-secondary-container';
-    }
-    return 'bg-primary-container text-on-primary-container';
-  };
+  const lastIdx = pills.length - 1;
 
   return (
     <div className={`flex items-start ${className ?? ''}`}>
       {pills.map((p, idx) => {
-        const tooltip = p.active
-          ? `${p.label} · ${relativeTime(p.at)}`
-          : `${p.label} · non ancora`;
-        // A connector segment is "filled" when the step it leads INTO has
-        // been reached. Drawn on both sides so adjacent steps meet.
-        const leftFilled = idx > 0 && p.active;
-        const rightFilled =
-          idx < pills.length - 1 && (pills[idx + 1]?.active ?? false);
-        const seg = (filled: boolean, hidden: boolean): string =>
-          `h-0.5 flex-1 ${hidden ? 'opacity-0' : filled ? 'bg-primary/50' : 'bg-on-surface/12'}`;
+        const done = p.active;
+        const isFirst = idx === 0;
+        const isLast = idx === lastIdx;
+        // Un connettore è "pieno" quando lo step verso cui porta è fatto.
+        const leftFilled = !isFirst && done;
+        const rightFilled = !isLast && (pills[idx + 1]?.active ?? false);
+        const conn = (filled: boolean): string =>
+          `h-0.5 flex-1 ${filled ? 'bg-primary' : 'bg-on-surface/12'}`;
         return (
           <div key={p.key} className="flex flex-1 flex-col items-center">
             <div className="flex w-full items-center">
-              <span className={seg(leftFilled, idx === 0)} aria-hidden />
+              {/* Il primo/ultimo step non ha connettore esterno: niente
+                  flex-1, così il nodo 1 parte a sinistra e il 6 finisce
+                  a destra invece di restare centrati nella loro cella. */}
+              {isFirst ? (
+                <span className="flex-none" />
+              ) : (
+                <span className={conn(leftFilled)} aria-hidden />
+              )}
               <span
-                title={tooltip}
-                className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${nodeStyle(p)}`}
+                title={
+                  done
+                    ? `${p.label} · ${relativeTime(p.at)}`
+                    : `${p.label} · non ancora`
+                }
+                className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
+                  done
+                    ? 'bg-primary text-on-primary'
+                    : 'border-2 border-dashed border-on-surface/25 text-on-surface-variant/50'
+                }`}
               >
-                <p.Icon size={13} strokeWidth={2.5} aria-hidden />
+                <p.Icon size={14} strokeWidth={2.5} aria-hidden />
               </span>
-              <span
-                className={seg(rightFilled, idx === pills.length - 1)}
-                aria-hidden
-              />
+              {isLast ? (
+                <span className="flex-none" />
+              ) : (
+                <span className={conn(rightFilled)} aria-hidden />
+              )}
             </div>
             <span
-              className={`mt-1 text-center text-[10px] font-semibold ${
-                p.active ? 'text-on-surface' : 'text-on-surface-variant'
+              className={`mt-1.5 text-center text-[11px] font-semibold ${
+                done ? 'text-on-surface' : 'text-on-surface-variant/60'
               }`}
             >
               {p.label}
+            </span>
+            <span
+              className={`text-center text-[10px] ${
+                done ? 'text-on-surface-variant' : 'text-on-surface-variant/40'
+              }`}
+            >
+              {done ? relativeTime(p.at) : 'in attesa'}
             </span>
           </div>
         );
