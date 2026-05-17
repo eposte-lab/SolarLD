@@ -59,6 +59,9 @@ async def update_my_tenant(ctx: CurrentUser, payload: dict[str, object]) -> dict
         "responsabile_tecnico_iscrizione_albo",
         # Auto follow-up cron toggle (migration 0107).
         "followup_auto_enabled",
+        # Override per-tenant dei template del compositore follow-up
+        # (migration 0134) — modificati da Impostazioni → Template follow-up.
+        "followup_templates",
     }
     update = {k: v for k, v in payload.items() if k in allowed}
     if not update:

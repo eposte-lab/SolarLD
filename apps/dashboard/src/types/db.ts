@@ -101,6 +101,8 @@ export interface TenantRow {
   email_from_domain_verified_at?: string | null;
   /** Dedicated FROM address for follow-up emails. Falls back to outreach@{email_from_domain}. */
   followup_from_email?: string | null;
+  /** Override per-tenant dei template del compositore follow-up (migration 0134). */
+  followup_templates?: Record<string, { subject?: string; body?: string }> | null;
   tier: TenantTier;
   settings: TenantSettings;
   /**

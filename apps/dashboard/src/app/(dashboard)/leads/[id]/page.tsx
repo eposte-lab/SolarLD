@@ -1269,6 +1269,7 @@ export default async function LeadDetailPage({ params }: PageProps) {
                 ctx.tenant.business_name ||
                 'SolarLead'
               }
+              tenantTemplates={ctx.tenant.followup_templates ?? null}
             />
           </TierLock>
         </BentoCard>
