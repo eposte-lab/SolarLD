@@ -21,10 +21,13 @@ const HOLD_BEFORE = 1.2;
 const CROSSFADE = 2.6;
 const HOLD_AFTER = 1.2;
 const FPS = 30;
-/** Lato del frame finale (allineato al GIF prodotto da convertToGif). */
-const SIZE = 720;
-/** Sorgente upscalata sopra SIZE così lo zoom-in non sgrana i pixel. */
-const SRC = 1440;
+/** Frame finale 16:9 (allineato al GIF prodotto da convertToGif e al
+ *  formato delle immagini start/end, già 16:9). */
+const OUT_W = 1280;
+const OUT_H = 720;
+/** Sorgente upscalata sopra l'output così lo zoom-in non sgrana. */
+const SRC_W = 2560;
+const SRC_H = 1440;
 
 /** Durata totale del video prodotto dal crossfade. */
 export const CROSSFADE_DURATION_S = HOLD_BEFORE + CROSSFADE + HOLD_AFTER;
@@ -46,9 +49,9 @@ export const buildCrossfadeArgs = (
   // La virgola dentro min() va escapata: nel filter_complex la virgola
   // separa i filtri della catena.
   const zoom = (label: string): string =>
-    `[${label}]scale=${SRC}:${SRC},` +
+    `[${label}]scale=${SRC_W}:${SRC_H},` +
     `zoompan=z='min(zoom+0.0015\\,1.15)':d=1:` +
-    `x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=${SIZE}x${SIZE}:fps=${FPS},` +
+    `x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=${OUT_W}x${OUT_H}:fps=${FPS},` +
     `setpts=PTS-STARTPTS`;
   const filter =
     `${zoom('0:v')}[a];${zoom('1:v')}[b];` +

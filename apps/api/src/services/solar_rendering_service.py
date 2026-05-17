@@ -37,16 +37,14 @@ from .google_solar_service import (
 
 log = get_logger(__name__)
 
-# Output image size in pixels (square).  At 1536² we match Replicate's
-# Kling 1.6-Pro native conditioning resolution — feeding the model a
-# 1024² end_image meant Kling was upscaling internally before
-# convergence, which softened the panel grid and produced the "pasted"
-# look reported by the first paying tenant.  At 1536 the per-panel
-# cell texture (CELL_COLS × CELL_ROWS) survives the video model's
-# diffusion sampler and lands sharp in the GIF.  PNG file is ~3-5 MB
-# (vs ~1.5 MB at 1024) — well within Replicate's input limits and
-# negligible vs the 4-6 MB the resulting GIF is going to weigh.
-OUTPUT_SIZE = 1536
+# Output image size in pixels — 16:9 landscape (1536×864).  Le foto
+# start/end nascono già in 16:9 così non vengono tagliate quando il
+# rendering è mostrato a 16:9 sul portale e sulla dashboard.  A 1536
+# di larghezza la trama per-pannello (CELL_COLS × CELL_ROWS) resta
+# nitida dopo il sampler del modello e nella GIF.
+OUTPUT_W = 1536
+OUTPUT_H = 864  # 1536 * 9 / 16
+OUTPUT_ASPECT = OUTPUT_W / OUTPUT_H  # 16:9
 
 # Padding around the roof footprint, expressed as a multiplier of the
 # roof's bounding-box half-diagonal (computed from panel cluster bounds
@@ -541,7 +539,9 @@ def _load_and_crop(
         roof_diag_m = math.sqrt(max(insight.area_sqm, 50.0))
         crop_radius_m = roof_diag_m * PADDING_FACTOR_FALLBACK
 
-    crop_radius_px = max(OUTPUT_SIZE // 2, int(crop_radius_m * px_per_m))
+    # Half-height del crop (in pixel originali). Il floor garantisce una
+    # risoluzione minima anche su cluster piccoli.
+    crop_radius_px = max(OUTPUT_H // 2, int(crop_radius_m * px_per_m))
 
     # Centre the crop on the panel cluster centroid when possible
     # (more stable than the building centre point Solar API returns,
@@ -557,34 +557,34 @@ def _load_and_crop(
     center_col = (cluster_lng - west_lng) / scale_x
     center_row = (north_lat - cluster_lat) / scale_y
 
-    # Clamp crop box to image bounds.
-    left = max(0, int(center_col - crop_radius_px))
-    top = max(0, int(center_row - crop_radius_px))
-    right = min(img_w, int(center_col + crop_radius_px))
-    bottom = min(img_h, int(center_row + crop_radius_px))
+    # Crop box 16:9 (landscape): altezza = 2·crop_radius_px (contiene il
+    # cluster in verticale), larghezza allargata di 16/9 per dare
+    # contesto laterale. Poi clampato ai bordi dell'immagine.
+    half_h = crop_radius_px
+    half_w = int(crop_radius_px * OUTPUT_ASPECT)
+    left = max(0, int(center_col - half_w))
+    top = max(0, int(center_row - half_h))
+    right = min(img_w, int(center_col + half_w))
+    bottom = min(img_h, int(center_row + half_h))
 
-    # Keep it square for the video composition.
-    side = min(right - left, bottom - top)
-    right = left + side
-    bottom = top + side
+    # Dopo il clamp la box può non essere più 16:9 — la riporto a 16:9
+    # rifilando il lato in eccesso (verso l'angolo già clampato).
+    cur_w = right - left
+    cur_h = bottom - top
+    if cur_w / max(cur_h, 1) > OUTPUT_ASPECT:
+        right = left + int(cur_h * OUTPUT_ASPECT)
+    else:
+        bottom = top + int(cur_w / OUTPUT_ASPECT)
 
     crop = img.crop((left, top, right, bottom))
-    crop = crop.resize((OUTPUT_SIZE, OUTPUT_SIZE), Image.LANCZOS)
+    crop = crop.resize((OUTPUT_W, OUTPUT_H), Image.LANCZOS)
 
-    # Scale factor from original pixels → resized output pixels.
-    scale_factor = OUTPUT_SIZE / max(side, 1)
+    # Scale factor from original pixels → resized output pixels. Crop e
+    # output sono entrambi 16:9 → la scala è uniforme su x e y.
+    scale_factor = OUTPUT_W / max(right - left, 1)
 
-    transform = _GeoTransform(
-        west_lng=west_lng,
-        north_lat=north_lat,
-        scale_x=scale_x,
-        scale_y=scale_y,
-        # Adjusted crop offset and scale so geo_to_crop_pixel gives output-size coords.
-        crop_col=left - (crop_radius_px - side / 2) * (1 - 1 / scale_factor),
-        crop_row=top - (crop_radius_px - side / 2) * (1 - 1 / scale_factor),
-    )
-    # Override to use a simpler, accurate transform: absolute pixel → scaled output.
-    # (Reuse _GeoTransform but inject the scale factor into the pixel computation.)
+    # Absolute original pixel → scaled output pixel. Crop e output sono
+    # entrambi 16:9 quindi un singolo scale_factor è corretto su x e y.
     transform = _GeoTransformScaled(
         west_lng=west_lng,
         north_lat=north_lat,

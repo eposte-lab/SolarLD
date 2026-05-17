@@ -239,10 +239,9 @@ export const overlayStatsOnVideo = async (
  * produces banded gradients and 3-4× larger files.
  *
  * Targets:
- *   - 720×720 (down from 1080) — Gmail's content card is ~620 px wide;
- *     720 lets the client subsample down to the display size cleanly
- *     instead of upscaling a 480 source (which is what produced the
- *     fuzzy "panels look pasted" feedback from the first paying tenant)
+ *   - 1280×720 (16:9) — allineato al formato delle immagini start/end
+ *     e del crossfade; niente crop verticale quando il rendering è
+ *     mostrato a 16:9 su portale e dashboard
  *   - 15 fps (was 12, Replicate native is 24-30) — 15 is the perceptual
  *     sweet spot for a slow reveal: anything <12 stutters visibly,
  *     anything >18 inflates filesize without buying smoothness
@@ -254,7 +253,7 @@ export const convertToGif = async (
   outputGifPath: string,
 ): Promise<void> => {
   const filterComplex =
-    'fps=15,scale=720:720:flags=lanczos,split[s0][s1];' +
+    'fps=15,scale=1280:720:flags=lanczos,split[s0][s1];' +
     '[s0]palettegen=stats_mode=diff[p];' +
     '[s1][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle';
 
