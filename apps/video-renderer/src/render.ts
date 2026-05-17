@@ -32,7 +32,12 @@ import {
   renderRequestSchema,
 } from './schema';
 import { generateTransitionVideo, pickDuration } from './replicate-service';
-import { postProcessVideo } from './ffmpeg-service';
+import {
+  postProcessVideo,
+  overlayStatsOnVideo,
+  convertToGif,
+} from './ffmpeg-service';
+import { generateCrossfadeVideo } from './ffmpeg-crossfade';
 
 // Re-export so existing imports (server.ts, tests) don't have to chase
 // the schema down a level.
@@ -49,20 +54,38 @@ export interface RenderDeps {
   /** Override for the workspace tmp dir (tests). */
   tmpDir?: string;
   /**
-   * Override the video-generation step (tests + future model swap).
-   * Default = call Replicate.
+   * Override the AI video-generation step (Kling). Used only when
+   * VIDEO_RENDER_MODE=kling. Test seam + future model swap.
    */
   generateVideo?: (input: TransitionInput) => Promise<{ videoUrl: string; durationMs: number }>;
+  /**
+   * Override the FFmpeg crossfade step (test seam). Default mode.
+   * Returns the work-dir path of the raw MP4 + its duration.
+   */
+  generateCrossfade?: (
+    beforeImageUrl: string,
+    afterImageUrl: string,
+    workDir: string,
+    outMp4Path: string,
+  ) => Promise<{ durationS: number }>;
 }
+
+/** Motore di generazione del video di transizione.
+ *  `crossfade` (default) = dissolvenza FFmpeg locale, costo zero.
+ *  `kling` = animazione AI su Replicate (~€0,49/clip) — opt-in. */
+const renderMode = (): 'crossfade' | 'kling' =>
+  (process.env.VIDEO_RENDER_MODE ?? 'crossfade').toLowerCase() === 'kling'
+    ? 'kling'
+    : 'crossfade';
 
 /**
  * Full pipeline:
- *   1. Call the Replicate video model with `beforeImageUrl` + prompt.
- *   2. Download the resulting MP4 to a tmp work dir.
- *   3. ffmpeg → burn stats overlay on last ~1.5s.
- *   4. ffmpeg → produce optimized GIF (480×480, 12fps).
- *   5. Upload both files to `{bucket}/{outputPath}/transition.{mp4,gif}`.
- *   6. Return public URLs + total wall-clock duration.
+ *   1. Produce a raw MP4 of the before→after transition:
+ *      - crossfade (default): FFmpeg zoom + dissolve, zero API cost;
+ *      - kling: hosted AI video model on Replicate (opt-in).
+ *   2. ffmpeg → burn stats overlay on last ~1.5s + optimized GIF.
+ *   3. Upload both files to `{bucket}/{outputPath}/transition.{mp4,gif}`.
+ *   4. Return public URLs + total wall-clock duration.
  */
 export const renderTransition = async (
   req: RenderRequest,
@@ -70,33 +93,54 @@ export const renderTransition = async (
 ): Promise<RenderResult> => {
   const start = Date.now();
 
-  // 1) Hosted video generation (default = Replicate).
-  const generator =
-    deps.generateVideo ??
-    ((input: TransitionInput) => generateTransitionVideo(input));
-  const { videoUrl } = await generator(stripNonSchemaProps(req));
-
-  // 2) Working dir for the post-process step.
+  // Working dir for the render + post-process steps.
   const workDir = await fs.mkdtemp(
     path.join(deps.tmpDir ?? os.tmpdir(), 'sl-render-'),
   );
 
-  try {
-    // 3) Download → overlay → GIF.
-    const { mp4Path, gifPath } = await postProcessVideo(
-      videoUrl,
-      workDir,
-      {
-        kwp: req.kwp,
-        yearlySavingsEur: req.yearlySavingsEur,
-        paybackYears: req.paybackYears,
-        tenantName: req.tenantName,
-        brandPrimaryColor: req.brandPrimaryColor,
-      },
-      pickDuration(req.kwp),
-    );
+  const stats = {
+    kwp: req.kwp,
+    yearlySavingsEur: req.yearlySavingsEur,
+    paybackYears: req.paybackYears,
+    tenantName: req.tenantName,
+    brandPrimaryColor: req.brandPrimaryColor,
+  };
 
-    // 4) Upload to Supabase Storage.
+  try {
+    let mp4Path: string;
+    let gifPath: string;
+
+    if (renderMode() === 'kling') {
+      // AI path (opt-in): hosted video model → download → overlay → GIF.
+      const generator =
+        deps.generateVideo ??
+        ((input: TransitionInput) => generateTransitionVideo(input));
+      const { videoUrl } = await generator(stripNonSchemaProps(req));
+      ({ mp4Path, gifPath } = await postProcessVideo(
+        videoUrl,
+        workDir,
+        stats,
+        pickDuration(req.kwp),
+      ));
+    } else {
+      // Default path: FFmpeg crossfade (zoom + dissolve) — no AI, no
+      // per-clip API cost. The raw MP4 is built locally, then the same
+      // overlay + GIF post-processing runs on it.
+      const crossfade = deps.generateCrossfade ?? generateCrossfadeVideo;
+      const rawPath = path.join(workDir, 'raw.mp4');
+      const { durationS } = await crossfade(
+        req.beforeImageUrl,
+        req.afterImageUrl,
+        workDir,
+        rawPath,
+      );
+      mp4Path = path.join(workDir, 'transition.mp4');
+      gifPath = path.join(workDir, 'transition.gif');
+      await overlayStatsOnVideo(rawPath, mp4Path, stats, durationS);
+      await convertToGif(mp4Path, gifPath);
+    }
+
+    // Upload to Supabase Storage.
     const mp4Bytes = await fs.readFile(mp4Path);
     const gifBytes = await fs.readFile(gifPath);
 

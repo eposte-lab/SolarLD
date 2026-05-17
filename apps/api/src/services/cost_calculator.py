@@ -77,10 +77,11 @@ RESEND_PER_EMAIL_EUR: float = 0.0004
 WHATSAPP_PER_MESSAGE_EUR: float = 0.08
 """Source: 360dialog Italy tier-1 BSP estimate (utility template)."""
 
-# Per delivered email — Kling/Runway is the dominant unit cost; we
-# keep one line item here for projections even though the true cost
-# depends on the renderer chosen at runtime.
-RENDERING_PER_EMAIL_EUR: float = 0.49
+# Per delivered email — il video di transizione è ora prodotto da un
+# crossfade FFmpeg locale (default VIDEO_RENDER_MODE=crossfade): nessun
+# costo API per clip. Resta 0 finché non si riattiva il modello AI Kling
+# (~€0,49/clip) impostando VIDEO_RENDER_MODE=kling sul video-renderer.
+RENDERING_PER_EMAIL_EUR: float = 0.0
 
 # Fixed — monthly subscriptions
 DELIVERABILITY_INFRA_MONTHLY_EUR: float = 187.0

@@ -57,7 +57,7 @@ export const downloadVideo = async (url: string, destPath: string): Promise<void
  * visibility. Resolves on exit-code 0, rejects otherwise with the tail
  * of stderr (full output is too noisy to log on success).
  */
-const runFfmpeg = (args: string[]): Promise<void> =>
+export const runFfmpeg = (args: string[]): Promise<void> =>
   new Promise((resolve, reject) => {
     const proc = spawn(FFMPEG_BIN, args, { stdio: ['ignore', 'pipe', 'pipe'] });
     const stderrChunks: Buffer[] = [];
