@@ -365,121 +365,124 @@ export default async function LeadDetailPage({ params }: PageProps) {
     appointmentRequestedAt: latestEventAt(['lead.appointment_requested']),
   };
 
+  // Stile condiviso dei bottoni della barra azioni (header).
+  const actionBtn =
+    'inline-flex items-center gap-1.5 rounded-lg border border-on-surface/15 ' +
+    'bg-surface-container-lowest px-3 py-1.5 text-xs font-semibold text-on-surface ' +
+    'transition-colors hover:bg-surface-container';
+  const actionBtnDisabled =
+    'inline-flex cursor-not-allowed items-center gap-1.5 rounded-lg ' +
+    'border border-on-surface/10 px-3 py-1.5 text-xs font-semibold ' +
+    'text-on-surface-variant opacity-50';
+
   return (
     <div className="space-y-4">
       {/* ─── Header ───────────────────────────────────────────────────── */}
-      <header className="flex flex-wrap items-start justify-between gap-4">
-        <div className="space-y-3">
-          <Link
-            href="/leads"
-            className="inline-flex items-center gap-1 text-xs font-medium text-on-surface-variant transition-colors hover:text-primary"
-          >
-            <ArrowLeft size={12} strokeWidth={2.25} aria-hidden />
-            Tutti i lead
-          </Link>
-          <h1 className="font-headline text-4xl font-bold tracking-tighter">
-            {name}
-          </h1>
-          {/* Activity-at-a-glance — the operator's mental model is
-              "did the lead read the email? click? visit the portal?"
-              Render this *first* so the answer is the first thing the
-              eye lands on, before the technical chips below. */}
-          <LeadActivityStrip flags={activityFlags} />
-          <div className="flex flex-wrap items-center gap-2">
-            {/* The header shows the lead's *current* state: pipeline status
-                + engagement (real portal activity over the last 30d). The
-                old `score_tier` cold/warm/hot was a pre-engagement ICP
-                prediction (revenue/employees/sector) — leaving it here
-                next to engagement=100 produced "this lead is cold" /
-                "this lead is at 100" contradictions. The ICP tier still
-                lives in the Score breakdown card below, where its
-                provenance is explained. */}
-            <EngagementScoreChip
-              score={lead.engagement_score}
-              updatedAt={lead.engagement_score_updated_at}
-            />
-            <FollowUpStateChip row={lead} />
-            <StatusChip status={lead.pipeline_status} />
-            <span
-              className="text-xs text-on-surface-variant"
-              title="Score ICP iniziale (settore, dimensione, distanza). Resta fisso dopo l'import — l'engagement qui sopra invece riflette l'attività reale."
+      <header className="space-y-4">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          {/* ── SINISTRA — identità + stato del lead ── */}
+          <div className="space-y-2">
+            <Link
+              href="/leads"
+              className="inline-flex items-center gap-1 text-xs font-medium text-on-surface-variant transition-colors hover:text-primary"
             >
-              ICP{' '}
-              <span className="font-headline font-bold text-on-surface">
-                {lead.score}
+              <ArrowLeft size={12} strokeWidth={2.25} aria-hidden />
+              Tutti i lead
+            </Link>
+            <h1 className="font-headline text-4xl font-bold tracking-tighter">
+              {name}
+            </h1>
+            {/* Stato corrente: engagement (attività reale sul portale,
+                ultimi 30g) + pipeline + follow-up. Lo score ICP iniziale
+                (settore/dimensione/distanza) vive nella riga meta sotto e
+                nel dettaglio Score più in basso — non va confuso con
+                l'engagement. */}
+            <div className="flex flex-wrap items-center gap-2">
+              <EngagementScoreChip
+                score={lead.engagement_score}
+                updatedAt={lead.engagement_score_updated_at}
+              />
+              <StatusChip status={lead.pipeline_status} />
+              <FollowUpStateChip row={lead} />
+            </div>
+            {/* Meta — contesto, peso visivo basso. */}
+            <div className="flex flex-wrap items-center gap-2 text-xs text-on-surface-variant">
+              <span title="Score ICP iniziale (settore, dimensione, distanza). Resta fisso dopo l'import — l'engagement qui sopra invece riflette l'attività reale.">
+                ICP{' '}
+                <span className="font-headline font-bold text-on-surface">
+                  {lead.score}
+                </span>
               </span>
-            </span>
-            <span className="text-xs text-on-surface-variant">·</span>
-            <span className="text-xs text-on-surface-variant">
-              Creato {formatDate(lead.created_at)}
-            </span>
-            <span className="text-xs text-on-surface-variant">·</span>
-            <a
-              href={publicLeadLink}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
-            >
-              Pagina personale
-              <ExternalLink size={11} strokeWidth={2.25} aria-hidden />
-            </a>
-            {/* Preventivo entry-point. Hidden for generic_outreach leads
-                (no Solar data — preventivo would be empty/meaningless).
-                Disabled for Solar leads that lack the two prerequisites. */}
-            {!isGenericOutreach && (
-              <Link
-                href={
-                  lead.roi_data && lead.roofs?.estimated_kwp
-                    ? `/leads/${lead.id}/quote`
-                    : '#'
-                }
-                aria-disabled={!lead.roi_data || !lead.roofs?.estimated_kwp}
-                title={
-                  lead.roi_data && lead.roofs?.estimated_kwp
-                    ? 'Genera un preventivo formale (PDF) per questo lead'
-                    : 'Disponibile solo per lead con ROI e dimensionamento completati'
-                }
-                className={
-                  lead.roi_data && lead.roofs?.estimated_kwp
-                    ? 'inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline'
-                    : 'inline-flex cursor-not-allowed items-center gap-1 text-xs font-semibold text-on-surface-variant opacity-50'
-                }
-              >
-                <FileText size={11} strokeWidth={2.25} aria-hidden />
-                Genera preventivo completo
-              </Link>
+              <span aria-hidden>·</span>
+              <span>Creato {formatDate(lead.created_at)}</span>
+            </div>
+          </div>
+
+          {/* ── DESTRA — barra azioni ── */}
+          <div className="flex flex-col items-end gap-2">
+            {!isBlacklisted && !ctx.tenant.outreach_blocked && (
+              <SendOutreachButton leadId={lead.id} alreadySent={alreadySent} />
             )}
-            {/* GSE practice entry-point. Visible always so the operator
-                knows the feature exists, but disabled until the lead is
-                marked contract_signed via the LeadFeedbackPicker below. */}
-            {lead.feedback === 'contract_signed' ? (
-              <Link
-                href={`/leads/${lead.id}/practice/new`}
-                className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
-                title="Crea pratica GSE post-firma (DM 37/08, Comunicazione Comune)"
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <a
+                href={publicLeadLink}
+                target="_blank"
+                rel="noreferrer"
+                className={actionBtn}
               >
-                <FolderOpen size={11} strokeWidth={2.25} aria-hidden />
-                Crea pratica GSE
-              </Link>
-            ) : (
-              <span
-                className="inline-flex cursor-not-allowed items-center gap-1 text-xs font-semibold text-on-surface-variant opacity-50"
-                title="Marca il lead come 'Contratto firmato' qui sotto per abilitare la creazione della pratica GSE"
-              >
-                <FolderOpen size={11} strokeWidth={2.25} aria-hidden />
-                Crea pratica GSE
-              </span>
-            )}
-            <LeadFeedbackPicker
-              leadId={lead.id}
-              currentFeedback={lead.feedback ?? null}
-            />
+                <ExternalLink size={13} strokeWidth={2.25} aria-hidden />
+                Pagina personale
+              </a>
+              {/* Preventivo entry-point. Hidden for generic_outreach leads
+                  (no Solar data). Disabled without ROI + dimensionamento. */}
+              {!isGenericOutreach &&
+                (lead.roi_data && lead.roofs?.estimated_kwp ? (
+                  <Link
+                    href={`/leads/${lead.id}/quote`}
+                    title="Genera un preventivo formale (PDF) per questo lead"
+                    className={actionBtn}
+                  >
+                    <FileText size={13} strokeWidth={2.25} aria-hidden />
+                    Genera preventivo
+                  </Link>
+                ) : (
+                  <span
+                    title="Disponibile solo per lead con ROI e dimensionamento completati"
+                    className={actionBtnDisabled}
+                  >
+                    <FileText size={13} strokeWidth={2.25} aria-hidden />
+                    Genera preventivo
+                  </span>
+                ))}
+              {/* GSE practice — abilitato solo dopo "Contratto firmato". */}
+              {lead.feedback === 'contract_signed' ? (
+                <Link
+                  href={`/leads/${lead.id}/practice/new`}
+                  className={actionBtn}
+                  title="Crea pratica GSE post-firma (DM 37/08, Comunicazione Comune)"
+                >
+                  <FolderOpen size={13} strokeWidth={2.25} aria-hidden />
+                  Crea pratica GSE
+                </Link>
+              ) : (
+                <span
+                  className={actionBtnDisabled}
+                  title="Marca il lead come 'Contratto firmato' per abilitare la pratica GSE"
+                >
+                  <FolderOpen size={13} strokeWidth={2.25} aria-hidden />
+                  Crea pratica GSE
+                </span>
+              )}
+              <LeadFeedbackPicker
+                leadId={lead.id}
+                currentFeedback={lead.feedback ?? null}
+              />
+            </div>
           </div>
         </div>
 
-        {!isBlacklisted && !ctx.tenant.outreach_blocked && (
-          <SendOutreachButton leadId={lead.id} alreadySent={alreadySent} />
-        )}
+        {/* ── Funnel di attività — stepper orizzontale ── */}
+        <LeadActivityStrip flags={activityFlags} className="max-w-2xl" />
       </header>
 
       {/* Demo-mode: replace the regular send button with a form that

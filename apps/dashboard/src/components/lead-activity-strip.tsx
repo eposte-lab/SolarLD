@@ -1,22 +1,15 @@
 /**
- * LeadActivityStrip — at-a-glance status pills for the lead detail header.
+ * LeadActivityStrip — the lead's activity funnel as a horizontal stepper.
  *
- * The operator opens the lead and wants to know in 2 seconds:
- *   - did we send the email?
- *   - did they read it?
- *   - did they click?
- *   - did they visit the portal?
- *   - did they upload a bolletta?
- *   - is there an appointment?
- *
- * Each step renders as a coloured pill when the event happened, dimmed
- * when not. Tooltip carries the timestamp. No counts here — the timeline
- * below has the full chronology; this strip is for state-at-a-glance.
+ * The operator opens the lead and wants to know in 2 seconds how far the
+ * lead got: inviata → letta → cliccata → portale → bolletta → appuntamento.
+ * Reached steps are lit and connected by a filled line; future steps are
+ * dimmed. Tooltip carries the timestamp. No counts here — the timeline
+ * below has the full chronology; this stepper is the at-a-glance funnel.
  */
 
 import {
   CalendarCheck,
-  Eye,
   FileText,
   Globe,
   MailCheck,
@@ -103,31 +96,53 @@ export function LeadActivityStrip({
     },
   ];
 
+  const nodeStyle = (p: PillSpec): string => {
+    if (!p.active) return 'bg-surface-container text-on-surface-variant';
+    if (p.accent === 'conversion') {
+      return 'bg-tertiary-container text-on-tertiary-container';
+    }
+    if (p.accent === 'engagement') {
+      return 'bg-secondary-container text-on-secondary-container';
+    }
+    return 'bg-primary-container text-on-primary-container';
+  };
+
   return (
-    <div className={`flex flex-wrap items-center gap-1.5 ${className ?? ''}`}>
-      {pills.map((p) => {
+    <div className={`flex items-start ${className ?? ''}`}>
+      {pills.map((p, idx) => {
         const tooltip = p.active
           ? `${p.label} · ${relativeTime(p.at)}`
           : `${p.label} · non ancora`;
-        const styles = p.active
-          ? p.accent === 'conversion'
-            ? 'bg-tertiary-container text-on-tertiary-container'
-            : p.accent === 'engagement'
-              ? 'bg-secondary-container text-on-secondary-container'
-              : 'bg-primary-container text-on-primary-container'
-          : 'bg-surface-container text-on-surface-variant opacity-50';
+        // A connector segment is "filled" when the step it leads INTO has
+        // been reached. Drawn on both sides so adjacent steps meet.
+        const leftFilled = idx > 0 && p.active;
+        const rightFilled =
+          idx < pills.length - 1 && (pills[idx + 1]?.active ?? false);
+        const seg = (filled: boolean, hidden: boolean): string =>
+          `h-0.5 flex-1 ${hidden ? 'opacity-0' : filled ? 'bg-primary/50' : 'bg-on-surface/12'}`;
         return (
-          <span
-            key={p.key}
-            title={tooltip}
-            className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-semibold ${styles}`}
-          >
-            <p.Icon size={12} strokeWidth={2.5} aria-hidden />
-            <span>{p.label}</span>
-            {p.active && p.key === 'opened' && (
-              <Eye size={10} strokeWidth={2.5} aria-hidden className="ml-0.5 opacity-70" />
-            )}
-          </span>
+          <div key={p.key} className="flex flex-1 flex-col items-center">
+            <div className="flex w-full items-center">
+              <span className={seg(leftFilled, idx === 0)} aria-hidden />
+              <span
+                title={tooltip}
+                className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${nodeStyle(p)}`}
+              >
+                <p.Icon size={13} strokeWidth={2.5} aria-hidden />
+              </span>
+              <span
+                className={seg(rightFilled, idx === pills.length - 1)}
+                aria-hidden
+              />
+            </div>
+            <span
+              className={`mt-1 text-center text-[10px] font-semibold ${
+                p.active ? 'text-on-surface' : 'text-on-surface-variant'
+              }`}
+            >
+              {p.label}
+            </span>
+          </div>
         );
       })}
     </div>
