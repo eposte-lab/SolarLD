@@ -49,7 +49,7 @@ const CONTRACT_YEARS = 10;
  *  EPC: prime 5 candele basse (i 10 anni di contratto, risparmio
  *  parziale), poi 5 candele che crescono molto dopo la cessione. */
 const DIRECT_SERIES = [-104, -74, -46, -16, 52, 122, 196, 272, 350, 418];
-const EPC_SERIES = [22, 38, 54, 70, 86, 175, 255, 325, 382, 410];
+const EPC_SERIES = [22, 38, 54, 70, 86, 175, 255, 322, 372, 398];
 
 /** Quante candele iniziali racchiude la parentesi di ciascun grafico. */
 const DIRECT_BRACKET_BARS = 4;
@@ -316,7 +316,6 @@ export function EpcPropositionSection({
         .epc-playing .epc-cfbar-up   { animation: epcGrowUp 0.75s cubic-bezier(.22,1,.36,1) both; }
         .epc-playing .epc-cfbar-down { animation: epcGrowDown 0.75s cubic-bezier(.22,1,.36,1) both; }
         .epc-playing .epc-bracket   { animation: epcFadeIn 0.6s ease 8.2s both; }
-        .epc-playing .epc-connector { animation: epcFadeIn 0.7s ease 8.6s both; }
         .epc-playing .epc-callout  { animation: epcFadeUp 0.7s cubic-bezier(.22,1,.36,1) 9.2s both; }
         .epc-playing .epc-footer   { animation: epcFadeIn 0.6s ease 9.9s both; }
 
@@ -517,8 +516,8 @@ export function EpcPropositionSection({
             </div>
           </div>
 
-          {/* RIGA 2 — grafici cash-flow con connettore */}
-          <div className="epc-anim epc-charts relative mt-7 grid grid-cols-2 gap-5 md:gap-10">
+          {/* RIGA 2 — grafici cash-flow */}
+          <div className="epc-anim epc-charts mt-7 grid grid-cols-2 gap-5 md:gap-10">
             <CashFlowChart
               values={DIRECT_SERIES}
               colorFor={(v) => directBarColor(v)}
@@ -533,32 +532,11 @@ export function EpcPropositionSection({
               bracketBars={EPC_BRACKET_BARS}
               bracketLabel={`Durata del contratto · ${CONTRACT_YEARS} anni`}
             />
-            {/* Connettore: l'ultima candela dell'investimento diretto
-                chiude solo un gradino sopra l'ultima dell'EPC. */}
-            <svg
-              className="epc-anim epc-connector pointer-events-none absolute inset-0 hidden h-full w-full sm:block"
-              viewBox="0 0 100 100"
-              preserveAspectRatio="none"
-              aria-hidden
-            >
-              <line
-                x1="45.5"
-                y1="1.5"
-                x2="97.5"
-                y2="3.2"
-                stroke={brandColor}
-                strokeWidth="2"
-                strokeDasharray="5 4"
-                strokeLinecap="round"
-                vectorEffect="non-scaling-stroke"
-              />
-            </svg>
           </div>
           <p className="mt-3 text-center text-[11px] text-on-surface-variant">
             Dopo ~20 anni i due modelli arrivano quasi allo stesso punto
-            — la linea collega le ultime due candele — ma con l&apos;EPC
-            ci arrivate senza immobilizzare un euro e senza un solo anno
-            in rosso.
+            — ma con l&apos;EPC ci arrivate senza immobilizzare un euro e
+            senza un solo anno in rosso.
           </p>
 
           {/* CALLOUT */}
