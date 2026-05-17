@@ -24,6 +24,18 @@ import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
 
 const FFMPEG_BIN: string = ffmpegInstaller.path;
 
+/** Verde del bagliore dell'overlay (emerald). Non è il brand color del
+ *  tenant (spesso navy): il "verde = risparmio" è una costante voluta. */
+const GLOW_COLOR = '0x16A34A';
+
+/** Font in grassetto per l'overlay. `fonts-dejavu-core` (installato nel
+ *  Dockerfile) fornisce DejaVuSans-Bold; in locale può non esserci →
+ *  `resolveBoldFont` degrada al font di default di ffmpeg. */
+const BOLD_FONT_CANDIDATES: string[] = [
+  process.env.OVERLAY_FONT_FILE ?? '',
+  '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+].filter(Boolean);
+
 export interface OverlayStats {
   kwp: number;
   yearlySavingsEur: number;
@@ -76,14 +88,32 @@ export const runFfmpeg = (args: string[]): Promise<void> =>
   });
 
 /**
- * Format euro amounts compactly so the overlay never wraps on a 1080
- * frame (e.g. "€2.400/anno", "€1.230.000/anno" → "€1.2M/anno").
+ * Resolve a bold font file for the overlay. Returns the first existing
+ * candidate, or `undefined` (→ ffmpeg's built-in default font).
+ */
+export const resolveBoldFont = async (): Promise<string | undefined> => {
+  for (const candidate of BOLD_FONT_CANDIDATES) {
+    try {
+      await fs.access(candidate);
+      return candidate;
+    } catch {
+      /* try the next candidate */
+    }
+  }
+  return undefined;
+};
+
+/**
+ * Format euro amounts for the overlay: full Italian thousands grouping
+ * up to 999.999 ("€2.400"), compact "M" above ("€1.2M"). The big
+ * savings figure has to read as money, not as a cryptic "2.4k".
  */
 export const formatEuro = (n: number): string => {
   if (!Number.isFinite(n) || n <= 0) return '—';
   if (n >= 1_000_000) return `€${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `€${Math.round(n / 100) / 10}k`;
-  return `€${Math.round(n)}`;
+  return `€${Math.round(n)
+    .toString()
+    .replace(/\B(?=(\d{3})+(?!\d))/g, '.')}`;
 };
 
 /**
@@ -100,43 +130,70 @@ export const escapeDrawtext = (s: string): string =>
     .replace(/,/g, '\\,');
 
 /**
- * Build the drawtext filter chain that fades in the stats card during
- * the last 1.5s of the clip. We layer:
- *   - a translucent dark band at the bottom (drawbox)
- *   - 3 lines of stat text (drawtext, faded in via alpha=if(...))
+ * Build the `-filter_complex` graph that reveals the stats card over
+ * the last ~1.8s of the clip:
+ *   - input [1:v] is a tiny green lavfi `color` source; `geq` paints a
+ *     vertical alpha gradient on it (transparent at the top, solid
+ *     toward the bottom), it is scaled to the video and faded in → a
+ *     green light that rises from below, no hard black rectangle;
+ *   - 3 bold text lines (label · big savings figure · kW + payback)
+ *     fade in just after — white, with a dark-green edge + drop shadow
+ *     so they stay readable on any rooftop.
  *
- * `clipDurationS` is the wall-clock length of the source video (5 or
- * 10s for Kling). The overlay fades in over `clipDurationS-1.5`.
+ * `clipDurationS` is the wall-clock length of the source clip; the
+ * reveal occupies its last `reveal` seconds. The graph ends on [out].
  */
-export const buildOverlayFilter = (stats: OverlayStats, clipDurationS: number): string => {
-  const fadeStart = Math.max(0, clipDurationS - 1.5);
-  const k = `${Math.round(stats.kwp * 10) / 10} kW`;
-  const savings = `${formatEuro(stats.yearlySavingsEur)}/anno risparmio`;
-  const payback = `Rientro in ~${Math.round(stats.paybackYears * 10) / 10} anni`;
+export const buildOverlayFilter = (
+  stats: OverlayStats,
+  clipDurationS: number,
+  fontFile?: string,
+): string => {
+  const reveal = Math.min(1.8, Math.max(0.9, clipDurationS - 0.4));
+  const fadeStart = Math.max(0, clipDurationS - reveal);
 
-  // Alpha expression: 0 before fadeStart, ramps 0→1 over 0.5s.
-  const alpha = `if(lt(t\\,${fadeStart})\\,0\\,if(lt(t\\,${fadeStart + 0.5})\\,(t-${fadeStart})/0.5\\,1))`;
+  const savings = formatEuro(stats.yearlySavingsEur);
+  const kw = `${Math.round(stats.kwp * 10) / 10} kW`;
+  const payback = `rientro in ~${Math.max(1, Math.round(stats.paybackYears))} anni`;
+  const sub = `${kw}  ·  ${payback}`;
+  const label = 'RISPARMIO STIMATO ALL’ANNO';
 
-  // Fontfile not specified → ffmpeg falls back to its default sans
-  // (DejaVu on Debian slim, which @ffmpeg-installer ships independently).
-  const drawbox = `drawbox=x=0:y=ih-180:w=iw:h=180:color=black@0.55:t=fill:enable='gte(t,${fadeStart})'`;
+  // Per-line alpha: 0 until `st`, then ramps to 1 over 0.5s.
+  const txtAlpha = (st: number): string =>
+    `alpha='if(lt(t\\,${st})\\,0\\,if(lt(t\\,${st + 0.5})\\,(t-${st})/0.5\\,1))'`;
 
-  const baseTxt =
-    `:fontcolor=white:borderw=2:bordercolor=black@0.6` +
-    `:x=(w-text_w)/2:alpha='${alpha}'`;
+  const fontPart = fontFile ? `fontfile=${fontFile}:` : '';
+  const common =
+    `${fontPart}fontcolor=white:borderw=2:bordercolor=0x06351A` +
+    `:shadowcolor=0x04200D@0.85:shadowx=0:shadowy=3:x=(w-text_w)/2`;
 
-  const line1 = `drawtext=text='${escapeDrawtext(k)}':fontsize=64:y=h-160${baseTxt}`;
-  const line2 = `drawtext=text='${escapeDrawtext(savings)}':fontsize=42:y=h-90${baseTxt}`;
-  const line3 = `drawtext=text='${escapeDrawtext(payback)}':fontsize=34:y=h-44${baseTxt}`;
+  // Green glow: tiny color source → vertical alpha gradient → scaled to
+  // the video → faded in. `geq` runs on a 2×256 source (negligible).
+  const glow =
+    `[1:v]format=rgba,` +
+    `geq=r='r(X\\,Y)':g='g(X\\,Y)':b='b(X\\,Y)':` +
+    `a='clip((Y-80)/90\\,0\\,1)*230'[grad];` +
+    `[grad][0:v]scale2ref=w=iw:h=ih[grad2][base];` +
+    `[grad2]fade=t=in:st=${fadeStart}:d=0.6:alpha=1[glow];` +
+    `[base][glow]overlay=0:0[lit]`;
 
-  return [drawbox, line1, line2, line3].join(',');
+  const lineLabel =
+    `[lit]drawtext=text='${escapeDrawtext(label)}':fontsize=30:` +
+    `${common}:${txtAlpha(fadeStart + 0.15)}:y=h-258[t1]`;
+  const lineValue =
+    `[t1]drawtext=text='${escapeDrawtext(savings)}':fontsize=94:` +
+    `${common}:${txtAlpha(fadeStart + 0.2)}:y=h-222[t2]`;
+  const lineSub =
+    `[t2]drawtext=text='${escapeDrawtext(sub)}':fontsize=34:` +
+    `${common}:${txtAlpha(fadeStart + 0.3)}:y=h-104[out]`;
+
+  return [glow, lineLabel, lineValue, lineSub].join(';');
 };
 
 /**
  * Burn the overlay into `inputMp4Path` and write the result to
  * `outputMp4Path`. Re-encodes with libx264 CRF 22 (visually lossless
  * for our use case while keeping file size reasonable for portal
- * playback).
+ * playback). A second lavfi input feeds the green-glow gradient.
  */
 export const overlayStatsOnVideo = async (
   inputMp4Path: string,
@@ -144,13 +201,20 @@ export const overlayStatsOnVideo = async (
   stats: OverlayStats,
   clipDurationS: number,
 ): Promise<void> => {
-  const filter = buildOverlayFilter(stats, clipDurationS);
+  const fontFile = await resolveBoldFont();
+  const filter = buildOverlayFilter(stats, clipDurationS, fontFile);
   await runFfmpeg([
     '-y',
     '-i',
     inputMp4Path,
-    '-vf',
+    '-f',
+    'lavfi',
+    '-i',
+    `color=c=${GLOW_COLOR}:s=2x256:d=${Math.max(1, clipDurationS)}`,
+    '-filter_complex',
     filter,
+    '-map',
+    '[out]',
     '-c:v',
     'libx264',
     '-preset',
@@ -161,7 +225,7 @@ export const overlayStatsOnVideo = async (
     'yuv420p',
     '-movflags',
     '+faststart',
-    '-an', // Replicate clips have no audio; drop the track explicitly.
+    '-an', // source clips have no audio; drop the track explicitly.
     outputMp4Path,
   ]);
 };
