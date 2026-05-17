@@ -63,8 +63,8 @@
       </tr>
       <tr>
         <td style="padding:0 36px 28px; border-top:1px solid #e8e3d4;">
-          <p style="margin:22px 0 4px; font-size:14px; color:#2b2b2b;">{{ sender_first_name | default(tenant_name, true) }}</p>
-          <p style="margin:0; font-size:13px; color:#6b6b6b;">{{ tenant_name }}</p>
+          <p style="margin:22px 0 4px; font-size:14px; color:#2b2b2b;">{{ email_signature | default(sender_first_name | default(tenant_name, true), true) }}</p>
+          {% if not email_signature %}<p style="margin:0; font-size:13px; color:#6b6b6b;">{{ tenant_name }}</p>{% endif %}
         </td>
       </tr>
       <tr>

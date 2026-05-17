@@ -31,7 +31,7 @@ Apri la tua analisi completa:
 {{ lead_url }}
 
 ---
-A disposizione, {{ sender_first_name | default(tenant_name, true) }}
+A disposizione, {{ email_signature | default(sender_first_name | default(tenant_name, true), true) }}
 {{ tenant_name }}
 
 ---

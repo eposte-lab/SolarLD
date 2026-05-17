@@ -89,6 +89,10 @@ class OutreachContext:
     email_style: str = "visual_preventivo"
     # Extra context for conversational templates.
     sender_first_name: str | None = None  # e.g. "Alfonso" (from inbox display_name)
+    # Firma del tenant (tenants.email_signature). Quando valorizzata
+    # sostituisce nome-mittente + azienda nel blocco firma di tutti i
+    # template; altrimenti si ricade sul nome del mittente.
+    email_signature: str | None = None
     hq_province: str | None = None  # e.g. "Napoli"
     ateco_desc: str | None = None  # Short ATECO description for opener
     recipient_email: str | None = None  # Used in GDPR footer
@@ -159,6 +163,7 @@ def render_outreach_email(ctx: OutreachContext) -> RenderedEmail:
         # Sprint 6.3: conversational template extras
         "email_style": ctx.email_style,
         "sender_first_name": sender_first,
+        "email_signature": ctx.email_signature,
         "hq_province": ctx.hq_province,
         "ateco_desc": ctx.ateco_desc or ctx.ateco_description,
         "recipient_email": ctx.recipient_email or "",
@@ -276,6 +281,7 @@ async def render_outreach_email_with_fallback(
                     "cta_text": ctx.cta_text,
                     "email_style": ctx.email_style,
                     "sender_first_name": sender_first,
+                    "email_signature": ctx.email_signature,
                     "hq_province": ctx.hq_province,
                     "ateco_desc": ctx.ateco_desc or ctx.ateco_description,
                     "recipient_email": ctx.recipient_email or "",
@@ -488,6 +494,21 @@ def _normalize_roi(roi: dict[str, Any] | None) -> dict[str, Any]:
         # Reverse-fill so legacy templates keep working too.
         if merged.get(legacy) in (None, "") and merged.get(canonical) is not None:
             merged[legacy] = merged[canonical]
+
+    # Schede premium dei template: chiavi attese che compute_full_derivations
+    # non espone con lo stesso nome.
+    #  - area_sqm: alias dell'area coperta dai pannelli.
+    #  - total_savings_25_years: risparmio annuo proiettato a 25 anni.
+    # (panel_count è già prodotto da compute_full_derivations.)
+    if merged.get("area_sqm") in (None, "") and merged.get("panel_array_area_sqm") is not None:
+        merged["area_sqm"] = merged["panel_array_area_sqm"]
+    if merged.get("total_savings_25_years") in (None, ""):
+        ys = merged.get("yearly_savings_eur")
+        if ys is not None:
+            try:
+                merged["total_savings_25_years"] = round(float(ys) * 25)
+            except (TypeError, ValueError):
+                pass
     return merged
 
 
@@ -577,6 +598,7 @@ def render_followup_email(
         "main_copy_2": ctx.main_copy_2,
         "cta_text": ctx.cta_text,
         "sender_first_name": sender_first,
+        "email_signature": ctx.email_signature,
         "hq_province": ctx.hq_province,
         "ateco_desc": ctx.ateco_desc or ctx.ateco_description,
         "recipient_email": ctx.recipient_email or "",
