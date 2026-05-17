@@ -115,9 +115,9 @@ export async function updateSession(request: NextRequest) {
   // /login here. The dashboard layout checks `getCurrentTenantContext()`
   // which can return null for users who have a valid Supabase session but
   // no `tenant_members` row yet (e.g. mid-signup). If we redirect them
-  // here, the layout's "no tenant → /login" and this "logged-in → /leads"
+  // here, the layout's "no tenant → /login" and this "logged-in → /"
   // create an infinite loop. The login form itself handles post-login
-  // navigation via router.push('/leads').
+  // navigation to the Panoramica overview at '/'.
 
   return supabaseResponse;
 }

@@ -23,7 +23,7 @@ export default function LoginPage() {
     }
     // Hard redirect — forces a full page reload so the middleware sees
     // the newly-set Supabase auth cookie in the next request headers.
-    window.location.href = '/leads';
+    window.location.href = '/';
   }
 
   return (
