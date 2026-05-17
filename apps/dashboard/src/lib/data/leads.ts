@@ -77,7 +77,7 @@ const DETAIL_COLUMNS = `
   rendering_image_url, rendering_video_url, rendering_gif_url, portal_video_slug,
   creative_skipped_reason, rendering_regen_count,
   roi_data, outreach_delivered_at, outreach_clicked_at,
-  whatsapp_initiated_at, feedback, feedback_notes, score_breakdown
+  whatsapp_initiated_at, feedback, feedback_notes, feedback_at, score_breakdown
 `.trim();
 
 export interface LeadListFilter {

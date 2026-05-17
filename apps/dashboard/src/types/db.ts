@@ -377,6 +377,7 @@ export interface LeadDetailRow extends LeadListRow {
   roi_data: RoiData;
   feedback: string | null;
   feedback_notes: string | null;
+  feedback_at: string | null;
   score_breakdown: Record<string, number>;
 }
 
