@@ -15,7 +15,7 @@ La vostra stima: €{{ roi.yearly_savings_eur | int | format_money }}/anno{% if 
 Prenota 15 minuti: {{ lead_url }}
 
 ---
-{{ sender_first_name | default(tenant_name, true) }} — {{ tenant_name }}
+{{ email_signature | default(sender_first_name | default(tenant_name, true), true) }}{% if not email_signature %} — {{ tenant_name }}{% endif %}
 
 {{ tenant_legal_name | default(tenant_name, true) }}{% if tenant_vat_number %} · P.IVA {{ tenant_vat_number }}{% endif %}.
 Email B2B (art. 6.1.f GDPR). Annulla: {{ optout_url }}

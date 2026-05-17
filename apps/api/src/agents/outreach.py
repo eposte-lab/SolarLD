@@ -1151,6 +1151,7 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
             # Sprint 6.3 — conversational fields
             email_style=email_style,
             sender_first_name=sender_first_name,
+            email_signature=tenant_row.get("email_signature"),
             hq_province=lead.get("hq_province") or subject.get("hq_province"),
             ateco_desc=subject.get("ateco_description"),
             recipient_email=recipient,
