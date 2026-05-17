@@ -530,11 +530,17 @@ export default async function LeadDetailPage({ params }: PageProps) {
             {lead.rendering_video_url ? (
               // eslint-disable-next-line jsx-a11y/media-has-caption
               <video
-                src={lead.rendering_video_url}
+                // ?v= cache-buster: ogni rigenerazione sovrascrive lo
+                // stesso file (transition.mp4) sullo stesso URL, quindi
+                // senza il suffisso browser e CDN servono la versione
+                // vecchia. regen_count cambia a ogni rigenerazione.
+                src={`${lead.rendering_video_url}?v=${lead.rendering_regen_count ?? 0}`}
                 poster={
-                  lead.rendering_gif_url ??
-                  lead.rendering_image_url ??
-                  undefined
+                  lead.rendering_gif_url
+                    ? `${lead.rendering_gif_url}?v=${lead.rendering_regen_count ?? 0}`
+                    : lead.rendering_image_url
+                      ? `${lead.rendering_image_url}?v=${lead.rendering_regen_count ?? 0}`
+                      : undefined
                 }
                 controls
                 muted
@@ -545,7 +551,7 @@ export default async function LeadDetailPage({ params }: PageProps) {
             ) : lead.rendering_gif_url ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
-                src={lead.rendering_gif_url}
+                src={`${lead.rendering_gif_url}?v=${lead.rendering_regen_count ?? 0}`}
                 alt="Simulazione fotovoltaico"
                 className="aspect-video w-full object-cover"
               />
@@ -555,7 +561,7 @@ export default async function LeadDetailPage({ params }: PageProps) {
               // email body uses when video render is bypassed.
               // eslint-disable-next-line @next/next/no-img-element
               <img
-                src={lead.rendering_image_url}
+                src={`${lead.rendering_image_url}?v=${lead.rendering_regen_count ?? 0}`}
                 alt="Foto del tetto con pannelli (statica)"
                 className="aspect-video w-full object-cover"
               />
