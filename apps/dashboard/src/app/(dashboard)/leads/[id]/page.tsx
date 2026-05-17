@@ -6,13 +6,13 @@
  *   2. Rendering impianto (sempre visibile se presente)
  *   3. Dati preventivo (4 KPI)
  *   4. Anagrafica + Tetto (griglia 2 col)
- *   5. [Tendina] Comunicazioni inviate
- *   6. [Tendina] Scrivi follow-up (AI)
- *   7. [Tendina] Attività sul portale
- *   8. [Tendina] Storico eventi
- *   9. [Tendina] Risposte ricevute
- *  10. [Tendina] Conversazione WhatsApp
- *  11. [Tendina] Dati tecnici impianto (analisi satellitare)
+ *   5. Attività sul portale
+ *   6. [Tendina] Comunicazioni inviate
+ *   7. Scrivi follow-up (AI)
+ *   8. [Tendina] Dettagli impianto (analisi satellitare)
+ *   9. [Tendina] Storico eventi
+ *  10. [Tendina] Risposte ricevute
+ *  11. [Tendina] Conversazione WhatsApp
  *  12. [Tendina] Privacy e GDPR
  */
 
@@ -50,8 +50,7 @@ import { StatusChip } from '@/components/ui/status-chip';
 import { TierLock } from '@/components/ui/tier-lock';
 import { listCampaignsForLead, listEventsForLead } from '@/lib/data/campaigns';
 import { getPortalSessionStats, listPortalEventsForLead } from '@/lib/data/engagement';
-import { getLeadById, getLeadSectorSignal, getLeadV3Signal } from '@/lib/data/leads';
-import type { LeadV3Signal } from '@/lib/data/leads';
+import { getLeadById, getLeadV3Signal } from '@/lib/data/leads';
 import { getConversationsForLead } from '@/lib/data/conversations';
 import { getLeadReplies } from '@/lib/data/replies';
 import { getCurrentTenantContext } from '@/lib/data/tenant';
@@ -63,7 +62,6 @@ import {
   formatNumber,
   relativeTime,
 } from '@/lib/utils';
-import { cn } from '@/lib/utils';
 
 import { LeadFeedbackPicker } from './LeadFeedbackPicker';
 import { RegenerateRenderingButton } from './RegenerateRenderingButton';
@@ -188,7 +186,6 @@ export default async function LeadDetailPage({ params }: PageProps) {
     conversationsR,
     portalEventsR,
     portalStatsR,
-    sectorSignalR,
     v3SignalR,
   ] = await Promise.all([
     wrap('getLeadById', getLeadById(id)),
@@ -198,13 +195,12 @@ export default async function LeadDetailPage({ params }: PageProps) {
     wrap('getConversationsForLead', getConversationsForLead(id)),
     wrap('listPortalEventsForLead', listPortalEventsForLead(id, 50)),
     wrap('getPortalSessionStats', getPortalSessionStats(id)),
-    wrap('getLeadSectorSignal', getLeadSectorSignal(id)),
     wrap('getLeadV3Signal', getLeadV3Signal(id).catch(() => null)),
   ]);
 
   const errors = [
     leadR, campaignsR, eventsR, repliesR, conversationsR,
-    portalEventsR, portalStatsR, sectorSignalR, v3SignalR,
+    portalEventsR, portalStatsR, v3SignalR,
   ].filter((r): r is FetchErr => !r.ok);
 
   if (errors.length > 0) {
@@ -259,7 +255,6 @@ export default async function LeadDetailPage({ params }: PageProps) {
   const portalStats = portalStatsR.ok
     ? portalStatsR.value
     : { sessions: 0, total_time_sec: 0, deepest_scroll_pct: 0, last_event_at: null, is_live_now: false };
-  const sectorSignal = sectorSignalR.ok ? sectorSignalR.value : null;
   const v3Signal = v3SignalR.ok ? v3SignalR.value : null;
 
   if (!lead) notFound();
@@ -1283,44 +1278,18 @@ export default async function LeadDetailPage({ params }: PageProps) {
         </BentoCard>
       )}
 
-      {/* ─── Breakdown punteggio ──────────────────────────────────────────
-          Sprint 3.1 — explain WHY this lead has score X. The 5
-          sub-scores (technical/consumption/incentives/solvency/
-          distance) are written to leads.score_breakdown by ScoringAgent
-          but were never surfaced. Operators couldn't tell the
-          difference between a 48 (close to the threshold) and a 22
-          (genuinely weak signal). */}
-      {lead.score_breakdown &&
-        typeof lead.score_breakdown === 'object' && (
-          <CollapsibleCard
-            label="Punteggio"
-            title="Breakdown punteggio"
-            badge={lead.score != null ? `${lead.score}/100` : undefined}
-            defaultOpen={false}
-          >
-            <ScoreBreakdownGrid breakdown={lead.score_breakdown as Record<string, unknown>} />
-            {sectorSignal && sectorSignal.predicted_sector ? (
-              <SectorPredictionRow
-                predictedSector={sectorSignal.predicted_sector}
-                confidence={sectorSignal.sector_confidence}
-                predictedAtecoCodes={sectorSignal.predicted_ateco_codes}
-              />
-            ) : null}
-          </CollapsibleCard>
-        )}
-
-      {/* Funnel-quality breakdown — building quality, AI proxy score,
-          Google Maps link. User-facing label kept neutral; internal funnel
-          version (v3 geocentric) intentionally hidden. */}
-      {v3Signal && (
-        <CollapsibleCard
-          label="Qualità lead"
-          title="Dettagli scoring"
-          defaultOpen={false}
-        >
-          <V3FunnelPanel signal={v3Signal} />
-        </CollapsibleCard>
-      )}
+      {/* ─── Dati tecnici impianto (analisi satellitare) ───────────────────
+          Spostata subito sotto il follow-up: i dati dell'impianto sono il
+          contesto che l'operatore consulta mentre scrive il messaggio. */}
+      <CollapsibleCard
+        label="Dati tecnici"
+        title="Dettagli impianto"
+        defaultOpen={false}
+      >
+        <div className="pt-1">
+          <SolarApiInspector lead={lead} />
+        </div>
+      </CollapsibleCard>
 
       {/* ─── Storico eventi ───────────────────────────────────────────── */}
       <CollapsibleCard
@@ -1410,17 +1379,6 @@ export default async function LeadDetailPage({ params }: PageProps) {
               initialConversations={conversations}
             />
           )}
-        </div>
-      </CollapsibleCard>
-
-      {/* ─── Dati tecnici impianto (analisi satellitare) ───────────────── */}
-      <CollapsibleCard
-        label="Dati tecnici"
-        title="Dettagli impianto"
-        defaultOpen={false}
-      >
-        <div className="pt-1">
-          <SolarApiInspector lead={lead} />
         </div>
       </CollapsibleCard>
 
@@ -1562,299 +1520,4 @@ function humanReadableSkipReason(reason: string): string {
     solar_render_error: 'errore Solar API durante il render',
   };
   return MAP[base] ?? reason;
-}
-
-// ---------------------------------------------------------------------------
-// ScoreBreakdownGrid — Sprint 3.1
-//
-// Renders the 5 sub-scores ScoringAgent persists on `leads.score_breakdown`
-// as a horizontal bar chart so the operator can see at a glance which
-// signals drove the final number. Each bar is 0..100; the labels are
-// the canonical sub-score keys: technical, consumption, incentives,
-// solvency, distance.
-//
-// We intentionally don't HARDCODE the sub-score names — we render
-// whatever keys appear in the dict. ScoringAgent may add a 6th
-// (e.g. ``intent_signals``) and this component picks it up
-// automatically.
-// ---------------------------------------------------------------------------
-
-const SCORE_LABELS: Record<string, string> = {
-  technical: 'Tecnico',
-  consumption: 'Consumi',
-  incentives: 'Incentivi',
-  solvency: 'Solvibilità',
-  distance: 'Distanza',
-  intent_signals: 'Segnali intent',
-};
-
-function ScoreBreakdownGrid({
-  breakdown,
-}: {
-  breakdown: Record<string, unknown>;
-}) {
-  const entries = Object.entries(breakdown)
-    .filter(([, v]) => typeof v === 'number')
-    .sort(([, a], [, b]) => (b as number) - (a as number));
-
-  if (entries.length === 0) {
-    return (
-      <p className="text-sm text-on-surface-variant">
-        Breakdown non disponibile per questo lead.
-      </p>
-    );
-  }
-
-  return (
-    <div className="space-y-2 pt-1">
-      {entries.map(([key, raw]) => {
-        const value = Math.round(raw as number);
-        const pct = Math.max(0, Math.min(100, value));
-        return (
-          <div key={key} className="flex items-center gap-3">
-            <span className="w-32 shrink-0 text-xs text-on-surface-variant">
-              {SCORE_LABELS[key] ?? key}
-            </span>
-            <div className="h-2 flex-1 rounded-full bg-surface-container-low">
-              <div
-                className="h-full rounded-full bg-primary"
-                style={{ width: `${pct}%` }}
-                aria-hidden
-              />
-            </div>
-            <span className="w-10 text-right font-mono text-xs font-semibold text-on-surface">
-              {value}
-            </span>
-          </div>
-        );
-      })}
-      <p className="pt-1 text-[11px] text-on-surface-variant">
-        Sub-score 0-100 calcolato da ScoringAgent. Il punteggio finale è la
-        media pesata secondo i moduli configurati in /settings.
-      </p>
-    </div>
-  );
-}
-
-
-// ---------------------------------------------------------------------------
-// V3FunnelPanel — Sprint 8
-//
-// Shows the v3-specific enrichment signals for a geocentric lead:
-//   * Building quality score bar (L3 heuristics, 0-5)
-//   * Proxy score breakdown (L5 Haiku scores)
-//   * Google Maps link
-//   * google_place_id truncated chip
-// ---------------------------------------------------------------------------
-
-const PROXY_SCORE_LABELS: Record<string, string> = {
-  icp_fit_score: 'ICP fit',
-  building_quality_score: 'Qualità edificio',
-  solar_potential_score: 'Potenziale solare',
-  contact_completeness_score: 'Completezza contatti',
-  overall_score: 'Punteggio totale',
-};
-
-function V3FunnelPanel({ signal }: { signal: LeadV3Signal }) {
-  const proxyEntries = signal.proxy_score_data
-    ? (Object.entries(signal.proxy_score_data) as [string, unknown][])
-        .filter(([k, v]) => typeof v === 'number' && k !== 'overall_score')
-        .sort(([, a], [, b]) => (b as number) - (a as number))
-    : [];
-
-  return (
-    <div className="space-y-5 pt-1">
-      {/* Header row: Google Maps link + place_id chip */}
-      <div className="flex flex-wrap items-center gap-3">
-        {signal.google_maps_url && (
-          <a
-            href={signal.google_maps_url}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1.5 text-xs font-semibold text-primary transition-opacity hover:opacity-80"
-          >
-            <ArrowUpRight size={12} strokeWidth={2.5} aria-hidden />
-            Apri su Google Maps
-          </a>
-        )}
-        {signal.google_place_id && (
-          <span
-            className="rounded bg-surface-container-low px-2 py-1 font-mono text-[10px] text-on-surface-variant"
-            title={`Google Place ID: ${signal.google_place_id}`}
-          >
-            {signal.google_place_id}
-          </span>
-        )}
-      </div>
-
-      {/* Building quality score — L3 heuristics 0-5 */}
-      {signal.building_quality_score != null && (
-        <div>
-          <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">
-            Qualità edificio (L3 euristiche)
-          </p>
-          <div className="flex items-center gap-3">
-            <div className="flex gap-1">
-              {Array.from({ length: 5 }).map((_, i) => (
-                <span
-                  key={i}
-                  className={cn(
-                    'h-3 w-3 rounded-full',
-                    i < (signal.building_quality_score ?? 0)
-                      ? 'bg-primary'
-                      : 'bg-surface-container-low',
-                  )}
-                  aria-hidden
-                />
-              ))}
-            </div>
-            <span className="font-headline text-sm font-bold tabular-nums text-on-surface">
-              {signal.building_quality_score}/5
-            </span>
-          </div>
-          <p className="mt-1 text-[11px] text-on-surface-variant">
-            Basato su: rating Google · sito web rilevato · telefono trovato ·
-            business_status OPERATIONAL
-          </p>
-        </div>
-      )}
-
-      {/* Proxy score breakdown — L5 Haiku */}
-      {proxyEntries.length > 0 && (
-        <div>
-          <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">
-            Proxy score L5 (Haiku)
-          </p>
-          <div className="space-y-2">
-            {proxyEntries.map(([key, raw]) => {
-              const value = Math.round(raw as number);
-              const pct = Math.max(0, Math.min(100, value));
-              return (
-                <div key={key} className="flex items-center gap-3">
-                  <span className="w-40 shrink-0 text-xs text-on-surface-variant">
-                    {PROXY_SCORE_LABELS[key] ?? key}
-                  </span>
-                  <div className="h-2 flex-1 rounded-full bg-surface-container-low">
-                    <div
-                      className="h-full rounded-full bg-primary"
-                      style={{ width: `${pct}%` }}
-                      aria-hidden
-                    />
-                  </div>
-                  <span className="w-8 text-right font-mono text-xs font-semibold text-on-surface">
-                    {value}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Haiku reasoning snippet (if present) */}
-      {signal.proxy_score_data?.reasoning && (
-        <div className="rounded-xl bg-surface-container-low px-4 py-3">
-          <p className="mb-1 text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">
-            Motivazione Haiku
-          </p>
-          <p className="text-xs leading-relaxed text-on-surface-variant">
-            {signal.proxy_score_data.reasoning}
-          </p>
-        </div>
-      )}
-
-      {/* Size category */}
-      {signal.proxy_score_data?.predicted_size_category && (
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-on-surface-variant">Dimensione stimata:</span>
-          <span className="rounded-full bg-surface-container-low px-2.5 py-0.5 text-xs font-semibold text-on-surface capitalize">
-            {signal.proxy_score_data.predicted_size_category}
-          </span>
-        </div>
-      )}
-
-      <p className="text-[11px] text-on-surface-variant">
-        Dati generati da FLUSSO 1 v3 geocentrico (L1 Google Places → L2
-        scraping → L3 qualità → L4 Solar API → L5 Haiku). Nessun utilizzo di
-        Atoka o BIC.
-      </p>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// SectorPredictionRow — Sprint C.3
-// ---------------------------------------------------------------------------
-//
-// Renders the sector-aware tag the hunter funnel stamped on this lead's
-// `scan_candidates` row (predicted_sector, sector_confidence, and the
-// Haiku-validated predicted_ateco_codes from L3). Hidden entirely when
-// the lead pre-dates the sector-aware rollout (no row in scan_candidates
-// or null predicted_sector).
-//
-// The labels mirror the curated `_DISPLAY_NAMES` in the API
-// `/v1/sectors/wizard-groups` endpoint — hardcoded here to keep the
-// dashboard server-side rendering free of the extra fetch.
-
-const SECTOR_LABELS: Record<string, string> = {
-  industry_heavy: 'Manifatturiero pesante',
-  industry_light: 'Manifatturiero leggero',
-  food_production: 'Produzione alimentare',
-  logistics: 'Logistica e magazzinaggio',
-  retail_gdo: 'Grande distribuzione',
-  horeca: 'Ristorazione e bar',
-  hospitality_large: 'Ricettivo grande',
-  hospitality_food_service: 'Ristorazione collettiva',
-  healthcare: 'Sanitario',
-  healthcare_private: 'Sanitario privato',
-  agricultural_intensive: 'Agricolo intensivo',
-  automotive: 'Automotive',
-  education: 'Istruzione',
-  personal_services: 'Servizi alla persona',
-  professional_offices: 'Uffici professionali',
-};
-
-function SectorPredictionRow({
-  predictedSector,
-  confidence,
-  predictedAtecoCodes,
-}: {
-  predictedSector: string;
-  confidence: number | null;
-  predictedAtecoCodes: string[];
-}) {
-  const label = SECTOR_LABELS[predictedSector] ?? predictedSector;
-  const confidencePct =
-    confidence != null && Number.isFinite(confidence)
-      ? Math.round(confidence * 100)
-      : null;
-  return (
-    <div className="mt-3 border-t border-outline-variant pt-3">
-      <div className="flex flex-wrap items-center gap-2 text-xs">
-        <span className="text-on-surface-variant">Settore predetto:</span>
-        <span className="rounded-full bg-primary-container px-2 py-0.5 font-semibold text-on-primary-container">
-          {label}
-        </span>
-        {confidencePct !== null ? (
-          <span className="text-on-surface-variant">
-            confidence {confidencePct}%
-          </span>
-        ) : null}
-        {predictedAtecoCodes.length > 0 ? (
-          <span
-            className="text-on-surface-variant"
-            title={predictedAtecoCodes.join(', ')}
-          >
-            · ATECO suggeriti: {predictedAtecoCodes.slice(0, 3).join(', ')}
-            {predictedAtecoCodes.length > 3 ? '…' : ''}
-          </span>
-        ) : null}
-      </div>
-      <p className="mt-1 text-[11px] text-on-surface-variant">
-        Stampato da L1 (ATECO + nome) e raffinato da Haiku in L3. Confidence
-        1.0 = match esatto sull&apos;ATECO seedato; 0.7 = match per prefisso
-        2 cifre; 0.4 = match fuzzy sulla ragione sociale.
-      </p>
-    </div>
-  );
 }
