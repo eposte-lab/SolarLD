@@ -9,28 +9,33 @@ last N minutes of ``portal_events`` — we don't trigger-update the
 score on every heartbeat because it'd cause write amplification on
 ``leads`` (dozens of updates per portal visit).
 
-Formula (v2 — recalibrated post-demo with operator):
+Formula (v3 — ristrutturata in 3 fasce di intenzione):
 
-    +50   per distinct portal session in the last 30 days
-    + 3   per portal.scroll_50 event
-    + 7   per portal.scroll_90 event
-    +10   per portal.roi_viewed event
-    + 2   per portal.cta_hover event (capped at 10 total)
-    +15   per portal.video_play event
-    +25   per portal.video_complete event
-    +20   per portal.bolletta_uploaded
-    +20   per portal.whatsapp_click
-    +30   per portal.appointment_click
-    + 1   per 30s of time-on-page (capped at 20)
-    + 5   if outreach_opened_at is set         (email open, lifetime)
-    +15   if outreach_clicked_at is set        (email click, lifetime)
+    Fascia 1 — Attenzione (ha aperto e sfogliato), tetto 28:
+      +10  per sessione distinta sul portale
+      + 3  per portal.scroll_50
+      + 6  per portal.scroll_90
+      + 2  per portal.cta_hover (tetto cumulativo 8)
+      + 1  per 30s sul portale (tetto 12)
+    Fascia 2 — Coinvolgimento (ha consumato i contenuti), tetto 30:
+      + 8  per portal.video_play
+      +16  per portal.video_complete
+      + 6  per portal.audio_on
+      + 6  per portal.video_fullscreen
+      +10  per portal.roi_viewed
+      + 5  se outreach_opened_at è valorizzato (email aperta)
+    Fascia 3 — Intenzione (ha alzato la mano), tetto 70:
+      +50  per portal.whatsapp_click
+      +50  per portal.appointment_click
+      +50  per portal.email_reply_click
+      +35  per portal.bolletta_uploaded
+      +12  se outreach_clicked_at è valorizzato (link email cliccato)
 
-The session weight (50) is the dominant signal: opening the cold
-email + clicking the CTA + landing on the portal is a chain of
-intentional actions that already qualifies a lead as "warm". A
-single bolletta upload on top brings them to ~70; a contact CTA
-takes them to 90-100. Mid-funnel signals (scroll, video, ROI viewed)
-stay smaller because they're attention proxies, not intent.
+Logica: la sola apertura del portale non rende "caldo" un lead — la
+fascia Attenzione è limitata a 32 punti. Per arrivare a "caldo" (>=60)
+serve consumare i contenuti e, soprattutto, un'azione di intenzione
+(CTA, bolletta, reply). Così "caldo" significa davvero "ha alzato la
+mano", non "ha aperto il link".
 
 Clamped to [0, 100]. Inputs outside the 30-day window are dropped to
 keep the score sensitive — a lead who was hot in January shouldn't
@@ -72,25 +77,44 @@ ROLLUP_WINDOW_DAYS = 30
 # heartbeat count → time-on-page seconds.
 HEARTBEAT_INTERVAL_SEC = 15
 
-# Weights — see module docstring. Keep in sync with _EVENT_DELTA in
-# apps/api/src/routes/public.py (the real-time bump path) and with
-# the /settings page copy so what the operator sees matches what
-# they get.
-W_SESSION = 50
-W_SCROLL_50 = 3
-W_SCROLL_90 = 7
+# ---------------------------------------------------------------------------
+# Pesi dello score — organizzati in 3 fasce di intenzione crescente.
+# Questa è l'UNICA fonte: il bump in tempo reale (``_EVENT_DELTA`` in
+# routes/public.py) importa queste costanti, così "quel che vede
+# l'operatore = quel che ottiene il lead". Il bump in tempo reale non
+# può applicare i tetti di fascia (non conosce lo storico) → sovrastima
+# leggermente; il rollup notturno è la verità e riconcilia con i tetti.
+# ---------------------------------------------------------------------------
+
+# Fascia 1 — Attenzione
+W_SESSION = 10  # per sessione distinta sul portale
+W_SCROLL_50 = 3  # ha superato metà pagina
+W_SCROLL_90 = 6  # ha letto (quasi) fino in fondo
+W_CTA_HOVER = 2  # ha sfiorato una CTA
+W_CTA_HOVER_CAP = 8  # tetto cumulativo degli hover
+W_TIME_PER_30S = 1  # +1 ogni 30s sul portale
+W_TIME_CAP = 12  # tetto del bonus tempo
+TIER_ATTENTION_CAP = 28  # tetto dell'intera fascia "attenzione"
+
+# Fascia 2 — Coinvolgimento
+W_VIDEO_PLAY = 8
+W_VIDEO_COMPLETE = 16
+W_AUDIO_ON = 6  # ha attivato l'audio del video
+W_VIDEO_FULLSCREEN = 6  # ha messo il video a schermo intero
 W_ROI_VIEWED = 10
-W_CTA_HOVER = 2
-W_CTA_HOVER_CAP = 10
-W_VIDEO_PLAY = 15
-W_VIDEO_COMPLETE = 25
-W_BOLLETTA_UPLOADED = 20
-W_WHATSAPP_CLICK = 20
-W_APPOINTMENT_CLICK = 30
-W_TIME_PER_30S = 1
-W_TIME_CAP = 20
 W_EMAIL_OPENED = 5
-W_EMAIL_CLICKED = 15
+TIER_ENGAGEMENT_CAP = 30  # tetto dell'intera fascia "coinvolgimento"
+
+# Fascia 3 — Intenzione. I tetti di Attenzione (28) + Coinvolgimento
+# (30) sommano 58: senza un'azione di intenzione un lead NON arriva mai
+# a "caldo" (>=60). Un solo click su una CTA di contatto basta invece a
+# superarlo (es. apertura portale +10 e click appuntamento +50 = 60).
+W_WHATSAPP_CLICK = 50
+W_APPOINTMENT_CLICK = 50
+W_EMAIL_REPLY_CLICK = 50
+W_BOLLETTA_UPLOADED = 35
+W_EMAIL_CLICKED = 12  # ha cliccato un link nell'email di outreach
+TIER_INTENT_CAP = 70  # tetto dell'intera fascia "intenzione"
 
 SCORE_MAX = 100
 
@@ -109,9 +133,12 @@ class LeadEngagementStats:
     cta_hover: int = 0
     video_play: int = 0
     video_complete: int = 0
+    audio_on: int = 0
+    video_fullscreen: int = 0
     bolletta_uploaded: int = 0
     whatsapp_click: int = 0
     appointment_click: int = 0
+    email_reply_click: int = 0
     heartbeats: int = 0
     deepest_scroll_pct: int = 0
 
@@ -128,32 +155,44 @@ class LeadEngagementStats:
 def compute_score(stats: LeadEngagementStats) -> int:
     """Pure function — stats in, 0..100 out.
 
-    Split from the I/O-bound rollup so unit tests can feed a hand-
-    crafted stats object and assert the exact boundary conditions
-    (e.g. CTA-hover cap, time cap) without Supabase.
+    Lo score è la somma di 3 fasce di intenzione crescente, ognuna con
+    un proprio tetto: la sola "attenzione" non basta per "caldo", serve
+    un'azione di "intenzione". Split dal rollup I/O-bound così i test
+    possono passare uno stats costruito a mano e verificare i confini
+    delle fasce senza Supabase.
     """
-    score = 0
-    score += W_SESSION * len(stats.sessions)
-    score += W_SCROLL_50 * stats.scroll_50
-    score += W_SCROLL_90 * stats.scroll_90
-    score += W_ROI_VIEWED * stats.roi_viewed
-    score += min(W_CTA_HOVER * stats.cta_hover, W_CTA_HOVER_CAP)
-    score += W_VIDEO_PLAY * stats.video_play
-    score += W_VIDEO_COMPLETE * stats.video_complete
-    score += W_BOLLETTA_UPLOADED * stats.bolletta_uploaded
-    score += W_WHATSAPP_CLICK * stats.whatsapp_click
-    score += W_APPOINTMENT_CLICK * stats.appointment_click
-
-    # Time-on-page in 30s buckets, capped.
+    # Fascia 1 — Attenzione: aperture, scroll, hover, tempo.
+    attention = 0
+    attention += W_SESSION * len(stats.sessions)
+    attention += W_SCROLL_50 * stats.scroll_50
+    attention += W_SCROLL_90 * stats.scroll_90
+    attention += min(W_CTA_HOVER * stats.cta_hover, W_CTA_HOVER_CAP)
     time_points = (stats.total_time_sec // 30) * W_TIME_PER_30S
-    score += min(int(time_points), W_TIME_CAP)
+    attention += min(int(time_points), W_TIME_CAP)
+    attention = min(attention, TIER_ATTENTION_CAP)
 
+    # Fascia 2 — Coinvolgimento: ha consumato i contenuti.
+    engagement = 0
+    engagement += W_VIDEO_PLAY * stats.video_play
+    engagement += W_VIDEO_COMPLETE * stats.video_complete
+    engagement += W_AUDIO_ON * stats.audio_on
+    engagement += W_VIDEO_FULLSCREEN * stats.video_fullscreen
+    engagement += W_ROI_VIEWED * stats.roi_viewed
     if stats.outreach_opened:
-        score += W_EMAIL_OPENED
-    if stats.outreach_clicked:
-        score += W_EMAIL_CLICKED
+        engagement += W_EMAIL_OPENED
+    engagement = min(engagement, TIER_ENGAGEMENT_CAP)
 
-    return max(0, min(SCORE_MAX, score))
+    # Fascia 3 — Intenzione: ha alzato la mano.
+    intent = 0
+    intent += W_WHATSAPP_CLICK * stats.whatsapp_click
+    intent += W_APPOINTMENT_CLICK * stats.appointment_click
+    intent += W_EMAIL_REPLY_CLICK * stats.email_reply_click
+    intent += W_BOLLETTA_UPLOADED * stats.bolletta_uploaded
+    if stats.outreach_clicked:
+        intent += W_EMAIL_CLICKED
+    intent = min(intent, TIER_INTENT_CAP)
+
+    return max(0, min(SCORE_MAX, attention + engagement + intent))
 
 
 async def run_engagement_rollup(
@@ -218,6 +257,12 @@ async def run_engagement_rollup(
             stats.video_play += 1
         elif kind == "portal.video_complete":
             stats.video_complete += 1
+        elif kind == "portal.audio_on":
+            stats.audio_on += 1
+        elif kind == "portal.video_fullscreen":
+            stats.video_fullscreen += 1
+        elif kind == "portal.email_reply_click":
+            stats.email_reply_click += 1
         elif kind == "portal.whatsapp_click":
             stats.whatsapp_click += 1
         elif kind == "portal.appointment_click":
