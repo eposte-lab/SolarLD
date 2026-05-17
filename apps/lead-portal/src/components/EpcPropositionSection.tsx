@@ -37,28 +37,42 @@ type Props = {
 
 /** Anni di contratto EPC prima della cessione dell'impianto al cliente. */
 const CONTRACT_YEARS = 10;
-/** Quota del risparmio che il cliente trattiene durante il contratto
- *  EPC: ~20% di sconto sulla bolletta fino alla cessione dell'impianto.
- *  Stima tarabile. */
-const EPC_CLIENT_SHARE = 0.2;
 
-/** Asse x del grafico cash-flow: anni consecutivi. Con la risoluzione
- *  anno-per-anno la fase "in rosso" dell'investimento diretto si vede
- *  per quello che è — più candele rosse grandi all'inizio, una vicina
- *  allo zero nell'anno di pareggio, poi la risalita. */
-const CHART_YEARS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+/** Confronto cash-flow fra i due modelli — schema illustrativo. Le
+ *  altezze delle candele sono proporzioni fisse (non i numeri del
+ *  singolo lead): è lo schema commerciale dei due modelli, 10 candele
+ *  a coprire ~20 anni.
+ *
+ *  Investimento diretto: prime 4 candele in rosso (cassa in perdita),
+ *  poi 6 candele verdi spente che risalgono gradualmente; l'ultima
+ *  chiude appena sopra l'ultima dell'EPC.
+ *  EPC: prime 5 candele basse (i 10 anni di contratto, risparmio
+ *  parziale), poi 5 candele che crescono molto dopo la cessione. */
+const DIRECT_SERIES = [-104, -74, -46, -16, 52, 122, 196, 272, 350, 418];
+const EPC_SERIES = [22, 38, 54, 70, 86, 175, 255, 325, 382, 410];
 
-/** Colore barra "Investimento diretto": rosso pieno finché la cassa è
- *  in perdita, vira a un verde spento una volta rientrato il capitale.
- *  Niente verde acceso: resta l'opzione secondaria. */
-function directBarColor(p: ChartPoint): string {
-  return p.value < 0 ? '#DC2626' : '#6B7F3A';
+/** Quante candele iniziali racchiude la parentesi di ciascun grafico. */
+const DIRECT_BRACKET_BARS = 4;
+const EPC_BRACKET_BARS = 5;
+
+/** Scala verticale condivisa dai due grafici (così l'ultima candela
+ *  dell'investimento diretto e quella dell'EPC sono confrontabili). */
+const CHART_BARS = [...DIRECT_SERIES, ...EPC_SERIES];
+const CHART_GMAX = Math.max(...CHART_BARS);
+const CHART_GMIN = Math.min(...CHART_BARS);
+const CHART_ZERO_TOP_PCT = (CHART_GMAX / (CHART_GMAX - CHART_GMIN)) * 100;
+
+/** Colore barra "Investimento diretto": rosso pieno quando la cassa è
+ *  in perdita, verde spento una volta rientrato il capitale — resta
+ *  l'opzione secondaria, mai un verde invitante. */
+function directBarColor(value: number): string {
+  return value < 0 ? '#DC2626' : '#6B7F3A';
 }
 
 /** Colore barra "EPC": verde chiaro brillante durante il contratto
  *  (risparmio parziale), verde pieno dopo la cessione dell'impianto. */
-function epcBarColor(p: ChartPoint): string {
-  return p.year <= CONTRACT_YEARS ? '#5BE08A' : '#158A40';
+function epcBarColor(idx: number): string {
+  return idx < EPC_BRACKET_BARS ? '#5BE08A' : '#158A40';
 }
 
 /** Trigger one-shot: `inView` diventa true quando l'elemento entra nel
@@ -139,52 +153,59 @@ function AnimatedEuroCounter({
   );
 }
 
-type ChartPoint = { year: number; value: number };
-
-/** Colonna grafico cash-flow con asse dello zero. Le barre positive
- *  crescono verso l'alto dalla linea dello zero, le negative verso il
- *  basso. Tutte le colonne condividono la stessa scala. */
+/** Grafico cash-flow illustrativo. Le barre positive crescono verso
+ *  l'alto dalla linea dello zero, le negative verso il basso. I due
+ *  grafici condividono la stessa scala. Sotto le candele una parentesi
+ *  racchiude le prime `bracketBars` e ne spiega il significato; a
+ *  sinistra il simbolo € marca l'asse dei soldi. */
 function CashFlowChart({
-  points,
-  zeroTopPct,
-  gMax,
-  gMin,
+  values,
   colorFor,
   baseDelay,
-  heightClass = 'h-56',
+  bracketBars,
+  bracketLabel,
 }: {
-  points: ChartPoint[];
-  zeroTopPct: number;
-  gMax: number;
-  gMin: number;
-  colorFor: (p: ChartPoint, idx: number) => string;
+  values: number[];
+  colorFor: (value: number, idx: number) => string;
   baseDelay: number;
-  heightClass?: string;
+  bracketBars: number;
+  bracketLabel: string;
 }) {
+  const zeroTopPct = CHART_ZERO_TOP_PCT;
+  const bracketWidthPct = (bracketBars / values.length) * 100;
   return (
     <div>
-      <div className={`relative ${heightClass}`}>
+      {/* Area di plotting — il margine sinistro lascia spazio al € */}
+      <div className="relative ml-5 h-48">
+        {/* Simbolo € sull'asse, all'altezza della linea dello zero */}
+        <span
+          className="absolute -left-5 text-xs font-bold text-on-surface-variant"
+          style={{ top: `${zeroTopPct}%`, transform: 'translateY(-50%)' }}
+          aria-hidden
+        >
+          €
+        </span>
         {/* Linea dello zero */}
         <div
-          className="absolute inset-x-0 border-t border-dashed border-on-surface/25"
+          className="absolute inset-x-0 border-t border-dashed border-on-surface/30"
           style={{ top: `${zeroTopPct}%` }}
           aria-hidden
         />
         <div className="absolute inset-0 flex items-stretch gap-1.5">
-          {points.map((p, idx) => {
-            const positive = p.value >= 0;
+          {values.map((v, idx) => {
+            const positive = v >= 0;
             const barPct = positive
-              ? (p.value / (gMax || 1)) * zeroTopPct
-              : (Math.abs(p.value) / (Math.abs(gMin) || 1)) * (100 - zeroTopPct);
+              ? (v / (CHART_GMAX || 1)) * zeroTopPct
+              : (Math.abs(v) / (Math.abs(CHART_GMIN) || 1)) * (100 - zeroTopPct);
             const barStyle: React.CSSProperties = {
-              height: `${Math.max(barPct, 1)}%`,
-              background: colorFor(p, idx),
-              animationDelay: `${baseDelay + idx * 0.16}s`,
+              height: `${Math.max(barPct, 1.5)}%`,
+              background: colorFor(v, idx),
+              animationDelay: `${baseDelay + idx * 0.13}s`,
             };
             if (positive) barStyle.bottom = `${100 - zeroTopPct}%`;
             else barStyle.top = `${zeroTopPct}%`;
             return (
-              <div key={p.year} className="relative flex-1" aria-hidden>
+              <div key={idx} className="relative flex-1" aria-hidden>
                 <div
                   className={`epc-cfbar absolute inset-x-0 ${
                     positive
@@ -198,16 +219,22 @@ function CashFlowChart({
           })}
         </div>
       </div>
-      <div className="mt-1.5 flex gap-1.5">
-        {points.map((p) => (
-          <span
-            key={p.year}
-            className="flex-1 text-center text-[10px] tabular-nums text-on-surface-variant"
-          >
-            {p.year}a
-          </span>
-        ))}
+      {/* Parentesi che racchiude le prime candele */}
+      <div className="ml-5 mt-1.5">
+        <div
+          className="epc-anim epc-bracket"
+          style={{ width: `${bracketWidthPct}%` }}
+        >
+          <div className="h-2 rounded-b-md border-x border-b border-on-surface/40" />
+          <p className="mt-1 text-center text-[10px] font-semibold uppercase leading-tight tracking-wide text-on-surface-variant">
+            {bracketLabel}
+          </p>
+        </div>
       </div>
+      {/* Asse orizzontale */}
+      <p className="ml-5 mt-1 text-center text-[11px] font-medium italic text-on-surface-variant">
+        Anni
+      </p>
     </div>
   );
 }
@@ -241,25 +268,6 @@ export function EpcPropositionSection({
   const [ref, played] = useInViewOnce<HTMLElement>();
 
   const annualSavings = Math.max(0, yearlySavingsEur ?? 0);
-  const years = CHART_YEARS;
-
-  // Cash-flow cumulato.
-  const directNet = (y: number) => -grossCapexEur + annualSavings * y;
-  const epcNet = (y: number) =>
-    y <= CONTRACT_YEARS
-      ? annualSavings * EPC_CLIENT_SHARE * y
-      : annualSavings * EPC_CLIENT_SHARE * CONTRACT_YEARS +
-        annualSavings * (y - CONTRACT_YEARS);
-
-  const directPoints: ChartPoint[] = years.map((y) => ({ year: y, value: directNet(y) }));
-  const epcPoints: ChartPoint[] = years.map((y) => ({ year: y, value: epcNet(y) }));
-
-  // Scala condivisa fra le due colonne.
-  const allVals = [...directPoints, ...epcPoints].map((p) => p.value);
-  const gMax = Math.max(...allVals, 1);
-  const gMin = Math.min(...allVals, 0);
-  const range = gMax - gMin || 1;
-  const zeroTopPct = (gMax / range) * 100;
 
   const paybackYears =
     annualSavings > 0 ? Math.max(1, Math.round(grossCapexEur / annualSavings)) : null;
@@ -304,10 +312,13 @@ export function EpcPropositionSection({
         .epc-playing .epc-b1       { animation: epcFadeUp 0.7s cubic-bezier(.22,1,.36,1) 4.3s both; }
         .epc-playing .epc-b2       { animation: epcFadeUp 0.7s cubic-bezier(.22,1,.36,1) 4.6s both; }
         .epc-playing .epc-compare  { animation: epcFadeUp 0.7s cubic-bezier(.22,1,.36,1) 5.3s both; }
+        .epc-playing .epc-charts   { animation: epcFadeUp 0.7s cubic-bezier(.22,1,.36,1) 5.9s both; }
         .epc-playing .epc-cfbar-up   { animation: epcGrowUp 0.75s cubic-bezier(.22,1,.36,1) both; }
         .epc-playing .epc-cfbar-down { animation: epcGrowDown 0.75s cubic-bezier(.22,1,.36,1) both; }
-        .epc-playing .epc-callout  { animation: epcFadeUp 0.7s cubic-bezier(.22,1,.36,1) 8.7s both; }
-        .epc-playing .epc-footer   { animation: epcFadeIn 0.6s ease 9.4s both; }
+        .epc-playing .epc-bracket   { animation: epcFadeIn 0.6s ease 8.2s both; }
+        .epc-playing .epc-connector { animation: epcFadeIn 0.7s ease 8.6s both; }
+        .epc-playing .epc-callout  { animation: epcFadeUp 0.7s cubic-bezier(.22,1,.36,1) 9.2s both; }
+        .epc-playing .epc-footer   { animation: epcFadeIn 0.6s ease 9.9s both; }
 
         @media (prefers-reduced-motion: reduce) {
           .epc-anim, .epc-cfbar { opacity: 1 !important; transform: none !important; }
@@ -440,11 +451,13 @@ export function EpcPropositionSection({
             Investimento diretto vs EPC {brandName}
           </h3>
           <p className="mt-1 text-[11px] text-on-surface-variant">
-            Posizione di cassa anno per anno. La linea tratteggiata è il
-            punto di pareggio: con l&apos;EPC non ci finite mai sotto.
+            La posizione di cassa nei due modelli. Con l&apos;investimento
+            diretto restate anni in rosso prima di rientrare; con
+            l&apos;EPC non ci finite mai sotto.
           </p>
 
-          <div className="mt-6 grid items-start gap-5 md:grid-cols-[0.8fr_1.2fr]">
+          {/* RIGA 1 — pro e contro dei due modelli */}
+          <div className="mt-6 grid items-start gap-5 md:grid-cols-2">
             {/* INVESTIMENTO DIRETTO — opzione secondaria, smorzata */}
             <div className="rounded-2xl bg-surface-container p-4 opacity-70 md:p-5">
               <div className="mb-2 inline-flex items-center rounded-full bg-surface-container-high px-3 py-1">
@@ -452,30 +465,18 @@ export function EpcPropositionSection({
                   Investimento diretto
                 </span>
               </div>
-              <ul className="mb-4 mt-1.5 space-y-1.5">
+              <ul className="space-y-1.5">
                 <ProCon positive={false} color={brandColor}>
                   Esborso iniziale a vostro carico
                 </ProCon>
                 <ProCon positive={false} color={brandColor}>
                   Anni in rosso prima del rientro
+                  {paybackYears ? ` (~${paybackYears} anni)` : ''}
                 </ProCon>
                 <ProCon positive={false} color={brandColor}>
                   Rischio tecnico e gestione su di voi
                 </ProCon>
               </ul>
-              <CashFlowChart
-                points={directPoints}
-                zeroTopPct={zeroTopPct}
-                gMax={gMax}
-                gMin={gMin}
-                baseDelay={6.0}
-                heightClass="h-40"
-                colorFor={(p) => directBarColor(p)}
-              />
-              <p className="mt-2 text-[11px] text-on-surface-variant">
-                Capitale immobilizzato e in rosso per
-                {paybackYears ? ` ~${paybackYears} anni` : ' diversi anni'}.
-              </p>
             </div>
 
             {/* EPC — opzione consigliata, in evidenza */}
@@ -500,7 +501,7 @@ export function EpcPropositionSection({
                   Consigliato
                 </span>
               </div>
-              <ul className="mb-4 mt-1.5 space-y-1.5">
+              <ul className="space-y-1.5">
                 <ProCon positive color={brandColor}>
                   Zero investimento — rischio tecnico tutto su di noi
                 </ProCon>
@@ -513,22 +514,52 @@ export function EpcPropositionSection({
                   da lì il risparmio è pieno
                 </ProCon>
               </ul>
-              <CashFlowChart
-                points={epcPoints}
-                zeroTopPct={zeroTopPct}
-                gMax={gMax}
-                gMin={gMin}
-                baseDelay={6.9}
-                heightClass="h-56"
-                colorFor={(p) => epcBarColor(p)}
-              />
-              <p className="mt-2 text-[11px] text-on-surface-variant">
-                Sempre in positivo: ~20% di sconto in bolletta per{' '}
-                {CONTRACT_YEARS} anni, poi l&apos;impianto è vostro e il
-                risparmio diventa pieno.
-              </p>
             </div>
           </div>
+
+          {/* RIGA 2 — grafici cash-flow con connettore */}
+          <div className="epc-anim epc-charts relative mt-7 grid grid-cols-2 gap-5 md:gap-10">
+            <CashFlowChart
+              values={DIRECT_SERIES}
+              colorFor={(v) => directBarColor(v)}
+              baseDelay={6.0}
+              bracketBars={DIRECT_BRACKET_BARS}
+              bracketLabel="Tempo di ritorno"
+            />
+            <CashFlowChart
+              values={EPC_SERIES}
+              colorFor={(_v, idx) => epcBarColor(idx)}
+              baseDelay={6.6}
+              bracketBars={EPC_BRACKET_BARS}
+              bracketLabel={`Durata del contratto · ${CONTRACT_YEARS} anni`}
+            />
+            {/* Connettore: l'ultima candela dell'investimento diretto
+                chiude solo un gradino sopra l'ultima dell'EPC. */}
+            <svg
+              className="epc-anim epc-connector pointer-events-none absolute inset-0 hidden h-full w-full sm:block"
+              viewBox="0 0 100 100"
+              preserveAspectRatio="none"
+              aria-hidden
+            >
+              <line
+                x1="45.5"
+                y1="1.5"
+                x2="97.5"
+                y2="3.2"
+                stroke={brandColor}
+                strokeWidth="2"
+                strokeDasharray="5 4"
+                strokeLinecap="round"
+                vectorEffect="non-scaling-stroke"
+              />
+            </svg>
+          </div>
+          <p className="mt-3 text-center text-[11px] text-on-surface-variant">
+            Dopo ~20 anni i due modelli arrivano quasi allo stesso punto
+            — la linea collega le ultime due candele — ma con l&apos;EPC
+            ci arrivate senza immobilizzare un euro e senza un solo anno
+            in rosso.
+          </p>
 
           {/* CALLOUT */}
           <div
