@@ -87,7 +87,7 @@
               Per <strong style="color:#2b2b2b;">{{ greeting_name }}</strong>{% if ateco_description %}, {{ ateco_description }}{% endif %}
             </p>
 
-            <h1 class="h1-mobile" style="margin:0 0 16px 0; font-size:28px; line-height:34px; font-weight:700; color:#0b3d2e; font-family:Arial,sans-serif;">
+            <h1 class="h1-mobile" style="margin:0 0 16px 0; font-size:28px; line-height:34px; font-weight:700; color:{{ brand_primary_color }}; font-family:Arial,sans-serif;">
               {%- if business_name %}
               {{ business_name }}, il vostro tetto può produrre
               {%- else %}
@@ -131,7 +131,7 @@
         {%- if roi %}
         <tr>
           <td style="padding:0 40px 24px 40px;" class="padding-mobile">
-            <h2 class="h2-mobile" style="margin:0 0 20px 0; font-size:20px; line-height:26px; font-weight:700; color:#0b3d2e; font-family:Arial,sans-serif;">
+            <h2 class="h2-mobile" style="margin:0 0 20px 0; font-size:20px; line-height:26px; font-weight:700; color:{{ brand_primary_color }}; font-family:Arial,sans-serif;">
               Cosa abbiamo rilevato sul vostro tetto
             </h2>
 
@@ -141,7 +141,7 @@
                 <td class="stack-column" width="50%" style="padding:0 8px 16px 0; vertical-align:top;">
                   <div style="background-color:#f5f2eb; border-left:3px solid {{ brand_color_accent | default('#F4A300', true) }}; padding:16px 18px; border-radius:4px;">
                     <p style="margin:0 0 4px 0; font-size:10px; color:#6b6b6b; font-family:Arial,sans-serif; letter-spacing:0.8px; text-transform:uppercase;">Potenza installabile</p>
-                    <p class="stat-number-mobile" style="margin:0; font-size:24px; line-height:28px; font-weight:700; color:#0b3d2e; font-family:Arial,sans-serif;">{{ roi.estimated_kwp | round(1) }} kWp</p>
+                    <p class="stat-number-mobile" style="margin:0; font-size:24px; line-height:28px; font-weight:700; color:{{ brand_primary_color }}; font-family:Arial,sans-serif;">{{ roi.estimated_kwp | round(1) }} kWp</p>
                   </div>
                 </td>
                 {%- endif %}
@@ -149,7 +149,7 @@
                 <td class="stack-column" width="50%" style="padding:0 0 16px 8px; vertical-align:top;">
                   <div style="background-color:#f5f2eb; border-left:3px solid {{ brand_color_accent | default('#F4A300', true) }}; padding:16px 18px; border-radius:4px;">
                     <p style="margin:0 0 4px 0; font-size:10px; color:#6b6b6b; font-family:Arial,sans-serif; letter-spacing:0.8px; text-transform:uppercase;">Producibilità annua</p>
-                    <p class="stat-number-mobile" style="margin:0; font-size:24px; line-height:28px; font-weight:700; color:#0b3d2e; font-family:Arial,sans-serif;">{{ roi.yearly_kwh | int | format_money }} kWh</p>
+                    <p class="stat-number-mobile" style="margin:0; font-size:24px; line-height:28px; font-weight:700; color:{{ brand_primary_color }}; font-family:Arial,sans-serif;">{{ roi.yearly_kwh | int | format_money }} kWh</p>
                   </div>
                 </td>
                 {%- endif %}
@@ -159,7 +159,7 @@
                 <td class="stack-column" width="50%" style="padding:0 8px 0 0; vertical-align:top;">
                   <div style="background-color:#f5f2eb; border-left:3px solid {{ brand_color_accent | default('#F4A300', true) }}; padding:16px 18px; border-radius:4px;">
                     <p style="margin:0 0 4px 0; font-size:10px; color:#6b6b6b; font-family:Arial,sans-serif; letter-spacing:0.8px; text-transform:uppercase;">Superficie utile</p>
-                    <p class="stat-number-mobile" style="margin:0; font-size:24px; line-height:28px; font-weight:700; color:#0b3d2e; font-family:Arial,sans-serif;">{{ roi.area_sqm | int | format_money }} m²</p>
+                    <p class="stat-number-mobile" style="margin:0; font-size:24px; line-height:28px; font-weight:700; color:{{ brand_primary_color }}; font-family:Arial,sans-serif;">{{ roi.area_sqm | int | format_money }} m²</p>
                   </div>
                 </td>
                 {%- endif %}
@@ -167,7 +167,7 @@
                 <td class="stack-column" width="50%" style="padding:0 0 0 8px; vertical-align:top;">
                   <div style="background-color:#f5f2eb; border-left:3px solid {{ brand_color_accent | default('#F4A300', true) }}; padding:16px 18px; border-radius:4px;">
                     <p style="margin:0 0 4px 0; font-size:10px; color:#6b6b6b; font-family:Arial,sans-serif; letter-spacing:0.8px; text-transform:uppercase;">Pannelli stimati</p>
-                    <p class="stat-number-mobile" style="margin:0; font-size:24px; line-height:28px; font-weight:700; color:#0b3d2e; font-family:Arial,sans-serif;">{{ roi.panel_count }}</p>
+                    <p class="stat-number-mobile" style="margin:0; font-size:24px; line-height:28px; font-weight:700; color:{{ brand_primary_color }}; font-family:Arial,sans-serif;">{{ roi.panel_count }}</p>
                   </div>
                 </td>
                 {%- endif %}
@@ -257,7 +257,7 @@
         <tr>
           <td class="padding-mobile" style="padding:32px 40px 24px 40px;">
 
-            <h2 class="h2-mobile" style="margin:0 0 16px 0; font-size:20px; line-height:26px; font-weight:700; color:#0b3d2e; font-family:Arial,sans-serif;">
+            <h2 class="h2-mobile" style="margin:0 0 16px 0; font-size:20px; line-height:26px; font-weight:700; color:{{ brand_primary_color }}; font-family:Arial,sans-serif;">
               La nostra proposta per voi
             </h2>
 
@@ -281,7 +281,7 @@
                       </td>
                       <td>
                         <p style="margin:0; font-size:14px; line-height:21px; color:#2b2b2b; font-family:Arial,sans-serif;">
-                          <strong style="color:#0b3d2e;">{{ item[0] }}</strong> {{ item[1] }}
+                          <strong style="color:{{ brand_primary_color }};">{{ item[0] }}</strong> {{ item[1] }}
                         </p>
                       </td>
                     </tr>
@@ -304,7 +304,7 @@
                   <table role="presentation" border="0" cellpadding="0" cellspacing="0">
                     <tr>
                       <td style="background-color:{{ brand_color_accent | default('#F4A300', true) }}; border-radius:6px;">
-                        <a href="{{ lead_url }}" target="_blank" style="display:inline-block; padding:16px 36px; font-size:15px; font-weight:700; color:#0b3d2e; text-decoration:none; font-family:Arial,sans-serif; letter-spacing:0.3px;">
+                        <a href="{{ lead_url }}" target="_blank" style="display:inline-block; padding:16px 36px; font-size:15px; font-weight:700; color:{{ brand_primary_color }}; text-decoration:none; font-family:Arial,sans-serif; letter-spacing:0.3px;">
                           {{ cta_primary_label | default('Scopri la tua analisi completa', true) }} →
                         </a>
                       </td>
@@ -335,7 +335,7 @@
                 Impatto ambientale
               </p>
               <p style="margin:0; font-size:14px; line-height:20px; color:#2b2b2b; font-family:Arial,sans-serif;">
-                Con questo impianto eviterete l'emissione di <strong style="color:#0b3d2e;">{{ (roi.co2_tonnes_25_years / 25) | round(0) | int }} tonnellate di CO₂</strong> ogni anno, l'equivalente di {{ ((roi.co2_tonnes_25_years / 25) * 45) | round(0) | int | format_money }} alberi piantati.
+                Con questo impianto eviterete l'emissione di <strong style="color:{{ brand_primary_color }};">{{ (roi.co2_tonnes_25_years / 25) | round(0) | int }} tonnellate di CO₂</strong> ogni anno, l'equivalente di {{ ((roi.co2_tonnes_25_years / 25) * 45) | round(0) | int | format_money }} alberi piantati.
               </p>
             </div>
           </td>
@@ -348,7 +348,7 @@
             <p style="margin:24px 0 8px 0; font-size:14px; line-height:20px; color:#2b2b2b; font-family:Arial,sans-serif;">
               A disposizione per qualsiasi domanda,
             </p>
-            <p style="margin:0; font-size:15px; line-height:22px; color:#0b3d2e; font-family:Arial,sans-serif; font-weight:700;">
+            <p style="margin:0; font-size:15px; line-height:22px; color:{{ brand_primary_color }}; font-family:Arial,sans-serif; font-weight:700;">
               {{ sender_first_name | default(tenant_name, true) }}
             </p>
             <p style="margin:0; font-size:13px; line-height:18px; color:#6b6b6b; font-family:Arial,sans-serif;">

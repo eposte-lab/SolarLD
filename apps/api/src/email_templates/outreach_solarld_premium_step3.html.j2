@@ -42,8 +42,8 @@
             <p style="margin:0 0 8px 0; font-size:13px; color:#6b6b6b; font-family:Arial,sans-serif; text-transform:uppercase; letter-spacing:0.5px;">
               Per {{ greeting_name }}
             </p>
-            <h1 style="margin:0 0 20px 0; font-size:24px; line-height:30px; font-weight:700; color:#0b3d2e; font-family:Arial,sans-serif;">
-              Un'azienda{% if similar_province %} a {{ similar_province }}{% elif hq_province %} in {{ hq_province }}{% endif %} ha appena confermato il progetto
+            <h1 style="margin:0 0 20px 0; font-size:24px; line-height:30px; font-weight:700; color:{{ brand_primary_color }}; font-family:Arial,sans-serif;">
+              Tra incentivi e prezzo dell'energia, ogni mese di attesa ha un costo
             </h1>
 
             <p style="margin:0 0 20px 0; font-size:15px; line-height:22px; color:#2b2b2b; font-family:Arial,sans-serif;">
@@ -60,7 +60,7 @@
                   <table role="presentation" border="0" cellpadding="0" cellspacing="0">
                     <tr>
                       <td style="background-color:{{ brand_color_accent | default('#F4A300', true) }}; border-radius:6px;">
-                        <a href="{{ lead_url }}" target="_blank" style="display:inline-block; padding:16px 36px; font-size:15px; font-weight:700; color:#0b3d2e; text-decoration:none; font-family:Arial,sans-serif;">
+                        <a href="{{ lead_url }}" target="_blank" style="display:inline-block; padding:16px 36px; font-size:15px; font-weight:700; color:{{ brand_primary_color }}; text-decoration:none; font-family:Arial,sans-serif;">
                           {{ cta_primary_label | default('Rivedi la tua analisi', true) }} →
                         </a>
                       </td>
