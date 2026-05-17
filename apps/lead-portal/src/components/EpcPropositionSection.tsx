@@ -42,33 +42,24 @@ const CONTRACT_YEARS = 10;
  *  Stima tarabile. */
 const EPC_CLIENT_SHARE = 0.2;
 
-/** Colori delle barre della colonna "Investimento diretto", anno per
- *  anno [1,3,5,7,10,15,20,25]: primi anni in rosso (sei in perdita),
- *  poi arancione, infine sfuma a verde man mano che rientri. */
-const DIRECT_BAR_COLORS = [
-  '#DC2626',
-  '#DC2626',
-  '#E0822A',
-  '#E0822A',
-  '#A6A036',
-  '#8C9433',
-  '#74882F',
-  '#5E7E2E',
-];
+/** Asse x del grafico cash-flow: anni consecutivi. Con la risoluzione
+ *  anno-per-anno la fase "in rosso" dell'investimento diretto si vede
+ *  per quello che è — più candele rosse grandi all'inizio, una vicina
+ *  allo zero nell'anno di pareggio, poi la risalita. */
+const CHART_YEARS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 
-/** Colori delle barre della colonna "EPC Total Trade": verde acceso —
- *  l'opzione vincente, sempre in positivo. Sfuma da un verde chiaro
- *  brillante a un verde pieno. */
-const EPC_BAR_COLORS = [
-  '#5BE08A',
-  '#48D97D',
-  '#36D070',
-  '#27C763',
-  '#1CBD57',
-  '#19AC4F',
-  '#179B47',
-  '#158A40',
-];
+/** Colore barra "Investimento diretto": rosso pieno finché la cassa è
+ *  in perdita, vira a un verde spento una volta rientrato il capitale.
+ *  Niente verde acceso: resta l'opzione secondaria. */
+function directBarColor(p: ChartPoint): string {
+  return p.value < 0 ? '#DC2626' : '#6B7F3A';
+}
+
+/** Colore barra "EPC": verde chiaro brillante durante il contratto
+ *  (risparmio parziale), verde pieno dopo la cessione dell'impianto. */
+function epcBarColor(p: ChartPoint): string {
+  return p.year <= CONTRACT_YEARS ? '#5BE08A' : '#158A40';
+}
 
 /** Trigger one-shot: `inView` diventa true quando l'elemento entra nel
  *  viewport, poi l'observer si disconnette. */
@@ -250,7 +241,7 @@ export function EpcPropositionSection({
   const [ref, played] = useInViewOnce<HTMLElement>();
 
   const annualSavings = Math.max(0, yearlySavingsEur ?? 0);
-  const years = [1, 3, 5, 7, 10, 15, 20, 25];
+  const years = CHART_YEARS;
 
   // Cash-flow cumulato.
   const directNet = (y: number) => -grossCapexEur + annualSavings * y;
@@ -479,7 +470,7 @@ export function EpcPropositionSection({
                 gMin={gMin}
                 baseDelay={6.0}
                 heightClass="h-40"
-                colorFor={(_p, idx) => DIRECT_BAR_COLORS[idx] ?? '#5E7E2E'}
+                colorFor={(p) => directBarColor(p)}
               />
               <p className="mt-2 text-[11px] text-on-surface-variant">
                 Capitale immobilizzato e in rosso per
@@ -529,7 +520,7 @@ export function EpcPropositionSection({
                 gMin={gMin}
                 baseDelay={6.9}
                 heightClass="h-56"
-                colorFor={(_p, idx) => EPC_BAR_COLORS[idx] ?? '#158A40'}
+                colorFor={(p) => epcBarColor(p)}
               />
               <p className="mt-2 text-[11px] text-on-surface-variant">
                 Sempre in positivo: ~20% di sconto in bolletta per{' '}
