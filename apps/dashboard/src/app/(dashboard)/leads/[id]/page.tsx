@@ -570,7 +570,10 @@ export default async function LeadDetailPage({ params }: PageProps) {
               Lo stesso video è incluso nell&apos;email come hero cliccabile.
             </p>
             <div className="flex flex-wrap items-center gap-3">
-              <RegenerateRenderingButton leadId={lead.id} />
+              <RegenerateRenderingButton
+            leadId={lead.id}
+            regenCount={lead.rendering_regen_count ?? 0}
+          />
               {publicLeadLink && (
                 <a
                   href={publicLeadLink}
@@ -740,7 +743,10 @@ export default async function LeadDetailPage({ params }: PageProps) {
               Ultimo tentativo: {humanReadableSkipReason(lead.creative_skipped_reason)}
             </p>
           )}
-          <RegenerateRenderingButton leadId={lead.id} />
+          <RegenerateRenderingButton
+            leadId={lead.id}
+            regenCount={lead.rendering_regen_count ?? 0}
+          />
         </section>
       )}
 

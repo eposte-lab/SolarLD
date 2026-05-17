@@ -28,15 +28,24 @@ type State =
   | { kind: 'success'; message: string }
   | { kind: 'error'; message: string };
 
+/** Tetto di rigenerazioni per lead — deve combaciare con
+ *  MAX_RENDERING_REGENERATIONS in apps/api/src/routes/leads.py. */
+const MAX_REGEN = 3;
+
 interface Props {
   leadId: string;
+  /** Rigenerazioni già consumate da questo lead. */
+  regenCount: number;
 }
 
-export function RegenerateRenderingButton({ leadId }: Props) {
+export function RegenerateRenderingButton({ leadId, regenCount }: Props) {
   const router = useRouter();
   const [state, setState] = useState<State>({ kind: 'idle' });
 
+  const limitReached = regenCount >= MAX_REGEN;
+
   async function onClick() {
+    if (limitReached) return;
     setState({ kind: 'queuing' });
     try {
       // force=true is the route default but we pass it explicitly so the
@@ -73,7 +82,12 @@ export function RegenerateRenderingButton({ leadId }: Props) {
       <button
         type="button"
         onClick={onClick}
-        disabled={busy}
+        disabled={busy || limitReached}
+        title={
+          limitReached
+            ? `Limite di ${MAX_REGEN} rigenerazioni raggiunto per questo lead`
+            : undefined
+        }
         className="inline-flex items-center gap-2 rounded-lg bg-surface-container-highest px-4 py-2 text-xs font-semibold text-on-surface transition-colors hover:bg-surface-container-high disabled:cursor-not-allowed disabled:opacity-60"
       >
         <RefreshCw
@@ -82,8 +96,15 @@ export function RegenerateRenderingButton({ leadId }: Props) {
           className={busy ? 'animate-spin' : ''}
           aria-hidden
         />
-        {busy ? 'Rigenerazione in coda…' : 'Rigenera rendering'}
+        {limitReached
+          ? 'Limite rigenerazioni raggiunto'
+          : busy
+            ? 'Rigenerazione in coda…'
+            : 'Rigenera rendering'}
       </button>
+      <p className="text-[11px] text-on-surface-variant">
+        {regenCount}/{MAX_REGEN} rigenerazioni usate per questo lead
+      </p>
       {state.kind === 'success' && (
         <p className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary">
           <Check size={12} strokeWidth={2.5} aria-hidden />
