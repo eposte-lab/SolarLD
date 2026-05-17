@@ -23,6 +23,10 @@ log = get_logger(__name__)
 
 router = APIRouter()
 
+# Tetto di rigenerazioni manuali del rendering per singolo lead. Ogni
+# rigenerazione costa Solar API + panel-paint nano-banana.
+MAX_RENDERING_REGENERATIONS = 3
+
 # Columns exported to CSV — flat, CRM-friendly shape. Nested
 # subject/roof fields are lifted to the top level with a prefix so
 # Excel and Salesforce/HubSpot importers map them cleanly.
@@ -499,7 +503,7 @@ async def regen_rendering(
     sb = get_service_client()
     res = (
         sb.table("leads")
-        .select("id")
+        .select("id, rendering_regen_count")
         .eq("id", lead_id)
         .eq("tenant_id", tenant_id)
         .limit(1)
@@ -507,12 +511,33 @@ async def regen_rendering(
     )
     if not res.data:
         raise HTTPException(status_code=404, detail="Lead not found")
+
+    # Ogni rigenerazione costa (Solar API + panel-paint nano-banana):
+    # limite di MAX_RENDERING_REGENERATIONS per lead.
+    regen_count = int(res.data[0].get("rendering_regen_count") or 0)
+    if regen_count >= MAX_RENDERING_REGENERATIONS:
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                f"Limite di rigenerazioni del rendering raggiunto per "
+                f"questo lead ({MAX_RENDERING_REGENERATIONS})."
+            ),
+        )
+
+    sb.table("leads").update({"rendering_regen_count": regen_count + 1}).eq("id", lead_id).execute()
+
     job = await enqueue(
         "creative_task",
         {"tenant_id": tenant_id, "lead_id": lead_id, "force": force},
         job_id=f"creative:{tenant_id}:{lead_id}",
     )
-    return {"ok": True, "lead_id": lead_id, **job}
+    return {
+        "ok": True,
+        "lead_id": lead_id,
+        "regen_count": regen_count + 1,
+        "regen_remaining": MAX_RENDERING_REGENERATIONS - (regen_count + 1),
+        **job,
+    }
 
 
 @router.post("/{lead_id}/rescore")

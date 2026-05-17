@@ -104,7 +104,10 @@ export function SolarApiInspector({ lead }: Props) {
             l&apos;indirizzo non è stato geolocalizzato oppure si tratta di un
             render generato in precedenza, prima dell&apos;analisi satellitare.
           </p>
-          <RegenerateRenderingButton leadId={lead.id} />
+          <RegenerateRenderingButton
+            leadId={lead.id}
+            regenCount={lead.rendering_regen_count ?? 0}
+          />
         </div>
       </BentoCard>
     );
@@ -148,7 +151,10 @@ export function SolarApiInspector({ lead }: Props) {
             l&apos;email — se sono sballati, lo è anche la proposta.
           </p>
         </div>
-        <RegenerateRenderingButton leadId={lead.id} />
+        <RegenerateRenderingButton
+            leadId={lead.id}
+            regenCount={lead.rendering_regen_count ?? 0}
+          />
       </div>
 
       {/* Top-line numbers — same set used by AI paint prompt. */}

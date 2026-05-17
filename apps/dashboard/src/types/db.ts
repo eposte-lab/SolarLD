@@ -372,6 +372,8 @@ export interface LeadDetailRow extends LeadListRow {
    * needing log access. Cleared when both video and gif succeed.
    */
   creative_skipped_reason: string | null;
+  /** Numero di rigenerazioni manuali del rendering (migration 0136). */
+  rendering_regen_count: number;
   roi_data: RoiData;
   feedback: string | null;
   feedback_notes: string | null;
