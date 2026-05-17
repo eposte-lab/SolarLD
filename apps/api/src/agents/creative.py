@@ -12,7 +12,7 @@ Pipeline (rendering-v2):
         + dataLayers (high-res RGB aerial GeoTIFF)
         ↓
     solar_rendering_service.render_before_only()
-          → BEFORE frame: real Google aerial crop, 1536×1536, 10 cm/px
+          → BEFORE frame: real Google aerial crop, 1536×864 (16:9)
             (no panels drawn — the photo is left untouched)
         ↓
     upload before.png to Supabase Storage
@@ -21,7 +21,7 @@ Pipeline (rendering-v2):
           → Gemini 2.5 Flash Image (Replicate google/nano-banana) edits the
             real aerial: adds photoreal monocrystalline panels on the visible
             roof, preserves everything else pixel-perfect
-          → AFTER frame: real-photo-with-real-looking-panels (1536²)
+          → AFTER frame: real-photo-with-real-looking-panels (1536×864, 16:9)
         ↓
     upload after.png to Supabase Storage
         ↓
@@ -31,7 +31,7 @@ Pipeline (rendering-v2):
           → Kling 1.6-Pro animates the panel-by-panel reveal between the
             two real-photo frames, with ambient motion (cars, soft cloud
             shadows, leaf rustle) and ROI stats overlaid in the final 2 s
-          → MP4 + GIF (720×720 @ 15 fps)
+          → MP4 + GIF (1280×720, 16:9 @ 15 fps)
         ↓
     UPDATE leads SET rendering_image_url, rendering_video_url, rendering_gif_url, roi_data
     UPDATE roofs.status = 'rendered'

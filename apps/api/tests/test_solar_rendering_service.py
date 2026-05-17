@@ -21,7 +21,8 @@ from src.services.google_solar_service import (
     SolarPanel,
 )
 from src.services.solar_rendering_service import (
-    OUTPUT_SIZE,
+    OUTPUT_H,
+    OUTPUT_W,
     SolarRenderingError,
     _GeoTransformScaled,
     _panel_rotation_deg,
@@ -292,7 +293,7 @@ async def test_render_before_after_returns_png_bytes() -> None:
     for label, buf in [("before", before), ("after", after)]:
         img = Image.open(io.BytesIO(buf))
         assert img.format == "PNG", f"{label} is not PNG"
-        assert img.size == (OUTPUT_SIZE, OUTPUT_SIZE), f"{label} wrong size: {img.size}"
+        assert img.size == (OUTPUT_W, OUTPUT_H), f"{label} wrong size: {img.size}"
         assert img.mode == "RGB", f"{label} wrong mode: {img.mode}"
 
     # after must differ from before because panels were drawn.
@@ -368,7 +369,7 @@ async def test_render_before_after_falls_back_when_tiff_lacks_georef_tags() -> N
     for label, b in [("before", before), ("after", after)]:
         im = Image.open(io.BytesIO(b))
         assert im.format == "PNG", f"{label} not PNG"
-        assert im.size == (OUTPUT_SIZE, OUTPUT_SIZE)
+        assert im.size == (OUTPUT_W, OUTPUT_H)
 
 
 @pytest.mark.asyncio
