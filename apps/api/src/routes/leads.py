@@ -496,8 +496,16 @@ async def regen_rendering(
 
     Used by the dashboard after a tenant updates their brand colour,
     after a roof's geometry is corrected, or when the tenant wants to
-    retry a prior failed rendering. The job is idempotent per lead via
-    its deterministic job_id, so double-clicks collapse into one run.
+    retry a prior failed rendering.
+
+    The job_id embeds the regeneration counter (``creative:…:r{n}``).
+    A *fixed* per-lead job_id would be deduplicated by arq: it keeps
+    each job result in Redis for ``keep_result`` (1h), and re-enqueuing
+    an id whose result is still cached is silently dropped. That made
+    every regeneration within an hour of the previous render a no-op —
+    the operator burned a regeneration slot but the video never changed.
+    Tying the id to the (monotonic) counter makes each click a distinct
+    job while still collapsing genuine double-clicks on the same count.
     """
     tenant_id = require_tenant(ctx)
     sb = get_service_client()
@@ -524,18 +532,19 @@ async def regen_rendering(
             ),
         )
 
-    sb.table("leads").update({"rendering_regen_count": regen_count + 1}).eq("id", lead_id).execute()
+    new_count = regen_count + 1
+    sb.table("leads").update({"rendering_regen_count": new_count}).eq("id", lead_id).execute()
 
     job = await enqueue(
         "creative_task",
         {"tenant_id": tenant_id, "lead_id": lead_id, "force": force},
-        job_id=f"creative:{tenant_id}:{lead_id}",
+        job_id=f"creative:{tenant_id}:{lead_id}:r{new_count}",
     )
     return {
         "ok": True,
         "lead_id": lead_id,
-        "regen_count": regen_count + 1,
-        "regen_remaining": MAX_RENDERING_REGENERATIONS - (regen_count + 1),
+        "regen_count": new_count,
+        "regen_remaining": MAX_RENDERING_REGENERATIONS - new_count,
         **job,
     }
 
