@@ -56,7 +56,10 @@ export default async function TerritorioPage() {
         </div>
       )}
 
-      <TerritorioPageClient initialJobs={initialJobs} />
+      <TerritorioPageClient
+        initialJobs={initialJobs}
+        maxDailyCap={ctx.tenant.max_daily_validated_cap ?? 5000}
+      />
     </main>
   );
 }

@@ -59,15 +59,17 @@ const SECTORS = Object.keys(SECTOR_LABELS).filter(
 
 type Props = {
   onCreated: () => void;
+  /** Tetto di "lead validati / giorno" del piano del tenant. */
+  maxDailyCap: number;
 };
 
-export function ScanJobCreator({ onCreated }: Props) {
+export function ScanJobCreator({ onCreated, maxDailyCap }: Props) {
   const [name, setName] = useState('');
   const [region, setRegion] = useState('');
   const [province, setProvince] = useState('');
   const [comune, setComune] = useState('');
   const [selectedSectors, setSelectedSectors] = useState<Set<string>>(new Set());
-  const [dailyCap, setDailyCap] = useState<number>(200);
+  const [dailyCap, setDailyCap] = useState<number>(Math.min(200, maxDailyCap));
   const [alwaysActive, setAlwaysActive] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -219,13 +221,16 @@ export function ScanJobCreator({ onCreated }: Props) {
         <input
           type="number"
           value={dailyCap}
-          onChange={(e) => setDailyCap(Math.max(1, Math.min(5000, Number(e.target.value) || 1)))}
+          onChange={(e) =>
+            setDailyCap(Math.max(1, Math.min(maxDailyCap, Number(e.target.value) || 1)))
+          }
           min={1}
-          max={5000}
+          max={maxDailyCap}
           className="w-full rounded-md border border-outline-variant bg-surface px-3 py-1.5 text-sm tabular-nums focus:outline-none focus:ring-1 focus:ring-primary"
         />
         <span className="block text-[10px] text-on-surface-variant">
-          Si ferma a questo numero ogni giorno e riprende il giorno dopo
+          Si ferma a questo numero ogni giorno e riprende il giorno dopo —
+          massimo {maxDailyCap} con il piano attuale
         </span>
       </label>
 

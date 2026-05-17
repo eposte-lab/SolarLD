@@ -551,6 +551,23 @@ class ScanJobOut(BaseModel):
     created_at: datetime
 
 
+def _assert_daily_cap_within_plan(sb: Any, tenant_id: str, requested: int) -> None:
+    """Blocca un daily_validated_cap oltre il tetto del piano del tenant.
+
+    ``tenants.max_daily_validated_cap`` NULL = nessun limite di piano
+    (resta solo il tetto tecnico assoluto Field(le=5000)).
+    """
+    res = (
+        sb.table("tenants").select("max_daily_validated_cap").eq("id", tenant_id).limit(1).execute()
+    )
+    cap = (res.data or [{}])[0].get("max_daily_validated_cap")
+    if cap is not None and requested > cap:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Il piano attuale consente al massimo {cap} lead validati al giorno.",
+        )
+
+
 @router.post(
     "/scan-jobs",
     response_model=ScanJobOut,
@@ -570,6 +587,7 @@ async def create_scan_job(body: ScanJobCreate, ctx: CurrentUser) -> ScanJobOut:
         )
 
     sb = get_service_client()
+    _assert_daily_cap_within_plan(sb, tenant_id, body.daily_validated_cap)
 
     # Default priority: append to bottom of queue
     max_prio_res = (
@@ -652,6 +670,7 @@ async def update_scan_job(job_id: str, body: ScanJobUpdate, ctx: CurrentUser) ->
     if body.sector_filters is not None:
         update_fields["sector_filters"] = body.sector_filters
     if body.daily_validated_cap is not None:
+        _assert_daily_cap_within_plan(sb, tenant_id, body.daily_validated_cap)
         update_fields["daily_validated_cap"] = body.daily_validated_cap
     if body.always_active is not None:
         update_fields["always_active"] = body.always_active

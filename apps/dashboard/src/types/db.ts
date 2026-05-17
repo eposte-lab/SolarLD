@@ -103,6 +103,8 @@ export interface TenantRow {
   followup_from_email?: string | null;
   /** Override per-tenant dei template del compositore follow-up (migration 0134). */
   followup_templates?: Record<string, { subject?: string; body?: string }> | null;
+  /** Tetto di 'lead validati / giorno' del piano del tenant (migration 0135). */
+  max_daily_validated_cap?: number | null;
   tier: TenantTier;
   settings: TenantSettings;
   /**

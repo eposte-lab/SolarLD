@@ -15,7 +15,13 @@ import { ScanJobCreator } from '@/components/scan-job-creator';
 import { ScanJobsQueue } from '@/components/scan-jobs-queue';
 import { listScanJobs, type ScanJob } from '@/lib/data/scan-jobs';
 
-export function TerritorioPageClient({ initialJobs }: { initialJobs: ScanJob[] }) {
+export function TerritorioPageClient({
+  initialJobs,
+  maxDailyCap,
+}: {
+  initialJobs: ScanJob[];
+  maxDailyCap: number;
+}) {
   const [jobs, setJobs] = useState<ScanJob[]>(initialJobs);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -39,7 +45,7 @@ export function TerritorioPageClient({ initialJobs }: { initialJobs: ScanJob[] }
 
   return (
     <div className="grid gap-6 md:grid-cols-[minmax(280px,360px)_1fr]">
-      <ScanJobCreator onCreated={refresh} />
+      <ScanJobCreator onCreated={refresh} maxDailyCap={maxDailyCap} />
       <div className="space-y-3">
         <div className="flex items-baseline justify-between gap-3">
           <h2 className="font-headline text-lg font-bold tracking-tighter">
