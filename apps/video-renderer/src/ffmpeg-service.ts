@@ -32,6 +32,18 @@ const FFMPEG_BIN: string = process.env.FFMPEG_PATH ?? ffmpegInstaller.path;
  *  niente numeri giganti — deve restare professionale e non invasiva. */
 const STRIP_H = 104;
 
+/** Opacità della striscia: abbastanza coprente da far leggere il brand
+ *  color del tenant come una barra piena, non come una velatura. */
+const STRIP_ALPHA = 0.72;
+
+/** Converte un colore brand "#RRGGBB" nel formato che ffmpeg accetta
+ *  per `color=c=` (`0xRRGGBB`). Degrada a un navy scuro se il valore
+ *  non è un esadecimale a 6 cifre. */
+const ffmpegColor = (hex: string): string => {
+  const h = (hex ?? '').replace(/^#/, '').trim();
+  return /^[0-9a-fA-F]{6}$/.test(h) ? `0x${h}` : '0x101a2e';
+};
+
 /** Font in grassetto per l'overlay. `fonts-dejavu-core` (installato nel
  *  Dockerfile) fornisce DejaVuSans-Bold; in locale può non esserci →
  *  `resolveBoldFont` degrada al font di default di ffmpeg. */
@@ -144,11 +156,11 @@ export const escapeDrawtext = (s: string): string =>
  *     savings · kW) fade in just after the strip.
  *
  * No green glow, no oversized figures, no payback figure. Input [1:v]
- * is a pre-sized translucent-black lavfi strip (1920px wide — wider
- * than any frame we render, the overlay clips the excess; this avoids
- * the fragile scale2ref dance that mis-sized the strip). `format=rgba`
- * + `fade` ramp its alpha in, then it is overlaid flush with the
- * bottom edge. The graph ends on [out].
+ * is a pre-sized lavfi strip in the tenant's brand colour (1920px
+ * wide — wider than any frame we render, the overlay clips the
+ * excess; this avoids the fragile scale2ref dance that mis-sized the
+ * strip). `format=rgba` + `fade` ramp its alpha in, then it is
+ * overlaid flush with the bottom edge. The graph ends on [out].
  *
  * `clipDurationS` is the wall-clock length of the clip.
  */
@@ -194,8 +206,8 @@ export const buildOverlayFilter = (
  * Burn the overlay into `inputMp4Path` and write the result to
  * `outputMp4Path`. Re-encodes with libx264 CRF 22 (visually lossless
  * for our use case while keeping file size reasonable for portal
- * playback). A second lavfi input feeds the pre-sized translucent
- * strip (1920×STRIP_H, translucent black baked into the colour).
+ * playback). A second lavfi input feeds the pre-sized strip
+ * (1920×STRIP_H) tinted with the tenant's brand colour.
  */
 export const overlayStatsOnVideo = async (
   inputMp4Path: string,
@@ -205,6 +217,7 @@ export const overlayStatsOnVideo = async (
 ): Promise<void> => {
   const fontFile = await resolveBoldFont();
   const filter = buildOverlayFilter(stats, clipDurationS, fontFile);
+  const stripColor = ffmpegColor(stats.brandPrimaryColor);
   await runFfmpeg([
     '-y',
     '-i',
@@ -212,7 +225,7 @@ export const overlayStatsOnVideo = async (
     '-f',
     'lavfi',
     '-i',
-    `color=c=black@0.42:s=1920x${STRIP_H}:d=${Math.max(1, clipDurationS)}`,
+    `color=c=${stripColor}@${STRIP_ALPHA}:s=1920x${STRIP_H}:d=${Math.max(1, clipDurationS)}`,
     '-filter_complex',
     filter,
     '-map',
