@@ -175,6 +175,22 @@ def build_paint_prompt(
 
     scale_hint = f", forming roughly a {kwp:.0f} kWp photovoltaic array" if kwp and kwp > 0 else ""
 
+    # Multi-segment coverage. Production feedback: on buildings with
+    # several separate flat roof areas nano-banana tends to fill only
+    # the largest one and leave the others bare. Solar API placed
+    # eligible panels across ALL of them, so we instruct the model to
+    # cover every usable roof segment, not just the dominant one.
+    coverage_hint = ""
+    if roof_segment_count and roof_segment_count > 1:
+        coverage_hint = (
+            f" IMPORTANT: this building has {roof_segment_count} separate "
+            "roof segments. Distribute the panels across EVERY usable "
+            "roof segment of the principal building — each distinct flat "
+            "or pitched roof area must receive its own array of panels. "
+            "Do NOT leave any suitable roof segment of the building bare "
+            "while filling only the largest one."
+        )
+
     # Roof geometry hints sourced from Google Solar API. These are the
     # tightest constraints we have on what the rooftop *actually* looks
     # like and they massively reduce the chance nano-banana paints panels
@@ -229,6 +245,7 @@ def build_paint_prompt(
         "silver aluminium frames, arranged in clean parallel rows "
         f"aligned with the existing roof edges{scale_hint}."
         f"{azimuth_hint}"
+        f"{coverage_hint}"
         f"{geometry_hint} "
         # ── 4. Geometry / lighting ──────────────────────────────────
         "The panels MUST lie flat on the roof surface, follow its "

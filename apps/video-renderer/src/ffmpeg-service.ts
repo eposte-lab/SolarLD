@@ -136,18 +136,20 @@ export const escapeDrawtext = (s: string): string =>
 /**
  * Build the `-filter_complex` graph for a discreet professional
  * lower-third:
- *   - a thin translucent dark strip is drawn flush with the bottom
- *     edge (permanent — a slim lower-third reads as broadcast-clean,
- *     not as an ad banner);
+ *   - a thin translucent dark strip fades IN over the last ~1.8s of
+ *     the clip (in sync with the end of the wipe) — it is not present
+ *     during the reveal, so the rooftop stays clean while the panels
+ *     appear;
  *   - 2 small text lines (uppercase label · one compact value line:
- *     savings · kW · payback) fade in as the panel reveal completes.
+ *     savings · kW) fade in just after the strip.
  *
- * No green glow, no oversized figures, no drop shadows — the strip's
- * own contrast carries readability. The graph operates on [0:v] only
- * (no second input) and ends on [out].
+ * No green glow, no oversized figures, no payback figure. Input [1:v]
+ * is an opaque-black lavfi source: format=rgba + colorchannelmixer set
+ * its alpha to 0.42, scale2ref sizes it to a bottom strip, `fade`
+ * ramps the alpha in, and it is overlaid flush with the bottom edge.
+ * The graph ends on [out].
  *
- * `clipDurationS` is the wall-clock length of the clip; the text fades
- * in over its last ~1.8s, in sync with the end of the wipe.
+ * `clipDurationS` is the wall-clock length of the clip.
  */
 export const buildOverlayFilter = (
   stats: OverlayStats,
@@ -158,8 +160,7 @@ export const buildOverlayFilter = (
 
   const savings = formatEuro(stats.yearlySavingsEur);
   const kw = `${Math.round(stats.kwp * 10) / 10} kW`;
-  const payback = `rientro in ~${Math.max(1, Math.round(stats.paybackYears))} anni`;
-  const value = `${savings}   ·   ${kw}   ·   ${payback}`;
+  const value = `${savings}   ·   ${kw}`;
   const label = 'RISPARMIO ANNUO STIMATO';
 
   // Per-line alpha: 0 until `st`, then ramps to 1 over 0.5s.
@@ -168,21 +169,25 @@ export const buildOverlayFilter = (
 
   const fontPart = fontFile ? `fontfile=${fontFile}:` : '';
 
-  // Thin translucent strip flush with the bottom edge.
+  // Translucent strip: [1:v] opaque black → alpha 0.42 → sized to a
+  // bottom strip the width of the video → faded in → overlaid flush
+  // with the bottom edge.
   const strip =
-    `[0:v]drawbox=x=0:y=ih-${STRIP_H}:w=iw:h=${STRIP_H}` +
-    `:color=black@0.42:t=fill[bar]`;
+    `[1:v]format=rgba,colorchannelmixer=aa=0.42[bar0];` +
+    `[bar0][0:v]scale2ref=w=main_w:h=${STRIP_H}[bar1][base];` +
+    `[bar1]fade=t=in:st=${fadeStart}:d=0.6:alpha=1[barf];` +
+    `[base][barf]overlay=0:H-h[lit]`;
 
   // Small uppercase label, then the compact value line — left-aligned
   // with a 48px gutter. White text; the strip provides the contrast.
   const lineLabel =
-    `[bar]drawtext=text='${escapeDrawtext(label)}':fontsize=21:` +
+    `[lit]drawtext=text='${escapeDrawtext(label)}':fontsize=21:` +
     `${fontPart}fontcolor=white@0.66:x=48:y=h-${STRIP_H}+26:` +
-    `${txtAlpha(fadeStart)}[t1]`;
+    `${txtAlpha(fadeStart + 0.2)}[t1]`;
   const lineValue =
     `[t1]drawtext=text='${escapeDrawtext(value)}':fontsize=34:` +
     `${fontPart}fontcolor=white:x=48:y=h-${STRIP_H}+52:` +
-    `${txtAlpha(fadeStart + 0.15)}[out]`;
+    `${txtAlpha(fadeStart + 0.35)}[out]`;
 
   return [strip, lineLabel, lineValue].join(';');
 };
@@ -191,7 +196,7 @@ export const buildOverlayFilter = (
  * Burn the overlay into `inputMp4Path` and write the result to
  * `outputMp4Path`. Re-encodes with libx264 CRF 22 (visually lossless
  * for our use case while keeping file size reasonable for portal
- * playback). The overlay graph operates on the single video input.
+ * playback). A second lavfi input feeds the translucent strip.
  */
 export const overlayStatsOnVideo = async (
   inputMp4Path: string,
@@ -205,6 +210,10 @@ export const overlayStatsOnVideo = async (
     '-y',
     '-i',
     inputMp4Path,
+    '-f',
+    'lavfi',
+    '-i',
+    `color=c=black:s=64x16:d=${Math.max(1, clipDurationS)}`,
     '-filter_complex',
     filter,
     '-map',
