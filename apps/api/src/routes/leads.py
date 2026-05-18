@@ -705,13 +705,16 @@ async def send_test_outreach(
             ),
         )
 
-    # job_id includes a hash of the override so re-running with the same
-    # override collapses to one job, but switching addresses spawns a new
-    # one. Force=true so the kill-switch bypass + override actually run
-    # even when outreach_sent_at is set (multiple test runs are fine).
+    # Each click is its own job: a timestamp suffix keeps the job_id
+    # unique so ARQ never deduplicates a fresh test send against a
+    # previous one (same lead + same address would otherwise collapse
+    # to one job and silently no-op on the 2nd click). Force=true so the
+    # kill-switch bypass + override actually run even when
+    # outreach_sent_at is set (multiple test runs are fine).
     import hashlib
 
     override_tag = hashlib.sha256(override.encode()).hexdigest()[:10]
+    ts = int(datetime.now(tz=UTC).timestamp())
     job = await enqueue(
         "outreach_task",
         {
@@ -721,7 +724,7 @@ async def send_test_outreach(
             "force": True,
             "recipient_override": override,
         },
-        job_id=f"outreach_test:{tenant_id}:{lead_id}:{override_tag}",
+        job_id=f"outreach_test:{tenant_id}:{lead_id}:{override_tag}:{ts}",
     )
     log.info(
         "leads.send_test_outreach.queued",
