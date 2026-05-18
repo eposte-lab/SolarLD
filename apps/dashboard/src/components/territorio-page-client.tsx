@@ -35,11 +35,12 @@ export function TerritorioPageClient({
     }
   }, []);
 
-  // Auto-refresh ogni 30s per vedere il progress del worker
+  // Auto-refresh ogni 12s: i contatori delle scansioni in corso
+  // (candidati analizzati, lead validati) si aggiornano da soli.
   useEffect(() => {
     const tid = setInterval(() => {
       void refresh();
-    }, 30_000);
+    }, 12_000);
     return () => clearInterval(tid);
   }, [refresh]);
 

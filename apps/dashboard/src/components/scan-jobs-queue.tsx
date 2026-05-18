@@ -20,7 +20,7 @@ import {
   Repeat,
   RotateCw,
 } from 'lucide-react';
-import { useState, type DragEvent } from 'react';
+import { useEffect, useState, type DragEvent } from 'react';
 
 import {
   deleteScanJob,
@@ -43,6 +43,15 @@ const STATUS_META: Record<
   archived: { label: 'Archiviata', tone: 'bg-surface-container text-on-surface-variant' },
 };
 
+/** Elapsed time "Xm Ys" / "Xh Ym" between an ISO instant and now (ms). */
+function formatElapsed(fromIso: string, nowMs: number): string {
+  const secs = Math.max(0, Math.floor((nowMs - new Date(fromIso).getTime()) / 1000));
+  if (secs < 60) return `${secs}s`;
+  const m = Math.floor(secs / 60);
+  if (m < 60) return `${m}m ${secs % 60}s`;
+  return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m`;
+}
+
 type Props = {
   jobs: ScanJob[];
   onMutate: () => void;
@@ -51,6 +60,16 @@ type Props = {
 export function ScanJobsQueue({ jobs, onMutate }: Props) {
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Live clock — ticks every second only while a scan is running, so
+  // the elapsed timers on in-progress cards count up in real time.
+  const [now, setNow] = useState(() => Date.now());
+  const anyRunning = jobs.some((j) => j.status === 'in_progress');
+  useEffect(() => {
+    if (!anyRunning) return;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [anyRunning]);
 
   function onDragStart(e: DragEvent<HTMLLIElement>, id: string) {
     setDraggedId(id);
@@ -150,6 +169,11 @@ export function ScanJobsQueue({ jobs, onMutate }: Props) {
           const meta = STATUS_META[job.status];
           const capPercent = Math.min(100, Math.round((job.valid_leads_today / job.daily_validated_cap) * 100));
           const isDragging = draggedId === job.id;
+          const running = job.status === 'in_progress';
+          // No last_run_at yet while in progress → still in the L0
+          // territory-mapping phase (the funnel sets last_run_at).
+          const mapping = running && !job.last_run_at;
+          const startIso = job.last_run_at ?? job.created_at;
           return (
             <li
               key={job.id}
@@ -197,6 +221,29 @@ export function ScanJobsQueue({ jobs, onMutate }: Props) {
                       {job.sector_filters.length === 0
                         ? 'tutti i settori'
                         : job.sector_filters.map((s) => SECTOR_LABELS[s] ?? s).join(', ')}
+                    </span>
+                  </p>
+
+                  {/* Cosa sta facendo la scansione adesso */}
+                  <p className="mt-1.5 flex items-center gap-1.5 text-[11px] text-on-surface-variant">
+                    {running && (
+                      <span className="relative flex h-1.5 w-1.5 shrink-0" aria-hidden>
+                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75" />
+                        <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-primary" />
+                      </span>
+                    )}
+                    <span>
+                      {mapping
+                        ? `Mappatura del territorio · ${formatElapsed(startIso, now)}`
+                        : running
+                          ? `Scansione in corso · ${formatElapsed(startIso, now)} · ${job.candidates_scanned_total.toLocaleString('it-IT')} candidati analizzati`
+                          : job.status === 'exhausted'
+                            ? 'Esaurita — nessun altro candidato nel territorio'
+                            : job.status === 'paused_daily_cap'
+                              ? 'Tetto giornaliero raggiunto — riprende domani'
+                              : job.status === 'paused'
+                                ? 'In pausa'
+                                : 'In coda — parte appena si libera lo slot'}
                     </span>
                   </p>
 
