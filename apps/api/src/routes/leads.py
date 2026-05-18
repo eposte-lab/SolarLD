@@ -498,14 +498,13 @@ async def regen_rendering(
     after a roof's geometry is corrected, or when the tenant wants to
     retry a prior failed rendering.
 
-    The job_id embeds the regeneration counter (``creative:…:r{n}``).
-    A *fixed* per-lead job_id would be deduplicated by arq: it keeps
-    each job result in Redis for ``keep_result`` (1h), and re-enqueuing
-    an id whose result is still cached is silently dropped. That made
-    every regeneration within an hour of the previous render a no-op —
-    the operator burned a regeneration slot but the video never changed.
-    Tying the id to the (monotonic) counter makes each click a distinct
-    job while still collapsing genuine double-clicks on the same count.
+    The job_id embeds a millisecond timestamp (``creative:…:{ms}``).
+    arq deduplicates by job_id and keeps each result in Redis for
+    ``keep_result`` (1h): any id reused inside that window is silently
+    dropped. A counter-based id (``:r{n}``) breaks the moment the
+    counter is ever reset — the reused ``:r1`` collides with the
+    cached one — so every regeneration becomes a no-op. A timestamp is
+    monotonic and never reused, so each click is always a fresh job.
     """
     tenant_id = require_tenant(ctx)
     sb = get_service_client()
@@ -520,8 +519,8 @@ async def regen_rendering(
     if not res.data:
         raise HTTPException(status_code=404, detail="Lead not found")
 
-    # Ogni rigenerazione costa (Solar API + panel-paint nano-banana):
-    # limite di MAX_RENDERING_REGENERATIONS per lead.
+    # Ogni rigenerazione costa (Solar API + inpainting): limite di
+    # MAX_RENDERING_REGENERATIONS per lead.
     regen_count = int(res.data[0].get("rendering_regen_count") or 0)
     if regen_count >= MAX_RENDERING_REGENERATIONS:
         raise HTTPException(
@@ -535,10 +534,13 @@ async def regen_rendering(
     new_count = regen_count + 1
     sb.table("leads").update({"rendering_regen_count": new_count}).eq("id", lead_id).execute()
 
+    # Millisecond timestamp → a job_id that is never reused, so arq's
+    # 1h result cache can never deduplicate a genuine regeneration.
+    job_ms = int(datetime.now(UTC).timestamp() * 1000)
     job = await enqueue(
         "creative_task",
         {"tenant_id": tenant_id, "lead_id": lead_id, "force": force},
-        job_id=f"creative:{tenant_id}:{lead_id}:r{new_count}",
+        job_id=f"creative:{tenant_id}:{lead_id}:{job_ms}",
     )
     return {
         "ok": True,
