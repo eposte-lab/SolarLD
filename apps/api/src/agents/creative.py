@@ -66,6 +66,7 @@ from ..core.supabase_client import get_service_client
 from ..models.enums import RoofStatus
 from ..services.ai_panel_paint_service import (
     AiPaintError,
+    generate_after_masked,
     generate_after_with_panels,
 )
 from ..services.google_solar_service import (
@@ -74,10 +75,7 @@ from ..services.google_solar_service import (
     fetch_building_insight,
 )
 from ..services.masked_inpaint_service import (
-    InpaintError,
-    build_inpaint_prompt,
     composite_inside_mask,
-    inpaint_panels,
 )
 from ..services.osm_building_service import find_nearest_building
 from ..services.remotion_service import (
@@ -489,11 +487,13 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
                     )
                 else:
                     after_bytes = None
-                    # Masked inpaint: panels painted ONLY inside the
-                    # Solar panel-footprint mask, then composited so
-                    # every off-roof pixel is byte-identical to the
-                    # before frame. This is what stops the AI placing
-                    # panels on the lawn / a neighbour's roof.
+                    # Mask-guided nano-banana: nano-banana paints the
+                    # panels (photoreal), but gets the Solar panel
+                    # footprint mask as a second reference image so it
+                    # knows exactly WHERE. The result is then composited
+                    # through the mask, so every off-roof pixel stays
+                    # byte-identical to the before frame — the AI cannot
+                    # leave panels on the lawn / a neighbour's roof.
                     if mask_bytes is not None:
                         try:
                             mask_url = upload_bytes(
@@ -502,35 +502,33 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
                                 data=mask_bytes,
                                 content_type="image/png",
                             )
-                            inpainted = await inpaint_panels(
+                            painted = await generate_after_masked(
                                 before_image_url=before_url,
                                 mask_image_url=mask_url,
-                                prompt=build_inpaint_prompt(
-                                    panel_count=len(insight.panels),
-                                    kwp=insight.estimated_kwp,
-                                ),
+                                panel_count=len(insight.panels),
+                                kwp=insight.estimated_kwp,
                             )
-                            after_bytes = composite_inside_mask(before_bytes, inpainted, mask_bytes)
+                            after_bytes = composite_inside_mask(before_bytes, painted, mask_bytes)
                             _log_api_cost(
                                 sb,
                                 tenant_id=payload.tenant_id,
                                 provider="replicate",
-                                endpoint="black-forest-labs/flux-fill-pro",
-                                cost_cents=5,
+                                endpoint="google/nano-banana",
+                                cost_cents=4,
                                 status="success",
                                 metadata={"lead_id": payload.lead_id},
                             )
                             log.info(
-                                "creative.after_image_masked_inpaint",
+                                "creative.after_image_masked_paint",
                                 lead_id=payload.lead_id,
                                 panels=len(insight.panels),
                             )
-                        except InpaintError as exc:
-                            # Masked inpaint failed — fall back to the
-                            # nano-banana free-paint below rather than
-                            # losing the whole render.
+                        except AiPaintError as exc:
+                            # Mask-guided paint failed — fall back to the
+                            # unguided nano-banana free-paint below
+                            # rather than losing the whole render.
                             log.warning(
-                                "creative.masked_inpaint_failed",
+                                "creative.masked_paint_failed",
                                 lead_id=payload.lead_id,
                                 err=str(exc).replace("\n", " ")[:160],
                             )
