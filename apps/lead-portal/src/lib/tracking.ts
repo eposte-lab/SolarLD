@@ -2,8 +2,8 @@
  * Portal engagement beacon — Part B.1 deep-tracking.
  *
  * Transforms the public lead-portal page into a "heat sensor": every
- * scroll milestone, CTA hover, video event, and a 15s heartbeat while
- * the page is visible goes to ``POST /v1/public/portal/track``.
+ * scroll milestone, video event, and a 15s heartbeat while the page is
+ * visible goes to ``POST /v1/public/portal/track``.
  *
  * The endpoint returns 204 unconditionally (soft-fail on anything that
  * isn't a schema error) so we use ``navigator.sendBeacon`` where the
@@ -41,7 +41,6 @@ export type PortalEventKind =
   | 'portal.scroll_50'
   | 'portal.scroll_90'
   | 'portal.roi_viewed'
-  | 'portal.cta_hover'
   | 'portal.whatsapp_click'
   | 'portal.appointment_click'
   | 'portal.video_play'
@@ -143,8 +142,6 @@ type StartOptions = {
   roiSectionEl?: HTMLElement | null;
   /** Hero video element — wires play/ended → portal.video_* events. */
   videoEl?: HTMLVideoElement | null;
-  /** Elements that count as CTA hovers (WhatsApp card + Appointment form). */
-  ctaEls?: Array<HTMLElement | null>;
   /** Override the heartbeat interval (ms) for tests. */
   heartbeatIntervalMs?: number;
 };
@@ -247,28 +244,6 @@ export function startPortalTracker(
     roiObserver.observe(opts.roiSectionEl);
   }
 
-  // ---- CTA hovers (throttled to once per element via sendOnce key trick) ----
-  const ctaAbort = new AbortController();
-  const ctaHovers: Array<HTMLElement> = [];
-  for (const el of opts.ctaEls ?? []) {
-    if (!el) continue;
-    ctaHovers.push(el);
-    let localFired = false;
-    el.addEventListener(
-      'mouseenter',
-      () => {
-        if (localFired) return;
-        localFired = true;
-        // NOT sendOnce — multiple CTAs can each fire once, and the
-        // Python cap prevents over-scoring.
-        send('portal.cta_hover', {
-          target: el.dataset?.cta ?? el.id ?? 'cta',
-        });
-      },
-      { signal: ctaAbort.signal },
-    );
-  }
-
   // ---- video play / complete ----
   const videoAbort = new AbortController();
   if (opts.videoEl) {
@@ -338,7 +313,6 @@ export function startPortalTracker(
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('pagehide', onLeave);
       roiObserver?.disconnect();
-      ctaAbort.abort();
       videoAbort.abort();
       stopHeartbeat();
     },

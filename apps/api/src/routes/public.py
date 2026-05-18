@@ -48,9 +48,6 @@ from ..services.engagement_service import (
     W_BOLLETTA_UPLOADED as _W_BOLLETTA_UPLOADED,
 )
 from ..services.engagement_service import (
-    W_CTA_HOVER as _W_CTA_HOVER,
-)
-from ..services.engagement_service import (
     W_EMAIL_REPLY_CLICK as _W_EMAIL_REPLY_CLICK,
 )
 from ..services.engagement_service import (
@@ -857,7 +854,6 @@ _ALLOWED_EVENT_KINDS: frozenset[str] = frozenset(
         "portal.scroll_50",
         "portal.scroll_90",
         "portal.roi_viewed",
-        "portal.cta_hover",
         "portal.whatsapp_click",
         "portal.appointment_click",
         "portal.video_play",
@@ -899,7 +895,6 @@ _EVENT_DELTA: dict[str, int] = {
     "portal.view": _W_SESSION,
     "portal.scroll_50": _W_SCROLL_50,
     "portal.scroll_90": _W_SCROLL_90,
-    "portal.cta_hover": _W_CTA_HOVER,
     # Fascia 2 — Coinvolgimento
     "portal.roi_viewed": _W_ROI_VIEWED,
     "portal.video_play": _W_VIDEO_PLAY,
@@ -928,7 +923,6 @@ class PortalTrackEvent(BaseModel):
         "portal.scroll_50",
         "portal.scroll_90",
         "portal.roi_viewed",
-        "portal.cta_hover",
         "portal.whatsapp_click",
         "portal.appointment_click",
         "portal.video_play",

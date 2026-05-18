@@ -351,7 +351,7 @@ export default async function LeadPage({ params }: PageProps) {
           Parliamone come preferisci
         </h2>
         <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
-          <div data-portal-cta="whatsapp" className="bento p-1.5">
+          <div className="bento p-1.5">
             {/* WhatsApp = primario: card grande, brand color, prima posizione */}
             <WhatsAppCta
               slug={slug}
@@ -371,7 +371,6 @@ export default async function LeadPage({ params }: PageProps) {
 
         <div
           className="mt-4 bento p-6"
-          data-portal-cta="appointment"
           aria-labelledby="appointment-heading"
         >
           <h3

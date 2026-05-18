@@ -21,7 +21,6 @@ import {
   CheckCircle2,
   CircleDot,
   FileImage,
-  Hand,
   LineChart,
   Mail,
   MessageCircle,
@@ -73,11 +72,6 @@ const EVENT_STYLES: Record<string, EventStyle> = {
     icon: LineChart,
     label: 'Ha visto le stime ROI',
     tone: 'bg-tertiary-container text-on-tertiary-container',
-  },
-  'portal.cta_hover': {
-    icon: Hand,
-    label: 'Hover su una CTA',
-    tone: 'bg-surface-container-high text-on-surface-variant',
   },
   'portal.video_play': {
     icon: PlayCircle,
@@ -149,6 +143,73 @@ function formatEventDetail(row: PortalEventRow): string | null {
   return null;
 }
 
+// Eventi "passivi" — apertura, lettura, permanenza. Collassati in una
+// riga di riepilogo per non intasare la timeline. Tutto il resto
+// (video, CTA di contatto, bolletta) è un evento di intenzione e ha
+// una riga propria. `portal.cta_hover` resta qui per i dati storici:
+// l'hover non viene più tracciato ma vecchie righe possono esistere.
+const PASSIVE_KINDS = new Set<string>([
+  'portal.view',
+  'portal.heartbeat',
+  'portal.leave',
+  'portal.scroll_50',
+  'portal.scroll_90',
+  'portal.roi_viewed',
+  'portal.cta_hover',
+]);
+
+type TimelineItem =
+  | { kind: 'event'; row: PortalEventRow }
+  | { kind: 'summary'; events: PortalEventRow[] };
+
+type Summary = {
+  icon: LucideIcon;
+  label: string;
+  tone: string;
+  detail: string;
+  at: string;
+};
+
+/** Collassa un gruppo di eventi passivi in un'unica riga di riepilogo. */
+function buildSummary(events: PortalEventRow[]): Summary {
+  const kinds = new Set(events.map((e) => e.event_kind));
+  const heartbeats = events.filter((e) => e.event_kind === 'portal.heartbeat').length;
+
+  let label: string;
+  let icon: LucideIcon = CircleDot;
+  let tone = 'bg-surface-container-high text-on-surface-variant';
+  if (kinds.has('portal.scroll_90')) {
+    label = 'Ha letto il preventivo fino in fondo';
+    icon = ScrollText;
+    tone = 'bg-tertiary-container text-on-tertiary-container';
+  } else if (kinds.has('portal.scroll_50')) {
+    label = 'Ha letto metà del preventivo';
+    icon = ScrollText;
+  } else if (kinds.has('portal.view')) {
+    label = 'Ha aperto il portale';
+  } else {
+    label = 'In sessione sul portale';
+  }
+
+  const parts: string[] = [];
+  if (kinds.has('portal.roi_viewed')) parts.push('ha visto le stime ROI');
+  if (heartbeats > 0) {
+    const sec = heartbeats * 15;
+    parts.push(
+      sec >= 60 ? `~${Math.round(sec / 60)} min sul portale` : `~${sec}s sul portale`,
+    );
+  }
+
+  return {
+    icon,
+    label,
+    tone,
+    detail: parts.join(' · '),
+    // Gli eventi arrivano dal più recente — events[0] è il più nuovo.
+    at: events[0]?.occurred_at ?? '',
+  };
+}
+
 export function LeadPortalTimeline({ events }: { events: PortalEventRow[] }) {
   if (events.length === 0) {
     return (
@@ -161,35 +222,25 @@ export function LeadPortalTimeline({ events }: { events: PortalEventRow[] }) {
     );
   }
 
-  // Group consecutive heartbeats so the timeline doesn't drown in
-  // 15-second keepalives. We collapse runs of 3+ heartbeats into a
-  // single "X heartbeats" row.
-  type Item = { kind: 'event'; row: PortalEventRow } | {
-    kind: 'collapsed';
-    count: number;
-    firstAt: string;
-    lastAt: string;
-  };
-  const items: Item[] = [];
+  // Gerarchia: gli eventi "passivi" (apertura, scroll, heartbeat,
+  // visita ROI, uscita) sono rumore se mostrati uno per uno \u2014 una
+  // visita di 15s ne genera 7-8. Li collassiamo in UNA riga di
+  // riepilogo ("Ha letto il preventivo \u00b7 ~2 min"); gli eventi ad alta
+  // intenzione (video, WhatsApp, appuntamento, bolletta) restano righe
+  // distinte e prominenti.
+  const items: TimelineItem[] = [];
   let buffer: PortalEventRow[] = [];
   const flushBuffer = () => {
     if (buffer.length === 0) return;
-    const oldest = buffer[buffer.length - 1];
-    const newest = buffer[0];
-    if (buffer.length >= 3 && oldest && newest) {
-      items.push({
-        kind: 'collapsed',
-        count: buffer.length,
-        firstAt: oldest.occurred_at,
-        lastAt: newest.occurred_at,
-      });
+    if (buffer.length >= 2) {
+      items.push({ kind: 'summary', events: buffer });
     } else {
       for (const r of buffer) items.push({ kind: 'event', row: r });
     }
     buffer = [];
   };
   for (const r of events) {
-    if (r.event_kind === 'portal.heartbeat') {
+    if (PASSIVE_KINDS.has(r.event_kind)) {
       buffer.push(r);
     } else {
       flushBuffer();
@@ -201,18 +252,31 @@ export function LeadPortalTimeline({ events }: { events: PortalEventRow[] }) {
   return (
     <ol className="space-y-2">
       {items.map((item, idx) => {
-        if (item.kind === 'collapsed') {
+        if (item.kind === 'summary') {
+          const s = buildSummary(item.events);
+          const Icon = s.icon;
           return (
             <li
-              key={`hb-${idx}`}
-              className="flex items-center gap-3 rounded-md bg-surface-container-low px-4 py-2 text-xs text-on-surface-variant"
+              key={`sum-${idx}`}
+              className="flex items-center gap-3 rounded-md bg-surface-container-low px-4 py-2.5"
             >
-              <Activity size={14} aria-hidden />
-              <span className="flex-1">
-                {item.count} heartbeat in sessione
+              <span
+                className={`inline-flex h-7 w-7 items-center justify-center rounded-full ${s.tone}`}
+              >
+                <Icon size={14} aria-hidden />
               </span>
-              <span className="opacity-70">
-                {relativeTime(item.firstAt)} \u2192 {relativeTime(item.lastAt)}
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium text-on-surface">
+                  {s.label}
+                </p>
+                {s.detail && (
+                  <p className="truncate text-xs text-on-surface-variant">
+                    {s.detail}
+                  </p>
+                )}
+              </div>
+              <span className="shrink-0 text-xs text-on-surface-variant">
+                {relativeTime(s.at)}
               </span>
             </li>
           );

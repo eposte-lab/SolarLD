@@ -62,7 +62,6 @@ export function EmailReplyCta({
       href={href}
       onClick={handleClick}
       className="bento group flex h-full flex-col justify-between gap-3 p-6 transition-shadow hover:shadow-ambient-md"
-      data-portal-cta="email-reply"
     >
       <div className="flex items-center gap-3">
         <span
