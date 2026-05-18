@@ -491,8 +491,9 @@ async def scan_results(ctx: CurrentUser) -> ScanResultsResponse:
 #   - quando esaurito → status='exhausted' + se always_active → restart
 #
 # Workflow:
-#   1. POST /scan-jobs → INSERT + enqueue hunter_funnel_v3_task SUBITO
-#      con scan_job_id (job appare 'in corso' nella UI immediatamente)
+#   1. POST /scan-jobs → INSERT + enqueue map_target_areas_task per il
+#      comune scelto; al termine concatena hunter_funnel_v3_task con lo
+#      stesso scan_job_id (job 'in corso' nella UI da subito)
 #   2. Worker scansiona finché valid_leads_today < daily_validated_cap
 #      → status='paused_daily_cap' al raggiungimento
 #   3. Mezzanotte tenant tz: reset valid_leads_today=0, status diventa
@@ -622,16 +623,26 @@ async def create_scan_job(body: ScanJobCreate, ctx: CurrentUser) -> ScanJobOut:
         )
     job_id = res.data[0]["id"]
 
-    # Enqueue immediato — il worker accetta scan_job_id e tracking di cap
+    # Enqueue immediato. La scansione cerca dentro le "zone"
+    # (tenant_target_areas): se non sono mappate per questo territorio
+    # il funnel troverebbe 0 candidati e finirebbe subito 'exhausted'.
+    # Quindi accodiamo prima la mappatura L0 del COMUNE scelto; al suo
+    # termine map_target_areas_task concatena il funnel sullo stesso
+    # scan_job_id. Settori vuoti = wizard_groups di default del tenant.
+    wgs = body.sector_filters or _resolve_sorgente_defaults(sb, tenant_id)[0]
+    prov = (body.province or "").upper()
     try:
         await enqueue(
-            "hunter_funnel_v3_task",
+            "map_target_areas_task",
             {
                 "tenant_id": tenant_id,
+                "wizard_groups": wgs,
+                "province_codes": [prov] if prov else [],
+                "comune": body.comune,
                 "scan_job_id": job_id,
                 "max_l1_candidates": body.daily_validated_cap * 5,
             },
-            job_id=f"scan_job:{job_id}:{int(datetime.now(tz=UTC).timestamp())}",
+            job_id=f"scan_map:{job_id}:{int(datetime.now(tz=UTC).timestamp())}",
         )
         sb.table("scan_jobs").update({"status": "in_progress"}).eq("id", job_id).execute()
         res.data[0]["status"] = "in_progress"

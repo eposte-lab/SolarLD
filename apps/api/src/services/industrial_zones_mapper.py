@@ -185,24 +185,36 @@ def build_overpass_query(
     landuse_values: set[str],
     additional_tags: list[OsmTagHint],
     province_codes: list[str],
+    comune: str | None = None,
     timeout_s: int = _OVERPASS_TIMEOUT_S,
 ) -> str:
     """Compose a single Overpass QL query for all sectors in scope.
 
     The query selects the union of:
-      * way[landuse=X] within Italian provinces in scope, for each X
+      * way[landuse=X] within the search area, for each X
       * relation[landuse=X] (multipolygons)
       * way[K=V] / relation[K=V] for each (K,V) in additional_tags
+
+    The search area is either a single ``comune`` (admin_level 8
+    boundary, matched case-insensitively by name — used for per-comune
+    scan jobs) or the union of ``province_codes`` (ISO 3166-2).
 
     Output mode `geom` returns the polygon vertices so we can compute
     the centroid client-side without ST_Centroid round-trips.
     """
-    if not province_codes:
-        raise ValueError("build_overpass_query: province_codes cannot be empty")
-
-    # ISO 3166-2 codes for Italian provinces are formatted IT-XX (e.g. IT-MI).
-    # Overpass `["ISO3166-2"~"^IT-(MI|BG|BS)$"]` matches the area boundary.
-    province_regex = "|".join(sorted({p.upper() for p in province_codes}))
+    if comune and comune.strip():
+        # Comune-scoped: match the administrative boundary by name.
+        # Strip QL-significant chars; comune names never contain them.
+        safe = comune.strip().replace("\\", "").replace('"', "").replace("]", "")
+        area_clause = (
+            f'area["boundary"="administrative"]["admin_level"="8"]["name"~"{safe}",i]->.searchArea;'
+        )
+    else:
+        if not province_codes:
+            raise ValueError("build_overpass_query: need province_codes or comune")
+        # ISO 3166-2 codes for Italian provinces are IT-XX (e.g. IT-MI).
+        province_regex = "|".join(sorted({p.upper() for p in province_codes}))
+        area_clause = f'area["ISO3166-2"~"^IT-({province_regex})$"]->.searchArea;'
 
     landuse_clause = ""
     if landuse_values:
@@ -222,7 +234,7 @@ def build_overpass_query(
 
     return (
         f"[out:json][timeout:{timeout_s}];\n"
-        f'area["ISO3166-2"~"^IT-({province_regex})$"]->.searchArea;\n'
+        f"{area_clause}\n"
         "(\n"
         f"{landuse_clause}"
         f"{tag_block}\n"
@@ -486,10 +498,14 @@ async def map_target_areas_for_tenant(
     tenant_id: str,
     wizard_groups: list[str],
     province_codes: list[str],
+    comune: str | None = None,
     client: httpx.AsyncClient | None = None,
 ) -> MapResult:
     """Orchestrator for L0. Runs the full pipeline:
     config lookup → query build → fetch → classify → persist.
+
+    When ``comune`` is given the search area is scoped to that single
+    comune (per-comune scan jobs); otherwise it spans ``province_codes``.
 
     The supabase client must be a service-role one; tenant_target_areas
     is RLS-scoped and only the worker writes to it.
@@ -539,6 +555,7 @@ async def map_target_areas_for_tenant(
         landuse_values=landuse_values,
         additional_tags=additional_tags,
         province_codes=province_codes,
+        comune=comune,
     )
 
     # 3) Fetch
@@ -557,6 +574,7 @@ async def map_target_areas_for_tenant(
         tenant_id=tenant_id,
         wizard_groups=wizard_groups,
         provinces=province_codes,
+        comune=comune,
         fetched=len(zones),
         matched=len(matched),
         persisted=persisted,
