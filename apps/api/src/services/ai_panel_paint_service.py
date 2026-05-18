@@ -53,34 +53,57 @@ class AiPaintError(Exception):
 
 
 def build_paint_prompt(*, panel_count: int, kwp: float | None = None) -> str:
-    """Prompt nano-banana to paint panels onto the rooftop."""
+    """Prompt nano-banana to paint panels onto the rooftop.
+
+    The prompt does three jobs, in order: lock onto the *correct*
+    building, cover its roof *completely* with a realistic array, and
+    keep the framing pixel-identical to the input.
+    """
     count = f"approximately {panel_count} " if panel_count > 0 else ""
     scale = f", together forming roughly a {kwp:.0f} kWp array" if kwp and kwp > 0 else ""
     return (
-        "TASK: Edit this top-down aerial photograph by adding "
-        "photorealistic solar panels to a rooftop. "
+        "TASK: Edit this top-down aerial photograph by installing a "
+        "complete, photorealistic rooftop solar array on ONE building. "
         # ── 1. Identify the correct rooftop ──────────────────────────
-        "FIRST identify the correct rooftop: the principal building "
-        "occupying the centre of the frame. Its rooftop is the "
-        "contiguous elevated surface bounded by the building's outer "
-        "walls — recognisable as roof tiles, sheet metal, corrugated "
-        "panels, shingles or a flat membrane, and clearly raised above "
-        "the surrounding ground. Identify ALL of that building's roof "
-        "segments, including separate or differently-angled sections. "
-        # ── 2. Place the panels ──────────────────────────────────────
-        f"Add {count}photorealistic dark-blue monocrystalline silicon "
-        f"panels with thin silver aluminium frames{scale}, in neat "
-        "parallel rows aligned to the roof edges, covering every "
-        "usable roof segment of that building. The panels lie flat on "
-        "the roof, follow its exact slope, perspective and "
-        "orientation, and cast realistic soft shadows where they meet "
-        "the surface. "
-        # ── 3. Strict boundaries ─────────────────────────────────────
-        "Place panels ONLY on that building's rooftop. NEVER place "
-        "panels on the ground, lawn, garden, courtyard, driveway, "
-        "parking, road, or on neighbouring buildings. If a row would "
-        "run past a roof edge, shorten it rather than overhang. "
-        # ── 4. Framing lock — alignment with the before frame ───────
+        "STEP 1 — IDENTIFY THE TARGET ROOF. The target is the single "
+        "main building whose rooftop occupies the CENTRE of the frame: "
+        "the largest contiguous roof surface closest to the middle of "
+        "the image. Its rooftop is the elevated surface bounded by that "
+        "building's own outer walls — recognisable as a flat membrane, "
+        "sheet metal, corrugated panels, roof tiles or shingles, and "
+        "clearly raised above the surrounding ground. Trace its full "
+        "perimeter and include EVERY roof segment that belongs to it, "
+        "including separate wings, differently-angled pitches and "
+        "lower annexes of the SAME building. Do not confuse it with "
+        "adjacent buildings, internal courtyards or paved areas. "
+        # ── 2. Cover the roof completely ─────────────────────────────
+        f"STEP 2 — INSTALL THE PANELS. Add {count}photorealistic solar "
+        f"panels{scale} and cover the ENTIRE usable area of that roof, "
+        "edge to edge: the finished array must look like a real, fully "
+        "built rooftop installation, not a small partial cluster. Lay "
+        "the panels in neat continuous parallel rows aligned to the "
+        "longest roof edge, with uniform module size and consistent "
+        "small gaps between rows. Leave only realistic technical "
+        "clearances: a narrow perimeter walkway just inside the roof "
+        "edge, and tidy gaps around skylights, chimneys, HVAC units, "
+        "stairwells and other rooftop obstacles — keep those obstacles "
+        "visible and unpainted. The panels lie flat on the roof and "
+        "follow its exact slope, perspective and orientation. "
+        # ── 3. Panel realism ─────────────────────────────────────────
+        "STEP 3 — REALISM. The panels are modern dark monocrystalline "
+        "silicon modules: near-black/very dark blue, low-glare, with "
+        "thin silver aluminium frames and a faint visible cell grid. "
+        "Render realistic soft shadows where each row meets the roof "
+        "and a subtle specular sheen consistent with the sun direction, "
+        "exposure and resolution of the surrounding photograph, so the "
+        "array looks photographed, not pasted. "
+        # ── 4. Strict boundaries ─────────────────────────────────────
+        "STRICT BOUNDARIES: place panels ONLY on the target building's "
+        "rooftop. NEVER place panels on the ground, lawn, garden, "
+        "courtyard, driveway, parking, road, or on any neighbouring "
+        "building. If a row would run past a roof edge, shorten it "
+        "rather than let it overhang. "
+        # ── 5. Framing lock — alignment with the before frame ───────
         "CRITICAL FRAMING LOCK: the output MUST keep the EXACT same "
         "pixel dimensions, framing, zoom, crop and camera position as "
         "the input image. Do NOT pan, zoom, rotate or re-crop. Every "
@@ -88,7 +111,7 @@ def build_paint_prompt(*, panel_count: int, kwp: float | None = None) -> str:
         "IDENTICAL pixel position as in the input — the ONLY change "
         "from input to output is the added panels, so the two frames "
         "overlay each other perfectly. "
-        # ── 5. Output ────────────────────────────────────────────────
+        # ── 6. Output ────────────────────────────────────────────────
         "Output: photorealistic, top-down aerial perspective, natural "
         "daylight, sharp focus, no text, no watermarks."
     )
@@ -128,25 +151,20 @@ async def _run_nano_banana(
     prompt: str,
     image_url: str,
     *,
-    extra_image_urls: list[str] | None = None,
     poll_timeout_s: float = 120.0,
     poll_interval_s: float = 2.0,
     http_client: httpx.AsyncClient | None = None,
     model_owner: str | None = None,
     model_name: str | None = None,
 ) -> bytes:
-    """Create a nano-banana prediction, poll, download the PNG bytes.
-
-    ``extra_image_urls`` are appended after the primary image — used to
-    pass a placement mask as a second reference image.
-    """
+    """Create a nano-banana prediction, poll, download the PNG bytes."""
     owner = model_owner or DEFAULT_MODEL_OWNER
     name = model_name or DEFAULT_MODEL_NAME
     create_url = _PREDICTIONS_URL_FMT.format(owner=owner, name=name)
     body = {
         "input": {
             "prompt": prompt,
-            "image_input": [image_url, *(extra_image_urls or [])],
+            "image_input": [image_url],
             "output_format": "png",
         }
     }
@@ -235,70 +253,5 @@ async def generate_after_with_panels(
     return await _run_nano_banana(
         build_paint_prompt(panel_count=panel_count, kwp=kwp),
         before_image_url,
-        http_client=http_client,
-    )
-
-
-def build_masked_paint_prompt(*, panel_count: int, kwp: float | None = None) -> str:
-    """Prompt nano-banana to paint panels guided by a placement mask.
-
-    Unlike ``build_paint_prompt`` (which makes the model find the roof
-    itself), this passes the Solar API panel footprint as a second
-    mask image, so the model is told exactly WHERE the panels go.
-    """
-    count = f"approximately {panel_count} " if panel_count > 0 else ""
-    scale = f", together forming roughly a {kwp:.0f} kWp array" if kwp and kwp > 0 else ""
-    return (
-        "You are given TWO images. IMAGE 1 is a top-down aerial "
-        "photograph of a building. IMAGE 2 is a black-and-white "
-        "placement mask, pixel-aligned to IMAGE 1: the WHITE area marks "
-        "the EXACT rooftop region where solar panels must be installed. "
-        "TASK: edit IMAGE 1 by adding "
-        f"{count}photorealistic dark-blue monocrystalline silicon solar "
-        f"panels with thin silver aluminium frames{scale}, in neat "
-        "parallel rows aligned to the roof edges, covering precisely "
-        "the region marked white in IMAGE 2. The panels lie flat on the "
-        "roof, follow its exact slope, perspective and orientation, and "
-        "cast realistic soft shadows where they meet the surface. "
-        "STRICT: place panels ONLY where IMAGE 2 is white. Add nothing "
-        "where IMAGE 2 is black — no panels on the ground, lawn, "
-        "courtyard, road or neighbouring roofs. Do NOT render the mask "
-        "itself or any tint in the output. "
-        "CRITICAL FRAMING LOCK: keep the EXACT pixel dimensions, "
-        "framing, zoom, crop and camera position of IMAGE 1. Every roof "
-        "edge, wall, road, vehicle and tree must stay at the IDENTICAL "
-        "pixel position — the ONLY change is the added panels. "
-        "Output: the edited IMAGE 1 only — photorealistic, top-down "
-        "aerial perspective, natural daylight, sharp focus, no text, no "
-        "watermarks."
-    )
-
-
-async def generate_after_masked(
-    *,
-    before_image_url: str,
-    mask_image_url: str,
-    panel_count: int,
-    kwp: float | None = None,
-    http_client: httpx.AsyncClient | None = None,
-) -> bytes:
-    """Paint panels guided by a placement mask.
-
-    nano-banana receives the mask as a second reference image and is
-    told to paint photoreal panels only inside its white region. The
-    caller still composites the result through the mask for a hard
-    off-roof guarantee.
-    """
-    log.info(
-        "ai_paint.masked_paint_start",
-        before_url_peek=before_image_url[:100],
-        mask_url_peek=mask_image_url[:100],
-        panel_count=panel_count,
-        kwp=kwp,
-    )
-    return await _run_nano_banana(
-        build_masked_paint_prompt(panel_count=panel_count, kwp=kwp),
-        before_image_url,
-        extra_image_urls=[mask_image_url],
         http_client=http_client,
     )
