@@ -447,6 +447,28 @@ async def hunter_funnel_v3_task(_ctx: dict[str, Any], payload: dict[str, Any]) -
     )
     summary: dict[str, Any] = {}
     crash_exc: Exception | None = None
+
+    # Territory of the scan job — scopes the funnel to one comune so a
+    # tenant's scan jobs on different territories stay isolated.
+    scan_comune: str | None = None
+    scan_province: str | None = None
+    if scan_job_id:
+        try:
+            _job = (
+                get_service_client()
+                .table("scan_jobs")
+                .select("comune, province")
+                .eq("id", scan_job_id)
+                .limit(1)
+                .maybe_single()
+                .execute()
+            )
+            _jd = (_job.data or {}) if _job else {}
+            scan_comune = _jd.get("comune")
+            scan_province = _jd.get("province")
+        except Exception:  # noqa: BLE001
+            pass
+
     try:
         config = await get_tenant_config(tenant_id)
         summary = await run_funnel_v3(
@@ -454,6 +476,9 @@ async def hunter_funnel_v3_task(_ctx: dict[str, Any], payload: dict[str, Any]) -
             config=config,
             emitter=None,
             max_l1_candidates=int(payload.get("max_l1_candidates") or 2000),
+            comune=scan_comune,
+            province_code=scan_province,
+            scan_job_id=scan_job_id,
         )
     except Exception as exc:
         crash_exc = exc
@@ -490,15 +515,22 @@ async def hunter_funnel_v3_task(_ctx: dict[str, Any], payload: dict[str, Any]) -
                     }
                 ).eq("id", scan_job_id).execute()
             else:
-                # L6 leads produced (validated, post-promote)
-                l6_count = int((summary.get("stages") or {}).get("l6", {}).get("promoted") or 0)
+                # L6 leads produced (validated, post-promote). The
+                # orchestrator's L6 stage key is `leads_inserted`.
+                l6_count = int(
+                    (summary.get("stages") or {}).get("l6", {}).get("leads_inserted") or 0
+                )
+                # `l1.candidates` = batch size processed this run (the
+                # consumption cursor). 0 → backlog empty / territory done.
                 l1_count = int((summary.get("stages") or {}).get("l1", {}).get("candidates") or 0)
                 today = datetime.now(tz=UTC).date().isoformat()
 
                 cur_res = (
                     sb.table("scan_jobs")
                     .select(
-                        "daily_validated_cap, valid_leads_today, valid_leads_today_date, valid_leads_total, candidates_scanned_total, always_active"
+                        "daily_validated_cap, total_validated_cap, valid_leads_today, "
+                        "valid_leads_today_date, valid_leads_total, "
+                        "candidates_scanned_total, always_active"
                     )
                     .eq("id", scan_job_id)
                     .limit(1)
@@ -507,6 +539,7 @@ async def hunter_funnel_v3_task(_ctx: dict[str, Any], payload: dict[str, Any]) -
                 )
                 cur = (cur_res.data or {}) if cur_res else {}
                 cap = int(cur.get("daily_validated_cap") or 200)
+                total_cap = int(cur.get("total_validated_cap") or 5000)
                 # Reset midnight se necessario
                 same_day = cur.get("valid_leads_today_date") == today
                 prev_today = int(cur.get("valid_leads_today") or 0) if same_day else 0
@@ -516,8 +549,14 @@ async def hunter_funnel_v3_task(_ctx: dict[str, Any], payload: dict[str, Any]) -
 
                 # Decide next status. Il run è terminato: il job non è
                 # più "in esecuzione", quindi mai `in_progress` qui.
-                if l1_count == 0:
-                    # Territorio esaurito: restart se always_active, altrimenti stop
+                if new_total >= total_cap:
+                    # Cap totale raggiunto: stop esplicito e definitivo
+                    # (terminale anche con always_active). Il dispatcher
+                    # farà partire la scansione successiva in coda.
+                    next_status = "completed"
+                elif l1_count == 0:
+                    # Backlog vuoto / territorio esaurito: restart se
+                    # always_active, altrimenti stop.
                     next_status = "pending" if cur.get("always_active") else "exhausted"
                 elif new_today >= cap:
                     next_status = "paused_daily_cap"

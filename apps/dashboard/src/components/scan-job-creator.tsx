@@ -70,6 +70,7 @@ export function ScanJobCreator({ onCreated, maxDailyCap }: Props) {
   const [comune, setComune] = useState('');
   const [selectedSectors, setSelectedSectors] = useState<Set<string>>(new Set());
   const [dailyCap, setDailyCap] = useState<number>(Math.min(200, maxDailyCap));
+  const [totalCap, setTotalCap] = useState<number>(5000);
   const [alwaysActive, setAlwaysActive] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -107,6 +108,7 @@ export function ScanJobCreator({ onCreated, maxDailyCap }: Props) {
         comune: comune.trim() || undefined,
         sector_filters: Array.from(selectedSectors),
         daily_validated_cap: dailyCap,
+        total_validated_cap: totalCap,
         always_active: alwaysActive,
       });
       // Reset
@@ -116,6 +118,7 @@ export function ScanJobCreator({ onCreated, maxDailyCap }: Props) {
       setComune('');
       setSelectedSectors(new Set());
       setDailyCap(200);
+      setTotalCap(5000);
       setAlwaysActive(false);
       onCreated();
     } catch (err) {
@@ -231,6 +234,26 @@ export function ScanJobCreator({ onCreated, maxDailyCap }: Props) {
         <span className="block text-[10px] text-on-surface-variant">
           Si ferma a questo numero ogni giorno e riprende il giorno dopo —
           massimo {maxDailyCap} con il piano attuale
+        </span>
+      </label>
+
+      <label className="block space-y-1">
+        <span className="text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">
+          Lead totali (cap)
+        </span>
+        <input
+          type="number"
+          value={totalCap}
+          onChange={(e) =>
+            setTotalCap(Math.max(1, Math.min(50000, Number(e.target.value) || 1)))
+          }
+          min={1}
+          max={50000}
+          className="w-full rounded-md border border-outline-variant bg-surface px-3 py-1.5 text-sm tabular-nums focus:outline-none focus:ring-1 focus:ring-primary"
+        />
+        <span className="block text-[10px] text-on-surface-variant">
+          Raggiunto questo totale la scansione si chiude e parte la
+          successiva in coda.
         </span>
       </label>
 

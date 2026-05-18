@@ -15,6 +15,7 @@ export type ScanJobStatus =
   | 'paused'
   | 'paused_daily_cap'
   | 'exhausted'
+  | 'completed'
   | 'archived';
 
 export interface ScanJob {
@@ -25,6 +26,7 @@ export interface ScanJob {
   comune: string | null;
   sector_filters: string[];
   daily_validated_cap: number;
+  total_validated_cap: number;
   priority: number;
   status: ScanJobStatus;
   always_active: boolean;
@@ -35,6 +37,10 @@ export interface ScanJob {
   last_run_at: string | null;
   last_error: string | null;
   created_at: string;
+  // Saturazione del territorio (aggregato lato API).
+  zones_total: number;
+  zones_depleted: number;
+  candidates_in_queue: number;
 }
 
 export interface CreateScanJobInput {
@@ -44,6 +50,7 @@ export interface CreateScanJobInput {
   comune?: string;
   sector_filters?: string[];
   daily_validated_cap?: number;
+  total_validated_cap?: number;
   always_active?: boolean;
 }
 
@@ -51,6 +58,7 @@ export interface UpdateScanJobInput {
   name?: string;
   sector_filters?: string[];
   daily_validated_cap?: number;
+  total_validated_cap?: number;
   always_active?: boolean;
   status?: ScanJobStatus;
 }

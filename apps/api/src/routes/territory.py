@@ -510,6 +510,7 @@ class ScanJobCreate(BaseModel):
     comune: str | None = Field(default=None, max_length=120)
     sector_filters: list[str] = Field(default_factory=list)
     daily_validated_cap: int = Field(default=200, ge=1, le=5000)
+    total_validated_cap: int = Field(default=5000, ge=1, le=50000)
     always_active: bool = False
 
 
@@ -519,10 +520,11 @@ class ScanJobUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
     sector_filters: list[str] | None = None
     daily_validated_cap: int | None = Field(default=None, ge=1, le=5000)
+    total_validated_cap: int | None = Field(default=None, ge=1, le=50000)
     always_active: bool | None = None
     status: str | None = Field(
         default=None,
-        pattern="^(pending|in_progress|paused|paused_daily_cap|exhausted|archived)$",
+        pattern="^(pending|in_progress|paused|paused_daily_cap|exhausted|completed|archived)$",
     )
 
 
@@ -540,6 +542,7 @@ class ScanJobOut(BaseModel):
     comune: str | None = None
     sector_filters: list[str]
     daily_validated_cap: int
+    total_validated_cap: int = 5000
     priority: int
     status: str
     always_active: bool
@@ -550,6 +553,11 @@ class ScanJobOut(BaseModel):
     last_run_at: datetime | None = None
     last_error: str | None = None
     created_at: datetime
+    # Saturazione del territorio (aggregato da tenant_target_areas /
+    # scan_candidates; default 0 finché list_scan_jobs li popola).
+    zones_total: int = 0
+    zones_depleted: int = 0
+    candidates_in_queue: int = 0
 
 
 def _assert_daily_cap_within_plan(sb: Any, tenant_id: str, requested: int) -> None:
@@ -566,6 +574,23 @@ def _assert_daily_cap_within_plan(sb: Any, tenant_id: str, requested: int) -> No
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Il piano attuale consente al massimo {cap} lead validati al giorno.",
+        )
+
+
+def _assert_total_cap_within_plan(sb: Any, tenant_id: str, requested: int) -> None:
+    """Blocca un total_validated_cap oltre il tetto del piano del tenant.
+
+    ``tenants.max_total_validated_cap`` NULL = nessun limite di piano
+    (resta solo il tetto tecnico assoluto Field(le=50000)).
+    """
+    res = (
+        sb.table("tenants").select("max_total_validated_cap").eq("id", tenant_id).limit(1).execute()
+    )
+    cap = (res.data or [{}])[0].get("max_total_validated_cap")
+    if cap is not None and requested > cap:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Il piano attuale consente al massimo {cap} lead validati in totale.",
         )
 
 
@@ -589,6 +614,7 @@ async def create_scan_job(body: ScanJobCreate, ctx: CurrentUser) -> ScanJobOut:
 
     sb = get_service_client()
     _assert_daily_cap_within_plan(sb, tenant_id, body.daily_validated_cap)
+    _assert_total_cap_within_plan(sb, tenant_id, body.total_validated_cap)
 
     # Default priority: append to bottom of queue
     max_prio_res = (
@@ -610,6 +636,7 @@ async def create_scan_job(body: ScanJobCreate, ctx: CurrentUser) -> ScanJobOut:
         "comune": body.comune,
         "sector_filters": body.sector_filters,
         "daily_validated_cap": body.daily_validated_cap,
+        "total_validated_cap": body.total_validated_cap,
         "always_active": body.always_active,
         "priority": next_priority,
         "status": "pending",
@@ -655,18 +682,60 @@ async def create_scan_job(body: ScanJobCreate, ctx: CurrentUser) -> ScanJobOut:
 
 @router.get("/scan-jobs", response_model=list[ScanJobOut])
 async def list_scan_jobs(ctx: CurrentUser) -> list[ScanJobOut]:
-    """Lista jobs del tenant ordinati per priority ASC (top = next consumed)."""
+    """Lista jobs del tenant ordinati per priority ASC (top = next consumed).
+
+    Arricchisce ogni job con la saturazione del suo comune: zone totali
+    e zone esaurite (`tenant_target_areas`), candidati ancora in coda
+    di lavorazione (`scan_candidates.processed_at IS NULL`).
+    """
     tenant_id = require_tenant(ctx)
     sb = get_service_client()
-    res = (
+    jobs = (
         sb.table("scan_jobs")
         .select("*")
         .eq("tenant_id", tenant_id)
         .neq("status", "archived")
         .order("priority")
         .execute()
-    )
-    return [ScanJobOut(**row) for row in (res.data or [])]
+    ).data or []
+    if not jobs:
+        return []
+
+    # Saturazione per comune — zone totali / esaurite.
+    zones = (
+        sb.table("tenant_target_areas")
+        .select("comune, depleted")
+        .eq("tenant_id", tenant_id)
+        .eq("status", "active")
+        .execute()
+    ).data or []
+    zstats: dict[str | None, dict[str, int]] = {}
+    for z in zones:
+        s = zstats.setdefault(z.get("comune"), {"total": 0, "depleted": 0})
+        s["total"] += 1
+        if z.get("depleted"):
+            s["depleted"] += 1
+
+    # Candidati ancora da lavorare (backlog del cursore), per comune.
+    backlog = (
+        sb.table("scan_candidates")
+        .select("comune")
+        .eq("tenant_id", tenant_id)
+        .is_("processed_at", "null")
+        .execute()
+    ).data or []
+    queue_by_comune: dict[str | None, int] = {}
+    for r in backlog:
+        queue_by_comune[r.get("comune")] = queue_by_comune.get(r.get("comune"), 0) + 1
+
+    out: list[ScanJobOut] = []
+    for row in jobs:
+        zs = zstats.get(row.get("comune"), {"total": 0, "depleted": 0})
+        row["zones_total"] = zs["total"]
+        row["zones_depleted"] = zs["depleted"]
+        row["candidates_in_queue"] = queue_by_comune.get(row.get("comune"), 0)
+        out.append(ScanJobOut(**row))
+    return out
 
 
 @router.patch("/scan-jobs/{job_id}", response_model=ScanJobOut)

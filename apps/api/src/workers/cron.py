@@ -650,6 +650,8 @@ async def scan_jobs_dispatcher_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
     today = datetime.now(tz=UTC).date()
 
     # ── 1. Reset daily counter ─────────────────────────────────────
+    # `completed` (cap totale raggiunto) ed `exhausted` sono terminali:
+    # non vanno rimessi in rotazione dal reset di mezzanotte.
     sb.table("scan_jobs").update(
         {
             "valid_leads_today": 0,
@@ -657,7 +659,7 @@ async def scan_jobs_dispatcher_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
         }
     ).neq("valid_leads_today_date", today.isoformat()).neq("status", "archived").neq(
         "status", "exhausted"
-    ).execute()
+    ).neq("status", "completed").execute()
 
     # Promuovi paused_daily_cap → pending dopo il reset (il job torna
     # in coda; `in_progress` è riservato all'esecuzione effettiva).
