@@ -11,26 +11,27 @@ Pipeline (rendering-v2):
     fetch Google Solar buildingInsights (panel COUNT, kWp, primary azimuth)
         + dataLayers (high-res RGB aerial GeoTIFF)
         ↓
-    solar_rendering_service.render_before_only()
+    solar_rendering_service.render_before_and_mask()
           → BEFORE frame: real Google aerial crop, 1536×864 (16:9)
-            (no panels drawn — the photo is left untouched)
+          → MASK: white exactly on the Solar API panel footprints
         ↓
-    upload before.png to Supabase Storage
+    upload before.png + mask.png to Supabase Storage
         ↓
-    ai_panel_paint_service.paint_panels_on_aerial(before_url, panel_count, …)
-          → Gemini 2.5 Flash Image (Replicate google/nano-banana) edits the
-            real aerial: adds photoreal monocrystalline panels on the visible
-            roof, preserves everything else pixel-perfect
-          → AFTER frame: real-photo-with-real-looking-panels (1536×864, 16:9)
+    masked_inpaint_service.inpaint_panels(before_url, mask_url, …)
+          → FLUX Fill paints photoreal monocrystalline panels ONLY
+            inside the white mask region
+        ↓
+    composite_inside_mask(before, inpainted, mask)
+          → AFTER frame: the before image, byte-identical outside the
+            mask, with photoreal panels inside it → pixel-aligned
         ↓
     upload after.png to Supabase Storage
         ↓
     compute_roi(kwp, yearly_kwh, subject_type)  → leads.roi_data
         ↓
-    Remotion sidecar: render_transition(before_url, after_url, roi)
-          → Kling 1.6-Pro animates the panel-by-panel reveal between the
-            two real-photo frames, with ambient motion (cars, soft cloud
-            shadows, leaf rustle) and ROI stats overlaid in the final 2 s
+    video-renderer sidecar: render_transition(before_url, after_url, roi)
+          → FFmpeg crossfade wipe reveals the panels gradually between
+            the two aligned frames, ROI stats overlaid at the end
           → MP4 + GIF (1280×720, 16:9 @ 15 fps)
         ↓
     UPDATE leads SET rendering_image_url, rendering_video_url, rendering_gif_url, roi_data
@@ -66,14 +67,16 @@ from ..core.config import settings
 from ..core.logging import get_logger
 from ..core.supabase_client import get_service_client
 from ..models.enums import RoofStatus
-from ..services.ai_panel_paint_service import (
-    AiPaintError,
-    paint_panels_on_aerial,
-)
 from ..services.google_solar_service import (
     SolarApiError,
     SolarApiNotFound,
     fetch_building_insight,
+)
+from ..services.masked_inpaint_service import (
+    InpaintError,
+    build_inpaint_prompt,
+    composite_inside_mask,
+    inpaint_panels,
 )
 from ..services.osm_building_service import find_nearest_building
 from ..services.remotion_service import (
@@ -86,7 +89,7 @@ from ..services.solar_rendering_service import (
     SolarRenderingError,
     normalize_to_output_dimensions,
     render_before_after,
-    render_before_only,
+    render_before_and_mask,
 )
 from ..services.storage_service import upload_bytes
 from .base import AgentBase
@@ -409,13 +412,12 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
                     kwp=insight.estimated_kwp,
                 )
 
-                # 4a) BEFORE — real Google aerial crop, no panels drawn.
-                # When CREATIVE_SKIP_REPLICATE is on we use
-                # render_before_after which does the same Solar API
-                # fetch + crop AND renders panels deterministically
-                # via PIL polygons in a single call — saving a
-                # round-trip and getting the AFTER image without
-                # touching Replicate.
+                # 4a) BEFORE + roof mask. CREATIVE_SKIP_REPLICATE keeps
+                # the fully-offline render_before_after (deterministic
+                # PIL panels, no Replicate). Otherwise render_before_and_mask
+                # returns the real aerial crop plus a mask marking the
+                # exact panel footprints for the inpaint step.
+                mask_bytes: bytes | None = None
                 if settings.creative_skip_replicate:
                     before_bytes, after_bytes_offline = await render_before_after(
                         lat,
@@ -424,13 +426,13 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
                         api_key=settings.google_solar_api_key or None,
                     )
                 else:
-                    before_bytes = await render_before_only(
+                    before_bytes, mask_bytes = await render_before_and_mask(
                         lat,
                         lng,
                         insight,
                         api_key=settings.google_solar_api_key or None,
                     )
-                    after_bytes_offline = None  # filled in by Replicate path below
+                    after_bytes_offline = None  # filled in by the inpaint path below
                 before_url = upload_bytes(
                     bucket=RENDERINGS_BUCKET,
                     path=f"{payload.tenant_id}/{payload.lead_id}/before.png",
@@ -453,57 +455,55 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
                     },
                 )
 
-                # 4b) AFTER — Gemini Flash Image paints photoreal panels
-                #     on the real aerial photo. Solar API drives the prompt
-                #     (panel count, dominant azimuth, kWp scale, roof
-                #     geometry) but the pixels are produced by the AI
-                #     engine, not PIL.
-                primary_az = insight.panels[0].segment_azimuth_deg if insight.panels else None
-                # Number of distinct roof planes — extracted from the
-                # per-panel ``segment_index`` so the prompt can constrain
-                # nano-banana on multi-segment roofs (typical for L-shaped
-                # houses and industrial buildings with mixed orientations).
-                roof_segment_count: int | None = (
-                    len({p.segment_index for p in insight.panels}) if insight.panels else None
-                )
+                # 4b) AFTER — masked AI inpainting. FLUX Fill paints
+                # photoreal panels ONLY inside the roof mask; the result
+                # is then composited back over the untouched before
+                # image, so every pixel outside the roof is byte-identical
+                # and the before/after pair is aligned by construction.
                 if settings.creative_skip_replicate and after_bytes_offline is not None:
-                    # Offline path: render_before_after has already
-                    # produced the geometric panel overlay via PIL
-                    # polygons drawn at exact Solar lat/lng. Looks
-                    # less photoreal than nano-banana's instruction-
-                    # edit but is deterministic and zero-cost.
+                    # Offline path: render_before_after already produced
+                    # the geometric panel overlay via PIL polygons drawn
+                    # at exact Solar lat/lng — deterministic and zero-cost.
                     after_bytes = after_bytes_offline
                     log.info(
                         "creative.after_image_offline",
                         lead_id=payload.lead_id,
                         panels=len(insight.panels),
-                        note="CREATIVE_SKIP_REPLICATE=true — bypassed nano-banana",
+                        note="CREATIVE_SKIP_REPLICATE=true — bypassed inpainting",
                     )
-                else:
-                    after_bytes = await paint_panels_on_aerial(
+                elif mask_bytes is not None:
+                    mask_url = upload_bytes(
+                        bucket=RENDERINGS_BUCKET,
+                        path=f"{payload.tenant_id}/{payload.lead_id}/mask.png",
+                        data=mask_bytes,
+                        content_type="image/png",
+                    )
+                    inpainted_bytes = await inpaint_panels(
                         before_image_url=before_url,
-                        panel_count=len(insight.panels),
-                        primary_azimuth_deg=primary_az,
-                        kwp=insight.estimated_kwp,
-                        subject_type=subject.get("type") or "unknown",
-                        roof_area_sqm=insight.area_sqm or None,
-                        roof_segment_count=roof_segment_count,
-                        roof_pitch_deg=insight.pitch_degrees or None,
+                        mask_image_url=mask_url,
+                        prompt=build_inpaint_prompt(
+                            panel_count=len(insight.panels),
+                            kwp=insight.estimated_kwp,
+                        ),
                     )
-                    # nano-banana often returns a different resolution
-                    # than the before crop; force it back to the
-                    # canonical 16:9 size so the before/after pair is
-                    # dimensionally identical for the crossfade reveal.
+                    # Composite the model output back ONLY inside the
+                    # mask — this is what guarantees pixel alignment.
+                    after_bytes = composite_inside_mask(before_bytes, inpainted_bytes, mask_bytes)
                     after_bytes = normalize_to_output_dimensions(after_bytes)
                     _log_api_cost(
                         sb,
                         tenant_id=payload.tenant_id,
                         provider="replicate",
-                        endpoint="google/nano-banana",
-                        cost_cents=4,  # ~$0.039 per nano-banana call
+                        endpoint="black-forest-labs/flux-fill-pro",
+                        cost_cents=5,  # ~$0.05 per FLUX Fill call
                         status="success",
                         metadata={"lead_id": payload.lead_id},
                     )
+                else:
+                    # Defensive: no mask and not the offline path. Ship
+                    # the before crop as the after (no panels) so the
+                    # email still has a real aerial image.
+                    after_bytes = before_bytes
                 after_url = upload_bytes(
                     bucket=RENDERINGS_BUCKET,
                     path=f"{payload.tenant_id}/{payload.lead_id}/after.png",
@@ -519,14 +519,14 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
                     lat=lat,
                     lng=lng,
                 )
-            except AiPaintError as exc:
-                # Solar+before succeeded; AI step failed. Keep before_url
-                # uploaded so the email can fall back to a real aerial
-                # without panels rather than no image at all.
+            except InpaintError as exc:
+                # Solar+before succeeded; the inpaint step failed. Keep
+                # before_url uploaded so the email can fall back to a
+                # real aerial without panels rather than no image at all.
                 err_msg = str(exc).replace("\n", " ")[:160]
                 skipped_reason = f"ai_paint_error:{err_msg}"
                 log.warning(
-                    "creative.ai_paint_failed",
+                    "creative.inpaint_failed",
                     lead_id=payload.lead_id,
                     err=err_msg,
                 )
