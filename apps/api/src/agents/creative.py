@@ -11,21 +11,16 @@ Pipeline (rendering-v2):
     fetch Google Solar buildingInsights (panel COUNT, kWp, primary azimuth)
         + dataLayers (high-res RGB aerial GeoTIFF)
         ↓
-    solar_rendering_service.render_before_and_mask()
+    solar_rendering_service.render_before_only()
           → BEFORE frame: real Google aerial crop, 1536×864 (16:9)
-          → MASK: Solar-geometry footprint of the panels
         ↓
     upload before.png to Supabase Storage
         ↓
     ai_panel_paint_service.generate_after_with_panels(before_url)
-          → nano-banana paints panels on the rooftop
-        ↓
-    extract_panel_layer(after_full, mask) → stencil the painted
-          panels out of that frame with the Solar mask →
-          RGBA panel layer on a transparent field
-    composite_panel_layer(before, layer)
-          → AFTER frame: the untouched before image with the panel
-            layer composited on top → pixel-aligned by construction
+          → nano-banana paints panels on the rooftop, framing locked
+            to the before
+          → AFTER frame: the painted photo, used directly (it keeps
+            every painted panel and stays aligned with the before)
         ↓
     upload after.png to Supabase Storage
         ↓
@@ -71,8 +66,6 @@ from ..core.supabase_client import get_service_client
 from ..models.enums import RoofStatus
 from ..services.ai_panel_paint_service import (
     AiPaintError,
-    composite_panel_layer,
-    extract_panel_layer,
     generate_after_with_panels,
 )
 from ..services.google_solar_service import (
@@ -91,7 +84,7 @@ from ..services.solar_rendering_service import (
     SolarRenderingError,
     normalize_to_output_dimensions,
     render_before_after,
-    render_before_and_mask,
+    render_before_only,
 )
 from ..services.storage_service import upload_bytes
 from .base import AgentBase
@@ -414,12 +407,11 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
                     kwp=insight.estimated_kwp,
                 )
 
-                # 4a) BEFORE + panel mask. CREATIVE_SKIP_REPLICATE keeps
-                # the fully-offline render_before_after (deterministic
-                # PIL panels, no Replicate); otherwise render_before_and_mask
-                # gives the aerial crop plus a Solar-geometry mask of the
-                # exact panel footprints — the stencil for the step below.
-                mask_bytes: bytes | None = None
+                # 4a) BEFORE — real Google aerial crop, no panels drawn.
+                # CREATIVE_SKIP_REPLICATE keeps the fully-offline
+                # render_before_after (deterministic PIL panels, no
+                # Replicate); otherwise render_before_only gives the
+                # aerial crop that nano-banana paints panels onto.
                 if settings.creative_skip_replicate:
                     before_bytes, after_bytes_offline = await render_before_after(
                         lat,
@@ -428,13 +420,13 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
                         api_key=settings.google_solar_api_key or None,
                     )
                 else:
-                    before_bytes, mask_bytes = await render_before_and_mask(
+                    before_bytes = await render_before_only(
                         lat,
                         lng,
                         insight,
                         api_key=settings.google_solar_api_key or None,
                     )
-                    after_bytes_offline = None  # filled in by the panel-layer path below
+                    after_bytes_offline = None  # filled in by the paint path below
                 before_url = upload_bytes(
                     bucket=RENDERINGS_BUCKET,
                     path=f"{payload.tenant_id}/{payload.lead_id}/before.png",
@@ -457,11 +449,11 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
                     },
                 )
 
-                # 4b) AFTER — nano-banana paints panels on the roof;
-                # the painted panels are then stencilled out of that
-                # frame with the Solar-geometry mask and composited
-                # over the untouched before. Background is the before
-                # image by construction → always aligned.
+                # 4b) AFTER — nano-banana paints panels on the roof.
+                # The painted frame IS the after: its framing is locked
+                # to the before, so it stays aligned, and it keeps
+                # every panel the model painted (a Solar-mask stencil
+                # would clip panels the model placed outside the mask).
                 if settings.creative_skip_replicate and after_bytes_offline is not None:
                     # Offline path: render_before_after already produced
                     # the geometric panel overlay via PIL polygons drawn
@@ -473,31 +465,12 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
                         panels=len(insight.panels),
                         note="CREATIVE_SKIP_REPLICATE=true — bypassed nano-banana",
                     )
-                elif mask_bytes is not None:
-                    # Paint panels on the roof.
-                    after_full = await generate_after_with_panels(
+                else:
+                    after_bytes = await generate_after_with_panels(
                         before_image_url=before_url,
                         panel_count=len(insight.panels),
                         kwp=insight.estimated_kwp,
                     )
-                    after_full = normalize_to_output_dimensions(after_full)
-                    upload_bytes(
-                        bucket=RENDERINGS_BUCKET,
-                        path=f"{payload.tenant_id}/{payload.lead_id}/after_full.png",
-                        data=after_full,
-                        content_type="image/png",
-                    )
-                    # Stencil the painted panels out with the Solar
-                    # mask → a transparent panel layer aligned to the
-                    # before; composite it over the untouched before.
-                    panel_layer = extract_panel_layer(after_full, mask_bytes)
-                    upload_bytes(
-                        bucket=RENDERINGS_BUCKET,
-                        path=f"{payload.tenant_id}/{payload.lead_id}/panels.png",
-                        data=panel_layer,
-                        content_type="image/png",
-                    )
-                    after_bytes = composite_panel_layer(before_bytes, panel_layer)
                     after_bytes = normalize_to_output_dimensions(after_bytes)
                     _log_api_cost(
                         sb,
@@ -508,11 +481,6 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
                         status="success",
                         metadata={"lead_id": payload.lead_id},
                     )
-                else:
-                    # Defensive: no mask and not the offline path. Ship
-                    # the before crop as the after (no panels) so the
-                    # email still has a real aerial image.
-                    after_bytes = before_bytes
                 after_url = upload_bytes(
                     bucket=RENDERINGS_BUCKET,
                     path=f"{payload.tenant_id}/{payload.lead_id}/after.png",

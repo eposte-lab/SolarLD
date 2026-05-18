@@ -1,26 +1,17 @@
-"""Panel-layer generation via Google Gemini 2.5 Flash Image
-(``google/nano-banana`` on Replicate) + deterministic extraction.
+"""After-frame generation via Google Gemini 2.5 Flash Image
+(``google/nano-banana`` on Replicate).
 
-Flow
-----
+nano-banana edits the real aerial "before" photo, adding photorealistic
+solar panels on the rooftop — the "edit this photo" task it handles
+well. The prompt locks the framing to the input, so the painted frame
+stays aligned with the before and is used directly as the after frame.
 
-  1. paint: nano-banana edits the real aerial photo, adding
-     photorealistic panels on the rooftop — the "edit this photo"
-     task it handles well, with the framing locked to the input.
-  2. extract: the painted panels are stencilled out of that frame
-     with the Solar-geometry panel mask. A before/after diff cannot
-     be used — nano-banana re-encodes the *whole* image — and an AI
-     "isolation" pass re-framed it; the Solar mask is deterministic
-     and already aligned to the before crop.
-  3. composite: the transparent panel layer is dropped over the
-     untouched before image.
-
-    before.png  (real aerial, never touched)
-         +  panel layer  (painted panels, stencilled to a transparent field)
-         =  after.png
-
-The background is the before image by construction, so it is always
-pixel-aligned; only the panels come from the model.
+Earlier variants extracted a transparent panels-only layer (by AI
+isolation, by before/after diff, or by stencilling with the Solar
+mask). All clipped or mangled panels: AI isolation re-framed, the diff
+lit up everywhere because nano-banana re-encodes the whole image, and
+the Solar-mask stencil cut panels the model painted outside the mask.
+The painted frame itself is the most faithful, aligned result.
 
 Override points (env)
 ---------------------
@@ -34,12 +25,10 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import io
 import os
 from typing import Any
 
 import httpx
-from PIL import Image
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from ..core.config import settings
@@ -68,7 +57,7 @@ class AiPaintError(Exception):
 
 
 def build_paint_prompt(*, panel_count: int, kwp: float | None = None) -> str:
-    """Pass 1 — prompt nano-banana to paint panels onto the rooftop."""
+    """Prompt nano-banana to paint panels onto the rooftop."""
     count = f"approximately {panel_count} " if panel_count > 0 else ""
     scale = f", together forming roughly a {kwp:.0f} kWp array" if kwp and kwp > 0 else ""
     return (
@@ -231,61 +220,3 @@ async def generate_after_with_panels(
         before_image_url,
         http_client=http_client,
     )
-
-
-# ---------------------------------------------------------------------------
-# Panel-layer extraction + compositing (pure)
-# ---------------------------------------------------------------------------
-
-
-def _rgba_png(img: Image.Image) -> bytes:
-    buf = io.BytesIO()
-    img.convert("RGBA").save(buf, format="PNG")
-    return buf.getvalue()
-
-
-def extract_panel_layer(after_bytes: bytes, mask_bytes: bytes) -> bytes:
-    """Stencil the painted panels out of the after frame.
-
-    The after frame (nano-banana, photoreal panels, framing locked to
-    the before) is cut with the Solar-geometry panel mask: inside the
-    white mask we keep the painted panels, everything else becomes
-    transparent.
-
-    Why a mask and not a before/after diff: nano-banana re-encodes the
-    *whole* image, so a per-pixel diff lights up everywhere, not just
-    on the panels. The Solar mask is deterministic and already aligned
-    to the before crop, so it isolates the panel region reliably.
-
-    Returns an RGBA PNG: the painted panels on a transparent field.
-    """
-    after = Image.open(io.BytesIO(after_bytes)).convert("RGBA")
-    mask = Image.open(io.BytesIO(mask_bytes)).convert("L")
-    if mask.size != after.size:
-        mask = mask.resize(after.size, Image.LANCZOS)
-
-    after.putalpha(mask)
-
-    opaque_px = sum(1 for v in mask.getdata() if v > 10)
-    log.info(
-        "ai_paint.panel_layer_stencil",
-        coverage=round(opaque_px / max(1, mask.width * mask.height), 3),
-    )
-    return _rgba_png(after)
-
-
-def composite_panel_layer(before_bytes: bytes, layer_bytes: bytes) -> bytes:
-    """Composite the isolated panel layer over the untouched before image.
-
-    The background stays exactly the before image; only the panels are
-    drawn on top. Returns an RGB PNG.
-    """
-    before = Image.open(io.BytesIO(before_bytes)).convert("RGBA")
-    layer = Image.open(io.BytesIO(layer_bytes)).convert("RGBA")
-    if layer.size != before.size:
-        layer = layer.resize(before.size, Image.LANCZOS)
-
-    out = Image.alpha_composite(before, layer).convert("RGB")
-    buf = io.BytesIO()
-    out.save(buf, format="PNG", optimize=True, compress_level=6)
-    return buf.getvalue()
