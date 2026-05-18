@@ -502,12 +502,16 @@ async def scan_results(ctx: CurrentUser) -> ScanResultsResponse:
 
 
 class ScanJobCreate(BaseModel):
-    """Body of POST /v1/scan-jobs."""
+    """Body of POST /v1/scan-jobs.
+
+    Territory = ``region`` + ``province_codes``. The frontend expands a
+    "whole region" choice into the full province list, so the array is
+    always explicit (one or many ISO 3166-2 suffixes).
+    """
 
     name: str = Field(min_length=1, max_length=120)
-    region: str | None = Field(default=None, max_length=80)
-    province: str | None = Field(default=None, max_length=4)
-    comune: str | None = Field(default=None, max_length=120)
+    region: str = Field(min_length=1, max_length=80)
+    province_codes: list[str] = Field(min_length=1)
     sector_filters: list[str] = Field(default_factory=list)
     daily_validated_cap: int = Field(default=200, ge=1, le=5000)
     total_validated_cap: int = Field(default=5000, ge=1, le=50000)
@@ -538,8 +542,7 @@ class ScanJobOut(BaseModel):
     id: str
     name: str
     region: str | None = None
-    province: str | None = None
-    comune: str | None = None
+    province_codes: list[str] = Field(default_factory=list)
     sector_filters: list[str]
     daily_validated_cap: int
     total_validated_cap: int = 5000
@@ -606,15 +609,11 @@ async def create_scan_job(body: ScanJobCreate, ctx: CurrentUser) -> ScanJobOut:
     while the worker scans. Stops at `daily_validated_cap` validated leads.
     """
     tenant_id = require_tenant(ctx)
-    if not (body.region or body.province or body.comune):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="territory_required",
-        )
-
     sb = get_service_client()
     _assert_daily_cap_within_plan(sb, tenant_id, body.daily_validated_cap)
     _assert_total_cap_within_plan(sb, tenant_id, body.total_validated_cap)
+
+    province_codes = [p.upper() for p in body.province_codes]
 
     # Default priority: append to bottom of queue
     max_prio_res = (
@@ -632,8 +631,7 @@ async def create_scan_job(body: ScanJobCreate, ctx: CurrentUser) -> ScanJobOut:
         "tenant_id": tenant_id,
         "name": body.name,
         "region": body.region,
-        "province": (body.province or "").upper() or None,
-        "comune": body.comune,
+        "province_codes": province_codes,
         "sector_filters": body.sector_filters,
         "daily_validated_cap": body.daily_validated_cap,
         "total_validated_cap": body.total_validated_cap,
@@ -653,19 +651,17 @@ async def create_scan_job(body: ScanJobCreate, ctx: CurrentUser) -> ScanJobOut:
     # Enqueue immediato. La scansione cerca dentro le "zone"
     # (tenant_target_areas): se non sono mappate per questo territorio
     # il funnel troverebbe 0 candidati e finirebbe subito 'exhausted'.
-    # Quindi accodiamo prima la mappatura L0 del COMUNE scelto; al suo
-    # termine map_target_areas_task concatena il funnel sullo stesso
+    # Quindi accodiamo prima la mappatura L0 delle PROVINCE scelte; al
+    # suo termine map_target_areas_task concatena il funnel sullo stesso
     # scan_job_id. Settori vuoti = wizard_groups di default del tenant.
     wgs = body.sector_filters or _resolve_sorgente_defaults(sb, tenant_id)[0]
-    prov = (body.province or "").upper()
     try:
         await enqueue(
             "map_target_areas_task",
             {
                 "tenant_id": tenant_id,
                 "wizard_groups": wgs,
-                "province_codes": [prov] if prov else [],
-                "comune": body.comune,
+                "province_codes": province_codes,
                 "scan_job_id": job_id,
                 "max_l1_candidates": body.daily_validated_cap * 5,
             },
@@ -684,9 +680,10 @@ async def create_scan_job(body: ScanJobCreate, ctx: CurrentUser) -> ScanJobOut:
 async def list_scan_jobs(ctx: CurrentUser) -> list[ScanJobOut]:
     """Lista jobs del tenant ordinati per priority ASC (top = next consumed).
 
-    Arricchisce ogni job con la saturazione del suo comune: zone totali
-    e zone esaurite (`tenant_target_areas`), candidati ancora in coda
-    di lavorazione (`scan_candidates.processed_at IS NULL`).
+    Arricchisce ogni job con la saturazione del suo territorio: zone
+    totali ed esaurite (`tenant_target_areas`), candidati ancora in coda
+    di lavorazione (`scan_candidates.processed_at IS NULL`), aggregati
+    sulle province coperte dal job.
     """
     tenant_id = require_tenant(ctx)
     sb = get_service_client()
@@ -701,39 +698,39 @@ async def list_scan_jobs(ctx: CurrentUser) -> list[ScanJobOut]:
     if not jobs:
         return []
 
-    # Saturazione per comune — zone totali / esaurite.
+    # Saturazione per provincia — zone totali / esaurite.
     zones = (
         sb.table("tenant_target_areas")
-        .select("comune, depleted")
+        .select("province_code, depleted")
         .eq("tenant_id", tenant_id)
         .eq("status", "active")
         .execute()
     ).data or []
     zstats: dict[str | None, dict[str, int]] = {}
     for z in zones:
-        s = zstats.setdefault(z.get("comune"), {"total": 0, "depleted": 0})
+        s = zstats.setdefault(z.get("province_code"), {"total": 0, "depleted": 0})
         s["total"] += 1
         if z.get("depleted"):
             s["depleted"] += 1
 
-    # Candidati ancora da lavorare (backlog del cursore), per comune.
+    # Candidati ancora da lavorare (backlog del cursore), per provincia.
     backlog = (
         sb.table("scan_candidates")
-        .select("comune")
+        .select("province_code")
         .eq("tenant_id", tenant_id)
         .is_("processed_at", "null")
         .execute()
     ).data or []
-    queue_by_comune: dict[str | None, int] = {}
+    queue_by_prov: dict[str | None, int] = {}
     for r in backlog:
-        queue_by_comune[r.get("comune")] = queue_by_comune.get(r.get("comune"), 0) + 1
+        queue_by_prov[r.get("province_code")] = queue_by_prov.get(r.get("province_code"), 0) + 1
 
     out: list[ScanJobOut] = []
     for row in jobs:
-        zs = zstats.get(row.get("comune"), {"total": 0, "depleted": 0})
-        row["zones_total"] = zs["total"]
-        row["zones_depleted"] = zs["depleted"]
-        row["candidates_in_queue"] = queue_by_comune.get(row.get("comune"), 0)
+        pcs = row.get("province_codes") or []
+        row["zones_total"] = sum(zstats.get(p, {}).get("total", 0) for p in pcs)
+        row["zones_depleted"] = sum(zstats.get(p, {}).get("depleted", 0) for p in pcs)
+        row["candidates_in_queue"] = sum(queue_by_prov.get(p, 0) for p in pcs)
         out.append(ScanJobOut(**row))
     return out
 

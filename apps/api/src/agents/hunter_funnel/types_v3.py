@@ -42,12 +42,13 @@ class FunnelV3Context:
     config: TenantConfig
     costs: ScanCostAccumulator
 
-    # Territory scoping (FLUSSO 1 v3 + scan jobs). When ``comune`` is
-    # set the funnel only touches zones / candidates of that comune, so
-    # a tenant's scan jobs on different comuni stay isolated. ``None``
-    # keeps the legacy tenant-wide behaviour (daily cron path).
-    comune: str | None = None
-    province_code: str | None = None
+    # Territory scoping (FLUSSO 1 v3 + scan jobs). ``province_codes``
+    # lists the province a scan job covers (one or many; empty = whole
+    # region expanded upstream). The funnel only touches zones /
+    # candidates of those province, so a tenant's scan jobs on different
+    # territories stay isolated. Empty list keeps the legacy tenant-wide
+    # behaviour (daily cron path).
+    province_codes: list[str] = field(default_factory=list)
     scan_job_id: str | None = None
 
     # Hard cap to avoid runaway Places spend on first deploy. With ~100

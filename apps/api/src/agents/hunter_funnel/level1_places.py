@@ -6,8 +6,8 @@ directly. The funnel consumes the pool via a cursor (see
 walks the territory progressively instead of re-processing the same
 contacts.
 
-  1. Load the active zones of the scan's comune from
-     `tenant_target_areas` (a scan job only touches its own comune).
+  1. Load the active zones of the scan's province from
+     `tenant_target_areas` (a scan job only touches its own province).
   2. Skip zones discovered within `_FRESHNESS_DAYS`, or flagged
      `depleted` — no point re-paying Google Places for a zone that
      has nothing new yet.
@@ -104,18 +104,20 @@ async def run_level1_places(ctx: FunnelV3Context) -> dict[str, Any]:
         sb.table("tenant_target_areas")
         .select(
             "id, primary_sector, matched_sectors, centroid_lat, centroid_lng, "
-            "area_m2, last_discovered_at, depleted, candidates_found"
+            "area_m2, last_discovered_at, depleted, candidates_found, province_code"
         )
         .eq("tenant_id", ctx.tenant_id)
         .eq("status", "active")
     )
-    if ctx.comune:
-        zq = zq.eq("comune", ctx.comune)
-    elif ctx.province_code:
-        zq = zq.eq("province_code", ctx.province_code)
+    if ctx.province_codes:
+        zq = zq.in_("province_code", ctx.province_codes)
     zones = (zq.order("matching_score", desc=True).execute()).data or []
     if not zones:
-        log.info("level1_places.no_zones", tenant_id=ctx.tenant_id, comune=ctx.comune)
+        log.info(
+            "level1_places.no_zones",
+            tenant_id=ctx.tenant_id,
+            province_codes=ctx.province_codes,
+        )
         return {"discovered": 0, "zones_total": 0, "zones_skipped_fresh": 0, "places_calls": 0}
 
     # 2) Pre-warm the sector palette cache + resolve configs.
@@ -201,7 +203,7 @@ async def run_level1_places(ctx: FunnelV3Context) -> dict[str, Any]:
             rows.append(
                 {
                     "tenant_id": ctx.tenant_id,
-                    "comune": ctx.comune,
+                    "province_code": _zone.get("province_code"),
                     "scan_id": ctx.scan_id,
                     "stage": 1,
                     "google_place_id": cand.place_id,
@@ -257,7 +259,7 @@ async def run_level1_places(ctx: FunnelV3Context) -> dict[str, Any]:
     log.info(
         "level1_places.done",
         tenant_id=ctx.tenant_id,
-        comune=ctx.comune,
+        province_codes=ctx.province_codes,
         zones_total=len(zones),
         zones_skipped_fresh=zones_skipped_fresh,
         places_calls=total_calls,
@@ -278,7 +280,7 @@ async def load_backlog(ctx: FunnelV3Context, *, limit: int) -> list[PlaceCandida
     A candidate with ``processed_at IS NULL`` has not yet been run
     through L2-L6. Ordered oldest-first so a recurring scan walks the
     territory progressively (day 1: contacts 1-N, day 2: N+1-2N, …).
-    Scoped to the scan's comune so jobs on different territories don't
+    Scoped to the scan's province so jobs on different territories don't
     consume each other's backlog.
     """
     sb = get_service_client()
@@ -289,8 +291,8 @@ async def load_backlog(ctx: FunnelV3Context, *, limit: int) -> list[PlaceCandida
         .is_("processed_at", "null")
         .not_.is_("google_place_id", "null")
     )
-    if ctx.comune:
-        q = q.eq("comune", ctx.comune)
+    if ctx.province_codes:
+        q = q.in_("province_code", ctx.province_codes)
     rows = (q.order("created_at").limit(limit).execute()).data or []
     return [_row_to_record(r) for r in rows]
 

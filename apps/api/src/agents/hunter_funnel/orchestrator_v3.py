@@ -48,23 +48,22 @@ async def run_funnel_v3(
     config: Any,  # TenantConfig — duck-typed; only target_wizard_groups used
     emitter: Any | None = None,  # optional event emitter (HunterAgent._emit_event)
     max_l1_candidates: int = 2000,
-    comune: str | None = None,
-    province_code: str | None = None,
+    province_codes: list[str] | None = None,
     scan_job_id: str | None = None,
 ) -> dict[str, Any]:
     """Run the funnel for one scan job. Returns a summary dict.
 
     Two phases:
       * L1 discovery — grow the candidate pool with genuinely NEW
-        places for this comune (skips zones discovered recently).
+        places for this territory (skips zones discovered recently).
       * L2-L6 processing — pull the next batch of un-processed
         candidates (the consumption cursor: `processed_at IS NULL`),
         run them through scraping → quality → solar → score → promote,
         then stamp them processed so the next run continues from the
         following batch.
 
-    ``comune`` scopes both phases to one comune so a tenant's scan
-    jobs on different territories stay isolated.
+    ``province_codes`` scopes both phases to those province so a
+    tenant's scan jobs on different territories stay isolated.
     """
     scan_id = str(uuid4())
 
@@ -80,8 +79,7 @@ async def run_funnel_v3(
         scan_id=scan_id,
         config=config,
         costs=costs,
-        comune=comune,
-        province_code=province_code,
+        province_codes=province_codes or [],
         scan_job_id=scan_job_id,
         max_l1_candidates=max_l1_candidates,
     )

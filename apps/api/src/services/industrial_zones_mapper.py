@@ -185,7 +185,6 @@ def build_overpass_query(
     landuse_values: set[str],
     additional_tags: list[OsmTagHint],
     province_codes: list[str],
-    comune: str | None = None,
     timeout_s: int = _OVERPASS_TIMEOUT_S,
 ) -> str:
     """Compose a single Overpass QL query for all sectors in scope.
@@ -195,26 +194,18 @@ def build_overpass_query(
       * relation[landuse=X] (multipolygons)
       * way[K=V] / relation[K=V] for each (K,V) in additional_tags
 
-    The search area is either a single ``comune`` (admin_level 8
-    boundary, matched case-insensitively by name — used for per-comune
-    scan jobs) or the union of ``province_codes`` (ISO 3166-2).
+    The search area is the union of ``province_codes`` (ISO 3166-2).
+    Callers that need to know which province each zone belongs to should
+    pass a single code per call (see ``map_target_areas_for_tenant``).
 
     Output mode `geom` returns the polygon vertices so we can compute
     the centroid client-side without ST_Centroid round-trips.
     """
-    if comune and comune.strip():
-        # Comune-scoped: match the administrative boundary by name.
-        # Strip QL-significant chars; comune names never contain them.
-        safe = comune.strip().replace("\\", "").replace('"', "").replace("]", "")
-        area_clause = (
-            f'area["boundary"="administrative"]["admin_level"="8"]["name"~"{safe}",i]->.searchArea;'
-        )
-    else:
-        if not province_codes:
-            raise ValueError("build_overpass_query: need province_codes or comune")
-        # ISO 3166-2 codes for Italian provinces are IT-XX (e.g. IT-MI).
-        province_regex = "|".join(sorted({p.upper() for p in province_codes}))
-        area_clause = f'area["ISO3166-2"~"^IT-({province_regex})$"]->.searchArea;'
+    if not province_codes:
+        raise ValueError("build_overpass_query: need province_codes")
+    # ISO 3166-2 codes for Italian provinces are IT-XX (e.g. IT-MI).
+    province_regex = "|".join(sorted({p.upper() for p in province_codes}))
+    area_clause = f'area["ISO3166-2"~"^IT-({province_regex})$"]->.searchArea;'
 
     landuse_clause = ""
     if landuse_values:
@@ -445,12 +436,14 @@ async def _persist_zones(
     *,
     tenant_id: str,
     classified: list[ClassifiedZone],
-    comune: str | None = None,
+    province_code: str,
 ) -> int:
     """Bulk upsert into tenant_target_areas. Returns rows persisted.
 
-    ``comune`` is stamped on every zone so the funnel can scope a scan
-    job to its own comune (zones from other comuni are not pulled in).
+    ``province_code`` is stamped on every zone so the funnel can scope a
+    scan job to its own province (zones from other province are not
+    pulled in). The caller maps one province at a time so the code is
+    known reliably — OSM elements rarely carry an ISO3166-2 tag.
     """
     if not classified:
         return 0
@@ -459,14 +452,9 @@ async def _persist_zones(
     for c in classified:
         if not c.matched_sectors:
             continue
-        # Province inferred from tags when present (ISO3166-2 isn't on every
-        # element). For MVP we leave it null — the orchestrator can backfill
-        # with a reverse-geocode if needed.
-        province = c.zone.tags.get("addr:province") or c.zone.tags.get("ref:ISTAT")
         rows.append(
             {
                 "tenant_id": tenant_id,
-                "comune": comune,
                 "osm_id": c.zone.osm_id,
                 "osm_type": c.zone.osm_type,
                 "centroid_lat": round(c.zone.centroid_lat, 7),
@@ -475,7 +463,7 @@ async def _persist_zones(
                 "matched_sectors": c.matched_sectors,
                 "primary_sector": c.primary_sector,
                 "matching_score": c.matching_score,
-                "province_code": province,
+                "province_code": province_code.upper(),
                 "raw_tags": c.zone.tags,
                 "status": "active",
                 # geometry is GEOGRAPHY(POLYGON, 4326) — Postgres / PostGIS
@@ -504,14 +492,14 @@ async def map_target_areas_for_tenant(
     tenant_id: str,
     wizard_groups: list[str],
     province_codes: list[str],
-    comune: str | None = None,
     client: httpx.AsyncClient | None = None,
 ) -> MapResult:
     """Orchestrator for L0. Runs the full pipeline:
     config lookup → query build → fetch → classify → persist.
 
-    When ``comune`` is given the search area is scoped to that single
-    comune (per-comune scan jobs); otherwise it spans ``province_codes``.
+    The search area spans ``province_codes`` — mapped ONE province at a
+    time so each persisted zone carries its true ``province_code`` (OSM
+    elements rarely carry an ISO3166-2 tag, so we cannot infer it).
 
     The supabase client must be a service-role one; tenant_target_areas
     is RLS-scoped and only the worker writes to it.
@@ -557,24 +545,39 @@ async def map_target_areas_for_tenant(
             errors=["no_osm_filters_for_selected_wizard_groups"],
         )
 
-    query = build_overpass_query(
-        landuse_values=landuse_values,
-        additional_tags=additional_tags,
-        province_codes=province_codes,
-        comune=comune,
-    )
+    # 3) Fetch + classify + persist — one province per Overpass query so
+    #    every zone gets stamped with its true province_code.
+    total_fetched = 0
+    total_matched = 0
+    total_persisted = 0
+    sectors_covered_set: set[str] = set()
+    endpoint_used: str | None = None
 
-    # 3) Fetch
-    zones, endpoint_used = await fetch_zones_from_osm(query, client=client)
+    for province in province_codes:
+        query = build_overpass_query(
+            landuse_values=landuse_values,
+            additional_tags=additional_tags,
+            province_codes=[province],
+        )
+        try:
+            zones, ep = await fetch_zones_from_osm(query, client=client)
+        except Exception as exc:  # noqa: BLE001 — Overpass is the boundary
+            errors.append(f"overpass_failed:{province}:{type(exc).__name__}")
+            continue
+        endpoint_used = ep or endpoint_used
 
-    # 4) Classify + persist
-    classified = [classify_zone_for_sectors(z, configs=configs) for z in zones]
-    matched = [c for c in classified if c.matched_sectors]
-    persisted = await _persist_zones(
-        supabase, tenant_id=tenant_id, classified=matched, comune=comune
-    )
+        classified = [classify_zone_for_sectors(z, configs=configs) for z in zones]
+        matched = [c for c in classified if c.matched_sectors]
+        persisted = await _persist_zones(
+            supabase, tenant_id=tenant_id, classified=matched, province_code=province
+        )
 
-    sectors_covered = sorted({s for c in matched for s in c.matched_sectors})
+        total_fetched += len(zones)
+        total_matched += len(matched)
+        total_persisted += persisted
+        sectors_covered_set.update(s for c in matched for s in c.matched_sectors)
+
+    sectors_covered = sorted(sectors_covered_set)
     elapsed = asyncio.get_event_loop().time() - started
 
     log.info(
@@ -582,19 +585,18 @@ async def map_target_areas_for_tenant(
         tenant_id=tenant_id,
         wizard_groups=wizard_groups,
         provinces=province_codes,
-        comune=comune,
-        fetched=len(zones),
-        matched=len(matched),
-        persisted=persisted,
+        fetched=total_fetched,
+        matched=total_matched,
+        persisted=total_persisted,
         sectors_covered=sectors_covered,
         elapsed_s=round(elapsed, 1),
     )
 
     return MapResult(
         tenant_id=tenant_id,
-        total_zones_fetched=len(zones),
-        zones_matched_to_sectors=len(matched),
-        zones_persisted=persisted,
+        total_zones_fetched=total_fetched,
+        zones_matched_to_sectors=total_matched,
+        zones_persisted=total_persisted,
         sectors_covered=sectors_covered,
         provinces_covered=list(province_codes),
         elapsed_seconds=round(elapsed, 1),
