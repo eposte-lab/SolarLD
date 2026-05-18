@@ -377,16 +377,18 @@ async def extract_practice_upload_task(
 async def map_target_areas_task(_ctx: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
     """L0 — One-shot OSM zone mapping for a tenant.
 
-    Triggered via POST /v1/territory/map (or onboarding completion).
-    Slow (5-15 min for 2-3 provinces) so always runs as ARQ background
-    job. Idempotent: re-running upserts existing zones by
-    (tenant_id, osm_type, osm_id), so the operator can re-map after
-    changing wizard_groups or province_codes.
+    Triggered via POST /v1/territory/map, onboarding completion, or a
+    scan-job creation (per-comune). Slow (2-15 min) so always runs as
+    an ARQ background job. Idempotent: re-running upserts existing
+    zones by (tenant_id, osm_type, osm_id).
 
     Payload schema:
       tenant_id: str (UUID)
       wizard_groups: list[str]
-      province_codes: list[str]  # Italian ISO 3166-2 suffixes (BS, BG, ...)
+      province_codes: list[str]  # Italian ISO 3166-2 suffixes (NA, MI, ...)
+      comune: str | None         # when set, scope the mapping to one comune
+      scan_job_id: str | None    # when set, chain hunter_funnel_v3_task after
+      max_l1_candidates: int | None
     """
     sb = get_service_client()
     result = await map_target_areas_for_tenant(
@@ -394,7 +396,25 @@ async def map_target_areas_task(_ctx: dict[str, Any], payload: dict[str, Any]) -
         tenant_id=payload["tenant_id"],
         wizard_groups=list(payload.get("wizard_groups") or []),
         province_codes=list(payload.get("province_codes") or []),
+        comune=payload.get("comune"),
     )
+
+    # When triggered by a scan job, chain the funnel so the scan runs
+    # against the zones we just mapped — without this the scan would
+    # find an empty tenant_target_areas and exhaust immediately.
+    scan_job_id = payload.get("scan_job_id")
+    if scan_job_id:
+        redis = _ctx.get("redis")
+        if redis is not None:
+            await redis.enqueue_job(
+                "hunter_funnel_v3_task",
+                {
+                    "tenant_id": payload["tenant_id"],
+                    "scan_job_id": scan_job_id,
+                    "max_l1_candidates": int(payload.get("max_l1_candidates") or 2000),
+                },
+            )
+
     return {
         "tenant_id": result.tenant_id,
         "fetched": result.total_zones_fetched,
