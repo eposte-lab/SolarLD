@@ -31,7 +31,7 @@ from uuid import uuid4
 
 from ...core.logging import get_logger
 from ...services.scan_cost_tracker import ScanCostAccumulator
-from .level1_places import run_level1_places
+from .level1_places import load_backlog, mark_processed, run_level1_places
 from .level2_scraping import run_level2_scraping
 from .level3_quality import run_level3_quality
 from .level4_solar_qualify import run_level4_solar_qualify
@@ -48,13 +48,23 @@ async def run_funnel_v3(
     config: Any,  # TenantConfig — duck-typed; only target_wizard_groups used
     emitter: Any | None = None,  # optional event emitter (HunterAgent._emit_event)
     max_l1_candidates: int = 2000,
+    comune: str | None = None,
+    province_code: str | None = None,
+    scan_job_id: str | None = None,
 ) -> dict[str, Any]:
-    """Run L1→L6 for one tenant. Returns a summary dict for logging.
+    """Run the funnel for one scan job. Returns a summary dict.
 
-    Caller responsibilities:
-      * Verify the tenant has rows in tenant_target_areas (otherwise
-        L1 returns empty and we short-circuit).
-      * Enqueue this task only for tenants that opted into v3.
+    Two phases:
+      * L1 discovery — grow the candidate pool with genuinely NEW
+        places for this comune (skips zones discovered recently).
+      * L2-L6 processing — pull the next batch of un-processed
+        candidates (the consumption cursor: `processed_at IS NULL`),
+        run them through scraping → quality → solar → score → promote,
+        then stamp them processed so the next run continues from the
+        following batch.
+
+    ``comune`` scopes both phases to one comune so a tenant's scan
+    jobs on different territories stay isolated.
     """
     scan_id = str(uuid4())
 
@@ -70,6 +80,9 @@ async def run_funnel_v3(
         scan_id=scan_id,
         config=config,
         costs=costs,
+        comune=comune,
+        province_code=province_code,
+        scan_job_id=scan_job_id,
         max_l1_candidates=max_l1_candidates,
     )
 
@@ -91,21 +104,36 @@ async def run_funnel_v3(
         except Exception as exc:  # noqa: BLE001
             log.debug("orchestrator_v3.emit_failed", err=type(exc).__name__)
 
-    # ---- L1 Places ----
-    l1 = await run_level1_places(ctx)
+    # ---- L1 Places discovery — grow the pool with NEW candidates ----
+    l1_disc = await run_level1_places(ctx)
     await costs.flush()
+
+    # ---- Consumption cursor — pull the next un-processed batch ----
+    batch = await load_backlog(ctx, limit=ctx.max_l1_candidates)
     await _emit(
         "scan.l1_complete",
-        {"candidates": len(l1), "places_cost_cents": costs.places_cost_cents},
+        {
+            "candidates": len(batch),
+            "discovered": l1_disc.get("discovered", 0),
+            "places_cost_cents": costs.places_cost_cents,
+        },
     )
-    summary["stages"]["l1"] = {"candidates": len(l1)}
-    if not l1:
+    # `candidates` here = batch size processed this run. The worker
+    # state machine reads it: 0 → no work left (territory consumed).
+    summary["stages"]["l1"] = {
+        "candidates": len(batch),
+        "discovered": l1_disc.get("discovered", 0),
+        "zones_skipped_fresh": l1_disc.get("zones_skipped_fresh", 0),
+    }
+    if not batch:
         await _emit("scan.completed", {"total_cost_cents": costs.total_cost_cents})
         await costs.flush(completed=True)
         return summary
 
+    batch_ids = [str(b.candidate_id) for b in batch]
+
     # ---- L2 Scraping ----
-    l2 = await run_level2_scraping(ctx, l1)
+    l2 = await run_level2_scraping(ctx, batch)
     await costs.flush()
     await _emit(
         "scan.l2_complete",
@@ -119,6 +147,7 @@ async def run_funnel_v3(
         "with_email": sum(1 for s in l2 if s.contact.best_email),
     }
     if not l2:
+        await mark_processed(ctx, batch_ids)
         await _emit("scan.completed", {"total_cost_cents": costs.total_cost_cents})
         await costs.flush(completed=True)
         return summary
@@ -132,6 +161,7 @@ async def run_funnel_v3(
     )
     summary["stages"]["l3"] = {"accepted": len(l3), "rejected": len(l2) - len(l3)}
     if not l3:
+        await mark_processed(ctx, batch_ids)
         await _emit("scan.completed", {"total_cost_cents": costs.total_cost_cents})
         await costs.flush(completed=True)
         return summary
@@ -150,6 +180,7 @@ async def run_funnel_v3(
     )
     summary["stages"]["l4"] = {"scanned": len(l4), "accepted": len(accepted)}
     if not accepted:
+        await mark_processed(ctx, batch_ids)
         await _emit("scan.completed", {"total_cost_cents": costs.total_cost_cents})
         await costs.flush(completed=True)
         return summary
@@ -186,6 +217,10 @@ async def run_funnel_v3(
         "recommended": len(recommended),
         "leads_inserted": leads_inserted,
     }
+
+    # Stamp the whole batch consumed — next run continues from the
+    # following un-processed candidates (the territory cursor advances).
+    await mark_processed(ctx, batch_ids)
 
     await _emit(
         "scan.completed",

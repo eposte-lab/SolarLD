@@ -445,8 +445,13 @@ async def _persist_zones(
     *,
     tenant_id: str,
     classified: list[ClassifiedZone],
+    comune: str | None = None,
 ) -> int:
-    """Bulk upsert into tenant_target_areas. Returns rows persisted."""
+    """Bulk upsert into tenant_target_areas. Returns rows persisted.
+
+    ``comune`` is stamped on every zone so the funnel can scope a scan
+    job to its own comune (zones from other comuni are not pulled in).
+    """
     if not classified:
         return 0
 
@@ -461,6 +466,7 @@ async def _persist_zones(
         rows.append(
             {
                 "tenant_id": tenant_id,
+                "comune": comune,
                 "osm_id": c.zone.osm_id,
                 "osm_type": c.zone.osm_type,
                 "centroid_lat": round(c.zone.centroid_lat, 7),
@@ -564,7 +570,9 @@ async def map_target_areas_for_tenant(
     # 4) Classify + persist
     classified = [classify_zone_for_sectors(z, configs=configs) for z in zones]
     matched = [c for c in classified if c.matched_sectors]
-    persisted = await _persist_zones(supabase, tenant_id=tenant_id, classified=matched)
+    persisted = await _persist_zones(
+        supabase, tenant_id=tenant_id, classified=matched, comune=comune
+    )
 
     sectors_covered = sorted({s for c in matched for s in c.matched_sectors})
     elapsed = asyncio.get_event_loop().time() - started

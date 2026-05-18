@@ -40,6 +40,7 @@ const STATUS_META: Record<
   paused: { label: 'In pausa', tone: 'bg-amber-100 text-amber-900' },
   paused_daily_cap: { label: 'Cap giornaliero', tone: 'bg-amber-100 text-amber-900' },
   exhausted: { label: 'Esaurita', tone: 'bg-tertiary-container text-on-tertiary-container' },
+  completed: { label: 'Completata', tone: 'bg-emerald-100 text-emerald-900' },
   archived: { label: 'Archiviata', tone: 'bg-surface-container text-on-surface-variant' },
 };
 
@@ -168,6 +169,9 @@ export function ScanJobsQueue({ jobs, onMutate }: Props) {
         {jobs.map((job) => {
           const meta = STATUS_META[job.status];
           const capPercent = Math.min(100, Math.round((job.valid_leads_today / job.daily_validated_cap) * 100));
+          const totalPercent = job.total_validated_cap > 0
+            ? Math.min(100, Math.round((job.valid_leads_total / job.total_validated_cap) * 100))
+            : 0;
           const isDragging = draggedId === job.id;
           const running = job.status === 'in_progress';
           // No last_run_at yet while in progress → still in the L0
@@ -237,9 +241,11 @@ export function ScanJobsQueue({ jobs, onMutate }: Props) {
                         ? `Mappatura del territorio · ${formatElapsed(startIso, now)}`
                         : running
                           ? `Scansione in corso · ${formatElapsed(startIso, now)} · ${job.candidates_scanned_total.toLocaleString('it-IT')} candidati analizzati`
-                          : job.status === 'exhausted'
-                            ? 'Esaurita — nessun altro candidato nel territorio'
-                            : job.status === 'paused_daily_cap'
+                          : job.status === 'completed'
+                            ? 'Completata — raggiunto il tetto di lead totali'
+                            : job.status === 'exhausted'
+                              ? 'Esaurita — nessun altro candidato nel territorio'
+                              : job.status === 'paused_daily_cap'
                               ? 'Tetto giornaliero raggiunto — riprende domani'
                               : job.status === 'paused'
                                 ? 'In pausa'
@@ -254,9 +260,7 @@ export function ScanJobsQueue({ jobs, onMutate }: Props) {
                         <strong className="text-on-surface tabular-nums">{job.valid_leads_today}</strong>
                         /{job.daily_validated_cap.toLocaleString('it-IT')} oggi
                       </span>
-                      <span>
-                        Totale: <strong className="text-on-surface tabular-nums">{job.valid_leads_total.toLocaleString('it-IT')}</strong>
-                      </span>
+                      <span>{capPercent}%</span>
                     </div>
                     <div className="h-1.5 w-full rounded-full bg-surface-container">
                       <div
@@ -265,6 +269,33 @@ export function ScanJobsQueue({ jobs, onMutate }: Props) {
                       />
                     </div>
                   </div>
+
+                  {/* Progress bar total cap */}
+                  <div className="mt-2 space-y-1">
+                    <div className="flex items-baseline justify-between text-[11px] text-on-surface-variant">
+                      <span>
+                        <strong className="text-on-surface tabular-nums">{job.valid_leads_total.toLocaleString('it-IT')}</strong>
+                        /{job.total_validated_cap.toLocaleString('it-IT')} totali
+                      </span>
+                      <span>{totalPercent}%</span>
+                    </div>
+                    <div className="h-1.5 w-full rounded-full bg-surface-container">
+                      <div
+                        className={`h-full rounded-full transition-all ${job.status === 'completed' ? 'bg-emerald-500' : 'bg-tertiary'}`}
+                        style={{ width: `${totalPercent}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Saturazione del territorio */}
+                  {(job.zones_total > 0 || job.candidates_in_queue > 0) && (
+                    <p className="mt-2 text-[11px] text-on-surface-variant">
+                      {job.candidates_in_queue.toLocaleString('it-IT')} contatti in coda
+                      {job.zones_total > 0 && (
+                        <> · {job.zones_depleted}/{job.zones_total} zone esaurite</>
+                      )}
+                    </p>
+                  )}
 
                   {job.last_error && (
                     <p className="mt-2 flex items-center gap-1 truncate text-[11px] text-error" title={job.last_error}>
@@ -283,7 +314,7 @@ export function ScanJobsQueue({ jobs, onMutate }: Props) {
                         <RotateCw size={11} strokeWidth={2.25} aria-hidden />
                         Rilancia
                       </button>
-                    ) : (
+                    ) : job.status === 'completed' ? null : (
                       <button
                         type="button"
                         onClick={() => togglePause(job)}
