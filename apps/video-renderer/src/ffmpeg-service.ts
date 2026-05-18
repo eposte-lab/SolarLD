@@ -144,10 +144,11 @@ export const escapeDrawtext = (s: string): string =>
  *     savings · kW) fade in just after the strip.
  *
  * No green glow, no oversized figures, no payback figure. Input [1:v]
- * is an opaque-black lavfi source: format=rgba + colorchannelmixer set
- * its alpha to 0.42, scale2ref sizes it to a bottom strip, `fade`
- * ramps the alpha in, and it is overlaid flush with the bottom edge.
- * The graph ends on [out].
+ * is a pre-sized translucent-black lavfi strip (1920px wide — wider
+ * than any frame we render, the overlay clips the excess; this avoids
+ * the fragile scale2ref dance that mis-sized the strip). `format=rgba`
+ * + `fade` ramp its alpha in, then it is overlaid flush with the
+ * bottom edge. The graph ends on [out].
  *
  * `clipDurationS` is the wall-clock length of the clip.
  */
@@ -169,14 +170,11 @@ export const buildOverlayFilter = (
 
   const fontPart = fontFile ? `fontfile=${fontFile}:` : '';
 
-  // Translucent strip: [1:v] opaque black → alpha 0.42 → sized to a
-  // bottom strip the width of the video → faded in → overlaid flush
-  // with the bottom edge.
+  // [1:v] is the pre-sized translucent strip. Just fade its alpha in
+  // and overlay it flush with the bottom edge — no scaling needed.
   const strip =
-    `[1:v]format=rgba,colorchannelmixer=aa=0.42[bar0];` +
-    `[bar0][0:v]scale2ref=w=main_w:h=${STRIP_H}[bar1][base];` +
-    `[bar1]fade=t=in:st=${fadeStart}:d=0.6:alpha=1[barf];` +
-    `[base][barf]overlay=0:H-h[lit]`;
+    `[1:v]format=rgba,fade=t=in:st=${fadeStart}:d=0.6:alpha=1[barf];` +
+    `[0:v][barf]overlay=0:H-h:shortest=1[lit]`;
 
   // Small uppercase label, then the compact value line — left-aligned
   // with a 48px gutter. White text; the strip provides the contrast.
@@ -196,7 +194,8 @@ export const buildOverlayFilter = (
  * Burn the overlay into `inputMp4Path` and write the result to
  * `outputMp4Path`. Re-encodes with libx264 CRF 22 (visually lossless
  * for our use case while keeping file size reasonable for portal
- * playback). A second lavfi input feeds the translucent strip.
+ * playback). A second lavfi input feeds the pre-sized translucent
+ * strip (1920×STRIP_H, translucent black baked into the colour).
  */
 export const overlayStatsOnVideo = async (
   inputMp4Path: string,
@@ -213,7 +212,7 @@ export const overlayStatsOnVideo = async (
     '-f',
     'lavfi',
     '-i',
-    `color=c=black:s=64x16:d=${Math.max(1, clipDurationS)}`,
+    `color=c=black@0.42:s=1920x${STRIP_H}:d=${Math.max(1, clipDurationS)}`,
     '-filter_complex',
     filter,
     '-map',

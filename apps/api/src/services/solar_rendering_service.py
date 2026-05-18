@@ -59,34 +59,33 @@ OUTPUT_ASPECT = OUTPUT_W / OUTPUT_H  # 16:9
 #
 # This is the value used as a fallback when ``insight.panels`` is
 # empty (e.g. a non-eligible roof we still want to render before).
-PADDING_FACTOR_FALLBACK = 1.55
+PADDING_FACTOR_FALLBACK = 1.35
 
 
 def _adaptive_padding_factor(cluster_half_diag_m: float) -> float:
     """Pick a crop padding multiplier proportional to roof size.
 
-    Why this matters: with a fixed multiplier, small residential roofs
-    (10-20 panels) end up as a postage-stamp lost in surrounding lawn,
-    while massive industrial plants (500+ panels) fill the frame edge-
-    to-edge with no breathing room and look claustrophobic. The crop
-    must never clip the roof: corners getting cut at 16:9 was a
-    reported defect, so every anchor below leaves clear margin.
+    The multiplier sets how much context surrounds the panel cluster.
+    Too tight (~1.10) clipped the roof at 16:9; too loose (~1.8) left
+    the building as a small subject lost in a sea of field. The curve
+    below keeps the building the clear subject while leaving a margin
+    so the roof is never clipped.
 
     Curve (half-diagonal in metres → padding multiplier):
-      ≤  8 m (≈ <150 m² roof)  → 1.80  — small house, generous context
-      ≈ 15 m (≈  ~400 m² roof) → 1.66
-      ≈ 25 m (≈ 1500 m² roof)  → 1.53
-      ≥ 35 m (industrial)      → 1.42  — big roof, still clear margin
+      ≤  8 m (≈ <150 m² roof)  → 1.50  — small house, some context
+      ≈ 15 m (≈  ~400 m² roof) → 1.41
+      ≈ 25 m (≈ 1500 m² roof)  → 1.31
+      ≥ 35 m (industrial)      → 1.22  — big roof, tight but uncut
 
     Linear taper between the anchor points; clamped at the edges.
     """
     if cluster_half_diag_m <= 8.0:
-        return 1.80
+        return 1.50
     if cluster_half_diag_m >= 35.0:
-        return 1.42
-    # Linear interpolation 8m → 35m maps to 1.80 → 1.42
+        return 1.22
+    # Linear interpolation 8m → 35m maps to 1.50 → 1.22
     t = (cluster_half_diag_m - 8.0) / (35.0 - 8.0)
-    return 1.80 - 0.38 * t
+    return 1.50 - 0.28 * t
 
 
 # ── Panel visual style ─────────────────────────────────────────────────────
@@ -811,11 +810,26 @@ def _draw_panels(
     return img.convert("RGB")  # flatten RGBA → RGB for PNG output
 
 
-# Each panel footprint is expanded by this factor before being burned
-# into the inpaint mask: it merges adjacent panels into contiguous
-# strips (so the inpainter lays down a coherent array instead of
-# isolated tiles) and gives the model a small working margin.
-_MASK_DILATE = 1.3
+def _convex_hull(points: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    """Andrew's monotone-chain convex hull of a set of 2-D points."""
+    pts = sorted(set(points))
+    if len(pts) <= 2:
+        return pts
+
+    def cross(o: tuple[float, float], a: tuple[float, float], b: tuple[float, float]) -> float:
+        return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+
+    lower: list[tuple[float, float]] = []
+    for p in pts:
+        while len(lower) >= 2 and cross(lower[-2], lower[-1], p) <= 0:
+            lower.pop()
+        lower.append(p)
+    upper: list[tuple[float, float]] = []
+    for p in reversed(pts):
+        while len(upper) >= 2 and cross(upper[-2], upper[-1], p) <= 0:
+            upper.pop()
+        upper.append(p)
+    return lower[:-1] + upper[:-1]
 
 
 def _build_panel_mask(
@@ -827,11 +841,13 @@ def _build_panel_mask(
 ) -> Image.Image:
     """Return an 'L' mask: white where panels go, black everywhere else.
 
-    Panels are rasterised at the exact Solar API lat/lng (same
-    transform as ``_draw_panels``), dilated by ``_MASK_DILATE`` so
-    adjacent panels merge, then the whole mask is feathered with a
-    small Gaussian blur so the inpaint composite blends the painted
-    panels smoothly into the surrounding roof.
+    Panels are grouped by roof segment; for each segment we fill the
+    convex hull of every panel corner — a single clean contiguous
+    polygon. A per-panel mask (individual dilated rectangles) produces
+    a lumpy, holed blob and the inpainter fills it just as lumpily; a
+    clean per-segment polygon lets the model lay down a tidy
+    rectangular array. The mask is then dilated a few pixels and
+    lightly feathered so the composite blends at the edges.
     """
     mask = Image.new("L", size, 0)
     if not panels:
@@ -839,19 +855,29 @@ def _build_panel_mask(
 
     draw = ImageDraw.Draw(mask)
     ref_lat = panels[0].lat
-    w_px = transform.meters_to_pixels(panel_width_m, ref_lat) * _MASK_DILATE
-    h_px = transform.meters_to_pixels(panel_height_m, ref_lat) * _MASK_DILATE
+    w_px = transform.meters_to_pixels(panel_width_m, ref_lat)
+    h_px = transform.meters_to_pixels(panel_height_m, ref_lat)
     if w_px < 2 or h_px < 2:
         log.warning("solar_rendering.mask_panels_too_small", w_px=w_px, h_px=h_px)
         return mask
 
+    # Collect every panel's 4 corners, grouped by roof segment.
+    segments: dict[int, list[tuple[float, float]]] = {}
     for panel in panels:
         cx, cy = transform.geo_to_crop_pixel(panel.lat, panel.lng)
         angle = _panel_rotation_deg(panel)
         corners = _rotate_corners(cx, cy, w_px / 2, h_px / 2, angle)
-        draw.polygon(corners, fill=255)
+        segments.setdefault(panel.segment_index, []).extend(corners)
 
-    return mask.filter(ImageFilter.GaussianBlur(radius=2.5))
+    for seg_points in segments.values():
+        hull = _convex_hull(seg_points)
+        if len(hull) >= 3:
+            draw.polygon(hull, fill=255)
+
+    # Dilate a few px (MaxFilter) for a small working margin, then a
+    # gentle blur so the inpaint composite feathers into the roof.
+    mask = mask.filter(ImageFilter.MaxFilter(7))
+    return mask.filter(ImageFilter.GaussianBlur(radius=2.0))
 
 
 # ---------------------------------------------------------------------------
