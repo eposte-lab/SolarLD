@@ -15,6 +15,7 @@ provides the primitive HTTP wrappers.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 import httpx
@@ -243,3 +244,79 @@ def build_static_satellite_url(
         raise MapboxError("MAPBOX_ACCESS_TOKEN not configured")
     base = STATIC_ENDPOINT.format(lat=lat, lng=lng, zoom=zoom, width=width, height=height)
     return f"{base}?access_token={access_token}"
+
+
+# Equatorial circumference of the Earth (WGS-84) in metres — used to
+# derive the Web-Mercator ground resolution of a static tile.
+_EARTH_CIRCUMFERENCE_M = 40_075_016.686
+
+
+@dataclass(slots=True)
+class StaticSatelliteTile:
+    """A downloaded Mapbox satellite tile plus its lat/lng ↔ pixel georef.
+
+    ``scale_x`` / ``scale_y`` are degrees per *image* pixel (the file is
+    ``@2x``, so twice the requested logical size). The georef tuple has
+    the same shape the solar rendering crop expects.
+    """
+
+    image_bytes: bytes
+    west_lng: float
+    north_lat: float
+    scale_x: float
+    scale_y: float
+
+    @property
+    def georef(self) -> tuple[float, float, float, float]:
+        return self.west_lng, self.north_lat, self.scale_x, self.scale_y
+
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=1, max=8),
+    reraise=True,
+)
+async def fetch_static_satellite(
+    lat: float,
+    lng: float,
+    *,
+    zoom: int = 19,
+    size: int = 800,
+    client: httpx.AsyncClient | None = None,
+    token: str | None = None,
+) -> StaticSatelliteTile:
+    """Download a high-res Mapbox satellite tile centred on ``(lat, lng)``.
+
+    Returns the raw image bytes together with a Web-Mercator georef
+    (linearised over the small tile — sub-pixel error at building scale)
+    so callers can map panel lat/lng onto the imagery.
+    """
+    url = build_static_satellite_url(lat, lng, zoom=zoom, width=size, height=size, token=token)
+
+    owns_client = client is None
+    http = client or httpx.AsyncClient(timeout=30.0)
+    try:
+        resp = await http.get(url)
+        if resp.status_code >= 400:
+            raise MapboxError(f"static satellite status={resp.status_code}")
+        image_bytes = resp.content
+    finally:
+        if owns_client:
+            await http.aclose()
+
+    # The @2x file is twice the requested logical size.
+    img_px = size * 2
+    cos_lat = math.cos(math.radians(lat))
+    # Ground metres per device pixel (Web Mercator, @2x halves it).
+    m_per_px = cos_lat * _EARTH_CIRCUMFERENCE_M / (256 * (2**zoom)) / 2.0
+    scale_y = m_per_px / 111_320.0
+    scale_x = m_per_px / (111_320.0 * cos_lat) if cos_lat > 0 else scale_y
+    west_lng = lng - scale_x * img_px / 2.0
+    north_lat = lat + scale_y * img_px / 2.0
+    return StaticSatelliteTile(
+        image_bytes=image_bytes,
+        west_lng=west_lng,
+        north_lat=north_lat,
+        scale_x=scale_x,
+        scale_y=scale_y,
+    )

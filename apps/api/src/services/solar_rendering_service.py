@@ -24,6 +24,7 @@ import struct
 import httpx
 from PIL import Image, ImageDraw, ImageFilter, ImageSequence
 
+from ..core.config import settings
 from ..core.logging import get_logger
 from .google_solar_service import (
     RoofInsight,
@@ -34,6 +35,7 @@ from .google_solar_service import (
     fetch_building_insight,
     fetch_data_layers,
 )
+from .mapbox_service import MapboxError, fetch_static_satellite
 
 log = get_logger(__name__)
 
@@ -186,33 +188,17 @@ async def render_before_only(
     client = http_client or httpx.AsyncClient(timeout=60.0)
 
     try:
-        try:
-            data_layers = await fetch_data_layers(
-                lat, lng, radius_m=50, client=client, api_key=api_key
-            )
-        except SolarApiNotFound as exc:
-            raise SolarRenderingError(f"no imagery at ({lat}, {lng})") from exc
-        except SolarApiError as exc:
-            raise SolarRenderingError(f"Solar API error: {exc}") from exc
-
-        log.info(
-            "solar_rendering.imagery_found",
-            lat=lat,
-            lng=lng,
-            quality=data_layers.imagery_quality,
-            date=data_layers.imagery_date,
+        base_bytes, georef = await _fetch_base_image(
+            lat, lng, radius_m=50, api_key=api_key, client=client
         )
-
-        try:
-            tiff_bytes = await download_geotiff(data_layers.rgb_url, client=client, api_key=api_key)
-        except SolarApiError as exc:
-            raise SolarRenderingError(f"GeoTIFF download failed: {exc}") from exc
     finally:
         if owns_client:
             await client.aclose()
 
     try:
-        before_img, _transform = _load_and_crop(tiff_bytes, lat, lng, insight, radius_m=50)
+        before_img, _transform = _load_and_crop(
+            base_bytes, lat, lng, insight, radius_m=50, georef=georef
+        )
     except Exception as exc:
         raise SolarRenderingError(f"image processing failed: {exc}") from exc
 
@@ -240,37 +226,18 @@ async def render_before_after(
     client = http_client or httpx.AsyncClient(timeout=60.0)
 
     try:
-        # 1) Fetch DataLayers to get the rgb_url.
-        try:
-            data_layers = await fetch_data_layers(
-                lat, lng, radius_m=50, client=client, api_key=api_key
-            )
-        except SolarApiNotFound as exc:
-            raise SolarRenderingError(f"no imagery at ({lat}, {lng})") from exc
-        except SolarApiError as exc:
-            raise SolarRenderingError(f"Solar API error: {exc}") from exc
-
-        log.info(
-            "solar_rendering.imagery_found",
-            lat=lat,
-            lng=lng,
-            quality=data_layers.imagery_quality,
-            date=data_layers.imagery_date,
+        base_bytes, georef = await _fetch_base_image(
+            lat, lng, radius_m=50, api_key=api_key, client=client
         )
-
-        # 2) Download the GeoTIFF.
-        try:
-            tiff_bytes = await download_geotiff(data_layers.rgb_url, client=client, api_key=api_key)
-        except SolarApiError as exc:
-            raise SolarRenderingError(f"GeoTIFF download failed: {exc}") from exc
-
     finally:
         if owns_client:
             await client.aclose()
 
-    # 3) Parse + crop.
+    # Parse + crop.
     try:
-        before_img, transform = _load_and_crop(tiff_bytes, lat, lng, insight, radius_m=50)
+        before_img, transform = _load_and_crop(
+            base_bytes, lat, lng, insight, radius_m=50, georef=georef
+        )
     except Exception as exc:
         raise SolarRenderingError(f"image processing failed: {exc}") from exc
 
@@ -324,25 +291,17 @@ async def render_before_and_mask(
     client = http_client or httpx.AsyncClient(timeout=60.0)
 
     try:
-        try:
-            data_layers = await fetch_data_layers(
-                lat, lng, radius_m=50, client=client, api_key=api_key
-            )
-        except SolarApiNotFound as exc:
-            raise SolarRenderingError(f"no imagery at ({lat}, {lng})") from exc
-        except SolarApiError as exc:
-            raise SolarRenderingError(f"Solar API error: {exc}") from exc
-
-        try:
-            tiff_bytes = await download_geotiff(data_layers.rgb_url, client=client, api_key=api_key)
-        except SolarApiError as exc:
-            raise SolarRenderingError(f"GeoTIFF download failed: {exc}") from exc
+        base_bytes, georef = await _fetch_base_image(
+            lat, lng, radius_m=50, api_key=api_key, client=client
+        )
     finally:
         if owns_client:
             await client.aclose()
 
     try:
-        before_img, transform = _load_and_crop(tiff_bytes, lat, lng, insight, radius_m=50)
+        before_img, transform = _load_and_crop(
+            base_bytes, lat, lng, insight, radius_m=50, georef=georef
+        )
     except Exception as exc:
         raise SolarRenderingError(f"image processing failed: {exc}") from exc
 
@@ -528,37 +487,90 @@ def _derive_geo_from_request(
     return west_lng, north_lat, scale_x, scale_y
 
 
+async def _fetch_base_image(
+    lat: float,
+    lng: float,
+    *,
+    radius_m: int,
+    api_key: str | None,
+    client: httpx.AsyncClient,
+) -> tuple[bytes, tuple[float, float, float, float] | None]:
+    """Fetch the aerial base image for a rendering.
+
+    Prefers a high-resolution Mapbox satellite tile (sharp, recent);
+    falls back to the Google Solar dataLayers GeoTIFF when no Mapbox
+    token is configured or the request fails. Returns ``(image_bytes,
+    georef)`` where ``georef`` is ``(west_lng, north_lat, scale_x,
+    scale_y)`` for Mapbox, or ``None`` for the GeoTIFF path (whose
+    georeference is parsed from the TIFF tags downstream).
+    """
+    if settings.mapbox_access_token:
+        try:
+            tile = await fetch_static_satellite(lat, lng, client=client)
+            log.info("solar_rendering.base_image", source="mapbox", lat=lat, lng=lng)
+            return tile.image_bytes, tile.georef
+        except (MapboxError, httpx.HTTPError) as exc:
+            log.warning("solar_rendering.mapbox_fallback", reason=str(exc)[:160])
+
+    # Fallback — Google Solar dataLayers GeoTIFF.
+    try:
+        data_layers = await fetch_data_layers(
+            lat, lng, radius_m=radius_m, client=client, api_key=api_key
+        )
+    except SolarApiNotFound as exc:
+        raise SolarRenderingError(f"no imagery at ({lat}, {lng})") from exc
+    except SolarApiError as exc:
+        raise SolarRenderingError(f"Solar API error: {exc}") from exc
+    try:
+        tiff_bytes = await download_geotiff(data_layers.rgb_url, client=client, api_key=api_key)
+    except SolarApiError as exc:
+        raise SolarRenderingError(f"GeoTIFF download failed: {exc}") from exc
+    log.info(
+        "solar_rendering.base_image",
+        source="google_solar",
+        quality=data_layers.imagery_quality,
+        date=data_layers.imagery_date,
+    )
+    return tiff_bytes, None
+
+
 def _load_and_crop(
-    tiff_bytes: bytes,
+    image_bytes: bytes,
     center_lat: float,
     center_lng: float,
     insight: RoofInsight,
     *,
     radius_m: int,
+    georef: tuple[float, float, float, float] | None = None,
 ) -> tuple[Image.Image, _GeoTransform]:
-    """Open the GeoTIFF, extract georeference, crop to the building.
+    """Open the base image, resolve its georeference, crop to the building.
 
     Returns ``(cropped_rgb_image, transform)`` where ``transform`` maps
     lat/lng in the *original* image to pixel coordinates in the *crop*.
 
-    Tries embedded GeoTIFF tags first; falls back to a transform derived
-    from the dataLayers request params (center + radius + image size)
-    when Google's imagery omits those tags, which it commonly does.
+    When ``georef`` is given (Mapbox tile) it is used directly. Otherwise
+    the image is treated as a Google Solar GeoTIFF: embedded tags first,
+    falling back to a transform derived from the dataLayers request
+    params when Google's imagery omits those tags.
     """
-    img = Image.open(io.BytesIO(tiff_bytes))
-    # Parse geo-reference tags BEFORE convert() — Pillow's convert() returns
-    # a plain Image copy that no longer carries tag_v2 TIFF metadata.
-    try:
-        west_lng, north_lat, scale_x, scale_y = _parse_geotiff_tags(img)
-    except SolarRenderingError as exc:
-        # Fall back to computing bounds from the request parameters.
-        log.warning("solar_rendering.georef_fallback", reason=str(exc))
-        west_lng, north_lat, scale_x, scale_y = _derive_geo_from_request(
-            img,
-            center_lat=center_lat,
-            center_lng=center_lng,
-            radius_m=radius_m,
-        )
+    img = Image.open(io.BytesIO(image_bytes))
+    if georef is not None:
+        west_lng, north_lat, scale_x, scale_y = georef
+    else:
+        # Parse geo-reference tags BEFORE convert() — Pillow's convert()
+        # returns a plain Image copy that no longer carries tag_v2 TIFF
+        # metadata.
+        try:
+            west_lng, north_lat, scale_x, scale_y = _parse_geotiff_tags(img)
+        except SolarRenderingError as exc:
+            # Fall back to computing bounds from the request parameters.
+            log.warning("solar_rendering.georef_fallback", reason=str(exc))
+            west_lng, north_lat, scale_x, scale_y = _derive_geo_from_request(
+                img,
+                center_lat=center_lat,
+                center_lng=center_lng,
+                radius_m=radius_m,
+            )
     # Force RGB so downstream code always deals with 3-channel images.
     img = img.convert("RGB")
 
