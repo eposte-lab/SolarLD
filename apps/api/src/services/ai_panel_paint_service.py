@@ -128,20 +128,25 @@ async def _run_nano_banana(
     prompt: str,
     image_url: str,
     *,
+    extra_image_urls: list[str] | None = None,
     poll_timeout_s: float = 120.0,
     poll_interval_s: float = 2.0,
     http_client: httpx.AsyncClient | None = None,
     model_owner: str | None = None,
     model_name: str | None = None,
 ) -> bytes:
-    """Create a nano-banana prediction, poll, download the PNG bytes."""
+    """Create a nano-banana prediction, poll, download the PNG bytes.
+
+    ``extra_image_urls`` are appended after the primary image — used to
+    pass a placement mask as a second reference image.
+    """
     owner = model_owner or DEFAULT_MODEL_OWNER
     name = model_name or DEFAULT_MODEL_NAME
     create_url = _PREDICTIONS_URL_FMT.format(owner=owner, name=name)
     body = {
         "input": {
             "prompt": prompt,
-            "image_input": [image_url],
+            "image_input": [image_url, *(extra_image_urls or [])],
             "output_format": "png",
         }
     }
@@ -230,5 +235,70 @@ async def generate_after_with_panels(
     return await _run_nano_banana(
         build_paint_prompt(panel_count=panel_count, kwp=kwp),
         before_image_url,
+        http_client=http_client,
+    )
+
+
+def build_masked_paint_prompt(*, panel_count: int, kwp: float | None = None) -> str:
+    """Prompt nano-banana to paint panels guided by a placement mask.
+
+    Unlike ``build_paint_prompt`` (which makes the model find the roof
+    itself), this passes the Solar API panel footprint as a second
+    mask image, so the model is told exactly WHERE the panels go.
+    """
+    count = f"approximately {panel_count} " if panel_count > 0 else ""
+    scale = f", together forming roughly a {kwp:.0f} kWp array" if kwp and kwp > 0 else ""
+    return (
+        "You are given TWO images. IMAGE 1 is a top-down aerial "
+        "photograph of a building. IMAGE 2 is a black-and-white "
+        "placement mask, pixel-aligned to IMAGE 1: the WHITE area marks "
+        "the EXACT rooftop region where solar panels must be installed. "
+        "TASK: edit IMAGE 1 by adding "
+        f"{count}photorealistic dark-blue monocrystalline silicon solar "
+        f"panels with thin silver aluminium frames{scale}, in neat "
+        "parallel rows aligned to the roof edges, covering precisely "
+        "the region marked white in IMAGE 2. The panels lie flat on the "
+        "roof, follow its exact slope, perspective and orientation, and "
+        "cast realistic soft shadows where they meet the surface. "
+        "STRICT: place panels ONLY where IMAGE 2 is white. Add nothing "
+        "where IMAGE 2 is black — no panels on the ground, lawn, "
+        "courtyard, road or neighbouring roofs. Do NOT render the mask "
+        "itself or any tint in the output. "
+        "CRITICAL FRAMING LOCK: keep the EXACT pixel dimensions, "
+        "framing, zoom, crop and camera position of IMAGE 1. Every roof "
+        "edge, wall, road, vehicle and tree must stay at the IDENTICAL "
+        "pixel position — the ONLY change is the added panels. "
+        "Output: the edited IMAGE 1 only — photorealistic, top-down "
+        "aerial perspective, natural daylight, sharp focus, no text, no "
+        "watermarks."
+    )
+
+
+async def generate_after_masked(
+    *,
+    before_image_url: str,
+    mask_image_url: str,
+    panel_count: int,
+    kwp: float | None = None,
+    http_client: httpx.AsyncClient | None = None,
+) -> bytes:
+    """Paint panels guided by a placement mask.
+
+    nano-banana receives the mask as a second reference image and is
+    told to paint photoreal panels only inside its white region. The
+    caller still composites the result through the mask for a hard
+    off-roof guarantee.
+    """
+    log.info(
+        "ai_paint.masked_paint_start",
+        before_url_peek=before_image_url[:100],
+        mask_url_peek=mask_image_url[:100],
+        panel_count=panel_count,
+        kwp=kwp,
+    )
+    return await _run_nano_banana(
+        build_masked_paint_prompt(panel_count=panel_count, kwp=kwp),
+        before_image_url,
+        extra_image_urls=[mask_image_url],
         http_client=http_client,
     )
