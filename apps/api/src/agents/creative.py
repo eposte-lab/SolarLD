@@ -510,9 +510,7 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
                                     kwp=insight.estimated_kwp,
                                 ),
                             )
-                            after_bytes = composite_inside_mask(
-                                before_bytes, inpainted, mask_bytes
-                            )
+                            after_bytes = composite_inside_mask(before_bytes, inpainted, mask_bytes)
                             _log_api_cost(
                                 sb,
                                 tenant_id=payload.tenant_id,
