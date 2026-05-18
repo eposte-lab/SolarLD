@@ -1,30 +1,29 @@
-"""Isolated-panel layer generation via Google Gemini 2.5 Flash Image
+"""Two-pass panel-layer generation via Google Gemini 2.5 Flash Image
 (``google/nano-banana`` on Replicate).
 
-Why this approach
------------------
+Why two passes
+--------------
 
-Earlier attempts each failed on one axis:
+Asking nano-banana in a single call to BOTH place panels on a roof AND
+output only those panels proved unreliable. The two jobs are split so
+each call has one focused instruction:
 
-* unmasked nano-banana edit → re-frames the whole photo, before/after
-  never aligned;
-* masked FLUX Fill inpaint → aligned, but the panels it paints inside
-  the mask look flat and unconvincing.
+  Pass 1 — paint: edit the real aerial photo, adding photorealistic
+           panels on the rooftop. nano-banana is strongest at this
+           kind of "edit this photo" task.
+  Pass 2 — isolate: take pass-1's output and replace everything that
+           is not a panel with solid green — a focused background-
+           removal task on an image that already shows clear panels.
 
-This service asks nano-banana for something narrower: look at the real
-aerial photo, work out how panels would sit on that exact rooftop, and
-output ONLY the panels — every other pixel transparent (or, failing
-transparency, a solid green that we chroma-key out). We then composite
-that isolated panel layer over the untouched "before" image:
+Then we chroma-key the green out and composite the panel layer over
+the untouched "before" image:
 
     before.png  (real aerial, never touched)
          +  panel layer  (nano-banana panels, background removed)
          =  after.png
 
 The background is the before image by construction, so it is always
-pixel-aligned; only the panels come from the model. If nano-banana
-shifts the panels slightly they simply sit slightly off on the roof —
-there is no whole-frame jump, because there is no background to drift.
+pixel-aligned; only the panels come from the model.
 
 Override points (env)
 ---------------------
@@ -71,43 +70,48 @@ class AiPaintError(Exception):
 # ---------------------------------------------------------------------------
 
 
-def build_isolated_panel_prompt(*, panel_count: int, kwp: float | None = None) -> str:
-    """Prompt nano-banana to output ONLY the panels, background removed.
-
-    The model sees the real rooftop and works out the panel layout from
-    it, but the output must contain nothing except the panels — so we
-    can drop that layer straight onto our own untouched before image.
-    """
+def build_paint_prompt(*, panel_count: int, kwp: float | None = None) -> str:
+    """Pass 1 — prompt nano-banana to paint panels onto the rooftop."""
     count = f"approximately {panel_count} " if panel_count > 0 else ""
     scale = f", together forming roughly a {kwp:.0f} kWp array" if kwp and kwp > 0 else ""
     return (
-        "TASK: This is a top-down aerial photograph of a building. "
-        "Identify the rooftop of the principal building at the centre "
-        "of the frame. Work out exactly how solar panels would be "
-        "installed on THAT rooftop — following its real shape, its "
-        "separate roof segments, edges, ridge lines, orientation, "
-        "slope, perspective and size. "
-        f"Then output an image that contains ONLY those solar panels "
-        "and NOTHING else. "
-        f"Draw {count}photorealistic dark monocrystalline silicon "
-        f"panels with thin silver aluminium frames, in neat parallel "
-        f"rows aligned to the roof edges{scale}, each panel placed and "
-        "sized exactly where it would physically sit on the rooftop. "
-        # ── Output rules ─────────────────────────────────────────────
-        "CRITICAL OUTPUT RULES: "
-        "1. The output must contain the panels ONLY. Remove the roof, "
-        "the building, the ground, vegetation, vehicles, roads and sky "
-        "— replace every non-panel pixel with full transparency. If "
-        "transparency is not possible, use a solid pure-green "
-        "background (RGB 0,255,0) with no other colour. "
-        "2. Do NOT draw the roof, the roof outline, or the building. "
-        "Only the panels themselves are visible. "
-        "3. The output image MUST keep the EXACT same pixel "
-        "dimensions, framing and zoom as the input image, so every "
-        "panel stays at the precise position it occupies on the roof. "
-        "Do not pan, zoom, rotate or re-crop. "
-        "Output: top-down aerial perspective, photorealistic panels, "
-        "natural daylight, no text, no watermarks."
+        "TASK: Edit this top-down aerial photograph by adding "
+        "photorealistic monocrystalline silicon solar panels onto the "
+        "rooftop of the principal building at the centre of the frame. "
+        f"Add {count}dark-blue rectangular panels with thin silver "
+        f"aluminium frames, in neat parallel rows aligned to the roof "
+        f"edges{scale}, covering every usable roof segment of that "
+        "building. The panels lie flat on the roof, follow its exact "
+        "slope, perspective and orientation, and cast realistic soft "
+        "shadows where they meet the surface. "
+        "Place panels ONLY on the building's rooftop — never on lawn, "
+        "garden, ground, driveway, parking, road, or neighbouring "
+        "buildings. "
+        "FRAMING LOCK: the output MUST keep the EXACT same pixel "
+        "dimensions, framing, zoom and crop as the input — do not pan, "
+        "zoom, rotate or re-crop. Preserve every non-roof pixel exactly "
+        "as in the source. "
+        "Output: photorealistic, top-down aerial perspective, natural "
+        "daylight, sharp focus, no text, no watermarks."
+    )
+
+
+def build_isolation_prompt() -> str:
+    """Pass 2 — prompt nano-banana to keep ONLY the panels, rest green."""
+    return (
+        "TASK: This top-down aerial image shows a building with solar "
+        "panels installed on its roof. Output an image that contains "
+        "ONLY those solar panels and nothing else. "
+        "Replace every pixel that is NOT a solar panel — the roof, the "
+        "building, the ground, vegetation, vehicles, roads, sky and "
+        "shadows — with a solid pure-green background (RGB 0,255,0), a "
+        "single flat green with no other colour or texture. "
+        "Do NOT move, resize, rotate or re-position the panels: each "
+        "panel must stay at the EXACT same pixel position and size as "
+        "in the input image. Keep the output the same dimensions as "
+        "the input. "
+        "The result is the solar panels, perfectly intact and "
+        "unchanged, on a solid green background. No text, no watermarks."
     )
 
 
@@ -230,34 +234,43 @@ async def _run_nano_banana(
             await client.aclose()
 
 
-async def generate_isolated_panels(
+async def generate_after_with_panels(
     *,
     before_image_url: str,
     panel_count: int,
     kwp: float | None = None,
     http_client: httpx.AsyncClient | None = None,
-    model_owner: str | None = None,
-    model_name: str | None = None,
 ) -> bytes:
-    """Return nano-banana's raw output: panels only, background removed.
-
-    The caller passes the bytes through :func:`extract_panel_layer` to
-    obtain a clean RGBA panel layer, then :func:`composite_panel_layer`
-    to drop it onto the before image.
-    """
-    prompt = build_isolated_panel_prompt(panel_count=panel_count, kwp=kwp)
+    """Pass 1: edit the before image, return the after PNG with panels."""
     log.info(
-        "ai_paint.isolated_start",
+        "ai_paint.paint_start",
         before_url_peek=before_image_url[:100],
         panel_count=panel_count,
         kwp=kwp,
     )
     return await _run_nano_banana(
-        prompt,
+        build_paint_prompt(panel_count=panel_count, kwp=kwp),
         before_image_url,
         http_client=http_client,
-        model_owner=model_owner,
-        model_name=model_name,
+    )
+
+
+async def isolate_panels(
+    *,
+    after_image_url: str,
+    http_client: httpx.AsyncClient | None = None,
+) -> bytes:
+    """Pass 2: from the after image, return panels-only-on-green PNG.
+
+    The caller passes the bytes through :func:`extract_panel_layer` to
+    chroma-key the green out, then :func:`composite_panel_layer` to
+    drop the panel layer onto the before image.
+    """
+    log.info("ai_paint.isolate_start", after_url_peek=after_image_url[:100])
+    return await _run_nano_banana(
+        build_isolation_prompt(),
+        after_image_url,
+        http_client=http_client,
     )
 
 
