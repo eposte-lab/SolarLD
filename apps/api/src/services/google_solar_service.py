@@ -20,6 +20,7 @@ Costs (as of 2024):
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 from dataclasses import dataclass, field
 from typing import Any
@@ -35,6 +36,10 @@ log = get_logger(__name__)
 SOLAR_API_ENDPOINT = "https://solar.googleapis.com/v1/buildingInsights:findClosest"
 SOLAR_DATA_LAYERS_ENDPOINT = "https://solar.googleapis.com/v1/dataLayers:get"
 SOLAR_GEOTIFF_ENDPOINT = "https://solar.googleapis.com/v1/geoTiff:get"
+
+# GeoTIFF tile downloads 500 intermittently on Google's side — retry
+# transient 5xx/429 a couple of times before giving up.
+_GEOTIFF_MAX_ATTEMPTS = 3
 # Per Google billing for solar; used for api_usage_log + scan_cost_cents.
 COST_PER_CALL_CENTS = 2
 COST_DATA_LAYERS_CENTS = 3  # dataLayers:get (IMAGERY_LAYERS view)
@@ -523,11 +528,27 @@ async def download_geotiff(
     if client is None:
         client = httpx.AsyncClient(timeout=60.0)
 
+    # Google's GeoTIFF tile serving 500s intermittently even when
+    # dataLayers returned a valid rgbUrl — a couple of retries with
+    # backoff turns most of those transient failures into a success.
     try:
-        resp = await client.get(full_url)
-        if resp.status_code >= 400:
-            raise SolarApiError(f"GeoTIFF download failed: status={resp.status_code}")
-        return resp.content
+        last_status = 0
+        for attempt in range(1, _GEOTIFF_MAX_ATTEMPTS + 1):
+            resp = await client.get(full_url)
+            if resp.status_code < 400:
+                return resp.content
+            last_status = resp.status_code
+            # 4xx (bar 429) are permanent — retrying won't help.
+            if resp.status_code < 500 and resp.status_code != 429:
+                break
+            if attempt < _GEOTIFF_MAX_ATTEMPTS:
+                log.warning(
+                    "solar_geotiff_retry",
+                    status=resp.status_code,
+                    attempt=attempt,
+                )
+                await asyncio.sleep(1.5 * attempt)
+        raise SolarApiError(f"GeoTIFF download failed: status={last_status}")
     finally:
         if owns_client:
             await client.aclose()

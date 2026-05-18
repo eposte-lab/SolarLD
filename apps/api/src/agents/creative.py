@@ -607,7 +607,11 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
             # (and the demo `demo_pipeline_runs.notes` column) can
             # explain why the outreach went out as a still image.
             if before_url is None:
-                gif_fallback_reason = "before_url_missing"
+                # before_url is None only because an upstream Solar step
+                # already failed — surface THAT real cause (e.g.
+                # solar_render_error: GeoTIFF download failed) rather than
+                # the generic, misleading "before_url_missing" symptom.
+                gif_fallback_reason = skipped_reason or "before_url_missing"
             elif after_url is None:
                 gif_fallback_reason = "after_url_missing"
             else:

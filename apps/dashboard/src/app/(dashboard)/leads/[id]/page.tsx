@@ -1523,7 +1523,7 @@ function humanReadableSkipReason(reason: string): string {
     roof_confidence_too_low: 'sede non confermata — apri il picker',
     solar_no_building: 'Solar API non riconosce un edificio in queste coordinate',
     ai_paint_error: 'errore generazione AI panel-paint',
-    solar_render_error: 'errore Solar API durante il render',
+    solar_render_error: 'Google non ha restituito l’immagine aerea — riprova tra qualche minuto',
   };
   return MAP[base] ?? reason;
 }
