@@ -48,9 +48,10 @@ log = get_logger(__name__)
 
 # A zone discovered within this many days is not re-queried on Places —
 # it almost certainly has no new businesses yet, and re-querying just
-# burns API budget. The window for a "sempre attiva" scan to pick up
-# newly-opened businesses.
-_FRESHNESS_DAYS = 14
+# burns API budget. New businesses open slowly, so a quarterly window
+# is enough for a "sempre attiva" scan to pick them up without re-paying
+# Places every couple of weeks for nothing.
+_FRESHNESS_DAYS = 90
 
 # On a re-discovery, a zone that yields this few NEW candidates is
 # considered tapped out and flagged `depleted` (skipped from then on).
