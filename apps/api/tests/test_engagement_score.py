@@ -33,12 +33,11 @@ def test_single_session_is_cold() -> None:
 
 
 def test_attention_tier_is_capped() -> None:
-    # Tanta attenzione (sessioni, scroll, hover, tempo) → tetto fascia.
+    # Tanta attenzione (sessioni, scroll, tempo) → tetto fascia.
     stats = _stats(
         sessions={"s1", "s2", "s3"},
         scroll_50=5,
         scroll_90=5,
-        cta_hover=30,
         heartbeats=400,
     )
     assert compute_score(stats) == TIER_ATTENTION_CAP
@@ -63,7 +62,6 @@ def test_attention_plus_engagement_never_reaches_hot() -> None:
         sessions={"s1", "s2", "s3"},
         scroll_50=5,
         scroll_90=5,
-        cta_hover=30,
         heartbeats=400,
         video_play=4,
         video_complete=4,
@@ -101,7 +99,6 @@ def test_score_clamped_to_100() -> None:
         sessions={"s1", "s2", "s3"},
         scroll_50=9,
         scroll_90=9,
-        cta_hover=30,
         heartbeats=999,
         video_play=9,
         video_complete=9,

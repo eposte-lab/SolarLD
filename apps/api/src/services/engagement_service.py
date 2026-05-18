@@ -15,7 +15,6 @@ Formula (v3 — ristrutturata in 3 fasce di intenzione):
       +10  per sessione distinta sul portale
       + 3  per portal.scroll_50
       + 6  per portal.scroll_90
-      + 2  per portal.cta_hover (tetto cumulativo 8)
       + 1  per 30s sul portale (tetto 12)
     Fascia 2 — Coinvolgimento (ha consumato i contenuti), tetto 30:
       + 8  per portal.video_play
@@ -90,8 +89,6 @@ HEARTBEAT_INTERVAL_SEC = 15
 W_SESSION = 10  # per sessione distinta sul portale
 W_SCROLL_50 = 3  # ha superato metà pagina
 W_SCROLL_90 = 6  # ha letto (quasi) fino in fondo
-W_CTA_HOVER = 2  # ha sfiorato una CTA
-W_CTA_HOVER_CAP = 8  # tetto cumulativo degli hover
 W_TIME_PER_30S = 1  # +1 ogni 30s sul portale
 W_TIME_CAP = 12  # tetto del bonus tempo
 TIER_ATTENTION_CAP = 28  # tetto dell'intera fascia "attenzione"
@@ -130,7 +127,6 @@ class LeadEngagementStats:
     scroll_50: int = 0
     scroll_90: int = 0
     roi_viewed: int = 0
-    cta_hover: int = 0
     video_play: int = 0
     video_complete: int = 0
     audio_on: int = 0
@@ -161,12 +157,11 @@ def compute_score(stats: LeadEngagementStats) -> int:
     possono passare uno stats costruito a mano e verificare i confini
     delle fasce senza Supabase.
     """
-    # Fascia 1 — Attenzione: aperture, scroll, hover, tempo.
+    # Fascia 1 — Attenzione: aperture, scroll, tempo.
     attention = 0
     attention += W_SESSION * len(stats.sessions)
     attention += W_SCROLL_50 * stats.scroll_50
     attention += W_SCROLL_90 * stats.scroll_90
-    attention += min(W_CTA_HOVER * stats.cta_hover, W_CTA_HOVER_CAP)
     time_points = (stats.total_time_sec // 30) * W_TIME_PER_30S
     attention += min(int(time_points), W_TIME_CAP)
     attention = min(attention, TIER_ATTENTION_CAP)
@@ -251,8 +246,6 @@ async def run_engagement_rollup(
             stats.deepest_scroll_pct = max(stats.deepest_scroll_pct, 90)
         elif kind == "portal.roi_viewed":
             stats.roi_viewed += 1
-        elif kind == "portal.cta_hover":
-            stats.cta_hover += 1
         elif kind == "portal.video_play":
             stats.video_play += 1
         elif kind == "portal.video_complete":

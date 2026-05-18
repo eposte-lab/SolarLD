@@ -168,7 +168,6 @@ export function BillUploadCard({ slug, brandColor, onSaved }: Props) {
   return (
     <section
       className="bento-glass p-6 md:p-8"
-      data-portal-cta="bolletta"
       aria-labelledby="bolletta-heading"
     >
       <p className="editorial-eyebrow">Risparmio personalizzato</p>
