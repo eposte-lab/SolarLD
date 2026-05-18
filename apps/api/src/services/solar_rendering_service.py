@@ -22,7 +22,7 @@ import math
 import struct
 
 import httpx
-from PIL import Image, ImageDraw, ImageSequence
+from PIL import Image, ImageDraw, ImageFilter, ImageSequence
 
 from ..core.logging import get_logger
 from .google_solar_service import (
@@ -292,6 +292,67 @@ async def render_before_after(
         after_kb=len(after_bytes) // 1024,
     )
     return before_bytes, after_bytes
+
+
+async def render_before_and_mask(
+    lat: float,
+    lng: float,
+    insight: RoofInsight,
+    *,
+    api_key: str | None = None,
+    http_client: httpx.AsyncClient | None = None,
+) -> tuple[bytes, bytes]:
+    """Return ``(before_png, mask_png)`` for the masked-inpaint pipeline.
+
+    ``before_png`` is the real Google aerial crop with NO panels drawn.
+    ``mask_png`` is a black image the same size, white exactly where
+    solar panels belong (the Solar API panel footprints, dilated and
+    feathered). The masked-inpaint service paints photoreal panels
+    only inside the white region, then composites the result back over
+    this untouched before image — so every pixel outside the mask
+    stays byte-identical and the before/after pair is perfectly
+    aligned by construction.
+    """
+    owns_client = http_client is None
+    client = http_client or httpx.AsyncClient(timeout=60.0)
+
+    try:
+        try:
+            data_layers = await fetch_data_layers(
+                lat, lng, radius_m=50, client=client, api_key=api_key
+            )
+        except SolarApiNotFound as exc:
+            raise SolarRenderingError(f"no imagery at ({lat}, {lng})") from exc
+        except SolarApiError as exc:
+            raise SolarRenderingError(f"Solar API error: {exc}") from exc
+
+        try:
+            tiff_bytes = await download_geotiff(data_layers.rgb_url, client=client, api_key=api_key)
+        except SolarApiError as exc:
+            raise SolarRenderingError(f"GeoTIFF download failed: {exc}") from exc
+    finally:
+        if owns_client:
+            await client.aclose()
+
+    try:
+        before_img, transform = _load_and_crop(tiff_bytes, lat, lng, insight, radius_m=50)
+    except Exception as exc:
+        raise SolarRenderingError(f"image processing failed: {exc}") from exc
+
+    mask_img = _build_panel_mask(
+        before_img.size,
+        insight.panels,
+        transform,
+        insight.panel_width_m,
+        insight.panel_height_m,
+    )
+
+    log.info(
+        "solar_rendering.before_and_mask_done",
+        panels=len(insight.panels),
+        size=before_img.size,
+    )
+    return _to_png_bytes(before_img), _mask_to_png_bytes(mask_img)
 
 
 # ---------------------------------------------------------------------------
@@ -750,6 +811,49 @@ def _draw_panels(
     return img.convert("RGB")  # flatten RGBA → RGB for PNG output
 
 
+# Each panel footprint is expanded by this factor before being burned
+# into the inpaint mask: it merges adjacent panels into contiguous
+# strips (so the inpainter lays down a coherent array instead of
+# isolated tiles) and gives the model a small working margin.
+_MASK_DILATE = 1.3
+
+
+def _build_panel_mask(
+    size: tuple[int, int],
+    panels: list[SolarPanel],
+    transform: _GeoTransform,
+    panel_width_m: float,
+    panel_height_m: float,
+) -> Image.Image:
+    """Return an 'L' mask: white where panels go, black everywhere else.
+
+    Panels are rasterised at the exact Solar API lat/lng (same
+    transform as ``_draw_panels``), dilated by ``_MASK_DILATE`` so
+    adjacent panels merge, then the whole mask is feathered with a
+    small Gaussian blur so the inpaint composite blends the painted
+    panels smoothly into the surrounding roof.
+    """
+    mask = Image.new("L", size, 0)
+    if not panels:
+        return mask
+
+    draw = ImageDraw.Draw(mask)
+    ref_lat = panels[0].lat
+    w_px = transform.meters_to_pixels(panel_width_m, ref_lat) * _MASK_DILATE
+    h_px = transform.meters_to_pixels(panel_height_m, ref_lat) * _MASK_DILATE
+    if w_px < 2 or h_px < 2:
+        log.warning("solar_rendering.mask_panels_too_small", w_px=w_px, h_px=h_px)
+        return mask
+
+    for panel in panels:
+        cx, cy = transform.geo_to_crop_pixel(panel.lat, panel.lng)
+        angle = _panel_rotation_deg(panel)
+        corners = _rotate_corners(cx, cy, w_px / 2, h_px / 2, angle)
+        draw.polygon(corners, fill=255)
+
+    return mask.filter(ImageFilter.GaussianBlur(radius=2.5))
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -758,6 +862,13 @@ def _draw_panels(
 def _to_png_bytes(img: Image.Image) -> bytes:
     buf = io.BytesIO()
     img.convert("RGB").save(buf, format="PNG", optimize=True, compress_level=6)
+    return buf.getvalue()
+
+
+def _mask_to_png_bytes(img: Image.Image) -> bytes:
+    """Encode an 'L' (grayscale) mask to PNG without flattening to RGB."""
+    buf = io.BytesIO()
+    img.convert("L").save(buf, format="PNG", optimize=True, compress_level=6)
     return buf.getvalue()
 
 
