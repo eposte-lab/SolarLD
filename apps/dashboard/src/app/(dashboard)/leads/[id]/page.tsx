@@ -542,7 +542,7 @@ export default async function LeadDetailPage({ params }: PageProps) {
                       ? `${lead.rendering_image_url}?v=${lead.rendering_regen_count ?? 0}`
                       : undefined
                 }
-                controls
+                autoPlay
                 muted
                 loop
                 playsInline
