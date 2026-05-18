@@ -1,15 +1,17 @@
 /**
- * Crossfade locale — anima le immagini start/end con una dissolvenza +
- * leggero zoom (Ken Burns) via FFmpeg, senza modelli AI.
+ * Reveal locale — anima le immagini start/end con una transizione a
+ * tendina (`xfade=wiperight`) + leggero zoom (Ken Burns) via FFmpeg,
+ * senza modelli AI.
  *
  * Sostituisce la generazione video Kling (~€0,49/clip su Replicate) con
- * un passo di video-editing a costo zero: le due immagini (tetto nudo /
- * tetto con pannelli) sono già prodotte dal CreativeAgent, qui le si fa
- * solo "comparire" l'una sull'altra con uno zoom lento che dà un minimo
- * di movimento.
+ * un passo di video-editing a costo zero. La tendina scorre da sinistra
+ * a destra: dato che il frame "after" è lo stesso aerial del "before"
+ * con in più i pannelli, la tendina fa *comparire i pannelli sul tetto
+ * gradualmente* — niente dissolvenza incrociata, niente effetto "due
+ * foto sovrapposte".
  *
  * Solo filtri FFmpeg standard (`zoompan`, `xfade`) — nessuna nuova
- * dipendenza, gira ovunque senza GPU.
+ * dipendenza, gira ovunque senza GPU. `xfade` richiede ffmpeg >= 4.3.
  */
 import path from 'node:path';
 
@@ -33,12 +35,14 @@ const SRC_H = 1440;
 export const CROSSFADE_DURATION_S = HOLD_BEFORE + CROSSFADE + HOLD_AFTER;
 
 /**
- * Costruisce gli argomenti FFmpeg per il crossfade. Funzione pura
+ * Costruisce gli argomenti FFmpeg per il reveal. Funzione pura
  * (nessun I/O) così è testabile senza eseguire FFmpeg.
  *
- * Ogni immagine diventa una clip con zoom Ken Burns; `xfade=fade` le
- * dissolve. Entrambe le clip durano HOLD_BEFORE+CROSSFADE: l'output di
- * `xfade` è `2·clip − CROSSFADE` = HOLD_BEFORE+CROSSFADE+HOLD_AFTER.
+ * Ogni immagine diventa una clip con zoom Ken Burns identico (così le
+ * due clip restano allineate al pixel durante la tendina);
+ * `xfade=wiperight` rivela la clip "after" da sinistra a destra.
+ * Entrambe le clip durano HOLD_BEFORE+CROSSFADE: l'output di `xfade` è
+ * `2·clip − CROSSFADE` = HOLD_BEFORE+CROSSFADE+HOLD_AFTER.
  */
 export const buildCrossfadeArgs = (
   beforePath: string,
@@ -55,7 +59,7 @@ export const buildCrossfadeArgs = (
     `setpts=PTS-STARTPTS`;
   const filter =
     `${zoom('0:v')}[a];${zoom('1:v')}[b];` +
-    `[a][b]xfade=transition=fade:duration=${CROSSFADE}:offset=${HOLD_BEFORE}[v]`;
+    `[a][b]xfade=transition=wiperight:duration=${CROSSFADE}:offset=${HOLD_BEFORE}[v]`;
 
   return [
     '-y',

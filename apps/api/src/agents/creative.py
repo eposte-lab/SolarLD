@@ -84,6 +84,7 @@ from ..services.remotion_service import (
 from ..services.roi_service import compute_roi
 from ..services.solar_rendering_service import (
     SolarRenderingError,
+    normalize_to_output_dimensions,
     render_before_after,
     render_before_only,
 )
@@ -489,6 +490,11 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
                         roof_segment_count=roof_segment_count,
                         roof_pitch_deg=insight.pitch_degrees or None,
                     )
+                    # nano-banana often returns a different resolution
+                    # than the before crop; force it back to the
+                    # canonical 16:9 size so the before/after pair is
+                    # dimensionally identical for the crossfade reveal.
+                    after_bytes = normalize_to_output_dimensions(after_bytes)
                     _log_api_cost(
                         sb,
                         tenant_id=payload.tenant_id,
