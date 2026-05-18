@@ -7,16 +7,16 @@ Flow
   1. paint: nano-banana edits the real aerial photo, adding
      photorealistic panels on the rooftop — the "edit this photo"
      task it handles well, with the framing locked to the input.
-  2. extract: the painted frame is diffed against the untouched
-     before frame *here, in code*. Where they differ, the model
-     painted a panel; everything else becomes transparent. This
-     replaces an earlier AI "isolation" pass that re-framed the image
-     and never produced a clean key colour.
+  2. extract: the painted panels are stencilled out of that frame
+     with the Solar-geometry panel mask. A before/after diff cannot
+     be used — nano-banana re-encodes the *whole* image — and an AI
+     "isolation" pass re-framed it; the Solar mask is deterministic
+     and already aligned to the before crop.
   3. composite: the transparent panel layer is dropped over the
      untouched before image.
 
     before.png  (real aerial, never touched)
-         +  panel layer  (diff-extracted panels, transparent field)
+         +  panel layer  (painted panels, stencilled to a transparent field)
          =  after.png
 
 The background is the before image by construction, so it is always
@@ -39,7 +39,7 @@ import os
 from typing import Any
 
 import httpx
-from PIL import Image, ImageChops, ImageFilter
+from PIL import Image
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from ..core.config import settings
@@ -237,12 +237,6 @@ async def generate_after_with_panels(
 # Panel-layer extraction + compositing (pure)
 # ---------------------------------------------------------------------------
 
-# A pixel counts as "panel" when the before→after colour change exceeds
-# this. Painting a panel over bare roof is a huge change (>80 typ.);
-# the residual noise from nano-banana re-encoding the untouched
-# background is small (<25). 42 separates the two cleanly.
-_PANEL_DIFF_THRESHOLD = 42
-
 
 def _rgba_png(img: Image.Image) -> bytes:
     buf = io.BytesIO()
@@ -250,48 +244,34 @@ def _rgba_png(img: Image.Image) -> bytes:
     return buf.getvalue()
 
 
-def extract_panel_layer(before_bytes: bytes, after_bytes: bytes) -> bytes:
-    """Extract the panels from the painted frame as a transparent layer.
+def extract_panel_layer(after_bytes: bytes, mask_bytes: bytes) -> bytes:
+    """Stencil the painted panels out of the after frame.
 
-    nano-banana's "isolate the panels" pass re-framed the image and
-    never produced a clean key colour, so isolation is done here
-    deterministically instead: the painted ``after`` frame is diffed
-    against the untouched ``before``. Where they differ beyond
-    ``_PANEL_DIFF_THRESHOLD`` the model painted a panel; everywhere
-    else is unchanged background and becomes transparent.
+    The after frame (nano-banana, photoreal panels, framing locked to
+    the before) is cut with the Solar-geometry panel mask: inside the
+    white mask we keep the painted panels, everything else becomes
+    transparent.
 
-    Returns an RGBA PNG: the painted panels on a transparent field,
-    pixel-aligned with ``before`` (no re-framing, since both frames
-    share the same crop).
+    Why a mask and not a before/after diff: nano-banana re-encodes the
+    *whole* image, so a per-pixel diff lights up everywhere, not just
+    on the panels. The Solar mask is deterministic and already aligned
+    to the before crop, so it isolates the panel region reliably.
+
+    Returns an RGBA PNG: the painted panels on a transparent field.
     """
-    before = Image.open(io.BytesIO(before_bytes)).convert("RGB")
-    after = Image.open(io.BytesIO(after_bytes)).convert("RGB")
-    if after.size != before.size:
-        after = after.resize(before.size, Image.LANCZOS)
+    after = Image.open(io.BytesIO(after_bytes)).convert("RGBA")
+    mask = Image.open(io.BytesIO(mask_bytes)).convert("L")
+    if mask.size != after.size:
+        mask = mask.resize(after.size, Image.LANCZOS)
 
-    # Per-pixel change magnitude = max difference across R/G/B.
-    diff = ImageChops.difference(before, after)
-    dr, dg, db = diff.split()
-    magnitude = ImageChops.lighter(ImageChops.lighter(dr, dg), db)
-
-    # Binarise: changed enough → panel.
-    mask = magnitude.point(lambda v: 255 if v >= _PANEL_DIFF_THRESHOLD else 0)
-    # Morphological cleanup: drop isolated specks (erode), then close
-    # small gaps and grow slightly (dilate), then feather the edge.
-    mask = mask.filter(ImageFilter.MinFilter(3))
-    mask = mask.filter(ImageFilter.MaxFilter(7))
-    mask = mask.filter(ImageFilter.MinFilter(3))
-    mask = mask.filter(ImageFilter.GaussianBlur(1.2))
-
-    rgba = after.convert("RGBA")
-    rgba.putalpha(mask)
+    after.putalpha(mask)
 
     opaque_px = sum(1 for v in mask.getdata() if v > 10)
     log.info(
-        "ai_paint.panel_layer_diff",
+        "ai_paint.panel_layer_stencil",
         coverage=round(opaque_px / max(1, mask.width * mask.height), 3),
     )
-    return _rgba_png(rgba)
+    return _rgba_png(after)
 
 
 def composite_panel_layer(before_bytes: bytes, layer_bytes: bytes) -> bytes:
