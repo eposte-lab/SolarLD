@@ -66,16 +66,12 @@ from ..core.supabase_client import get_service_client
 from ..models.enums import RoofStatus
 from ..services.ai_panel_paint_service import (
     AiPaintError,
-    generate_after_masked,
     generate_after_with_panels,
 )
 from ..services.google_solar_service import (
     SolarApiError,
     SolarApiNotFound,
     fetch_building_insight,
-)
-from ..services.masked_inpaint_service import (
-    composite_inside_mask,
 )
 from ..services.osm_building_service import find_nearest_building
 from ..services.remotion_service import (
@@ -88,7 +84,6 @@ from ..services.solar_rendering_service import (
     SolarRenderingError,
     normalize_to_output_dimensions,
     render_before_after,
-    render_before_and_mask,
     render_before_only,
 )
 from ..services.storage_service import upload_bytes
@@ -412,20 +407,12 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
                     kwp=insight.estimated_kwp,
                 )
 
-                # 4a) BEFORE image — real Google aerial crop, no panels.
-                # Three rendering engines, in preference order:
-                #   * CREATIVE_SKIP_REPLICATE → fully-offline
-                #     render_before_after (deterministic PIL panels, no
-                #     Replicate).
-                #   * masked inpaint (default, when Solar returned panel
-                #     geometry) → render_before_and_mask gives the aerial
-                #     crop PLUS a mask white exactly on the Solar panel
-                #     footprints. The AI then paints ONLY inside that
-                #     mask, so panels cannot land off the roof.
-                #   * nano-banana free-paint → fallback when Solar gave
-                #     no panel geometry (the mask would be empty); the
-                #     text prompt alone guides placement.
-                mask_bytes: bytes | None = None
+                # 4a) BEFORE image — high-res aerial crop, no panels.
+                # CREATIVE_SKIP_REPLICATE keeps the fully-offline
+                # render_before_after (deterministic PIL panels, no
+                # Replicate); otherwise render_before_only gives the
+                # aerial crop that nano-banana paints panels onto. Both
+                # source a high-res Mapbox satellite tile for the crop.
                 if settings.creative_skip_replicate:
                     before_bytes, after_bytes_offline = await render_before_after(
                         lat,
@@ -433,14 +420,6 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
                         insight,
                         api_key=settings.google_solar_api_key or None,
                     )
-                elif insight.panels:
-                    before_bytes, mask_bytes = await render_before_and_mask(
-                        lat,
-                        lng,
-                        insight,
-                        api_key=settings.google_solar_api_key or None,
-                    )
-                    after_bytes_offline = None
                 else:
                     before_bytes = await render_before_only(
                         lat,
@@ -462,8 +441,8 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
                     sb,
                     tenant_id=payload.tenant_id,
                     provider="google_solar",
-                    endpoint="solar/buildingInsights+dataLayers",
-                    cost_cents=5,  # $0.02 + $0.03
+                    endpoint="solar/buildingInsights",
+                    cost_cents=2,  # ~$0.02 — imagery now comes from Mapbox
                     status="success",
                     metadata={
                         "lead_id": payload.lead_id,
@@ -471,7 +450,8 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
                     },
                 )
 
-                # 4b) AFTER image. The painted frame IS the after; the
+                # 4b) AFTER image — nano-banana paints photoreal panels on
+                # the roof. The painted frame IS the after; the
                 # before→after transition is a plain crossfade between
                 # the two full frames.
                 if settings.creative_skip_replicate and after_bytes_offline is not None:
@@ -486,68 +466,21 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
                         note="CREATIVE_SKIP_REPLICATE=true — bypassed nano-banana",
                     )
                 else:
-                    after_bytes = None
-                    # Mask-guided nano-banana: nano-banana paints the
-                    # panels (photoreal), but gets the Solar panel
-                    # footprint mask as a second reference image so it
-                    # knows exactly WHERE. The result is then composited
-                    # through the mask, so every off-roof pixel stays
-                    # byte-identical to the before frame — the AI cannot
-                    # leave panels on the lawn / a neighbour's roof.
-                    if mask_bytes is not None:
-                        try:
-                            mask_url = upload_bytes(
-                                bucket=RENDERINGS_BUCKET,
-                                path=f"{payload.tenant_id}/{payload.lead_id}/mask.png",
-                                data=mask_bytes,
-                                content_type="image/png",
-                            )
-                            painted = await generate_after_masked(
-                                before_image_url=before_url,
-                                mask_image_url=mask_url,
-                                panel_count=len(insight.panels),
-                                kwp=insight.estimated_kwp,
-                            )
-                            after_bytes = composite_inside_mask(before_bytes, painted, mask_bytes)
-                            _log_api_cost(
-                                sb,
-                                tenant_id=payload.tenant_id,
-                                provider="replicate",
-                                endpoint="google/nano-banana",
-                                cost_cents=4,
-                                status="success",
-                                metadata={"lead_id": payload.lead_id},
-                            )
-                            log.info(
-                                "creative.after_image_masked_paint",
-                                lead_id=payload.lead_id,
-                                panels=len(insight.panels),
-                            )
-                        except AiPaintError as exc:
-                            # Mask-guided paint failed — fall back to the
-                            # unguided nano-banana free-paint below
-                            # rather than losing the whole render.
-                            log.warning(
-                                "creative.masked_paint_failed",
-                                lead_id=payload.lead_id,
-                                err=str(exc).replace("\n", " ")[:160],
-                            )
-                    if after_bytes is None:
-                        after_bytes = await generate_after_with_panels(
-                            before_image_url=before_url,
-                            panel_count=len(insight.panels),
-                            kwp=insight.estimated_kwp,
-                        )
-                        _log_api_cost(
-                            sb,
-                            tenant_id=payload.tenant_id,
-                            provider="replicate",
-                            endpoint="google/nano-banana",
-                            cost_cents=4,  # ~$0.039 per nano-banana call
-                            status="success",
-                            metadata={"lead_id": payload.lead_id},
-                        )
+                    after_bytes = await generate_after_with_panels(
+                        before_image_url=before_url,
+                        panel_count=len(insight.panels),
+                        kwp=insight.estimated_kwp,
+                    )
                     after_bytes = normalize_to_output_dimensions(after_bytes)
+                    _log_api_cost(
+                        sb,
+                        tenant_id=payload.tenant_id,
+                        provider="replicate",
+                        endpoint="google/nano-banana",
+                        cost_cents=4,  # ~$0.039 per nano-banana call
+                        status="success",
+                        metadata={"lead_id": payload.lead_id},
+                    )
                 after_url = upload_bytes(
                     bucket=RENDERINGS_BUCKET,
                     path=f"{payload.tenant_id}/{payload.lead_id}/after.png",
