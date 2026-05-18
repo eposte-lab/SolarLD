@@ -1,22 +1,13 @@
 """After-frame generation via Google Gemini 2.5 Flash Image
 (``google/nano-banana`` on Replicate).
 
-Flow:
-
-  1. paint: nano-banana edits the real aerial "before" photo, adding
-     photorealistic panels on the rooftop. The prompt locks the
-     framing to the input, so the painted frame stays aligned.
-  2. extract: ``extract_panel_layer`` diffs the painted frame against
-     the before. Above a measured threshold the change is a painted
-     panel; everything else becomes transparent → a panels-only layer.
-  3. composite: the panel layer is dropped over the *untouched* before
-     image, so the after frame's background is byte-identical to the
-     before — a before/after wipe then reveals only the panels.
-
-The threshold matters: an AI "isolation" pass re-framed the image and
-a Solar-geometry stencil clipped panels the model painted outside the
-official footprint, so neither is used — the diff, with a threshold
-measured from real renders, keeps every painted panel.
+nano-banana edits the real aerial "before" photo, adding photorealistic
+solar panels on the rooftop. The prompt does two jobs: identify the
+correct rooftop (the target building, all its segments) and place the
+panels on it, and lock the framing to the input so the painted "after"
+frame overlays the "before" as precisely as possible. The painted
+frame is used directly as the after; the transition is a normal
+before→after crossfade.
 
 Override points (env)
 ---------------------
@@ -30,12 +21,10 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import io
 import os
 from typing import Any
 
 import httpx
-from PIL import Image, ImageChops, ImageFilter
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from ..core.config import settings
@@ -69,21 +58,37 @@ def build_paint_prompt(*, panel_count: int, kwp: float | None = None) -> str:
     scale = f", together forming roughly a {kwp:.0f} kWp array" if kwp and kwp > 0 else ""
     return (
         "TASK: Edit this top-down aerial photograph by adding "
-        "photorealistic monocrystalline silicon solar panels onto the "
-        "rooftop of the principal building at the centre of the frame. "
-        f"Add {count}dark-blue rectangular panels with thin silver "
-        f"aluminium frames, in neat parallel rows aligned to the roof "
-        f"edges{scale}, covering every usable roof segment of that "
-        "building. The panels lie flat on the roof, follow its exact "
-        "slope, perspective and orientation, and cast realistic soft "
-        "shadows where they meet the surface. "
-        "Place panels ONLY on the building's rooftop — never on lawn, "
-        "garden, ground, driveway, parking, road, or neighbouring "
-        "buildings. "
-        "FRAMING LOCK: the output MUST keep the EXACT same pixel "
-        "dimensions, framing, zoom and crop as the input — do not pan, "
-        "zoom, rotate or re-crop. Preserve every non-roof pixel exactly "
-        "as in the source. "
+        "photorealistic solar panels to a rooftop. "
+        # ── 1. Identify the correct rooftop ──────────────────────────
+        "FIRST identify the correct rooftop: the principal building "
+        "occupying the centre of the frame. Its rooftop is the "
+        "contiguous elevated surface bounded by the building's outer "
+        "walls — recognisable as roof tiles, sheet metal, corrugated "
+        "panels, shingles or a flat membrane, and clearly raised above "
+        "the surrounding ground. Identify ALL of that building's roof "
+        "segments, including separate or differently-angled sections. "
+        # ── 2. Place the panels ──────────────────────────────────────
+        f"Add {count}photorealistic dark-blue monocrystalline silicon "
+        f"panels with thin silver aluminium frames{scale}, in neat "
+        "parallel rows aligned to the roof edges, covering every "
+        "usable roof segment of that building. The panels lie flat on "
+        "the roof, follow its exact slope, perspective and "
+        "orientation, and cast realistic soft shadows where they meet "
+        "the surface. "
+        # ── 3. Strict boundaries ─────────────────────────────────────
+        "Place panels ONLY on that building's rooftop. NEVER place "
+        "panels on the ground, lawn, garden, courtyard, driveway, "
+        "parking, road, or on neighbouring buildings. If a row would "
+        "run past a roof edge, shorten it rather than overhang. "
+        # ── 4. Framing lock — alignment with the before frame ───────
+        "CRITICAL FRAMING LOCK: the output MUST keep the EXACT same "
+        "pixel dimensions, framing, zoom, crop and camera position as "
+        "the input image. Do NOT pan, zoom, rotate or re-crop. Every "
+        "roof edge, wall, road, vehicle and tree must stay at the "
+        "IDENTICAL pixel position as in the input — the ONLY change "
+        "from input to output is the added panels, so the two frames "
+        "overlay each other perfectly. "
+        # ── 5. Output ────────────────────────────────────────────────
         "Output: photorealistic, top-down aerial perspective, natural "
         "daylight, sharp focus, no text, no watermarks."
     )
@@ -227,81 +232,3 @@ async def generate_after_with_panels(
         before_image_url,
         http_client=http_client,
     )
-
-
-# ---------------------------------------------------------------------------
-# Panel-layer extraction + compositing (pure)
-# ---------------------------------------------------------------------------
-
-# A pixel counts as "panel" when the before→after colour change exceeds
-# this. Measured on real renders: painting a panel over bare roof is a
-# huge change (panel pixels sit at the 90th percentile ≈ 107+), while
-# the residual noise from nano-banana re-encoding the untouched
-# background clusters around the median ≈ 22. 85 keeps every painted
-# panel while leaving the background out.
-_PANEL_DIFF_THRESHOLD = 85
-
-
-def _rgba_png(img: Image.Image) -> bytes:
-    buf = io.BytesIO()
-    img.convert("RGBA").save(buf, format="PNG")
-    return buf.getvalue()
-
-
-def extract_panel_layer(before_bytes: bytes, after_bytes: bytes) -> bytes:
-    """Extract the painted panels as a transparent layer.
-
-    The painted ``after`` frame is diffed against the untouched
-    ``before``: where the colour changed by more than
-    ``_PANEL_DIFF_THRESHOLD`` the model painted a panel, everything
-    else is unchanged background and becomes transparent. This keeps
-    *every* panel the model painted (a Solar-geometry stencil clipped
-    panels placed outside the official footprint).
-
-    Returns an RGBA PNG: the painted panels on a transparent field,
-    aligned with ``before`` (both frames share the same crop).
-    """
-    before = Image.open(io.BytesIO(before_bytes)).convert("RGB")
-    after = Image.open(io.BytesIO(after_bytes)).convert("RGB")
-    if after.size != before.size:
-        after = after.resize(before.size, Image.LANCZOS)
-
-    diff = ImageChops.difference(before, after)
-    dr, dg, db = diff.split()
-    magnitude = ImageChops.lighter(ImageChops.lighter(dr, dg), db)
-
-    mask = magnitude.point(lambda v: 255 if v >= _PANEL_DIFF_THRESHOLD else 0)
-    # Morphology: erode away isolated specks, dilate to close the panel
-    # grid gaps and grow slightly, erode part-way back, then feather.
-    mask = mask.filter(ImageFilter.MinFilter(3))
-    mask = mask.filter(ImageFilter.MaxFilter(9))
-    mask = mask.filter(ImageFilter.MinFilter(5))
-    mask = mask.filter(ImageFilter.GaussianBlur(1.5))
-
-    rgba = after.convert("RGBA")
-    rgba.putalpha(mask)
-
-    opaque_px = sum(1 for v in mask.getdata() if v > 10)
-    log.info(
-        "ai_paint.panel_layer_diff",
-        coverage=round(opaque_px / max(1, mask.width * mask.height), 3),
-    )
-    return _rgba_png(rgba)
-
-
-def composite_panel_layer(before_bytes: bytes, layer_bytes: bytes) -> bytes:
-    """Composite the panel layer over the untouched before image.
-
-    The background stays exactly the before image; only the panels are
-    drawn on top — so a before/after wipe reveals just the panels.
-    Returns an RGB PNG.
-    """
-    before = Image.open(io.BytesIO(before_bytes)).convert("RGBA")
-    layer = Image.open(io.BytesIO(layer_bytes)).convert("RGBA")
-    if layer.size != before.size:
-        layer = layer.resize(before.size, Image.LANCZOS)
-
-    out = Image.alpha_composite(before, layer).convert("RGB")
-    buf = io.BytesIO()
-    out.save(buf, format="PNG", optimize=True, compress_level=6)
-    return buf.getvalue()
