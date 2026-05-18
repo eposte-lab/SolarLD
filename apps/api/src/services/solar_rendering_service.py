@@ -46,6 +46,14 @@ OUTPUT_W = 1536
 OUTPUT_H = 864  # 1536 * 9 / 16
 OUTPUT_ASPECT = OUTPUT_W / OUTPUT_H  # 16:9
 
+# Vertical focus shift — lift the roof toward the upper part of the
+# frame so the portal's bottom data bar sits on empty ground/context
+# instead of covering the building. Expressed as a fraction of the
+# crop half-height; the actual shift is clamped to the roof's own top
+# margin (``_FOCUS_SAFETY``) so the building is never clipped.
+_VERTICAL_FOCUS_SHIFT = 0.35
+_FOCUS_SAFETY = 0.05
+
 # Padding around the roof footprint, expressed as a multiplier of the
 # roof's bounding-box half-diagonal (computed from panel cluster bounds
 # when available, falls back to sqrt(area) otherwise).
@@ -566,10 +574,12 @@ def _load_and_crop(
     # the part that's actually covered with panels). This gives us a
     # tighter, more accurate frame around what we want the AI model
     # to focus on.
+    roof_half_h_m: float | None = None
     if insight.panels:
         panel_lats = [p.lat for p in insight.panels]
         panel_lngs = [p.lng for p in insight.panels]
         cluster_height_m = (max(panel_lats) - min(panel_lats)) * 111_320.0
+        roof_half_h_m = cluster_height_m / 2.0
         cluster_width_m = (
             (max(panel_lngs) - min(panel_lngs)) * 111_320.0 * math.cos(math.radians(center_lat))
         )
@@ -617,10 +627,24 @@ def _load_and_crop(
     # contesto laterale. Poi clampato ai bordi dell'immagine.
     half_h = crop_radius_px
     half_w = int(crop_radius_px * OUTPUT_ASPECT)
+
+    # Vertical focus shift: translate the crop DOWN so the roof sits in
+    # the upper part of the frame, leaving empty space below for the
+    # portal's bottom data bar. Bounded by the roof's own top margin
+    # (the padding between the roof edge and the crop edge) so the
+    # building is never clipped — when padding is tight the shift just
+    # shrinks toward zero.
+    focus_shift_px = 0
+    if roof_half_h_m is not None:
+        roof_half_h_px = roof_half_h_m * px_per_m
+        top_margin_px = half_h - roof_half_h_px
+        desired_shift = _VERTICAL_FOCUS_SHIFT * half_h
+        focus_shift_px = int(max(0.0, min(desired_shift, top_margin_px - _FOCUS_SAFETY * half_h)))
+
     left = max(0, int(center_col - half_w))
-    top = max(0, int(center_row - half_h))
+    top = max(0, int(center_row - half_h + focus_shift_px))
     right = min(img_w, int(center_col + half_w))
-    bottom = min(img_h, int(center_row + half_h))
+    bottom = min(img_h, int(center_row + half_h + focus_shift_px))
 
     # Dopo il clamp la box può non essere più 16:9 — la riporto a 16:9
     # rifilando il lato in eccesso (verso l'angolo già clampato).
