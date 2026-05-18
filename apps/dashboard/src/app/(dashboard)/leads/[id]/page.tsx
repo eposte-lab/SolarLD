@@ -901,10 +901,18 @@ export default async function LeadDetailPage({ params }: PageProps) {
                   }
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-flex items-center gap-1 text-primary hover:underline"
+                  title={v3Signal.website_url}
+                  className="inline-flex max-w-[260px] items-center gap-1 align-bottom text-primary hover:underline"
                 >
-                  {v3Signal.website_url.replace(/^https?:\/\//, '').replace(/\/$/, '')}
-                  <ExternalLink size={11} strokeWidth={2.25} aria-hidden />
+                  <span className="min-w-0 truncate">
+                    {v3Signal.website_url.replace(/^https?:\/\//, '').replace(/\/$/, '')}
+                  </span>
+                  <ExternalLink
+                    size={11}
+                    strokeWidth={2.25}
+                    className="shrink-0"
+                    aria-hidden
+                  />
                 </a>
               }
             />
