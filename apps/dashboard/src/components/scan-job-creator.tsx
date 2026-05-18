@@ -3,10 +3,10 @@
 /**
  * ScanJobCreator — form sinistro della pagina /territorio.
  *
- * Imposta: nome, regione, provincia (opz), comune (opz), settori,
- * cap giornaliero validati, flag "sempre attivo". Submit → POST
- * /v1/territory/scan-jobs → worker parte SUBITO → la lista appare
- * a destra come "in corso".
+ * Imposta: nome, regione, province (una o più — nessuna = tutta la
+ * regione), settori, cap giornaliero validati, flag "sempre attivo".
+ * Submit → POST /v1/territory/scan-jobs → worker parte SUBITO → la
+ * lista appare a destra come "in corso".
  */
 
 import { useState, type FormEvent } from 'react';
@@ -66,8 +66,7 @@ type Props = {
 export function ScanJobCreator({ onCreated, maxDailyCap }: Props) {
   const [name, setName] = useState('');
   const [region, setRegion] = useState('');
-  const [province, setProvince] = useState('');
-  const [comune, setComune] = useState('');
+  const [selectedProvinces, setSelectedProvinces] = useState<Set<string>>(new Set());
   const [selectedSectors, setSelectedSectors] = useState<Set<string>>(new Set());
   const [dailyCap, setDailyCap] = useState<number>(Math.min(200, maxDailyCap));
   const [totalCap, setTotalCap] = useState<number>(5000);
@@ -86,6 +85,15 @@ export function ScanJobCreator({ onCreated, maxDailyCap }: Props) {
     });
   }
 
+  function toggleProvince(p: string) {
+    setSelectedProvinces((prev) => {
+      const next = new Set(prev);
+      if (next.has(p)) next.delete(p);
+      else next.add(p);
+      return next;
+    });
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
@@ -94,18 +102,21 @@ export function ScanJobCreator({ onCreated, maxDailyCap }: Props) {
       setError('Nome lista obbligatorio');
       return;
     }
-    if (!region && !province && !comune.trim()) {
-      setError('Seleziona almeno regione, provincia o comune');
+    if (!region) {
+      setError('Seleziona una regione');
       return;
     }
+
+    // Nessuna provincia selezionata = tutta la regione → espandi la lista.
+    const provinceCodes =
+      selectedProvinces.size > 0 ? Array.from(selectedProvinces) : provinceOptions;
 
     setSubmitting(true);
     try {
       await createScanJob({
         name: name.trim(),
-        region: region || undefined,
-        province: province || undefined,
-        comune: comune.trim() || undefined,
+        region,
+        province_codes: provinceCodes,
         sector_filters: Array.from(selectedSectors),
         daily_validated_cap: dailyCap,
         total_validated_cap: totalCap,
@@ -114,8 +125,7 @@ export function ScanJobCreator({ onCreated, maxDailyCap }: Props) {
       // Reset
       setName('');
       setRegion('');
-      setProvince('');
-      setComune('');
+      setSelectedProvinces(new Set());
       setSelectedSectors(new Set());
       setDailyCap(200);
       setTotalCap(5000);
@@ -159,7 +169,8 @@ export function ScanJobCreator({ onCreated, maxDailyCap }: Props) {
         </span>
         <select
           value={region}
-          onChange={(e) => { setRegion(e.target.value); setProvince(''); }}
+          onChange={(e) => { setRegion(e.target.value); setSelectedProvinces(new Set()); }}
+          required
           className="w-full rounded-md border border-outline-variant bg-surface px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
         >
           <option value="">— seleziona —</option>
@@ -167,33 +178,40 @@ export function ScanJobCreator({ onCreated, maxDailyCap }: Props) {
         </select>
       </label>
 
-      <label className="block space-y-1">
+      <div className="space-y-1.5">
         <span className="text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">
-          Provincia (opzionale)
+          Province (vuoto = tutta la regione)
         </span>
-        <select
-          value={province}
-          onChange={(e) => setProvince(e.target.value)}
-          disabled={!region}
-          className="w-full rounded-md border border-outline-variant bg-surface px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-50"
-        >
-          <option value="">— tutta la regione —</option>
-          {provinceOptions.map((p) => <option key={p} value={p}>{p}</option>)}
-        </select>
-      </label>
-
-      <label className="block space-y-1">
-        <span className="text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">
-          Comune (opzionale)
-        </span>
-        <input
-          value={comune}
-          onChange={(e) => setComune(e.target.value)}
-          placeholder="Es. Casoria"
-          maxLength={120}
-          className="w-full rounded-md border border-outline-variant bg-surface px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
-        />
-      </label>
+        {!region ? (
+          <p className="text-[11px] text-on-surface-variant">
+            Seleziona prima una regione.
+          </p>
+        ) : (
+          <>
+            <div className="flex flex-wrap gap-1.5">
+              {provinceOptions.map((p) => (
+                <label
+                  key={p}
+                  className="cursor-pointer rounded-full bg-surface-container px-2.5 py-1 text-[11px] font-medium tabular-nums ring-1 ring-on-surface/5 hover:bg-surface-container-high has-[:checked]:bg-primary-container has-[:checked]:text-on-primary-container has-[:checked]:ring-primary"
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedProvinces.has(p)}
+                    onChange={() => toggleProvince(p)}
+                    className="sr-only"
+                  />
+                  {p}
+                </label>
+              ))}
+            </div>
+            <span className="block text-[10px] text-on-surface-variant">
+              {selectedProvinces.size === 0
+                ? `Scansiona tutte le ${provinceOptions.length} province della regione`
+                : `${selectedProvinces.size} provincia/e selezionate`}
+            </span>
+          </>
+        )}
+      </div>
 
       <div className="space-y-1.5">
         <span className="text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">

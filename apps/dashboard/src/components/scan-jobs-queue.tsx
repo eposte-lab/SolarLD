@@ -136,7 +136,14 @@ export function ScanJobsQueue({ jobs, onMutate }: Props) {
   }
 
   function territoryLabel(job: ScanJob): string {
-    return [job.comune, job.province, job.region].filter(Boolean).join(' · ');
+    const pcs = job.province_codes ?? [];
+    const provPart =
+      pcs.length === 0
+        ? ''
+        : pcs.length <= 4
+          ? pcs.join(', ')
+          : `${pcs.length} province`;
+    return [job.region, provPart].filter(Boolean).join(' · ');
   }
 
   if (jobs.length === 0) {

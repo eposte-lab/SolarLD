@@ -2,7 +2,7 @@
  * Scan jobs data layer — /territorio refactor totale.
  *
  * Una scan_job rappresenta una "lista di lavoro" definita dall'operatore:
- * territorio (regione/provincia/comune) + settori + cap giornaliero
+ * territorio (regione + una o più province) + settori + cap giornaliero
  * di lead validati. Il worker la consuma per priority order e si ferma
  * al cap, ripartendo il giorno dopo.
  */
@@ -22,8 +22,7 @@ export interface ScanJob {
   id: string;
   name: string;
   region: string | null;
-  province: string | null;
-  comune: string | null;
+  province_codes: string[];
   sector_filters: string[];
   daily_validated_cap: number;
   total_validated_cap: number;
@@ -45,9 +44,9 @@ export interface ScanJob {
 
 export interface CreateScanJobInput {
   name: string;
-  region?: string;
-  province?: string;
-  comune?: string;
+  region: string;
+  /** ISO 3166-2 suffixes (NA, MI, …). "Tutta la regione" = lista completa. */
+  province_codes: string[];
   sector_filters?: string[];
   daily_validated_cap?: number;
   total_validated_cap?: number;

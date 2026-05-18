@@ -378,15 +378,14 @@ async def map_target_areas_task(_ctx: dict[str, Any], payload: dict[str, Any]) -
     """L0 — One-shot OSM zone mapping for a tenant.
 
     Triggered via POST /v1/territory/map, onboarding completion, or a
-    scan-job creation (per-comune). Slow (2-15 min) so always runs as
-    an ARQ background job. Idempotent: re-running upserts existing
-    zones by (tenant_id, osm_type, osm_id).
+    scan-job creation. Slow (2-15 min) so always runs as an ARQ
+    background job. Idempotent: re-running upserts existing zones by
+    (tenant_id, osm_type, osm_id).
 
     Payload schema:
       tenant_id: str (UUID)
       wizard_groups: list[str]
       province_codes: list[str]  # Italian ISO 3166-2 suffixes (NA, MI, ...)
-      comune: str | None         # when set, scope the mapping to one comune
       scan_job_id: str | None    # when set, chain hunter_funnel_v3_task after
       max_l1_candidates: int | None
     """
@@ -396,7 +395,6 @@ async def map_target_areas_task(_ctx: dict[str, Any], payload: dict[str, Any]) -
         tenant_id=payload["tenant_id"],
         wizard_groups=list(payload.get("wizard_groups") or []),
         province_codes=list(payload.get("province_codes") or []),
-        comune=payload.get("comune"),
     )
 
     # When triggered by a scan job, chain the funnel so the scan runs
@@ -448,24 +446,22 @@ async def hunter_funnel_v3_task(_ctx: dict[str, Any], payload: dict[str, Any]) -
     summary: dict[str, Any] = {}
     crash_exc: Exception | None = None
 
-    # Territory of the scan job — scopes the funnel to one comune so a
+    # Territory of the scan job — scopes the funnel to its province so a
     # tenant's scan jobs on different territories stay isolated.
-    scan_comune: str | None = None
-    scan_province: str | None = None
+    scan_province_codes: list[str] = []
     if scan_job_id:
         try:
             _job = (
                 get_service_client()
                 .table("scan_jobs")
-                .select("comune, province")
+                .select("province_codes")
                 .eq("id", scan_job_id)
                 .limit(1)
                 .maybe_single()
                 .execute()
             )
             _jd = (_job.data or {}) if _job else {}
-            scan_comune = _jd.get("comune")
-            scan_province = _jd.get("province")
+            scan_province_codes = list(_jd.get("province_codes") or [])
         except Exception:  # noqa: BLE001
             pass
 
@@ -476,8 +472,7 @@ async def hunter_funnel_v3_task(_ctx: dict[str, Any], payload: dict[str, Any]) -
             config=config,
             emitter=None,
             max_l1_candidates=int(payload.get("max_l1_candidates") or 2000),
-            comune=scan_comune,
-            province_code=scan_province,
+            province_codes=scan_province_codes,
             scan_job_id=scan_job_id,
         )
     except Exception as exc:
