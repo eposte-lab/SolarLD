@@ -19,11 +19,11 @@ describe('buildCrossfadeArgs', () => {
     expect(args).toContain('/tmp/out.mp4');
   });
 
-  it('compone una dissolvenza xfade con zoom Ken Burns', () => {
+  it('compone una tendina xfade con zoom Ken Burns', () => {
     const fi = args.indexOf('-filter_complex');
     expect(fi).toBeGreaterThan(-1);
     const filter = args[fi + 1] ?? '';
-    expect(filter).toContain('xfade=transition=fade');
+    expect(filter).toContain('xfade=transition=wiperight');
     expect(filter).toContain('zoompan');
     expect(filter).toContain('[v]');
   });

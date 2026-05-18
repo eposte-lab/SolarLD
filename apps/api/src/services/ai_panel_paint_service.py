@@ -244,6 +244,20 @@ def build_paint_prompt(
         "neighbouring buildings, shadows on the ground all stay "
         "EXACTLY as they appear in the source image. "
         "Do NOT add text, logos, watermarks, captions or arrows. "
+        # ── 5b. Framing lock — output must be pixel-aligned ──────────
+        # The output is the END frame of a before/after transition: it
+        # is composited pixel-for-pixel against the unedited input. Any
+        # pan, zoom, rotation or re-crop makes the roof jump during the
+        # reveal. nano-banana otherwise tends to re-frame slightly and
+        # to emit a different resolution than the input.
+        "CRITICAL FRAMING LOCK: the output MUST keep the EXACT same "
+        "camera framing, zoom level, crop, rotation, aspect ratio and "
+        "pixel dimensions as the input image. Do NOT pan, zoom in or "
+        "out, rotate, tilt, re-crop, re-center or re-frame. Every roof "
+        "edge, building outline, road and tree must stay at the "
+        "IDENTICAL pixel position as in the input. The only permitted "
+        "difference between input and output is the added solar "
+        "panels on the rooftop — nothing else moves. "
         # ── 6. Abort clause ──────────────────────────────────────────
         "If you cannot confidently identify a rooftop suitable for "
         "panels in this image, return the image unchanged rather than "

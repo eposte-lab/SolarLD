@@ -27,9 +27,10 @@ import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
 
 const FFMPEG_BIN: string = process.env.FFMPEG_PATH ?? ffmpegInstaller.path;
 
-/** Verde del bagliore dell'overlay (emerald). Non è il brand color del
- *  tenant (spesso navy): il "verde = risparmio" è una costante voluta. */
-const GLOW_COLOR = '0x16A34A';
+/** Altezza della striscia inferiore dell'overlay, in pixel su un video
+ *  alto 720. Una lower-third sottile e discreta: niente bagliori,
+ *  niente numeri giganti — deve restare professionale e non invasiva. */
+const STRIP_H = 104;
 
 /** Font in grassetto per l'overlay. `fonts-dejavu-core` (installato nel
  *  Dockerfile) fornisce DejaVuSans-Bold; in locale può non esserci →
@@ -133,70 +134,64 @@ export const escapeDrawtext = (s: string): string =>
     .replace(/,/g, '\\,');
 
 /**
- * Build the `-filter_complex` graph that reveals the stats card over
- * the last ~1.8s of the clip:
- *   - input [1:v] is a tiny green lavfi `color` source; `geq` paints a
- *     vertical alpha gradient on it (transparent at the top, solid
- *     toward the bottom), it is scaled to the video and faded in → a
- *     green light that rises from below, no hard black rectangle;
- *   - 3 bold text lines (label · big savings figure · kW + payback)
- *     fade in just after — white, with a dark-green edge + drop shadow
- *     so they stay readable on any rooftop.
+ * Build the `-filter_complex` graph for a discreet professional
+ * lower-third:
+ *   - a thin translucent dark strip is drawn flush with the bottom
+ *     edge (permanent — a slim lower-third reads as broadcast-clean,
+ *     not as an ad banner);
+ *   - 2 small text lines (uppercase label · one compact value line:
+ *     savings · kW · payback) fade in as the panel reveal completes.
  *
- * `clipDurationS` is the wall-clock length of the source clip; the
- * reveal occupies its last `reveal` seconds. The graph ends on [out].
+ * No green glow, no oversized figures, no drop shadows — the strip's
+ * own contrast carries readability. The graph operates on [0:v] only
+ * (no second input) and ends on [out].
+ *
+ * `clipDurationS` is the wall-clock length of the clip; the text fades
+ * in over its last ~1.8s, in sync with the end of the wipe.
  */
 export const buildOverlayFilter = (
   stats: OverlayStats,
   clipDurationS: number,
   fontFile?: string,
 ): string => {
-  const reveal = Math.min(1.8, Math.max(0.9, clipDurationS - 0.4));
-  const fadeStart = Math.max(0, clipDurationS - reveal);
+  const fadeStart = Math.max(0.2, clipDurationS - 1.8);
 
   const savings = formatEuro(stats.yearlySavingsEur);
   const kw = `${Math.round(stats.kwp * 10) / 10} kW`;
   const payback = `rientro in ~${Math.max(1, Math.round(stats.paybackYears))} anni`;
-  const sub = `${kw}  ·  ${payback}`;
-  const label = 'RISPARMIO STIMATO ALL’ANNO';
+  const value = `${savings}   ·   ${kw}   ·   ${payback}`;
+  const label = 'RISPARMIO ANNUO STIMATO';
 
   // Per-line alpha: 0 until `st`, then ramps to 1 over 0.5s.
   const txtAlpha = (st: number): string =>
     `alpha='if(lt(t\\,${st})\\,0\\,if(lt(t\\,${st + 0.5})\\,(t-${st})/0.5\\,1))'`;
 
   const fontPart = fontFile ? `fontfile=${fontFile}:` : '';
-  const common =
-    `${fontPart}fontcolor=white:borderw=2:bordercolor=0x06351A` +
-    `:shadowcolor=0x04200D@0.85:shadowx=0:shadowy=3:x=(w-text_w)/2`;
 
-  // Green glow: tiny color source → vertical alpha gradient → scaled to
-  // the video → faded in. `geq` runs on a 2×256 source (negligible).
-  const glow =
-    `[1:v]format=rgba,` +
-    `geq=r='r(X\\,Y)':g='g(X\\,Y)':b='b(X\\,Y)':` +
-    `a='clip((Y-80)/90\\,0\\,1)*230'[grad];` +
-    `[grad][0:v]scale2ref=w=iw:h=ih[grad2][base];` +
-    `[grad2]fade=t=in:st=${fadeStart}:d=0.6:alpha=1[glow];` +
-    `[base][glow]overlay=0:0[lit]`;
+  // Thin translucent strip flush with the bottom edge.
+  const strip =
+    `[0:v]drawbox=x=0:y=ih-${STRIP_H}:w=iw:h=${STRIP_H}` +
+    `:color=black@0.42:t=fill[bar]`;
 
+  // Small uppercase label, then the compact value line — left-aligned
+  // with a 48px gutter. White text; the strip provides the contrast.
   const lineLabel =
-    `[lit]drawtext=text='${escapeDrawtext(label)}':fontsize=30:` +
-    `${common}:${txtAlpha(fadeStart + 0.15)}:y=h-258[t1]`;
+    `[bar]drawtext=text='${escapeDrawtext(label)}':fontsize=21:` +
+    `${fontPart}fontcolor=white@0.66:x=48:y=h-${STRIP_H}+26:` +
+    `${txtAlpha(fadeStart)}[t1]`;
   const lineValue =
-    `[t1]drawtext=text='${escapeDrawtext(savings)}':fontsize=94:` +
-    `${common}:${txtAlpha(fadeStart + 0.2)}:y=h-222[t2]`;
-  const lineSub =
-    `[t2]drawtext=text='${escapeDrawtext(sub)}':fontsize=34:` +
-    `${common}:${txtAlpha(fadeStart + 0.3)}:y=h-104[out]`;
+    `[t1]drawtext=text='${escapeDrawtext(value)}':fontsize=34:` +
+    `${fontPart}fontcolor=white:x=48:y=h-${STRIP_H}+52:` +
+    `${txtAlpha(fadeStart + 0.15)}[out]`;
 
-  return [glow, lineLabel, lineValue, lineSub].join(';');
+  return [strip, lineLabel, lineValue].join(';');
 };
 
 /**
  * Burn the overlay into `inputMp4Path` and write the result to
  * `outputMp4Path`. Re-encodes with libx264 CRF 22 (visually lossless
  * for our use case while keeping file size reasonable for portal
- * playback). A second lavfi input feeds the green-glow gradient.
+ * playback). The overlay graph operates on the single video input.
  */
 export const overlayStatsOnVideo = async (
   inputMp4Path: string,
@@ -210,10 +205,6 @@ export const overlayStatsOnVideo = async (
     '-y',
     '-i',
     inputMp4Path,
-    '-f',
-    'lavfi',
-    '-i',
-    `color=c=${GLOW_COLOR}:s=2x256:d=${Math.max(1, clipDurationS)}`,
     '-filter_complex',
     filter,
     '-map',

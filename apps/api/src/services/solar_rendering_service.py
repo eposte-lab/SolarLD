@@ -51,18 +51,15 @@ OUTPUT_ASPECT = OUTPUT_W / OUTPUT_H  # 16:9
 # when available, falls back to sqrt(area) otherwise).
 #
 # We pick the multiplier ADAPTIVELY based on the size of the panel
-# cluster — see ``_adaptive_padding_factor`` below. Industrial roofs
-# (half-diagonal ≥35 m) already dominate the frame, so we crop tight
-# (~1.10) — extra context is just more lawn for the AI model to
-# misplace panels onto. Small residential roofs (half-diagonal ≤8 m,
-# typically ≤20 panels) are too small to be readable at a tight crop,
-# so we widen to ~1.45 to give the viewer enough surrounding context
-# to recognise the building — without zooming so far out that the
-# panels become invisible thumbnails.
+# cluster — see ``_adaptive_padding_factor`` below. The crop must keep
+# the WHOLE roof comfortably inside the 16:9 frame with breathing room
+# on every side: a tight crop clips the roof corners when the building
+# is shown at 16:9 on the portal/dashboard, which looks broken. We err
+# on the side of zooming OUT — extra context never clips the roof.
 #
 # This is the value used as a fallback when ``insight.panels`` is
 # empty (e.g. a non-eligible roof we still want to render before).
-PADDING_FACTOR_FALLBACK = 1.20
+PADDING_FACTOR_FALLBACK = 1.55
 
 
 def _adaptive_padding_factor(cluster_half_diag_m: float) -> float:
@@ -71,27 +68,25 @@ def _adaptive_padding_factor(cluster_half_diag_m: float) -> float:
     Why this matters: with a fixed multiplier, small residential roofs
     (10-20 panels) end up as a postage-stamp lost in surrounding lawn,
     while massive industrial plants (500+ panels) fill the frame edge-
-    to-edge with no breathing room and look claustrophobic. Each
-    extreme also hurts the AI paint step — too wide and nano-banana
-    has lots of "candidate surface" (grass, parking) to mis-target;
-    too tight and Kling lacks visual context to keep the building
-    geometry stable through the transition.
+    to-edge with no breathing room and look claustrophobic. The crop
+    must never clip the roof: corners getting cut at 16:9 was a
+    reported defect, so every anchor below leaves clear margin.
 
     Curve (half-diagonal in metres → padding multiplier):
-      ≤  8 m (≈ <150 m² roof)  → 1.45  — small house, need context
-      ≈ 15 m (≈  ~400 m² roof) → 1.28
-      ≈ 25 m (≈ 1500 m² roof)  → 1.16
-      ≥ 35 m (industrial)      → 1.10  — already huge, minimal margin
+      ≤  8 m (≈ <150 m² roof)  → 1.80  — small house, generous context
+      ≈ 15 m (≈  ~400 m² roof) → 1.66
+      ≈ 25 m (≈ 1500 m² roof)  → 1.53
+      ≥ 35 m (industrial)      → 1.42  — big roof, still clear margin
 
     Linear taper between the anchor points; clamped at the edges.
     """
     if cluster_half_diag_m <= 8.0:
-        return 1.45
+        return 1.80
     if cluster_half_diag_m >= 35.0:
-        return 1.10
-    # Linear interpolation 8m → 35m maps to 1.45 → 1.10
+        return 1.42
+    # Linear interpolation 8m → 35m maps to 1.80 → 1.42
     t = (cluster_half_diag_m - 8.0) / (35.0 - 8.0)
-    return 1.45 - 0.35 * t
+    return 1.80 - 0.38 * t
 
 
 # ── Panel visual style ─────────────────────────────────────────────────────
@@ -764,6 +759,26 @@ def _to_png_bytes(img: Image.Image) -> bytes:
     buf = io.BytesIO()
     img.convert("RGB").save(buf, format="PNG", optimize=True, compress_level=6)
     return buf.getvalue()
+
+
+def normalize_to_output_dimensions(png_bytes: bytes) -> bytes:
+    """Resize any PNG to exactly OUTPUT_W×OUTPUT_H.
+
+    The AFTER frame from nano-banana frequently comes back at a
+    different resolution than the BEFORE crop (e.g. 1344×768 vs
+    1536×864). The before/after pair is composited pixel-for-pixel by
+    the crossfade sidecar, so a size mismatch makes the roof jump
+    during the reveal. Forcing the AFTER frame back to the canonical
+    16:9 output size guarantees the two frames are dimensionally
+    identical; the prompt framing-lock keeps the *content* aligned.
+
+    Returns the input unchanged if it is already the right size.
+    """
+    img = Image.open(io.BytesIO(png_bytes))
+    if img.size == (OUTPUT_W, OUTPUT_H):
+        return png_bytes
+    resized = img.convert("RGB").resize((OUTPUT_W, OUTPUT_H), Image.LANCZOS)
+    return _to_png_bytes(resized)
 
 
 # ---------------------------------------------------------------------------
