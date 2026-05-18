@@ -1,25 +1,22 @@
-"""Two-pass panel-layer generation via Google Gemini 2.5 Flash Image
-(``google/nano-banana`` on Replicate).
+"""Panel-layer generation via Google Gemini 2.5 Flash Image
+(``google/nano-banana`` on Replicate) + deterministic extraction.
 
-Why two passes
---------------
+Flow
+----
 
-Asking nano-banana in a single call to BOTH place panels on a roof AND
-output only those panels proved unreliable. The two jobs are split so
-each call has one focused instruction:
-
-  Pass 1 — paint: edit the real aerial photo, adding photorealistic
-           panels on the rooftop. nano-banana is strongest at this
-           kind of "edit this photo" task.
-  Pass 2 — isolate: take pass-1's output and replace everything that
-           is not a panel with solid green — a focused background-
-           removal task on an image that already shows clear panels.
-
-Then we chroma-key the green out and composite the panel layer over
-the untouched "before" image:
+  1. paint: nano-banana edits the real aerial photo, adding
+     photorealistic panels on the rooftop — the "edit this photo"
+     task it handles well, with the framing locked to the input.
+  2. extract: the painted frame is diffed against the untouched
+     before frame *here, in code*. Where they differ, the model
+     painted a panel; everything else becomes transparent. This
+     replaces an earlier AI "isolation" pass that re-framed the image
+     and never produced a clean key colour.
+  3. composite: the transparent panel layer is dropped over the
+     untouched before image.
 
     before.png  (real aerial, never touched)
-         +  panel layer  (nano-banana panels, background removed)
+         +  panel layer  (diff-extracted panels, transparent field)
          =  after.png
 
 The background is the before image by construction, so it is always
@@ -93,25 +90,6 @@ def build_paint_prompt(*, panel_count: int, kwp: float | None = None) -> str:
         "as in the source. "
         "Output: photorealistic, top-down aerial perspective, natural "
         "daylight, sharp focus, no text, no watermarks."
-    )
-
-
-def build_isolation_prompt() -> str:
-    """Pass 2 — prompt nano-banana to keep ONLY the panels, rest green."""
-    return (
-        "TASK: This top-down aerial image shows a building with solar "
-        "panels installed on its roof. Output an image that contains "
-        "ONLY those solar panels and nothing else. "
-        "Replace every pixel that is NOT a solar panel — the roof, the "
-        "building, the ground, vegetation, vehicles, roads, sky and "
-        "shadows — with a solid pure-green background (RGB 0,255,0), a "
-        "single flat green with no other colour or texture. "
-        "Do NOT move, resize, rotate or re-position the panels: each "
-        "panel must stay at the EXACT same pixel position and size as "
-        "in the input image. Keep the output the same dimensions as "
-        "the input. "
-        "The result is the solar panels, perfectly intact and "
-        "unchanged, on a solid green background. No text, no watermarks."
     )
 
 
@@ -255,28 +233,15 @@ async def generate_after_with_panels(
     )
 
 
-async def isolate_panels(
-    *,
-    after_image_url: str,
-    http_client: httpx.AsyncClient | None = None,
-) -> bytes:
-    """Pass 2: from the after image, return panels-only-on-green PNG.
-
-    The caller passes the bytes through :func:`extract_panel_layer` to
-    chroma-key the green out, then :func:`composite_panel_layer` to
-    drop the panel layer onto the before image.
-    """
-    log.info("ai_paint.isolate_start", after_url_peek=after_image_url[:100])
-    return await _run_nano_banana(
-        build_isolation_prompt(),
-        after_image_url,
-        http_client=http_client,
-    )
-
-
 # ---------------------------------------------------------------------------
 # Panel-layer extraction + compositing (pure)
 # ---------------------------------------------------------------------------
+
+# A pixel counts as "panel" when the before→after colour change exceeds
+# this. Painting a panel over bare roof is a huge change (>80 typ.);
+# the residual noise from nano-banana re-encoding the untouched
+# background is small (<25). 42 separates the two cleanly.
+_PANEL_DIFF_THRESHOLD = 42
 
 
 def _rgba_png(img: Image.Image) -> bytes:
@@ -285,37 +250,46 @@ def _rgba_png(img: Image.Image) -> bytes:
     return buf.getvalue()
 
 
-def extract_panel_layer(raw_bytes: bytes) -> bytes:
-    """Turn nano-banana's output into a clean RGBA panel layer.
+def extract_panel_layer(before_bytes: bytes, after_bytes: bytes) -> bytes:
+    """Extract the panels from the painted frame as a transparent layer.
 
-    nano-banana is asked to output the panels on a transparent (or, as
-    a fallback, solid green) background. If genuine transparency is
-    present we keep it; otherwise we chroma-key the green out. Returns
-    an RGBA PNG where everything that is not a panel is transparent.
+    nano-banana's "isolate the panels" pass re-framed the image and
+    never produced a clean key colour, so isolation is done here
+    deterministically instead: the painted ``after`` frame is diffed
+    against the untouched ``before``. Where they differ beyond
+    ``_PANEL_DIFF_THRESHOLD`` the model painted a panel; everywhere
+    else is unchanged background and becomes transparent.
+
+    Returns an RGBA PNG: the painted panels on a transparent field,
+    pixel-aligned with ``before`` (no re-framing, since both frames
+    share the same crop).
     """
-    img = Image.open(io.BytesIO(raw_bytes))
+    before = Image.open(io.BytesIO(before_bytes)).convert("RGB")
+    after = Image.open(io.BytesIO(after_bytes)).convert("RGB")
+    if after.size != before.size:
+        after = after.resize(before.size, Image.LANCZOS)
 
-    # Case 1: the model already gave us real transparency.
-    if img.mode == "RGBA":
-        lo, _hi = img.getchannel("A").getextrema()
-        if lo < 250:
-            return _rgba_png(img)
+    # Per-pixel change magnitude = max difference across R/G/B.
+    diff = ImageChops.difference(before, after)
+    dr, dg, db = diff.split()
+    magnitude = ImageChops.lighter(ImageChops.lighter(dr, dg), db)
 
-    # Case 2: chroma-key a green background. A pixel is background when
-    # green clearly dominates red and blue; panels (blue/black/silver)
-    # never do, so this keys cleanly.
-    rgba = img.convert("RGBA")
-    r, g, b, _a = rgba.split()
-    rb_max = ImageChops.lighter(r, b)
-    greenness = ImageChops.subtract(g, rb_max)  # bright where green dominates
-    alpha = greenness.point(lambda v: 0 if v > 60 else 255)
-    alpha = alpha.filter(ImageFilter.GaussianBlur(1.0))
-    rgba.putalpha(alpha)
+    # Binarise: changed enough → panel.
+    mask = magnitude.point(lambda v: 255 if v >= _PANEL_DIFF_THRESHOLD else 0)
+    # Morphological cleanup: drop isolated specks (erode), then close
+    # small gaps and grow slightly (dilate), then feather the edge.
+    mask = mask.filter(ImageFilter.MinFilter(3))
+    mask = mask.filter(ImageFilter.MaxFilter(7))
+    mask = mask.filter(ImageFilter.MinFilter(3))
+    mask = mask.filter(ImageFilter.GaussianBlur(1.2))
 
-    opaque_px = sum(1 for v in alpha.getdata() if v > 10)
+    rgba = after.convert("RGBA")
+    rgba.putalpha(mask)
+
+    opaque_px = sum(1 for v in mask.getdata() if v > 10)
     log.info(
-        "ai_paint.panel_layer_keyed",
-        opaque_fraction=round(opaque_px / max(1, alpha.width * alpha.height), 3),
+        "ai_paint.panel_layer_diff",
+        coverage=round(opaque_px / max(1, mask.width * mask.height), 3),
     )
     return _rgba_png(rgba)
 
