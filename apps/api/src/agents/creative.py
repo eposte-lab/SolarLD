@@ -19,8 +19,12 @@ Pipeline (rendering-v2):
     ai_panel_paint_service.generate_after_with_panels(before_url)
           → nano-banana paints panels on the rooftop, framing locked
             to the before
-          → AFTER frame: the painted photo, used directly (it keeps
-            every painted panel and stays aligned with the before)
+        ↓
+    extract_panel_layer(before, after_full) → diff vs the before;
+          the changed pixels are the panels → transparent panel layer
+    composite_panel_layer(before, layer)
+          → AFTER frame: the untouched before with the panel layer on
+            top → background identical to the before, all panels kept
         ↓
     upload after.png to Supabase Storage
         ↓
@@ -66,6 +70,8 @@ from ..core.supabase_client import get_service_client
 from ..models.enums import RoofStatus
 from ..services.ai_panel_paint_service import (
     AiPaintError,
+    composite_panel_layer,
+    extract_panel_layer,
     generate_after_with_panels,
 )
 from ..services.google_solar_service import (
@@ -449,11 +455,12 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
                     },
                 )
 
-                # 4b) AFTER — nano-banana paints panels on the roof.
-                # The painted frame IS the after: its framing is locked
-                # to the before, so it stays aligned, and it keeps
-                # every panel the model painted (a Solar-mask stencil
-                # would clip panels the model placed outside the mask).
+                # 4b) AFTER — nano-banana paints panels on the roof;
+                # the painted panels are extracted as a transparent
+                # layer (diff vs the before) and composited back over
+                # the untouched before. Background = the before image
+                # by construction, so a before/after wipe reveals only
+                # the panels and the diff keeps every painted panel.
                 if settings.creative_skip_replicate and after_bytes_offline is not None:
                     # Offline path: render_before_after already produced
                     # the geometric panel overlay via PIL polygons drawn
@@ -466,11 +473,28 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
                         note="CREATIVE_SKIP_REPLICATE=true — bypassed nano-banana",
                     )
                 else:
-                    after_bytes = await generate_after_with_panels(
+                    after_full = await generate_after_with_panels(
                         before_image_url=before_url,
                         panel_count=len(insight.panels),
                         kwp=insight.estimated_kwp,
                     )
+                    after_full = normalize_to_output_dimensions(after_full)
+                    upload_bytes(
+                        bucket=RENDERINGS_BUCKET,
+                        path=f"{payload.tenant_id}/{payload.lead_id}/after_full.png",
+                        data=after_full,
+                        content_type="image/png",
+                    )
+                    # Extract the painted panels as a transparent layer
+                    # and composite it over the untouched before.
+                    panel_layer = extract_panel_layer(before_bytes, after_full)
+                    upload_bytes(
+                        bucket=RENDERINGS_BUCKET,
+                        path=f"{payload.tenant_id}/{payload.lead_id}/panels.png",
+                        data=panel_layer,
+                        content_type="image/png",
+                    )
+                    after_bytes = composite_panel_layer(before_bytes, panel_layer)
                     after_bytes = normalize_to_output_dimensions(after_bytes)
                     _log_api_cost(
                         sb,
