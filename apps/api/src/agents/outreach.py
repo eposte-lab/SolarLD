@@ -51,11 +51,13 @@ Degradation:
 from __future__ import annotations
 
 import base64
+import io
 import random as _random
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 import httpx
+from PIL import Image
 
 if TYPE_CHECKING:
     from ..services.neverbounce_service import EmailVerification
@@ -1348,58 +1350,75 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
         extra_headers["Feedback-ID"] = f"{_tid_short}:{_lid_short}:{_step_tag}:solarld"
 
         # ------------------------------------------------------------------
-        # Render inline (CID) — fix bug Outlook "scarica immagini".
+        # Immagini inline (CID) — fix bug Outlook "scarica immagini".
         #
         # Outlook blocca per default ogni <img> remota: il destinatario
-        # deve cliccare "scarica immagini" per vedere il render. Una
-        # immagine incorporata via Content-ID fa parte del messaggio e
-        # viene mostrata subito, senza prompt.
+        # deve cliccare "scarica immagini". Un'immagine incorporata via
+        # Content-ID fa parte del messaggio e si vede subito — anche se
+        # la mail finisce in posta indesiderata. Incorporiamo sia il
+        # logo del tenant sia il render statico dell'impianto; entrambi
+        # vengono downscalati + ricompressi così l'email resta leggera.
         #
-        # Incorporiamo l'immagine render STATICA: la GIF è troppo pesante
-        # e Outlook desktop non la anima comunque (mostra solo il primo
-        # fotogramma). La versione animata resta sul portale lead.
-        #
-        # Fail-safe: se il download fallisce o l'immagine è troppo
-        # grande, si lascia l'URL remoto (comportamento storico) — non
-        # blocchiamo mai l'invio per questo.
+        # Fail-safe: se il download/elaborazione di una fallisce si
+        # lascia l'URL remoto per quella immagine — non blocchiamo mai
+        # l'invio.
         # ------------------------------------------------------------------
-        render_attachment: EmailAttachment | None = None
+        attachments: list[EmailAttachment] = []
+        _html = rendered.html
+
+        # 1) Logo del tenant.
+        _logo_url = tenant_row.get("brand_logo_url")
+        if _logo_url and _logo_url in _html:
+            _logo = await _image_to_inline_cid(_logo_url, max_width=_LOGO_EMAIL_MAX_W)
+            if _logo is not None:
+                _b64, _ctype, _ext = _logo
+                _html = _html.replace(_logo_url, f"cid:{_LOGO_CID}")
+                attachments.append(
+                    EmailAttachment(
+                        filename=f"logo.{_ext}",
+                        content_b64=_b64,
+                        content_type=_ctype,
+                        content_id=_LOGO_CID,
+                    )
+                )
+
+        # 2) Render statico dell'impianto (la GIF/video animati restano
+        #    sul portale — Outlook desktop non li anima comunque).
         _render_candidates = [
             lead.get("rendering_image_url"),
             lead.get("rendering_gif_cdn_url"),
             lead.get("rendering_gif_url"),
         ]
-        _cid_source = (
-            lead.get("rendering_image_url")
-            or lead.get("rendering_gif_cdn_url")
-            or lead.get("rendering_gif_url")
-        )
-        if _cid_source and any(u and u in rendered.html for u in _render_candidates):
-            _fetched = await _fetch_render_for_cid(_cid_source)
-            if _fetched is not None:
-                _b64, _ctype, _fname = _fetched
-                _html_cid = rendered.html
+        _cid_source = next((u for u in _render_candidates if u), None)
+        if _cid_source and any(u and u in _html for u in _render_candidates):
+            _render = await _image_to_inline_cid(_cid_source, max_width=_RENDER_EMAIL_MAX_W)
+            if _render is not None:
+                _b64, _ctype, _ext = _render
                 for _u in _render_candidates:
                     if _u:
-                        _html_cid = _html_cid.replace(_u, f"cid:{RENDER_CID}")
-                from ..services.email_template_service import RenderedEmail
+                        _html = _html.replace(_u, f"cid:{RENDER_CID}")
+                attachments.append(
+                    EmailAttachment(
+                        filename=f"impianto.{_ext}",
+                        content_b64=_b64,
+                        content_type=_ctype,
+                        content_id=RENDER_CID,
+                    )
+                )
 
-                rendered = RenderedEmail(
-                    subject=rendered.subject,
-                    html=_html_cid,
-                    text=rendered.text,
-                )
-                render_attachment = EmailAttachment(
-                    filename=_fname,
-                    content_b64=_b64,
-                    content_type=_ctype,
-                    content_id=RENDER_CID,
-                )
-                log.info(
-                    "outreach.render_embedded_cid",
-                    lead_id=payload.lead_id,
-                    content_type=_ctype,
-                )
+        if _html != rendered.html:
+            from ..services.email_template_service import RenderedEmail
+
+            rendered = RenderedEmail(
+                subject=rendered.subject,
+                html=_html,
+                text=rendered.text,
+            )
+            log.info(
+                "outreach.images_embedded_cid",
+                lead_id=payload.lead_id,
+                count=len(attachments),
+            )
 
         send_input = SendEmailInput(
             from_address=from_address,
@@ -1414,7 +1433,7 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
                 "template": _template_id_for(subject_type),
             },
             headers=extra_headers or None,
-            attachments=[render_attachment] if render_attachment else None,
+            attachments=attachments or None,
         )
 
         # ------------------------------------------------------------------
@@ -2338,38 +2357,47 @@ def _tracking_pixel_url(
 # Cap sull'immagine render incorporata: oltre questa soglia l'email
 # diventerebbe troppo pesante per la deliverability → si ripiega sull'URL
 # remoto (comportamento storico). 2 MB di bytes ≈ 2.7 MB in base64.
-_RENDER_CID_MAX_BYTES = 2_000_000
-# Content-ID dell'immagine render incorporata inline nell'email.
+# Content-ID delle immagini incorporate inline nell'email.
 RENDER_CID = "lead-render"
+_LOGO_CID = "tenant-logo"
+# Larghezza massima (px) delle immagini incorporate: downscalando +
+# ricomprimendo l'email resta leggera (deliverability) e l'immagine CID
+# si vede anche quando Outlook la classifica come posta indesiderata.
+_RENDER_EMAIL_MAX_W = 960
+_LOGO_EMAIL_MAX_W = 360
 
 
-async def _fetch_render_for_cid(url: str) -> tuple[str, str, str] | None:
-    """Scarica l'immagine render per incorporarla inline (CID).
+async def _image_to_inline_cid(url: str, *, max_width: int) -> tuple[str, str, str] | None:
+    """Scarica un'immagine e la prepara per l'embedding inline (CID).
 
-    Ritorna ``(base64, content_type, filename)`` oppure ``None`` su
-    qualsiasi errore o se l'immagine è troppo grande — in tal caso il
-    chiamante lascia l'``<img src>`` remoto (Outlook continuerà a
-    chiedere "scarica immagini", ma l'invio non si rompe mai).
+    Downscala a ``max_width`` e ricomprime: l'allegato resta piccolo
+    (email leggera = migliore deliverability) e le immagini CID vengono
+    mostrate da Outlook anche quando blocca il contenuto remoto / la
+    mail finisce in posta indesiderata. La trasparenza (loghi) è
+    preservata in PNG, le foto opache diventano JPEG.
+
+    Ritorna ``(base64, content_type, filename)`` o ``None`` su qualsiasi
+    errore — in tal caso il chiamante lascia l'``<img src>`` remoto e
+    l'invio non si rompe mai.
     """
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.get(url)
-        if resp.status_code != 200:
+        if resp.status_code != 200 or not resp.content:
             return None
-        data = resp.content
-        if not data or len(data) > _RENDER_CID_MAX_BYTES:
-            return None
-        ctype = (resp.headers.get("content-type") or "").split(";")[0].strip()
-        lower = url.lower()
-        if not ctype.startswith("image/"):
-            if lower.endswith((".jpg", ".jpeg")):
-                ctype = "image/jpeg"
-            elif lower.endswith(".gif"):
-                ctype = "image/gif"
-            else:
-                ctype = "image/png"
-        ext = {"image/jpeg": "jpg", "image/gif": "gif"}.get(ctype, "png")
-        return base64.b64encode(data).decode("ascii"), ctype, f"impianto.{ext}"
+        img = Image.open(io.BytesIO(resp.content))
+        keep_alpha = img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info)
+        if img.width > max_width:
+            new_h = max(1, round(img.height * max_width / img.width))
+            img = img.resize((max_width, new_h), Image.LANCZOS)
+        buf = io.BytesIO()
+        if keep_alpha:
+            img.convert("RGBA").save(buf, format="PNG", optimize=True)
+            ctype, ext = "image/png", "png"
+        else:
+            img.convert("RGB").save(buf, format="JPEG", quality=82, optimize=True)
+            ctype, ext = "image/jpeg", "jpg"
+        return base64.b64encode(buf.getvalue()).decode("ascii"), ctype, ext
     except Exception:  # noqa: BLE001
         return None
 
