@@ -94,7 +94,7 @@ export default async function ContattiPage({
             Contatti
           </h1>
         </div>
-        <GradientButton href="/territories" size="sm" variant="secondary">
+        <GradientButton href="/territorio" size="sm" variant="secondary">
           + Territorio
         </GradientButton>
       </header>
@@ -195,7 +195,7 @@ export default async function ContattiPage({
               <p className="text-sm text-on-surface-variant">
                 Nessun contatto ancora.{' '}
                 <Link
-                  href="/territories"
+                  href="/territorio"
                   className="font-semibold text-primary hover:underline"
                 >
                   Avvia una scansione
