@@ -900,6 +900,67 @@ _SCENARIO_TO_STEP: dict[str, int] = {
 # tick to enqueue thousands of jobs in a single transaction.
 ENGAGEMENT_FOLLOWUP_BATCH = 500
 
+# Pipeline states a lead must be in to be escalated to `to_call`: it was
+# contacted + followed up but has not turned into a live conversation.
+_ESCALATABLE_STATUSES = {
+    LeadStatus.SENT.value,
+    LeadStatus.DELIVERED.value,
+    LeadStatus.OPENED.value,
+    LeadStatus.CLICKED.value,
+}
+
+
+def _followup_history(sb: Any, lead_id: str) -> tuple[bool, int]:
+    """Read a lead's outreach history → (has_step4, followup_count).
+
+    ``followup_count`` counts every send beyond the first touch
+    (sequence_step >= 2) — the hard cap in followup_scenario_service.
+    """
+    rows = (
+        sb.table("outreach_sends").select("sequence_step").eq("lead_id", lead_id).execute()
+    ).data or []
+    steps = [int(r.get("sequence_step") or 0) for r in rows]
+    return (4 in steps), sum(1 for s in steps if s >= 2)
+
+
+async def _maybe_escalate_to_call(
+    sb: Any, lead: dict[str, Any], now: datetime, followup_count: int
+) -> bool:
+    """Hand a stalled-but-interested lead to the operator for a phone call.
+
+    Fires when a lead that received at least one follow-up has gone
+    silent for 24h+ past that follow-up and is not getting another email
+    (the caller only invokes this when the scenario decision said "no
+    send"). Moves it to ``to_call`` and notifies the operator.
+    """
+    if followup_count < 1:
+        return False
+    if lead.get("outreach_replied_at"):
+        return False
+    if str(lead.get("pipeline_status") or "") not in _ESCALATABLE_STATUSES:
+        return False
+    last_fu = _parse_ts(lead.get("last_followup_sent_at"))
+    if last_fu is None or (now - last_fu) < timedelta(hours=24):
+        return False
+    sb.table("leads").update(
+        {
+            "pipeline_status": LeadStatus.TO_CALL.value,
+            "last_status_transition_at": now.isoformat(),
+        }
+    ).eq("id", lead["id"]).execute()
+    await _notify_inapp(
+        tenant_id=str(lead["tenant_id"]),
+        title="Lead da chiamare: follow-up senza risposta",
+        body=(
+            "Ha ricevuto i follow-up e non risponde da oltre 24h. "
+            "Ha mostrato interesse — passa a una chiamata."
+        ),
+        severity="warning",
+        href=f"/leads/{lead['id']}",
+        metadata={"lead_id": str(lead["id"]), "reason": "followup_no_reply"},
+    )
+    return True
+
 
 async def engagement_followup_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
     """Daily engagement-based follow-up dispatcher (Sprint 10).
@@ -941,16 +1002,19 @@ async def engagement_followup_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
     # Pull leads worth evaluating: have an initial outreach, not in
     # terminal states, and either currently engaged (score > 0) OR
     # cold-but-aged-out (eligible for cold scenario).
+    # `to_call` is excluded too: once a lead is handed to the operator
+    # for a phone call we stop the automated follow-up cadence.
     terminal = [
         LeadStatus.CLOSED_WON.value,
         LeadStatus.CLOSED_LOST.value,
         LeadStatus.BLACKLISTED.value,
+        LeadStatus.TO_CALL.value,
     ]
     leads_res = (
         sb.table("leads")
         .select(
             "id, tenant_id, pipeline_status, outreach_sent_at, "
-            "engagement_score, engagement_peak_score, "
+            "outreach_replied_at, engagement_score, engagement_peak_score, "
             "last_portal_event_at, last_followup_scenario, "
             "last_followup_sent_at, hot_lead_alerted_at"
         )
@@ -965,6 +1029,7 @@ async def engagement_followup_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
 
     queued = 0
     notified_hot = 0
+    escalated = 0
     skipped: dict[str, int] = {}
 
     for lead in leads:
@@ -979,23 +1044,13 @@ async def engagement_followup_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
             skipped["manual_cooldown_24h"] = skipped.get("manual_cooldown_24h", 0) + 1
             continue
 
-        # Detect cold-cadence completion: step 4 sent, OR initial send
-        # is older than the breakup-day cutoff (sequence will never fire
-        # step 4 anyway because the lead is silent).
-        cold_complete = False
+        # Read outreach history once: cold-cadence completion + the
+        # follow-up count that caps the engagement cadence at 2.
         outreach_sent_at = _parse_ts(lead.get("outreach_sent_at"))
+        has_step4, followup_count = _followup_history(sb, lead["id"])
+        cold_complete = False
         if outreach_sent_at is not None and outreach_sent_at.isoformat() <= cold_cutoff:
-            step4 = (
-                sb.table("outreach_sends")
-                .select("id")
-                .eq("lead_id", lead["id"])
-                .eq("sequence_step", 4)
-                .limit(1)
-                .execute()
-            )
-            cold_complete = bool(step4.data) or (
-                (now - outreach_sent_at).days >= STEP_4_DELAY_DAYS + 7
-            )
+            cold_complete = has_step4 or ((now - outreach_sent_at).days >= STEP_4_DELAY_DAYS + 7)
 
         snap = FollowupSnapshot(
             lead_id=str(lead["id"]),
@@ -1011,12 +1066,17 @@ async def engagement_followup_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
             last_followup_sent_at=_parse_ts(lead.get("last_followup_sent_at")),
             hot_lead_alerted_at=_parse_ts(lead.get("hot_lead_alerted_at")),
             cold_sequence_complete=cold_complete,
+            followup_count=followup_count,
         )
 
         decision = evaluate_followup_scenario(snap, now=now)
         if not decision.should_act:
             reason = decision.reason or "no_action"
             skipped[reason] = skipped.get(reason, 0) + 1
+            # A followed-up lead going silent 24h+ → hand to the operator
+            # for a phone call (no further automated email is coming).
+            if await _maybe_escalate_to_call(sb, lead, now, followup_count):
+                escalated += 1
             continue
 
         if decision.notify_only:
@@ -1068,6 +1128,7 @@ async def engagement_followup_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
         "cron.engagement_followup.done",
         queued=queued,
         notified_hot=notified_hot,
+        escalated=escalated,
         candidates=len(leads),
         skipped=skipped,
     )
@@ -1075,6 +1136,7 @@ async def engagement_followup_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
         "ok": True,
         "queued": queued,
         "notified_hot": notified_hot,
+        "escalated": escalated,
         "candidates": len(leads),
         "skipped": skipped,
     }
@@ -1093,13 +1155,14 @@ async def engagement_followup_for_tenant(tenant_id: str) -> dict[str, Any]:
         LeadStatus.CLOSED_WON.value,
         LeadStatus.CLOSED_LOST.value,
         LeadStatus.BLACKLISTED.value,
+        LeadStatus.TO_CALL.value,
     ]
 
     leads_res = (
         sb.table("leads")
         .select(
             "id, tenant_id, pipeline_status, outreach_sent_at, "
-            "engagement_score, engagement_peak_score, "
+            "outreach_replied_at, engagement_score, engagement_peak_score, "
             "last_portal_event_at, last_followup_scenario, "
             "last_followup_sent_at, hot_lead_alerted_at"
         )
@@ -1113,23 +1176,15 @@ async def engagement_followup_for_tenant(tenant_id: str) -> dict[str, Any]:
     leads = leads_res.data or []
 
     queued = 0
+    escalated = 0
     skipped: dict[str, int] = {}
 
     for lead in leads:
-        cold_complete = False
         outreach_sent_at = _parse_ts(lead.get("outreach_sent_at"))
+        has_step4, followup_count = _followup_history(sb, lead["id"])
+        cold_complete = False
         if outreach_sent_at is not None and outreach_sent_at.isoformat() <= cold_cutoff:
-            step4 = (
-                sb.table("outreach_sends")
-                .select("id")
-                .eq("lead_id", lead["id"])
-                .eq("sequence_step", 4)
-                .limit(1)
-                .execute()
-            )
-            cold_complete = bool(step4.data) or (
-                (now - outreach_sent_at).days >= STEP_4_DELAY_DAYS + 7
-            )
+            cold_complete = has_step4 or ((now - outreach_sent_at).days >= STEP_4_DELAY_DAYS + 7)
 
         snap = FollowupSnapshot(
             lead_id=str(lead["id"]),
@@ -1145,12 +1200,15 @@ async def engagement_followup_for_tenant(tenant_id: str) -> dict[str, Any]:
             last_followup_sent_at=_parse_ts(lead.get("last_followup_sent_at")),
             hot_lead_alerted_at=_parse_ts(lead.get("hot_lead_alerted_at")),
             cold_sequence_complete=cold_complete,
+            followup_count=followup_count,
         )
 
         decision = evaluate_followup_scenario(snap, now=now)
         if not decision.should_act:
             reason = decision.reason or "no_action"
             skipped[reason] = skipped.get(reason, 0) + 1
+            if await _maybe_escalate_to_call(sb, lead, now, followup_count):
+                escalated += 1
             continue
 
         if decision.notify_only:
@@ -1197,6 +1255,7 @@ async def engagement_followup_for_tenant(tenant_id: str) -> dict[str, Any]:
     return {
         "ok": True,
         "queued": queued,
+        "escalated": escalated,
         "candidates": len(leads),
         "skipped": skipped,
     }

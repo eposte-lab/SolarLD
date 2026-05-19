@@ -66,10 +66,10 @@ COOLDOWN_DAYS: dict[Scenario, int] = {
     "riattivazione": 30,  # one-shot reactivation, then back to cold cadence
 }
 
-# After the cold sequence (step 4 d+14 breakup) we wait this long before
-# starting the engagement-based follow-up scenarios. Gives the lead a
-# cooling period.
-POST_COLD_QUIET_DAYS = 21
+# Hard cap on follow-up emails per lead. After this many follow-ups the
+# lead receives no further automated email — it is escalated to the
+# operator for a phone call (see engagement_followup_cron).
+MAX_FOLLOWUPS = 2
 
 
 @dataclass(slots=True, frozen=True)
@@ -87,6 +87,7 @@ class FollowupSnapshot:
     last_followup_sent_at: datetime | None
     hot_lead_alerted_at: datetime | None
     cold_sequence_complete: bool  # step 4 (d+14 breakup) sent or aged-out
+    followup_count: int = 0  # follow-up emails already sent to this lead
 
 
 @dataclass(slots=True, frozen=True)
@@ -126,6 +127,13 @@ def evaluate_followup_scenario(snap: FollowupSnapshot, *, now: datetime) -> Scen
             return ScenarioDecision(True, scenario="hot", notify_only=True)
         return ScenarioDecision(False, reason="hot_already_alerted")
 
+    # ---- Hard follow-up cap -------------------------------------------
+    # At most MAX_FOLLOWUPS automated follow-up emails per lead. Once the
+    # cap is reached the lead gets no further email — engagement_followup_cron
+    # escalates it to the operator for a phone call.
+    if snap.followup_count >= MAX_FOLLOWUPS:
+        return ScenarioDecision(False, reason="followup_limit_reached")
+
     # ---- Tiered engagement scenarios ----------------------------------
     if snap.engagement_score >= SCORE_INTERESSATO_MIN:
         return _gated(snap, "interessato", now)
@@ -144,16 +152,10 @@ def evaluate_followup_scenario(snap: FollowupSnapshot, *, now: datetime) -> Scen
     ):
         return _gated(snap, "riattivazione", now)
 
-    # Cold path — only if the legacy d+4/9/14 cadence is done and a
-    # cooling window has passed.
-    if not snap.cold_sequence_complete:
-        return ScenarioDecision(False, reason="cold_sequence_in_progress")
-    if snap.initial_outreach_at is None:
-        return ScenarioDecision(False, reason="no_initial_outreach")
-    cold_eligible_at = _aware(snap.initial_outreach_at) + timedelta(days=14 + POST_COLD_QUIET_DAYS)
-    if cold_eligible_at > now:
-        return ScenarioDecision(False, reason="cold_cooling_window")
-    return _gated(snap, "cold", now)
+    # Score == 0 and never reactivated → no follow-up. Follow-ups are
+    # reserved for leads that showed interest; a lead that never engaged
+    # is left alone (no cold re-anchor email).
+    return ScenarioDecision(False, reason="cold_no_followup")
 
 
 def _gated(snap: FollowupSnapshot, scenario: Scenario, now: datetime) -> ScenarioDecision:
