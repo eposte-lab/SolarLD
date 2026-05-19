@@ -338,7 +338,7 @@ def estimate_consumption_from_roof(
     roof_area_sqm: float | None,
     predicted_sector: str | None,
     subject_type: str | None,
-    grid_price_eur_per_kwh: float = 0.22,
+    grid_price_eur_per_kwh: float = 0.23,
 ) -> SectorConsumptionEstimate | None:
     """Sector-aware consumption + bill estimate.
 

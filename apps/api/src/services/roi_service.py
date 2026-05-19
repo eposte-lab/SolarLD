@@ -10,7 +10,7 @@ Italian market assumptions (2026 Q2 calibration — update yearly):
     CAPEX_EUR_PER_KWP           = 1_500    # turnkey residential
     CAPEX_EUR_PER_KWP_B2B       = 1_200    # commercial scale discount
     GRID_PRICE_EUR_PER_KWH      = 0.25     # PUN + costs average
-    GRID_PRICE_EUR_PER_KWH_B2B  = 0.22     # tariffa business media
+    GRID_PRICE_EUR_PER_KWH_B2B  = 0.23     # tariffa business media
     SELF_CONSUMPTION_RATIO      = 0.40     # residential without battery
     SELF_CONSUMPTION_RATIO_BIZ  = 0.65     # business has daytime load
     EXPORT_PRICE_EUR_PER_KWH    = 0.09     # RID / Scambio sul Posto 2026
@@ -40,7 +40,9 @@ from .consumption_estimator import (
 CAPEX_EUR_PER_KWP_B2C = 1500.0
 CAPEX_EUR_PER_KWP_B2B = 1000.0  # updated Q2 2026: commercial scale, turnkey, pre-incentive
 GRID_PRICE_EUR_PER_KWH_B2C = 0.25
-GRID_PRICE_EUR_PER_KWH_B2B = 0.22
+# Tariffa business media. Calibrare periodicamente sul mercato (PUN +
+# oneri) — ultimo aggiornamento 2026-05-19.
+GRID_PRICE_EUR_PER_KWH_B2B = 0.23
 SELF_CONSUMPTION_RATIO_B2C = 0.40
 SELF_CONSUMPTION_RATIO_B2B = 0.65
 EXPORT_PRICE_EUR_PER_KWH = 0.09
