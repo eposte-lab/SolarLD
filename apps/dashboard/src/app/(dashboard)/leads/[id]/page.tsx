@@ -608,14 +608,25 @@ export default async function LeadDetailPage({ params }: PageProps) {
             </div>
           </div>
           {(() => {
-            // Read canonical keys with legacy-alias fallback. The v3
-            // ROI service writes `yearly_savings_eur` / `co2_kg_per_year`,
-            // older rows used `annual_savings_eur` / `co2_saved_kg`. Both
-            // sets coexist in the DB; the UI prefers canonical and falls
-            // back so leads from either era render correctly.
-            const roi = lead.roi_data ?? null;
+            // Source of truth = roofs.derivations (compute_full_derivations:
+            // tenant cost overrides applied, refreshed on bolletta upload),
+            // with leads.roi_data as fallback for pre-0094 leads. This is
+            // the SAME priority the dossier and the outreach email use, so
+            // the three surfaces never show divergent technical data.
+            // Canonical keys read with legacy-alias fallback.
+            const roi: typeof lead.roi_data | null =
+              ((lead.roofs as { derivations?: typeof lead.roi_data | null } | null)
+                ?.derivations) ??
+              lead.roi_data ??
+              null;
+            // Risparmio annuo: preferisci il valore realistico
+            // (autoconsumo = min(produzione, fabbisogno)) — lo stesso che
+            // mostrano dossier ed email.
             const yearlySavings =
-              roi?.yearly_savings_eur ?? roi?.annual_savings_eur ?? null;
+              roi?.realistic_yearly_savings_eur ??
+              roi?.yearly_savings_eur ??
+              roi?.annual_savings_eur ??
+              null;
             const co2Year = roi?.co2_kg_per_year ?? roi?.co2_saved_kg ?? null;
             const netCapex = roi?.net_capex_eur ?? null;
             const savings25y = roi?.savings_25y_eur ?? null;

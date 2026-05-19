@@ -85,6 +85,11 @@ export interface RoiData {
   savings_25y_eur?: number;
   self_consumption_ratio?: number;
   trees_equivalent?: number;
+  // Physics-based yearly saving (autoconsumo = min(produzione,
+  // fabbisogno)). Present only in `roofs.derivations`, not in
+  // `leads.roi_data`. Preferred over `yearly_savings_eur` for display
+  // so dashboard, dossier and email all show the same figure.
+  realistic_yearly_savings_eur?: number;
   // Legacy aliases — kept so older leads still render.
   annual_savings_eur?: number;
   co2_saved_kg?: number;
