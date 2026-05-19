@@ -13,7 +13,6 @@ import { fetchPublicLead, leadHeroCopy } from '@/lib/api';
 import { AppointmentForm } from './AppointmentForm';
 import { PortalTracker } from './PortalTracker';
 import { VisitTracker } from './VisitTracker';
-import { WhatsAppCta } from './WhatsAppCta';
 
 type PageProps = { params: Promise<{ slug: string }> };
 
@@ -350,16 +349,7 @@ export default async function LeadPage({ params }: PageProps) {
         >
           Parliamone come preferisci
         </h2>
-        <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
-          <div className="bento p-1.5">
-            {/* WhatsApp = primario: card grande, brand color, prima posizione */}
-            <WhatsAppCta
-              slug={slug}
-              whatsappNumber={tenant?.whatsapp_number ?? null}
-              tenantName={tenantName}
-              brandColor={brandColor}
-            />
-          </div>
+        <div className="mt-6">
           <EmailReplyCta
             slug={slug}
             contactEmail={tenant?.contact_email ?? null}

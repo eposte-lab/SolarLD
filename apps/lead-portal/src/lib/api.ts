@@ -123,17 +123,6 @@ export function formatYears(value: number | null | undefined): string {
   return `${value.toFixed(1)} anni`;
 }
 
-/** Build a WhatsApp wa.me deep link from an Italian-style number. */
-export function whatsappUrl(
-  number: string | null | undefined,
-  preset: string,
-): string | null {
-  if (!number) return null;
-  const digits = number.replace(/\D/g, '');
-  if (!digits) return null;
-  return `https://wa.me/${digits}?text=${encodeURIComponent(preset)}`;
-}
-
 /**
  * Friendly greeting + roof address mashup for the portal hero.
  * Picks B2B vs B2C tone to match the outreach templates.

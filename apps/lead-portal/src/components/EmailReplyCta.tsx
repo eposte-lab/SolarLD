@@ -1,14 +1,13 @@
 'use client';
 
 /**
- * EmailReplyCta — secondary CTA next to the WhatsApp primary card.
+ * EmailReplyCta — primary "get in touch" CTA on the dossier.
  *
  * Sprint 8 Fase A.3. Builds a ``mailto:`` deep-link with subject and
  * body pre-filled so the reply lands in the operator's inbox already
  * threaded under the original outreach (the email subject mirrors the
  * dossier hero), and fires ``portal.email_reply_click`` — Fase C.1
- * weights this +35 on engagement_score (a reply email is high intent
- * even if the user never sends WhatsApp).
+ * weights this +35 on engagement_score (a reply email is high intent).
  *
  * Falls back to a disabled state if the tenant has no contact_email.
  */
