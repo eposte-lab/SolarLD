@@ -31,10 +31,10 @@ type Props = {
   epc?: boolean;
 };
 
-/** Quota dell'energia PRODOTTA dall'impianto che diventa risparmio del
- *  cliente durante il contratto EPC. Il 20% si calcola sul valore di
- *  quanto produce l'impianto (stima del dossier), non sulla bolletta:
- *  se l'impianto produce €1.000/mese di energia, €200/mese di risparmio. */
+/** Quota dell'energia che diventa risparmio del cliente durante il
+ *  contratto EPC. Il 20% si calcola sull'energia EFFETTIVA — vedi sotto:
+ *  l'impianto è limitato al minore fra producibilità del tetto e
+ *  fabbisogno reale del cliente. */
 const EPC_CLIENT_SHARE = 0.2;
 /** Durata del contratto EPC prima della cessione dell'impianto. */
 const EPC_CONTRACT_YEARS = 10;
@@ -111,13 +111,25 @@ export function SavingsComparePanel({
   // ── Modello EPC ─────────────────────────────────────────────────
   if (epc) {
     const bill = Math.max(0, data.actual_yearly_eur);
-    // Il risparmio EPC è il 20% del VALORE IN DENARO dell'energia che
-    // l'impianto produce: kWh prodotti × tariffa reale del cliente
-    // (dalla bolletta caricata). Non è una % della bolletta.
-    const plantValue = Math.max(
+    // Il risparmio EPC è il 20% del valore dell'energia, ma calcolato
+    // sull'energia EFFETTIVA: un impianto non serve a produrre più di
+    // quanto il cliente consuma. L'energia che conta è il minore fra la
+    // producibilità del tetto (stima dossier) e il fabbisogno reale
+    // (kWh dalla bolletta / inserimento manuale):
+    //   • fabbisogno < producibilità → l'impianto si ridimensiona al
+    //     fabbisogno e il 20% cade sui kWh consumati ⇒ ≈ 20% della
+    //     bolletta attuale.
+    //   • fabbisogno ≥ producibilità → il tetto fa da limite, il 20%
+    //     resta sull'energia che l'impianto può davvero produrre.
+    // Tocca solo l'output del pannello bolletta: i numeri del dossier
+    // e della dashboard non vengono modificati.
+    const cappedByNeed =
+      data.actual_yearly_kwh < data.predicted_yearly_kwh;
+    const effectiveKwh = Math.max(
       0,
-      data.predicted_yearly_kwh * data.actual_tariff_eur_per_kwh,
+      Math.min(data.predicted_yearly_kwh, data.actual_yearly_kwh),
     );
+    const plantValue = effectiveKwh * data.actual_tariff_eur_per_kwh;
     const epcSaving = plantValue * EPC_CLIENT_SHARE;
     const epcBill = Math.max(0, bill - epcSaving);
     const saving10y = epcSaving * EPC_CONTRACT_YEARS;
@@ -140,7 +152,10 @@ export function SavingsComparePanel({
         </h2>
         <p className="mt-2 text-sm text-on-surface-variant">
           La bolletta caricata è il punto di partenza; il risparmio è il
-          20% dell&apos;energia prodotta dall&apos;impianto stimato.
+          20%{' '}
+          {cappedByNeed
+            ? 'dell’energia che consumi ogni anno.'
+            : 'dell’energia prodotta dall’impianto stimato.'}
         </p>
 
         {/* Oggi → con l'EPC */}
@@ -221,8 +236,11 @@ export function SavingsComparePanel({
             <strong style={{ color: brandColor }}>
               {formatEuro(epcSaving)}/anno
             </strong>{' '}
-            in bolletta — il 20% dell&apos;energia prodotta
-            dall&apos;impianto, con <strong>zero investimento</strong>. In{' '}
+            in bolletta — il 20%{' '}
+            {cappedByNeed
+              ? 'dell’energia che consumi'
+              : 'dell’energia prodotta dall’impianto'}
+            , con <strong>zero investimento</strong>. In{' '}
             {EPC_CONTRACT_YEARS} anni di contratto sono{' '}
             <strong style={{ color: brandColor }}>
               {formatEuro(saving10y)}
