@@ -153,28 +153,38 @@ export async function listContatti(opts: {
 
   let rows = (data ?? []) as unknown as ContattoRow[];
 
-  // Resolve lead_id for each contact via roof_id. The Apri button + the
-  // promoted-vs-scarti distinction depend on this resolution.
+  // Resolve lead_id per contact by the *candidate identity*, NOT by
+  // roof_id. A roof can host more than one business, but `subjects` is
+  // UNIQUE (tenant_id, roof_id) — so a roof_id→lead map would point
+  // every co-located contact at the same (single) lead, and clicking
+  // one contact would open another. L6 stamps the originating
+  // candidate id on the subject (`raw_data.scan_candidate_id`); we map
+  // each contact through that to its own lead.
   const roofIds = rows
     .map((r) => r.roof_id)
     .filter((v): v is string => typeof v === 'string');
-  const roofToLead = new Map<string, string>();
+  const candToLead = new Map<string, string>();
   if (roofIds.length > 0) {
     const { data: leadRows } = await sb
       .from('leads')
-      .select('id, roof_id')
+      .select('id, subjects(raw_data)')
       .in('roof_id', roofIds);
-    for (const l of (leadRows ?? []) as { id: string; roof_id: string }[]) {
-      roofToLead.set(l.roof_id, l.id);
+    type SubjectJoin = { raw_data: Record<string, unknown> | null };
+    type LeadJoin = {
+      id: string;
+      subjects: SubjectJoin | SubjectJoin[] | null;
+    };
+    for (const l of (leadRows ?? []) as unknown as LeadJoin[]) {
+      // PostgREST embeds a to-one relation as an object, but the
+      // generated types widen it to an array — handle both.
+      const subj = Array.isArray(l.subjects) ? l.subjects[0] : l.subjects;
+      const candId = subj?.raw_data?.['scan_candidate_id'];
+      if (typeof candId === 'string') candToLead.set(candId, l.id);
     }
   }
   for (const r of rows) {
-    if (r.roof_id && roofToLead.has(r.roof_id)) {
-      (r as ContattoRow & { lead_id?: string | null }).lead_id =
-        roofToLead.get(r.roof_id) ?? null;
-    } else {
-      (r as ContattoRow & { lead_id?: string | null }).lead_id = null;
-    }
+    (r as ContattoRow & { lead_id?: string | null }).lead_id =
+      candToLead.get(r.id) ?? null;
   }
 
   // Default view: only rows that have been promoted to a lead are shown
