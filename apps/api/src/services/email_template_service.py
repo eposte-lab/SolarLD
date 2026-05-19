@@ -483,6 +483,14 @@ def _normalize_roi(roi: dict[str, Any] | None) -> dict[str, Any]:
     if not roi:
         return {}
     merged: dict[str, Any] = dict(roi)
+    # Risparmio annuo "realistico": quando compute_full_derivations ha
+    # potuto stimare il fabbisogno usa autoconsumo = min(produzione,
+    # fabbisogno) — più accurato dell'astratto yearly_savings_eur. Lo
+    # promuoviamo a valore mostrato così email, dossier e dashboard
+    # espongono la stessa cifra; yearly_savings_eur resta come fallback.
+    realistic = merged.get("realistic_yearly_savings_eur")
+    if realistic not in (None, ""):
+        merged["yearly_savings_eur"] = realistic
     aliases = (
         ("estimated_kwp", "system_kwp"),
         ("yearly_savings_eur", "annual_savings_eur"),
@@ -503,12 +511,23 @@ def _normalize_roi(roi: dict[str, Any] | None) -> dict[str, Any]:
     if merged.get("area_sqm") in (None, "") and merged.get("panel_array_area_sqm") is not None:
         merged["area_sqm"] = merged["panel_array_area_sqm"]
     if merged.get("total_savings_25_years") in (None, ""):
-        ys = merged.get("yearly_savings_eur")
-        if ys is not None:
+        # Usa il valore canonico savings_25y_eur (net_self × 25 × 0.85,
+        # con derate di degrado) — lo stesso numero che mostra la
+        # dashboard. La sintesi yearly_savings × 25 resta solo come
+        # fallback per i lead privi del campo canonico.
+        s25 = merged.get("savings_25y_eur")
+        if s25 not in (None, ""):
             try:
-                merged["total_savings_25_years"] = round(float(ys) * 25)
+                merged["total_savings_25_years"] = round(float(s25))
             except (TypeError, ValueError):
                 pass
+        else:
+            ys = merged.get("yearly_savings_eur")
+            if ys is not None:
+                try:
+                    merged["total_savings_25_years"] = round(float(ys) * 25)
+                except (TypeError, ValueError):
+                    pass
     return merged
 
 
