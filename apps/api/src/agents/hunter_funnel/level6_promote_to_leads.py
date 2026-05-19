@@ -224,16 +224,22 @@ async def run_level6_promote_to_leads(
             )
             place_id = sc.get("google_place_id") or ""
 
-            # --- Subject: lookup-or-create (idempotent on tenant_id+roof_id) ---
+            # --- Subject: lookup-or-create, idempotent per AZIENDA ---
+            # Keyed on pii_hash (= business_name|place_id), NOT on roof_id:
+            # a single rooftop can host many distinct businesses (shopping
+            # centres, commercial parks), and each must become its own
+            # subject + lead. Keying on roof_id collapsed all co-located
+            # companies into one lead.
             # NB: variabile distinta da `existing` (il conteggio lead usato
             # dal cap check a riga ~165) — riusare lo stesso nome qui
             # riassegnava `existing` a un APIResponse e l'iterazione
             # successiva crashava su `existing + inserted`.
+            pii_hash_value = _pii_hash(business_name, place_id)
             existing_subj = (
                 sb.table("subjects")
                 .select("id")
                 .eq("tenant_id", ctx.tenant_id)
-                .eq("roof_id", roof_id)
+                .eq("pii_hash", pii_hash_value)
                 .limit(1)
                 .execute()
             )
@@ -242,7 +248,6 @@ async def run_level6_promote_to_leads(
             else:
                 ateco_codes = sc.get("predicted_ateco_codes") or []
                 primary_ateco = ateco_codes[0] if ateco_codes else None
-                pii_hash_value = _pii_hash(business_name, place_id)
 
                 subject_payload: dict[str, Any] = {
                     "tenant_id": ctx.tenant_id,
