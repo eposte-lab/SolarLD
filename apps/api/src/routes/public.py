@@ -516,6 +516,29 @@ async def upload_bolletta(
     except Exception as exc:  # noqa: BLE001
         log.warning("bolletta.lead_stamp_failed", err=str(exc))
 
+    # Portal event for the engagement timeline. Fired HERE — right after
+    # the upload is stamped — not after the ROI recompute below: a slow
+    # recompute or a request cut short must not cost us the event. The
+    # engagement score reads the bolletta from leads.bolletta_uploaded_at
+    # regardless, but the dashboard timeline still needs this row.
+    try:
+        sb.table("portal_events").insert(
+            {
+                "tenant_id": lead["tenant_id"],
+                "lead_id": lead["id"],
+                "session_id": f"server:{upload_id}",
+                "event_kind": "portal.bolletta_uploaded",
+                "metadata": {
+                    "upload_id": upload_id,
+                    "ocr_confidence": (ocr.confidence if ocr and ocr.success else None),
+                },
+                "elapsed_ms": 0,
+                "occurred_at": datetime.now(UTC).isoformat(),
+            }
+        ).execute()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("bolletta.portal_event_failed", err=str(exc))
+
     # ---- 7b. Recompute roof.derivations + leads.roi_data using the
     # customer's ACTUAL annual consumption from OCR (Sprint 1.2).
     # Without this, the email body / lead portal / preventivo PDF
@@ -554,35 +577,14 @@ async def upload_bolletta(
         },
     )
 
-    # Best-effort portal event so the engagement score bumps in real
-    # time. The portal client also fires this beacon directly on
-    # success, but the server-side fire is the source of truth (the
-    # client may not still be on-page when OCR finishes).
+    # Recompute the engagement score now — the bolletta is a strong
+    # intent signal the "Caldi adesso" filter must see immediately. It
+    # reads leads.bolletta_uploaded_at, so the +35 lands even if the
+    # portal_events insert above failed.
     try:
-        sb.table("portal_events").insert(
-            {
-                "tenant_id": lead["tenant_id"],
-                "lead_id": lead["id"],
-                "session_id": f"server:{upload_id}",
-                "event_kind": "portal.bolletta_uploaded",
-                "metadata": {
-                    "upload_id": upload_id,
-                    "ocr_confidence": (ocr.confidence if ocr and ocr.success else None),
-                },
-                "elapsed_ms": 0,
-                "occurred_at": datetime.now(UTC).isoformat(),
-            }
-        ).execute()
-        # Recompute the engagement score now that the bolletta event is
-        # in portal_events — the INSERT alone doesn't refresh
-        # engagement_score / last_portal_event_at, and the bolletta is a
-        # strong intent signal the "Caldi adesso" filter must see.
-        try:
-            await _recompute_lead_engagement(lead["id"])
-        except Exception as exc:  # noqa: BLE001
-            log.warning("bolletta.engagement_recompute_failed", err=str(exc))
+        await _recompute_lead_engagement(lead["id"])
     except Exception as exc:  # noqa: BLE001
-        log.warning("bolletta.portal_event_failed", err=str(exc))
+        log.warning("bolletta.engagement_recompute_failed", err=str(exc))
 
     return _bolletta_response_from_row(
         upload_id=upload_id,
@@ -674,6 +676,23 @@ async def upload_bolletta_manual(slug: str, body: ManualBollettaBody) -> dict[st
     except Exception as exc:  # noqa: BLE001
         log.warning("bolletta.lead_stamp_failed", err=str(exc))
 
+    # Portal event for the engagement timeline — see the OCR upload
+    # route above. A manual consumption entry is the same intent signal.
+    try:
+        sb.table("portal_events").insert(
+            {
+                "tenant_id": lead["tenant_id"],
+                "lead_id": lead["id"],
+                "session_id": f"server:{upload_id}",
+                "event_kind": "portal.bolletta_uploaded",
+                "metadata": {"upload_id": upload_id, "source": source},
+                "elapsed_ms": 0,
+                "occurred_at": datetime.now(UTC).isoformat(),
+            }
+        ).execute()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("bolletta.portal_event_failed", err=str(exc))
+
     # Sprint 1.2 — same recompute path as the OCR upload route, this
     # time fed by the manual values.
     if body.kwh_yearly:
@@ -707,6 +726,13 @@ async def upload_bolletta_manual(slug: str, body: ManualBollettaBody) -> dict[st
             "source": source,
         },
     )
+
+    # Real-time engagement recompute — the manual route never did this,
+    # so a manual entry only bumped the score at the nightly rollup.
+    try:
+        await _recompute_lead_engagement(lead["id"])
+    except Exception as exc:  # noqa: BLE001
+        log.warning("bolletta.engagement_recompute_failed", err=str(exc))
 
     return _bolletta_response_from_row(
         upload_id=upload_id,

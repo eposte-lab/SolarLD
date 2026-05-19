@@ -29,7 +29,8 @@ Formula (v3 — ristrutturata in 3 fasce di intenzione):
       +50  per portal.whatsapp_click
       +50  per portal.appointment_click
       +50  per portal.email_reply_click
-      +35  per portal.bolletta_uploaded
+      +35  se la bolletta è stata caricata (leads.bolletta_uploaded_at —
+           segnale autorevole, indipendente dall'evento portal_events)
       +12  se outreach_clicked_at è valorizzato (link email cliccato)
 
 Logica: la sola apertura del portale non rende "caldo" un lead — la
@@ -183,7 +184,8 @@ def compute_score(stats: LeadEngagementStats) -> int:
     intent += W_WHATSAPP_CLICK * stats.whatsapp_click
     intent += W_APPOINTMENT_CLICK * stats.appointment_click
     intent += W_EMAIL_REPLY_CLICK * stats.email_reply_click
-    intent += W_BOLLETTA_UPLOADED * stats.bolletta_uploaded
+    # La bolletta è un segnale binario: caricarla due volte non vale +70.
+    intent += W_BOLLETTA_UPLOADED * min(1, stats.bolletta_uploaded)
     if stats.outreach_clicked:
         intent += W_EMAIL_CLICKED
     intent = min(intent, TIER_INTENT_CAP)
@@ -258,7 +260,10 @@ async def recompute_lead_engagement(lead_id: str, *, now: datetime | None = None
 
     lead_res = (
         sb.table("leads")
-        .select("id, tenant_id, outreach_opened_at, outreach_clicked_at, engagement_peak_score")
+        .select(
+            "id, tenant_id, outreach_opened_at, outreach_clicked_at, "
+            "bolletta_uploaded_at, engagement_peak_score"
+        )
         .eq("id", lead_id)
         .limit(1)
         .execute()
@@ -279,6 +284,13 @@ async def recompute_lead_engagement(lead_id: str, *, now: datetime | None = None
         _accumulate_event(stats, row)
     stats.outreach_opened = bool(lead.get("outreach_opened_at"))
     stats.outreach_clicked = bool(lead.get("outreach_clicked_at"))
+    # `leads.bolletta_uploaded_at` is the authoritative bolletta signal:
+    # it's stamped synchronously the moment the upload lands, while the
+    # `portal.bolletta_uploaded` event is best-effort and can be lost if
+    # the request is cut short. Credit the upload from the column so the
+    # score never under-reports it.
+    if lead.get("bolletta_uploaded_at"):
+        stats.bolletta_uploaded = max(stats.bolletta_uploaded, 1)
 
     score = compute_score(stats)
     prev_peak = int(lead.get("engagement_peak_score") or 0)
@@ -347,7 +359,7 @@ async def run_engagement_rollup(
     lead_ids = list(by_lead.keys())
     leads_res = (
         sb.table("leads")
-        .select("id, outreach_opened_at, outreach_clicked_at")
+        .select("id, outreach_opened_at, outreach_clicked_at, bolletta_uploaded_at")
         .in_("id", lead_ids)
         .execute()
     )
@@ -357,6 +369,9 @@ async def run_engagement_rollup(
             continue
         by_lead[lid].outreach_opened = bool(row.get("outreach_opened_at"))
         by_lead[lid].outreach_clicked = bool(row.get("outreach_clicked_at"))
+        # Authoritative bolletta signal — see recompute_lead_engagement.
+        if row.get("bolletta_uploaded_at"):
+            by_lead[lid].bolletta_uploaded = max(by_lead[lid].bolletta_uploaded, 1)
 
     # ------------------------------------------------------------------
     # 3) Compute scores + write back. Supabase PostgREST doesn't
