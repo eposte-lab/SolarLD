@@ -173,8 +173,8 @@ def test_compute_roi_b2b_seven_metric_fields_present() -> None:
     a typical B2B sizing.
 
     Reference: 50 kW B2B, 65k kWh/yr, Sud Italia (Q2 2026 calibration).
-        net_self_savings_eur = 65000 × 0.65 × 0.22 = 9_295 €
-        savings_25y_eur      = 9_295 × 25 × 0.85   ≈ 197_519 €
+        net_self_savings_eur = 65000 × 0.65 × 0.23 = 9_717.5 €
+        savings_25y_eur      = 9_717.5 × 25 × 0.85 ≈ 206_497 €
         net_capex_eur        = 50 × 1000           = 50_000 €  (no incentive)
         roi_pct_25y          = (197_519 - 50_000) / 50_000 × 100 ≈ 295 %
         co2_kg_per_year      = 65_000 × 0.281      = 18_265 kg
