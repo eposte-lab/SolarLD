@@ -39,7 +39,6 @@ from .cron import (
     deliverability_hourly_cron,
     engagement_followup_cron,
     engagement_rollup_cron,
-    follow_up_cron,
     imminence_predictions_cron,
     practice_deadlines_cron,
     reputation_digest_cron,
@@ -641,7 +640,6 @@ class WorkerSettings:
     #   06:00 every day  → smartlead_warmup_sync_cron   (inbox health + warmup caps)
     #   06:30 every day  → imminence_predictions_cron   (rank "leads to call today")
     #   07:00 every day  → daily_digest_cron            (opt-in feature flag)
-    #   07:30 every day  → follow_up_cron               (reads best_send_hour)
     #   08:00 Mon        → weekly_digest_cron           (opt-in feature flag)
     #   08:30 every day  → sla_first_touch_cron         (notify overdue leads)
     cron_jobs = [
@@ -686,7 +684,6 @@ class WorkerSettings:
         # the dashboard shows up-to-date predictions for the morning.
         cron(imminence_predictions_cron, hour=6, minute=30, run_at_startup=False),
         cron(daily_digest_cron, hour=7, minute=0, run_at_startup=False),
-        cron(follow_up_cron, hour=7, minute=30, run_at_startup=False),
         cron(
             weekly_digest_cron,
             weekday=0,  # Monday

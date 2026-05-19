@@ -13,24 +13,20 @@ Current schedule (UTC):
                                      (GDPR data-minimisation)
     03:45  send_time_rollup_cron   — refresh leads.best_send_hour from
                                      180d of email-open events (Part B.3).
-                                     Must finish BEFORE follow_up_cron so
-                                     the 07:30 tick reads fresh values.
     04:00  engagement_rollup_cron  — refresh leads.engagement_score
                                      from the last 30 days of
                                      portal_events (Part B.1)
-    07:30  follow_up_cron          — enqueue step-2 / step-3 nudges,
-                                     deferred per-lead to the UTC hour
-                                     at which the lead has historically
-                                     opened email (Part B.3).
+    08:15  engagement_followup_cron— enqueue engagement-driven follow-ups
+                                     (only for leads that showed interest).
     08:30  sla_first_touch_cron    — per-tenant SLA alert: notify when
                                      leads have been contacted but not
                                      replied within sla_hours_first_touch.
 
-Both follow_up and sla crons are fully idempotent: re-running the
-follow-up cron twice in the same morning never double-sends because
-OutreachAgent dedupes on ``(lead_id, sequence_step)`` at the DB layer;
-the SLA cron emits one notification per tenant per tick (structured log
-included so duplicates are visible in Sentry).
+Follow-ups are engagement-gated: the old cold-silence cadence (fixed
+day-4/9/14 nudges to silent leads) was removed — a lead that never
+engages now receives no follow-up. The SLA cron emits one notification
+per tenant per tick (structured log included so duplicates are visible
+in Sentry).
 """
 
 from __future__ import annotations
@@ -51,16 +47,11 @@ from ..services.followup_scenario_service import (
     FollowupSnapshot,
     evaluate_followup_scenario,
 )
-from ..services.followup_service import (
-    STEP_2_DELAY_DAYS,
-    STEP_4_DELAY_DAYS,
-    build_candidate_from_rows,
-    select_next_step,
-)
+from ..services.followup_service import STEP_4_DELAY_DAYS
 from ..services.notifications_service import notify as _notify_inapp
 from ..services.reputation_enforcement_service import run_enforcement
 from ..services.reputation_service import run_reputation_digest
-from ..services.send_time_service import pick_next_send_time, run_send_time_rollup
+from ..services.send_time_service import run_send_time_rollup
 
 log = get_logger(__name__)
 
@@ -69,139 +60,6 @@ FOLLOW_UP_BATCH_SIZE = 500
 
 # Retention window: 24 months from the lead's ``created_at``.
 RETENTION_DAYS = 24 * 30  # ~730d, matches docs/ARCHITECTURE.md
-
-
-async def follow_up_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
-    """Every morning, enqueue step-2 / step-3 emails for eligible leads.
-
-    Strategy:
-      1. Pull leads whose day-0 send is at least ``STEP_2_DELAY_DAYS``
-         old AND still in a silent pipeline state (sent / delivered).
-         This coarse filter keeps the working set small.
-      2. For each, load the campaigns history and run the pure
-         ``select_next_step`` rule to get a yes/no + step number.
-      3. Enqueue ``outreach_task`` with the decided step. The
-         OutreachAgent itself dedupes on (lead_id, sequence_step) so
-         double-runs of the cron collapse cleanly.
-    """
-    sb = get_service_client()
-    now = datetime.now(UTC)
-    cutoff = (now - timedelta(days=STEP_2_DELAY_DAYS)).isoformat()
-    # 24h cooldown — if the operator manually sent a follow-up to a
-    # lead in the last 24 hours, the cron skips that lead to avoid
-    # duplicates. Set by /v1/leads/{id}/send-draft + /v1/followup/bulk-draft
-    # when `is_manual=true`.
-    manual_cooldown = (now - timedelta(hours=24)).isoformat()
-
-    leads_res = (
-        sb.table("leads")
-        .select(
-            "id, tenant_id, pipeline_status, outreach_channel, "
-            "outreach_sent_at, best_send_hour, last_followup_sent_at"
-        )
-        .eq("outreach_channel", OutreachChannel.EMAIL.value)
-        .in_(
-            "pipeline_status",
-            [LeadStatus.SENT.value, LeadStatus.DELIVERED.value],
-        )
-        .lte("outreach_sent_at", cutoff)
-        .order("outreach_sent_at")
-        .limit(FOLLOW_UP_BATCH_SIZE)
-        .execute()
-    )
-    leads = leads_res.data or []
-    log.info("cron.followup.candidates", count=len(leads))
-
-    # Per-tenant settings cache — the follow-up batch often hits the
-    # same tenant many times, so one SELECT per tenant is plenty.
-    tenant_cache: dict[str, dict[str, Any] | None] = {}
-
-    def _get_tenant(tid: str) -> dict[str, Any] | None:
-        if tid in tenant_cache:
-            return tenant_cache[tid]
-        res = (
-            sb.table("tenants")
-            .select("id, settings, followup_auto_enabled")
-            .eq("id", tid)
-            .limit(1)
-            .execute()
-        )
-        row = (res.data or [None])[0]
-        tenant_cache[tid] = row
-        return row
-
-    queued = 0
-    deferred = 0
-    skipped_reasons: dict[str, int] = {}
-    for lead in leads:
-        # 1) Tenant-level toggle — if the operator disabled the auto
-        #    follow-up cron in /leads/follow-up, skip the whole tenant.
-        tenant_row = _get_tenant(lead["tenant_id"])
-        if tenant_row and tenant_row.get("followup_auto_enabled") is False:
-            skipped_reasons["auto_disabled"] = skipped_reasons.get("auto_disabled", 0) + 1
-            continue
-
-        # 2) Manual-send cooldown — operator sent a follow-up in the
-        #    last 24h, give it room to land before the cron piles on.
-        last_manual = lead.get("last_followup_sent_at")
-        if last_manual and last_manual > manual_cooldown:
-            skipped_reasons["manual_cooldown_24h"] = (
-                skipped_reasons.get("manual_cooldown_24h", 0) + 1
-            )
-            continue
-
-        campaigns = (
-            sb.table("outreach_sends")
-            .select("sequence_step, status, sent_at, channel")
-            .eq("lead_id", lead["id"])
-            .execute()
-        )
-        candidate = build_candidate_from_rows(lead=lead, campaigns=campaigns.data or [])
-        decision = select_next_step(candidate, now=now)
-        if not decision.should_send:
-            reason = decision.reason or "unknown"
-            skipped_reasons[reason] = skipped_reasons.get(reason, 0) + 1
-            continue
-        assert decision.step is not None
-
-        # B.3 — defer the enqueue to the lead's preferred UTC hour
-        # (falls back to tenant default / 09 UTC). The outreach task
-        # is idempotent and Redis holds deferred jobs durably, so this
-        # just shifts the fire-time, not the semantics.
-        send_at = pick_next_send_time(lead_row=lead, tenant_row=tenant_row, now=now)
-        is_deferred = send_at > now
-
-        await enqueue(
-            "outreach_task",
-            {
-                "tenant_id": lead["tenant_id"],
-                "lead_id": lead["id"],
-                "channel": OutreachChannel.EMAIL.value,
-                "sequence_step": decision.step,
-                "force": False,
-            },
-            # Deterministic job id → duplicates collapse in Redis.
-            job_id=(f"outreach:{lead['tenant_id']}:{lead['id']}:email:step{decision.step}"),
-            defer_until=send_at if is_deferred else None,
-        )
-        queued += 1
-        if is_deferred:
-            deferred += 1
-
-    log.info(
-        "cron.followup.done",
-        queued=queued,
-        deferred=deferred,
-        skipped_reasons=skipped_reasons,
-        candidates=len(leads),
-    )
-    return {
-        "ok": True,
-        "queued": queued,
-        "deferred": deferred,
-        "candidates": len(leads),
-        "skipped_reasons": skipped_reasons,
-    }
 
 
 async def daily_digest_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
