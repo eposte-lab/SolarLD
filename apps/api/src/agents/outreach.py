@@ -1179,6 +1179,8 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
                 lead.get("portal_video_slug"),
                 tracking_host=tracking_host,
             ),
+            # Premium template surfaces a discreet EPC callout when set.
+            epc_enabled=bool(tenant_row.get("epc_enabled")),
         )
         # ── Phase 2 campagne custom: DB-stored HTML template ──────────────
         # When effective_template_id is set (generic_outreach lists), load the
