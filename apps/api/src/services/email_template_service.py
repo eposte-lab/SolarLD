@@ -116,6 +116,11 @@ class OutreachContext:
     # These are merged into the Jinja context and take precedence over
     # the individual fields above.
     copy_overrides: dict[str, str] | None = None
+    # Tenants on the EPC commercial model (Energy Performance Contract,
+    # `tenants.epc_enabled`). When True the premium template surfaces a
+    # discreet callout that hints at the zero-capex / impianto-ceduto
+    # offer — wording kept clean of "gratis/gratuito"-style spam triggers.
+    epc_enabled: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -179,6 +184,7 @@ def render_outreach_email(ctx: OutreachContext) -> RenderedEmail:
         "copy_opening_line": ctx.copy_opening_line,
         "copy_proposition_line": ctx.copy_proposition_line,
         "cta_primary_label": ctx.cta_primary_label,
+        "epc_enabled": ctx.epc_enabled,
     }
 
     # Apply copy_overrides last — A/B variant fields override everything.

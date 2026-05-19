@@ -4,7 +4,13 @@ Per {{ greeting_name }},
 
 {{ copy_opening_line | default('Abbiamo analizzato la vostra sede via satellite.', true) }}
 
-{{ copy_proposition_line | default('Vi proponiamo un sopralluogo gratuito per validare i dati e presentare un preventivo completo.', true) }}
+{{ copy_proposition_line | default('Vi proponiamo un sopralluogo tecnico, senza oneri, per validare i dati e presentare un preventivo completo.', true) }}
+{% if epc_enabled %}
+Una proposta su misura, anche senza immobilizzare capitale: possiamo
+installare l'impianto a nostro carico — la vostra azienda paga solo
+l'energia che consuma, scontata. A fine contratto, l'impianto resta
+vostro.
+{% endif %}
 
 {% if roi and roi.yearly_savings_eur is defined -%}
 I NUMERI PER VOI:
@@ -22,9 +28,9 @@ I NUMERI PER VOI:
 
 {% endif -%}
 Cosa offriamo:
-✓ Sopralluogo tecnico gratuito
+✓ Sopralluogo tecnico incluso
 ✓ Analisi incentivi (Transizione 5.0, CER)
-✓ Finanziamento a zero anticipi
+✓ Soluzioni di finanziamento dedicate, anche senza investimento iniziale
 ✓ Garanzia 25 anni su pannelli e produzione
 
 Apri la tua analisi completa:
