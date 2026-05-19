@@ -70,7 +70,7 @@ export default async function PrivacyPolicyPage({
             La presente Informativa descrive le modalità con le quali
             vengono trattati i dati personali degli utenti che accedono al
             portale lead-facing (la <em>«dossier page»</em> personalizzata
-            raggiungibile tramite il link inviato via email o WhatsApp)
+            raggiungibile tramite il link inviato via email)
             e che interagiscono con i moduli ivi presenti, in particolare
             con il modulo di richiesta sopralluogo e con la funzione di
             caricamento bolletta elettrica.
@@ -182,8 +182,7 @@ export default async function PrivacyPolicyPage({
             <li>
               <strong>Dati forniti volontariamente</strong>: contenuto
               del campo «Note» del form sopralluogo, orario preferito
-              di contatto, comunicazioni inviate tramite WhatsApp o
-              risposte alle email.
+              di contatto, risposte alle email.
             </li>
           </ul>
           <P className="mt-3">

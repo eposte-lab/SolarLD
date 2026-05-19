@@ -46,7 +46,6 @@ const CHANNEL_OPTIONS = [
   { value: '', label: 'Tutti i canali' },
   { value: 'email', label: 'Email' },
   { value: 'postal', label: 'Postale' },
-  { value: 'whatsapp', label: 'WhatsApp' },
 ];
 
 const STATUS_OPTIONS = [

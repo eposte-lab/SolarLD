@@ -68,7 +68,7 @@ const MODULE_META: Record<
   },
   outreach: {
     title: 'Outreach',
-    blurb: 'Canali attivi (email, postale, WhatsApp), tono di voce, CTA.',
+    blurb: 'Canali attivi (email, postale), tono di voce, CTA.',
     Icon: Mail,
   },
   crm: {
@@ -678,7 +678,6 @@ function FollowupCard({ tenant }: { tenant: TenantRow }) {
 const CAPABILITY_LABELS: Array<{ key: CapabilityKey; label: string; hint?: string }> = [
   { key: 'email_outreach', label: 'Outreach email' },
   { key: 'postal_outreach', label: 'Outreach cartolina postale' },
-  { key: 'whatsapp_outreach', label: 'Outreach WhatsApp' },
   { key: 'realtime_timeline', label: 'Timeline live', hint: 'Aggiornamenti istantanei su ogni lead' },
   { key: 'advanced_analytics', label: 'Analytics avanzate' },
   { key: 'crm_outbound_webhooks', label: 'Webhook CRM' },
