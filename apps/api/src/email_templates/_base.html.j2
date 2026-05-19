@@ -451,45 +451,60 @@
                 <div class="roi-divider"></div>
               {% endif %}
 
-              <p class="roi-section-title">Economia</p>
-              <div class="roi-row">
-                <span class="roi-label">Risparmio annuo netto</span>
-                {# net_self_savings_eur may be absent on pre-Sprint-1 roi_data
-                   snapshots — fall back to yearly_savings_eur gracefully. #}
-                <span class="roi-value">€ {{ (roi.net_self_savings_eur | default(None) or roi.yearly_savings_eur | default(0)) | format_money }}</span>
-              </div>
-              <div class="roi-row">
-                <span class="roi-label">Risparmio in 25 anni</span>
-                <span class="roi-value">€ {{ (roi.savings_25y_eur | default(0) or 0) | format_money }}</span>
-              </div>
-              {% if roi.payback_years | default(None) %}
-              <div class="roi-row">
-                <span class="roi-label">Tempo di rientro</span>
-                <span class="roi-value">~ {{ roi.payback_years }} anni</span>
-              </div>
-              {% endif %}
-              {% if roi.roi_pct_25y | default(None) %}
-              <div class="roi-row">
-                <span class="roi-label">ROI a 25 anni</span>
-                <span class="roi-value">{{ roi.roi_pct_25y | default(0) | round(0) | int }} %</span>
-              </div>
-              {% endif %}
+              {# ── Due card hero: i numeri che contano ───────────────
+                 Layout a tabella (robusto su Outlook desktop, niente
+                 flexbox). Stili inline così il blocco è identico nei tre
+                 template_style. net_self_savings_eur può mancare su
+                 snapshot vecchi → fallback a yearly_savings_eur. #}
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:6px 0 0 0;">
+                <tr>
+                  <td width="50%" valign="top" style="padding:0 6px 0 0;">
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f6f7f9; border-radius:12px;">
+                      <tr><td style="height:3px; line-height:3px; font-size:0; background:{{ brand_primary_color }}; border-radius:12px 12px 0 0;">&nbsp;</td></tr>
+                      <tr><td style="padding:16px 16px 18px 16px;">
+                        <p style="margin:0 0 8px 0; font-size:10px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:#9aa0aa;">Risparmio annuo</p>
+                        <p style="margin:0; font-size:30px; font-weight:800; line-height:1; color:{{ brand_primary_color }};">&euro;&nbsp;{{ (roi.net_self_savings_eur | default(None) or roi.yearly_savings_eur | default(0)) | format_money }}</p>
+                        <p style="margin:8px 0 0 0; font-size:11px; color:#9aa0aa;">in meno sulla bolletta, ogni anno</p>
+                      </td></tr>
+                    </table>
+                  </td>
+                  <td width="50%" valign="top" style="padding:0 0 0 6px;">
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f6f7f9; border-radius:12px;">
+                      <tr><td style="height:3px; line-height:3px; font-size:0; background:{{ brand_primary_color }}; border-radius:12px 12px 0 0;">&nbsp;</td></tr>
+                      <tr><td style="padding:16px 16px 18px 16px;">
+                        <p style="margin:0 0 8px 0; font-size:10px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:#9aa0aa;">In 25 anni</p>
+                        <p style="margin:0; font-size:30px; font-weight:800; line-height:1; color:{{ brand_primary_color }};">&euro;&nbsp;{{ (roi.savings_25y_eur | default(0) or 0) | format_money }}</p>
+                        <p style="margin:8px 0 0 0; font-size:11px; color:#9aa0aa;">risparmio totale stimato</p>
+                      </td></tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
 
-              <p class="roi-section-title">Ambiente</p>
-              <div class="roi-row">
-                <span class="roi-label">Produzione annua</span>
-                <span class="roi-value">{{ roi.yearly_kwh | default(roi.estimated_yearly_kwh | default(0)) | format_money }} kWh</span>
-              </div>
-              <div class="roi-row">
-                <span class="roi-label">CO<sub>2</sub> evitata / anno</span>
-                <span class="roi-value">{{ roi.co2_kg_per_year | default(0) | format_money }} kg</span>
-              </div>
-              {% if roi.trees_equivalent | default(None) %}
-              <div class="roi-row">
-                <span class="roi-label">Equivalente alberi piantati</span>
-                <span class="roi-value">{{ roi.trees_equivalent }}</span>
-              </div>
-              {% endif %}
+              {# ── Metriche secondarie + ambiente, in un riquadro unico ── #}
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:10px 0 0 0; background:#f6f7f9; border-radius:12px;">
+                <tr>
+                  <td width="33%" align="center" style="padding:14px 6px 12px 6px;">
+                    <p style="margin:0; font-size:16px; font-weight:800; color:#1f2937;">{% if roi.payback_years | default(None) %}~&nbsp;{{ roi.payback_years }}&nbsp;anni{% else %}&mdash;{% endif %}</p>
+                    <p style="margin:4px 0 0 0; font-size:10px; letter-spacing:.06em; text-transform:uppercase; color:#9aa0aa;">Rientro</p>
+                  </td>
+                  <td width="34%" align="center" style="padding:14px 6px 12px 6px; border-left:1px solid #e7e9ed; border-right:1px solid #e7e9ed;">
+                    <p style="margin:0; font-size:16px; font-weight:800; color:#1f2937;">{% if roi.roi_pct_25y | default(None) %}{{ roi.roi_pct_25y | default(0) | round(0) | int }}%{% else %}&mdash;{% endif %}</p>
+                    <p style="margin:4px 0 0 0; font-size:10px; letter-spacing:.06em; text-transform:uppercase; color:#9aa0aa;">ROI 25 anni</p>
+                  </td>
+                  <td width="33%" align="center" style="padding:14px 6px 12px 6px;">
+                    <p style="margin:0; font-size:16px; font-weight:800; color:#1f2937;">{{ roi.yearly_kwh | default(roi.estimated_yearly_kwh | default(0)) | format_money }}</p>
+                    <p style="margin:4px 0 0 0; font-size:10px; letter-spacing:.06em; text-transform:uppercase; color:#9aa0aa;">kWh / anno</p>
+                  </td>
+                </tr>
+                <tr>
+                  <td colspan="3" style="padding:0 14px 13px 14px;">
+                    <p style="margin:0; padding-top:11px; border-top:1px solid #e7e9ed; font-size:11px; color:#9aa0aa; text-align:center;">
+                      CO<sub>2</sub> evitata {{ roi.co2_kg_per_year | default(0) | format_money }}&nbsp;kg/anno{% if roi.trees_equivalent | default(None) %} &middot; come piantare {{ roi.trees_equivalent }} alberi{% endif %}
+                    </p>
+                  </td>
+                </tr>
+              </table>
 
               {# Discrepancy disclaimer — see Sprint client-feedback D.
                  The email is a static snapshot; the portal is live. If
@@ -513,6 +528,14 @@
           {% if template_style != 'bold' %}
             <div class="ray-rule"><span class="dot"></span></div>
           {% endif %}
+
+          {# Gancio EPC — anticipa, senza svelare, che l'investimento
+             iniziale può essere azzerato. Frasi neutre: niente "gratis"
+             / "costo zero" / "€0" che farebbero scattare i filtri spam. #}
+          <p style="margin:18px 0 6px 0; font-size:13px; line-height:20px; color:#5b6470; text-align:center;">
+            E sul <em>&laquo;come si paga&raquo;</em>? C'&egrave; una formula che pu&ograve;
+            cambiare le carte in tavola &mdash; te la spieghiamo al sopralluogo gratuito.
+          </p>
 
           {# CTA — arrow glyph is Unicode &rarr;, not an emoji. #}
           <p>
