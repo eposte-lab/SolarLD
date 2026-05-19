@@ -51,6 +51,7 @@ export type LeadStatus =
   | 'opened'
   | 'clicked'
   | 'engaged'
+  | 'to_call'
   | 'whatsapp'
   | 'appointment'
   | 'closed_won'

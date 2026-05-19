@@ -62,6 +62,9 @@ class LeadStatus(StrEnum):
     OPENED = "opened"
     CLICKED = "clicked"
     ENGAGED = "engaged"
+    # Follow-up esauriti senza risposta → il lead passa all'operatore
+    # per un contatto telefonico (escalation engagement_followup_cron).
+    TO_CALL = "to_call"
     WHATSAPP = "whatsapp"
     APPOINTMENT = "appointment"
     CLOSED_WON = "closed_won"
