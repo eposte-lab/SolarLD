@@ -2,12 +2,14 @@
 
 The score is the dashboard's "heat" metric — it tells the installer
 which leads are worth calling *today*. It lives as a denormalised
-integer 0-100 on ``leads.engagement_score`` and is refreshed nightly
-by ``engagement_rollup_cron``. Real-time "is this lead active right
-now?" is computed on demand in the dashboard data fetcher from the
-last N minutes of ``portal_events`` — we don't trigger-update the
-score on every heartbeat because it'd cause write amplification on
-``leads`` (dozens of updates per portal visit).
+integer 0-100 on ``leads.engagement_score``.
+
+It is kept fresh two ways, both routed through ``compute_score`` so
+the value is always the capped 3-tier score:
+  * ``recompute_lead_engagement`` — called on every portal beacon
+    (routes/public.py) so the score reacts in real time;
+  * ``run_engagement_rollup`` — the nightly cron, a full reconcile
+    across all leads with activity in the 30-day window.
 
 Formula (v3 — ristrutturata in 3 fasce di intenzione):
 
@@ -78,11 +80,10 @@ HEARTBEAT_INTERVAL_SEC = 15
 
 # ---------------------------------------------------------------------------
 # Pesi dello score — organizzati in 3 fasce di intenzione crescente.
-# Questa è l'UNICA fonte: il bump in tempo reale (``_EVENT_DELTA`` in
-# routes/public.py) importa queste costanti, così "quel che vede
-# l'operatore = quel che ottiene il lead". Il bump in tempo reale non
-# può applicare i tetti di fascia (non conosce lo storico) → sovrastima
-# leggermente; il rollup notturno è la verità e riconcilia con i tetti.
+# ``compute_score`` è l'unica funzione di calcolo: la usano sia il
+# rollup notturno sia il recompute in tempo reale (``recompute_lead_
+# engagement``), così il punteggio è sempre quello capato per fascia —
+# niente accumulatori liberi che sforano i tetti.
 # ---------------------------------------------------------------------------
 
 # Fascia 1 — Attenzione
@@ -190,6 +191,115 @@ def compute_score(stats: LeadEngagementStats) -> int:
     return max(0, min(SCORE_MAX, attention + engagement + intent))
 
 
+def _accumulate_event(stats: LeadEngagementStats, row: dict[str, Any]) -> None:
+    """Fold one ``portal_events`` row into a lead's running stats.
+
+    Shared by the nightly rollup and the real-time single-lead
+    recompute so both score from exactly the same logic.
+    """
+    sid = row.get("session_id")
+    # Server-generated session ids (``server:{uuid}``) mark backend
+    # actions (e.g. the OCR-side bolletta fire) — not real browsing
+    # sessions, so they don't count toward the session tally.
+    if sid and not str(sid).startswith("server:"):
+        stats.sessions.add(str(sid))
+
+    kind = row.get("event_kind") or ""
+    meta = row.get("metadata") or {}
+
+    if kind == "portal.scroll_50":
+        stats.scroll_50 += 1
+        stats.deepest_scroll_pct = max(stats.deepest_scroll_pct, 50)
+    elif kind == "portal.scroll_90":
+        stats.scroll_90 += 1
+        stats.deepest_scroll_pct = max(stats.deepest_scroll_pct, 90)
+    elif kind == "portal.roi_viewed":
+        stats.roi_viewed += 1
+    elif kind == "portal.video_play":
+        stats.video_play += 1
+    elif kind == "portal.video_complete":
+        stats.video_complete += 1
+    elif kind == "portal.audio_on":
+        stats.audio_on += 1
+    elif kind == "portal.video_fullscreen":
+        stats.video_fullscreen += 1
+    elif kind == "portal.email_reply_click":
+        stats.email_reply_click += 1
+    elif kind == "portal.whatsapp_click":
+        stats.whatsapp_click += 1
+    elif kind == "portal.appointment_click":
+        stats.appointment_click += 1
+    elif kind == "portal.bolletta_uploaded":
+        stats.bolletta_uploaded += 1
+    elif kind == "portal.heartbeat":
+        stats.heartbeats += 1
+    # portal.view / portal.leave contribute only via the session count.
+
+    pct = meta.get("pct")
+    if isinstance(pct, (int, float)) and pct > stats.deepest_scroll_pct:
+        stats.deepest_scroll_pct = int(min(100, max(0, pct)))
+
+
+async def recompute_lead_engagement(lead_id: str, *, now: datetime | None = None) -> int | None:
+    """Recompute one lead's engagement score from its ``portal_events``.
+
+    The real-time path used to blindly increment the score per event
+    (uncapped, no dedup): re-visiting the portal a few times pushed a
+    lead with zero intent action to 100/100. This instead recomputes
+    the capped 3-tier score from the actual events — always correct and
+    bounded — and is cheap enough to run on every portal beacon.
+
+    Returns the new score, or ``None`` if the lead is missing / the
+    write failed.
+    """
+    sb = get_service_client()
+    now = now or datetime.now(UTC)
+    window_start = now - timedelta(days=ROLLUP_WINDOW_DAYS)
+
+    lead_res = (
+        sb.table("leads")
+        .select("id, tenant_id, outreach_opened_at, outreach_clicked_at, engagement_peak_score")
+        .eq("id", lead_id)
+        .limit(1)
+        .execute()
+    )
+    lead = (lead_res.data or [None])[0]
+    if not lead:
+        return None
+
+    events_res = (
+        sb.table("portal_events")
+        .select("session_id, event_kind, metadata")
+        .eq("lead_id", lead_id)
+        .gte("occurred_at", window_start.isoformat())
+        .execute()
+    )
+    stats = LeadEngagementStats(lead_id=lead_id, tenant_id=str(lead["tenant_id"]))
+    for row in events_res.data or []:
+        _accumulate_event(stats, row)
+    stats.outreach_opened = bool(lead.get("outreach_opened_at"))
+    stats.outreach_clicked = bool(lead.get("outreach_clicked_at"))
+
+    score = compute_score(stats)
+    prev_peak = int(lead.get("engagement_peak_score") or 0)
+    try:
+        sb.table("leads").update(
+            {
+                "engagement_score": score,
+                "engagement_score_updated_at": now.isoformat(),
+                "engagement_peak_score": max(prev_peak, score),
+                "portal_sessions": len(stats.sessions),
+                "portal_total_time_sec": stats.total_time_sec,
+                "deepest_scroll_pct": stats.deepest_scroll_pct,
+                "last_portal_event_at": now.isoformat(),
+            }
+        ).eq("id", lead_id).execute()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("engagement.recompute.update_failed", lead_id=lead_id, err=str(exc))
+        return None
+    return score
+
+
 async def run_engagement_rollup(
     *,
     now: datetime | None = None,
@@ -225,54 +335,7 @@ async def run_engagement_rollup(
         if not lid or not tid:
             continue
         stats = by_lead.setdefault(lid, LeadEngagementStats(lead_id=lid, tenant_id=tid))
-        sid = row.get("session_id")
-        # Server-generated session ids (``server:{uuid}``) mark backend
-        # actions — e.g. the OCR-side ``portal.bolletta_uploaded`` fire in
-        # routes/public.py — not real portal browsing sessions. Counting
-        # them as sessions awards a spurious +50 each, so a lead that
-        # uploads N bills looks falsely "hot". The bolletta signal itself
-        # still scores via W_BOLLETTA_UPLOADED below.
-        if sid and not str(sid).startswith("server:"):
-            stats.sessions.add(str(sid))
-
-        kind = row.get("event_kind") or ""
-        meta = row.get("metadata") or {}
-
-        if kind == "portal.scroll_50":
-            stats.scroll_50 += 1
-            stats.deepest_scroll_pct = max(stats.deepest_scroll_pct, 50)
-        elif kind == "portal.scroll_90":
-            stats.scroll_90 += 1
-            stats.deepest_scroll_pct = max(stats.deepest_scroll_pct, 90)
-        elif kind == "portal.roi_viewed":
-            stats.roi_viewed += 1
-        elif kind == "portal.video_play":
-            stats.video_play += 1
-        elif kind == "portal.video_complete":
-            stats.video_complete += 1
-        elif kind == "portal.audio_on":
-            stats.audio_on += 1
-        elif kind == "portal.video_fullscreen":
-            stats.video_fullscreen += 1
-        elif kind == "portal.email_reply_click":
-            stats.email_reply_click += 1
-        elif kind == "portal.whatsapp_click":
-            stats.whatsapp_click += 1
-        elif kind == "portal.appointment_click":
-            stats.appointment_click += 1
-        elif kind == "portal.bolletta_uploaded":
-            stats.bolletta_uploaded += 1
-        elif kind == "portal.heartbeat":
-            stats.heartbeats += 1
-        # portal.view / portal.leave contribute only via session count
-        # (view defines session start, leave carries final elapsed_ms
-        # which we don't currently scoreboard).
-
-        # Opportunistic scroll-pct capture from metadata (client may
-        # send {pct: 75} on a custom milestone in future).
-        pct = meta.get("pct")
-        if isinstance(pct, (int, float)) and pct > stats.deepest_scroll_pct:
-            stats.deepest_scroll_pct = int(min(100, max(0, pct)))
+        _accumulate_event(stats, row)
 
     if not by_lead:
         log.info("engagement.rollup.no_events")
