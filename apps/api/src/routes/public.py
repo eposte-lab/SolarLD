@@ -39,40 +39,7 @@ from ..services.bolletta_ocr_service import (
     extract_from_image,
 )
 from ..services.engagement_service import (
-    W_APPOINTMENT_CLICK as _W_APPOINTMENT_CLICK,
-)
-from ..services.engagement_service import (
-    W_AUDIO_ON as _W_AUDIO_ON,
-)
-from ..services.engagement_service import (
-    W_BOLLETTA_UPLOADED as _W_BOLLETTA_UPLOADED,
-)
-from ..services.engagement_service import (
-    W_EMAIL_REPLY_CLICK as _W_EMAIL_REPLY_CLICK,
-)
-from ..services.engagement_service import (
-    W_ROI_VIEWED as _W_ROI_VIEWED,
-)
-from ..services.engagement_service import (
-    W_SCROLL_50 as _W_SCROLL_50,
-)
-from ..services.engagement_service import (
-    W_SCROLL_90 as _W_SCROLL_90,
-)
-from ..services.engagement_service import (
-    W_SESSION as _W_SESSION,
-)
-from ..services.engagement_service import (
-    W_VIDEO_COMPLETE as _W_VIDEO_COMPLETE,
-)
-from ..services.engagement_service import (
-    W_VIDEO_FULLSCREEN as _W_VIDEO_FULLSCREEN,
-)
-from ..services.engagement_service import (
-    W_VIDEO_PLAY as _W_VIDEO_PLAY,
-)
-from ..services.engagement_service import (
-    W_WHATSAPP_CLICK as _W_WHATSAPP_CLICK,
+    recompute_lead_engagement as _recompute_lead_engagement,
 )
 from ..services.savings_compare_service import compute_savings_compare
 
@@ -606,23 +573,14 @@ async def upload_bolletta(
                 "occurred_at": datetime.now(UTC).isoformat(),
             }
         ).execute()
-        # Mirror the engagement bump from the /portal/track route.
-        # The portal_events INSERT alone doesn't stamp engagement_score
-        # or last_portal_event_at — those live behind the
-        # bump_engagement_score RPC. Without this call a server-side
-        # bolletta upload (or any other server-fired portal event) leaves
-        # the lead at engagement_score=0 even though the event delta
-        # would be +50, and the /leads "Caldi adesso" filter that gates
-        # on engagement_score never picks them up.
-        delta = _EVENT_DELTA.get("portal.bolletta_uploaded", 0)
-        if delta > 0:
-            try:
-                sb.rpc(
-                    "bump_engagement_score",
-                    {"p_lead_id": lead["id"], "p_delta": delta},
-                ).execute()
-            except Exception as exc:  # noqa: BLE001
-                log.warning("bolletta.engagement_bump_failed", err=str(exc))
+        # Recompute the engagement score now that the bolletta event is
+        # in portal_events — the INSERT alone doesn't refresh
+        # engagement_score / last_portal_event_at, and the bolletta is a
+        # strong intent signal the "Caldi adesso" filter must see.
+        try:
+            await _recompute_lead_engagement(lead["id"])
+        except Exception as exc:  # noqa: BLE001
+            log.warning("bolletta.engagement_recompute_failed", err=str(exc))
     except Exception as exc:  # noqa: BLE001
         log.warning("bolletta.portal_event_failed", err=str(exc))
 
@@ -876,39 +834,6 @@ _BEACON_RATE_PER_MIN = 60
 _BEACON_KEY_TTL = 90  # seconds
 
 
-# ---------------------------------------------------------------------------
-# Real-time engagement scoring (Sprint 8 Fase C.1 — formula v3)
-# ---------------------------------------------------------------------------
-#
-# Per-event score deltas applied via the ``bump_engagement_score``
-# Postgres function (migration 0066). Cumulative, clamped to [0, 100]
-# inside the RPC.
-#
-# I delta sono DERIVATI dai pesi di ``engagement_service.py`` (unica
-# fonte): "quel che vede l'operatore = quel che ottiene il lead". Il
-# bump in tempo reale non conosce lo storico → non applica i tetti di
-# fascia e sovrastima leggermente; il rollup notturno è la verità e
-# riconcilia con i tetti. Eventi non elencati = 0 (heartbeat, leave).
-
-_EVENT_DELTA: dict[str, int] = {
-    # Fascia 1 — Attenzione
-    "portal.view": _W_SESSION,
-    "portal.scroll_50": _W_SCROLL_50,
-    "portal.scroll_90": _W_SCROLL_90,
-    # Fascia 2 — Coinvolgimento
-    "portal.roi_viewed": _W_ROI_VIEWED,
-    "portal.video_play": _W_VIDEO_PLAY,
-    "portal.video_complete": _W_VIDEO_COMPLETE,
-    "portal.audio_on": _W_AUDIO_ON,
-    "portal.video_fullscreen": _W_VIDEO_FULLSCREEN,
-    # Fascia 3 — Intenzione
-    "portal.bolletta_uploaded": _W_BOLLETTA_UPLOADED,
-    "portal.whatsapp_click": _W_WHATSAPP_CLICK,
-    "portal.appointment_click": _W_APPOINTMENT_CLICK,
-    "portal.email_reply_click": _W_EMAIL_REPLY_CLICK,
-}
-
-
 class PortalTrackEvent(BaseModel):
     """One telemetry event from the lead-portal client."""
 
@@ -1013,26 +938,22 @@ async def portal_track(request: Request) -> Response:
             err=str(exc),
         )
 
-    # Real-time engagement bump (Fase C.1). The RPC clamps to [0, 100]
-    # internally and stamps last_portal_event_at, which the
-    # /v1/leads/hot endpoint uses to filter recently-active leads.
-    delta = _EVENT_DELTA.get(event.event_kind, 0)
-    if delta > 0:
-        try:
-            sb.rpc(
-                "bump_engagement_score",
-                {"p_lead_id": lead["id"], "p_delta": delta},
-            ).execute()
-        except Exception as exc:  # noqa: BLE001
-            # Non-fatal — the nightly rollup still reconciles the
-            # score. We log so a cluster of failures shows up in
-            # monitoring without taking down the beacon.
-            log.warning(
-                "portal.track.bump_failed",
-                slug=event.slug,
-                event_kind=event.event_kind,
-                err=str(exc),
-            )
+    # Real-time engagement recompute. We recompute the capped 3-tier
+    # score from the lead's actual portal_events rather than blindly
+    # incrementing per event: a free-running accumulator (no caps, no
+    # dedup) let a lead with zero intent action reach 100/100 just by
+    # re-visiting the portal. The recompute also stamps
+    # last_portal_event_at, used by the /v1/leads/hot filter.
+    try:
+        await _recompute_lead_engagement(lead["id"])
+    except Exception as exc:  # noqa: BLE001
+        # Non-fatal — the nightly rollup still reconciles the score.
+        log.warning(
+            "portal.track.recompute_failed",
+            slug=event.slug,
+            event_kind=event.event_kind,
+            err=str(exc),
+        )
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
