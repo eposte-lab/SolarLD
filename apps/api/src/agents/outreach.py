@@ -555,10 +555,13 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
         # ------------------------------------------------------------------
         # 7b) Tenant-level daily "in-target" cap (Sprint 2)
         #
-        # The product SLA: ~250 in-target emails/day per tenant.
-        # Enforced HERE (not at provider level) so that if a tenant
-        # has 8 inboxes × 50/day = 400 capacity, they still cap at
-        # 250 commercial sends/day. Reset at Europe/Rome midnight.
+        # The product SLA daily cap counts ONLY first-touch sends
+        # (sequence_step == 1) — the new leads contacted today. Follow-ups
+        # (step >= 2) are NOT charged against it: they are continuations
+        # of an already-counted conversation, and counting them would let
+        # a handful of follow-ups eat the budget for fresh leads. Domain
+        # reputation is still protected for every send by the per-inbox
+        # daily cap and the domain warm-up rate-limit below.
         #
         # Placed AFTER capability/dedup/blacklist/NeverBounce — those
         # are pre-conditions for "is this a real candidate" and
@@ -567,47 +570,39 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
         # cap we don't even need to talk to Redis for the hourly
         # window check.
         # ------------------------------------------------------------------
-        cap_decision = await daily_target_cap_service.check_and_reserve(tenant_row)
-        if not cap_decision.allowed:
-            log.info(
-                "outreach.daily_target_cap_reached",
-                lead_id=payload.lead_id,
-                tenant_id=payload.tenant_id,
-                used=cap_decision.used,
-                limit=cap_decision.limit,
-            )
-            return await self._record_skip(
-                payload=payload,
-                lead=lead,
-                reason="daily_target_cap_reached",
-                event_type="lead.outreach_ratelimited",
-                event_extra={
-                    "cap": cap_decision.limit,
-                    "used": cap_decision.used,
-                },
-            )
+        is_first_touch = payload.sequence_step == 1
+        if is_first_touch:
+            cap_decision = await daily_target_cap_service.check_and_reserve(tenant_row)
+            if not cap_decision.allowed:
+                log.info(
+                    "outreach.daily_target_cap_reached",
+                    lead_id=payload.lead_id,
+                    tenant_id=payload.tenant_id,
+                    used=cap_decision.used,
+                    limit=cap_decision.limit,
+                )
+                return await self._record_skip(
+                    payload=payload,
+                    lead=lead,
+                    reason="daily_target_cap_reached",
+                    event_type="lead.outreach_ratelimited",
+                    event_extra={
+                        "cap": cap_decision.limit,
+                        "used": cap_decision.used,
+                    },
+                )
 
         # ------------------------------------------------------------------
         # 7b) Per-campaign fair-share sub-cap (generic_outreach only)
         #
         # When multiple generic_outreach lists compete for the same tenant
         # daily cap, each campaign gets an equal share of the budget so
-        # one active campaign can't starve the others.
+        # one active campaign can't starve the others. Like the global
+        # cap above, this only applies to first-touch sends.
         #
         # sub_cap = floor(global_cap / N_active_generic_campaigns)
-        #
-        # We query the DB once here to count active campaigns (cheap
-        # COUNT query on a small table). The global cap was already
-        # consumed above — if the sub-cap is also blocked we roll the
-        # global back by recording a skip (the global DECR is done
-        # implicitly; the slot was reserved optimistically and must be
-        # rolled back). Actually we DON'T reverse the global slot here
-        # because it was already claimed above. We just defer this
-        # specific campaign to tomorrow — the slot is lost. This is
-        # intentional: the excess capacity can still be used by other
-        # campaigns or by the standard Solar pipeline later.
         # ------------------------------------------------------------------
-        if effective_list_id:
+        if is_first_touch and effective_list_id:
             try:
                 active_res = (
                     sb.table("prospect_lists")
