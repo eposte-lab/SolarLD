@@ -1050,9 +1050,7 @@ async def engagement_followup_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
         has_step4, followup_count = _followup_history(sb, lead["id"])
         cold_complete = False
         if outreach_sent_at is not None and outreach_sent_at.isoformat() <= cold_cutoff:
-            cold_complete = has_step4 or (
-                (now - outreach_sent_at).days >= STEP_4_DELAY_DAYS + 7
-            )
+            cold_complete = has_step4 or ((now - outreach_sent_at).days >= STEP_4_DELAY_DAYS + 7)
 
         snap = FollowupSnapshot(
             lead_id=str(lead["id"]),
@@ -1186,9 +1184,7 @@ async def engagement_followup_for_tenant(tenant_id: str) -> dict[str, Any]:
         has_step4, followup_count = _followup_history(sb, lead["id"])
         cold_complete = False
         if outreach_sent_at is not None and outreach_sent_at.isoformat() <= cold_cutoff:
-            cold_complete = has_step4 or (
-                (now - outreach_sent_at).days >= STEP_4_DELAY_DAYS + 7
-            )
+            cold_complete = has_step4 or ((now - outreach_sent_at).days >= STEP_4_DELAY_DAYS + 7)
 
         snap = FollowupSnapshot(
             lead_id=str(lead["id"]),
