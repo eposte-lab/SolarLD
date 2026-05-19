@@ -40,7 +40,6 @@ from .cron import (
     engagement_followup_cron,
     engagement_rollup_cron,
     follow_up_cron,
-    funnel_v3_cron,
     imminence_predictions_cron,
     practice_deadlines_cron,
     reputation_digest_cron,
@@ -668,16 +667,13 @@ class WorkerSettings:
             minute=0,
             run_at_startup=False,
         ),
-        # Sprint 11: per-tenant warehouse refill + FIFO pick of today's
-        # send batch. Runs after the cleanup sweep + A/B evaluation so
-        # each tenant's daily quota is dispatched against fresh assignments.
-        # FLUSSO 1 v3 — fan-out hunter funnel before the warehouse refill
-        # so any v3 recommended leads are picked up by daily_pipeline_cron.
-        cron(funnel_v3_cron, hour=4, minute=30, run_at_startup=False),
         # Scan jobs dispatcher — coda di lavori operatore-driven. Runs
         # ogni ora al :05. Per ogni tenant, prende il job top-priority
         # (status pending/in_progress, ASC) e enqueue il funnel. Reset
-        # valid_leads_today a mezzanotte UTC. Si ferma per cap.
+        # valid_leads_today a mezzanotte UTC. Si ferma per cap. È l'UNICO
+        # trigger del funnel: il vecchio funnel_v3_cron giornaliero
+        # tenant-wide è stato rimosso perché ignorava cap, scoping e
+        # cursore, consumando il backlog oltre il cap dello scan job.
         cron(scan_jobs_dispatcher_cron, minute=5, run_at_startup=False),
         cron(daily_pipeline_cron, hour=5, minute=30, run_at_startup=False),
         cron(send_time_rollup_cron, hour=3, minute=45, run_at_startup=False),
