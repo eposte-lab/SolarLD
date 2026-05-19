@@ -145,6 +145,13 @@ function fromCachedDerivations(
   const estimatedKwp = num('estimated_kwp');
   const estimatedYearlyKwh = num('yearly_kwh');
 
+  // Prefer the physics-based realistic saving (autoconsumo =
+  // min(produzione, fabbisogno)) — the same field the hero KPIs, the
+  // outreach email and the dossier now display.
+  const realisticSavings = num('realistic_yearly_savings_eur');
+  const annualSavings =
+    realisticSavings > 0 ? realisticSavings : num('yearly_savings_eur');
+
   return {
     panelCount,
     panelCapacityW: num('panel_capacity_w', 410),
@@ -155,7 +162,7 @@ function fromCachedDerivations(
     roofCoveragePct: num('roof_coverage_pct'),
     specificYieldKwhPerKwp: num('specific_yield_kwh_per_kwp'),
     estimatedInstallCostEur: num('gross_capex_eur'),
-    estimatedAnnualSavingsEur: num('yearly_savings_eur'),
+    estimatedAnnualSavingsEur: annualSavings,
     paybackYears: num('payback_years'),
     co2Tonnes25Years: num('co2_tonnes_25_years'),
     recommendedInverterKw: num('recommended_inverter_kw'),
@@ -208,9 +215,23 @@ export function deriveSolarMetrics(
   const panelH = potential?.panelHeightMeters ?? 1.95;
   const panelAreaSqm = panelW * panelH;
 
-  const estimatedKwp = roof.estimated_kwp ?? (panelCount * panelCapacityW) / 1000;
+  // ── Consistency layer ───────────────────────────────────────────
+  // When the lead carries a backend roi_data snapshot, the cost / ROI
+  // figures shown here MUST match it — the same numbers the hero KPIs,
+  // the outreach email and the dossier read. The local TS recompute
+  // below survives only for geometry / sizing / the monthly-curve shape
+  // (panel-only, never compared across surfaces) and as a last resort
+  // for roi_data-less legacy leads.
+  const roi = lead.roi_data ?? null;
+  const roiNum = (v: unknown): number | null =>
+    typeof v === 'number' && Number.isFinite(v) ? v : null;
+
+  const estimatedKwp =
+    roiNum(roi?.estimated_kwp) ??
+    roof.estimated_kwp ??
+    (panelCount * panelCapacityW) / 1000;
   const estimatedYearlyKwh =
-    roof.estimated_yearly_kwh ?? estimatedKwp * 1300;
+    roiNum(roi?.yearly_kwh) ?? roof.estimated_yearly_kwh ?? estimatedKwp * 1300;
   const roofAreaSqm = roof.area_sqm ?? 0;
 
   // Coverage: panels × area / total roof area. Cap at 1.
@@ -228,23 +249,34 @@ export function deriveSolarMetrics(
       assumptions.costPerKwpEur ?? pickCostPerKwp(estimatedKwp),
   };
 
-  const estimatedInstallCostEur = estimatedKwp * a.costPerKwpEur;
-
-  // Annual savings: self-consumed kWh saves grid tariff; surplus kWh
-  // earns feed-in. Rough but consistent with how the preventivo PDF
-  // computes it.
+  // Local TS recompute — used only when roi_data has no usable value.
   const selfConsumedKwh = estimatedYearlyKwh * a.selfConsumptionRatio;
   const feedInKwh = estimatedYearlyKwh - selfConsumedKwh;
-  const estimatedAnnualSavingsEur =
+  const localAnnualSavingsEur =
     selfConsumedKwh * a.gridTariffEurPerKwh +
     feedInKwh * a.feedInTariffEurPerKwh;
 
+  // Cost / ROI: prefer the backend roi_data snapshot so this panel
+  // agrees with the hero KPIs, the email and the dossier; "Risparmio
+  // annuo" prefers the realistic figure exactly like those surfaces.
+  const estimatedInstallCostEur =
+    roiNum(roi?.gross_capex_eur) ?? estimatedKwp * a.costPerKwpEur;
+  const estimatedAnnualSavingsEur =
+    roiNum(roi?.realistic_yearly_savings_eur) ??
+    roiNum(roi?.yearly_savings_eur) ??
+    roiNum(roi?.annual_savings_eur) ??
+    localAnnualSavingsEur;
   const paybackYears =
-    estimatedAnnualSavingsEur > 0
+    roiNum(roi?.payback_years) ??
+    (estimatedAnnualSavingsEur > 0
       ? estimatedInstallCostEur / estimatedAnnualSavingsEur
-      : 0;
-
-  const co2Tonnes25Years = (estimatedYearlyKwh * a.co2KgPerKwh * 25) / 1000;
+      : 0);
+  const roiCo2KgPerYear =
+    roiNum(roi?.co2_kg_per_year) ?? roiNum(roi?.co2_saved_kg);
+  const co2Tonnes25Years =
+    roiCo2KgPerYear != null
+      ? (roiCo2KgPerYear * 25) / 1000
+      : (estimatedYearlyKwh * a.co2KgPerKwh * 25) / 1000;
 
   // Inverter at 90% of DC kWp (typical PR sizing rule).
   const recommendedInverterKw = Math.round(estimatedKwp * 0.9 * 10) / 10;
@@ -253,14 +285,16 @@ export function deriveSolarMetrics(
   const dailyAvgKwh = estimatedYearlyKwh / 365;
   const recommendedBatteryKwh = Math.round(dailyAvgKwh * 1.2 * 2) / 2;
 
-  // Monthly distribution — use the canonical Italian curve.
+  // Monthly distribution — use the canonical Italian curve. Monthly
+  // savings are scaled so the 12 months sum to the annual figure above,
+  // keeping the chart consistent with the headline number.
   const monthlyProductionKwh = ITALY_MONTHLY_DISTRIBUTION_PCT.map(
     (pct) => (estimatedYearlyKwh * pct) / 100,
   );
-  const monthlySavingsEur = monthlyProductionKwh.map(
-    (kwh) =>
-      kwh * a.selfConsumptionRatio * a.gridTariffEurPerKwh +
-      kwh * (1 - a.selfConsumptionRatio) * a.feedInTariffEurPerKwh,
+  const monthlySavingsEur = monthlyProductionKwh.map((kwh) =>
+    estimatedYearlyKwh > 0
+      ? (kwh / estimatedYearlyKwh) * estimatedAnnualSavingsEur
+      : 0,
   );
 
   return {
