@@ -100,7 +100,7 @@ function useInViewOnce<T extends HTMLElement>(): [
           }
         }
       },
-      { threshold: 0.2 },
+      { threshold: 0 },
     );
     obs.observe(el);
     return () => obs.disconnect();
@@ -533,7 +533,7 @@ export function EpcPropositionSection({
               bracketLabel={`Durata del contratto · ${CONTRACT_YEARS} anni`}
             />
           </div>
-          <p className="mt-3 text-center text-[11px] text-on-surface-variant">
+          <p className="mt-3 text-center text-[11px] font-semibold text-on-surface">
             Dopo ~20 anni i due modelli arrivano quasi allo stesso punto
             — ma con l&apos;EPC ci arrivate senza immobilizzare un euro e
             senza un solo anno in rosso.
