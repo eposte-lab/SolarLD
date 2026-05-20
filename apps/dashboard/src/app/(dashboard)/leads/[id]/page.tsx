@@ -35,7 +35,6 @@ import { notFound, redirect } from 'next/navigation';
 
 import { FollowUpDrafter } from '@/components/follow-up-drafter';
 import { LeadActivityStrip } from '@/components/lead-activity-strip';
-import { LeadConversationsCard } from '@/components/lead-conversations-card';
 import { LeadRepliesCard } from '@/components/lead-replies-card';
 import { LeadPortalTimeline } from '@/components/lead-portal-timeline';
 import { LeadTimelineLive } from '@/components/lead-timeline-live';
@@ -51,7 +50,6 @@ import { TierLock } from '@/components/ui/tier-lock';
 import { listCampaignsForLead, listEventsForLead } from '@/lib/data/campaigns';
 import { getPortalSessionStats, listPortalEventsForLead } from '@/lib/data/engagement';
 import { getLeadById, getLeadV3Signal } from '@/lib/data/leads';
-import { getConversationsForLead } from '@/lib/data/conversations';
 import { getLeadReplies } from '@/lib/data/replies';
 import { getCurrentTenantContext } from '@/lib/data/tenant';
 import { canTenantUse } from '@/lib/data/tier';
@@ -183,7 +181,6 @@ export default async function LeadDetailPage({ params }: PageProps) {
     campaignsR,
     eventsR,
     repliesR,
-    conversationsR,
     portalEventsR,
     portalStatsR,
     v3SignalR,
@@ -192,14 +189,13 @@ export default async function LeadDetailPage({ params }: PageProps) {
     wrap('listCampaignsForLead', listCampaignsForLead(id)),
     wrap('listEventsForLead', listEventsForLead(id)),
     wrap('getLeadReplies', getLeadReplies(id)),
-    wrap('getConversationsForLead', getConversationsForLead(id)),
     wrap('listPortalEventsForLead', listPortalEventsForLead(id, 50)),
     wrap('getPortalSessionStats', getPortalSessionStats(id)),
     wrap('getLeadV3Signal', getLeadV3Signal(id).catch(() => null)),
   ]);
 
   const errors = [
-    leadR, campaignsR, eventsR, repliesR, conversationsR,
+    leadR, campaignsR, eventsR, repliesR,
     portalEventsR, portalStatsR, v3SignalR,
   ].filter((r): r is FetchErr => !r.ok);
 
@@ -250,7 +246,6 @@ export default async function LeadDetailPage({ params }: PageProps) {
   const campaigns = campaignsR.ok ? campaignsR.value : [];
   const events = eventsR.ok ? eventsR.value : [];
   const replies = repliesR.ok ? repliesR.value : [];
-  const conversations = conversationsR.ok ? conversationsR.value : [];
   const portalEvents = portalEventsR.ok ? portalEventsR.value : [];
   const portalStats = portalStatsR.ok
     ? portalStatsR.value
@@ -333,7 +328,6 @@ export default async function LeadDetailPage({ params }: PageProps) {
   const sentCampaigns = campaigns.filter((c) => c.sent_at);
   const hasPortalActivity = portalEvents.length > 0;
   const hasReplies = replies.length > 0;
-  const hasConversations = conversations.length > 0;
 
   // Derive bolletta/appointment timestamps from the events stream — they
   // don't have dedicated columns on the lead row. The activity strip in
@@ -1382,27 +1376,6 @@ export default async function LeadDetailPage({ params }: PageProps) {
             </p>
           ) : (
             <LeadRepliesCard replies={replies} />
-          )}
-        </div>
-      </CollapsibleCard>
-
-      {/* ─── WhatsApp ─────────────────────────────────────────────────── */}
-      <CollapsibleCard
-        label="WhatsApp"
-        title="Conversazione WhatsApp"
-        badge={hasConversations ? `${conversations.length}` : undefined}
-        defaultOpen={hasConversations}
-      >
-        <div className="pt-1">
-          {!hasConversations ? (
-            <p className="text-sm text-on-surface-variant">
-              Nessuna conversazione WhatsApp ancora.
-            </p>
-          ) : (
-            <LeadConversationsCard
-              leadId={lead.id}
-              initialConversations={conversations}
-            />
           )}
         </div>
       </CollapsibleCard>
