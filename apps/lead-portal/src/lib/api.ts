@@ -93,7 +93,8 @@ export type PublicLead = {
 export type LeadFetchResult =
   | { kind: 'ok'; lead: PublicLead }
   | { kind: 'not_found' }
-  | { kind: 'gone' }; // 410 when the lead has opted out
+  | { kind: 'gone' } // 410 when the lead has opted out
+  | { kind: 'expired' }; // 410 when the dossier link has aged past TTL
 
 export async function fetchPublicLead(slug: string): Promise<LeadFetchResult> {
   // `no-store` instead of revalidate=3600 because rendering URLs
@@ -106,7 +107,18 @@ export async function fetchPublicLead(slug: string): Promise<LeadFetchResult> {
     { cache: 'no-store' },
   );
   if (res.status === 404) return { kind: 'not_found' };
-  if (res.status === 410) return { kind: 'gone' };
+  if (res.status === 410) {
+    // The API discriminates between an opted-out lead and a link past
+    // its TTL via the `detail` string. Default to `gone` (the legacy
+    // behaviour) if the body isn't parseable.
+    try {
+      const body = (await res.json()) as { detail?: string };
+      if (body?.detail === 'dossier_expired') return { kind: 'expired' };
+    } catch {
+      /* fall through to 'gone' */
+    }
+    return { kind: 'gone' };
+  }
   if (!res.ok) throw new Error(`Failed to load lead: ${res.status}`);
   const lead = (await res.json()) as PublicLead;
   return { kind: 'ok', lead };

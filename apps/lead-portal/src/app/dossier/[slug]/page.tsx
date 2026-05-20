@@ -43,14 +43,31 @@ export async function generateMetadata({
 export default async function LeadPage({ params }: PageProps) {
   const { slug } = await params;
   const result = await fetchPublicLead(slug);
-  if (result.kind === 'not_found') notFound();
-  if (result.kind === 'gone') redirect(`/optout/${encodeURIComponent(slug)}?already=1`);
+  if (result.kind !== 'ok') {
+    if (result.kind === 'not_found') notFound();
+    if (result.kind === 'gone') {
+      redirect(`/optout/${encodeURIComponent(slug)}?already=1`);
+    }
+    // Link scaduto — l'API ha già negato i dati del lead (privacy
+    // budget di DOSSIER_TTL_DAYS giorni dopo l'invio). Mostriamo la
+    // pagina generica di scadenza: a 30 giorni il dossier non è più
+    // riconvertibile e tenere i dati esposti non avrebbe valore.
+    return (
+      <DossierExpired
+        tenantName="l'azienda che ti ha contattato"
+        brandColor="#0F766E"
+        contactEmail={null}
+      />
+    );
+  }
 
   const lead = result.lead;
 
-  // Scadenza link — privacy. Il dossier scade DOSSIER_TTL_DAYS giorni
-  // dopo l'invio dell'email. Un lead non ancora contattato
-  // (outreach_sent_at null) non scade: può essere in anteprima operatore.
+  // Defense-in-depth: re-controlliamo la scadenza anche client-side. Se
+  // l'API risponde con i dati, ma l'età supera comunque DOSSIER_TTL_DAYS
+  // (race tra clock dell'API e quello locale, o regressione), il
+  // dossier non viene mostrato. Un lead non ancora contattato
+  // (outreach_sent_at null) non scade: anteprima operatore.
   if (lead.outreach_sent_at) {
     const ageDays =
       (Date.now() - new Date(lead.outreach_sent_at).getTime()) / 86_400_000;
