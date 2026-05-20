@@ -49,7 +49,7 @@ export function HeroStat({
 
   return (
     <div
-      className="relative overflow-hidden rounded-2xl border px-4 py-3 transition-shadow hover:shadow-ambient-md"
+      className="relative overflow-hidden rounded-2xl border px-5 py-5 transition-shadow hover:shadow-ambient-md"
       style={{
         borderColor: `${accentColor}22`,
         backgroundColor: `${accentColor}08`,
@@ -63,38 +63,38 @@ export function HeroStat({
         style={{ backgroundColor: accentColor }}
       />
       <p
-        className="mt-0.5 text-[10px] font-bold uppercase tracking-[0.16em]"
+        className="mt-1 text-[11px] font-bold uppercase tracking-[0.18em]"
         style={{ color: accentColor }}
       >
         {label}
       </p>
       {/* Numero + unità su una sola riga: niente flex-wrap, così quando
           "kWh/anno" non entra dietro al numero il design scala il
-          contenuto (Tailwind text-3xl/4xl) invece di mandare l'unità
-          a capo allargando inutilmente l'altezza della card. */}
-      <p className="mt-1.5 flex items-baseline gap-1.5 whitespace-nowrap font-headline tracking-tightest">
+          contenuto invece di mandare l'unità a capo allargando
+          inutilmente l'altezza della card. */}
+      <p className="mt-2 flex items-baseline gap-1.5 whitespace-nowrap font-headline tracking-tightest">
         {prefix && isNumeric ? (
           <span
-            className="text-2xl font-bold leading-none md:text-3xl"
+            className="text-3xl font-bold leading-none md:text-4xl"
             style={{ color: accentColor }}
           >
             {prefix}
           </span>
         ) : null}
         <span
-          className="text-3xl font-bold leading-none md:text-4xl"
+          className="text-4xl font-bold leading-none"
           style={{ color: accentColor }}
         >
           {formatted}
         </span>
         {isNumeric ? (
-          <span className="text-xs font-semibold text-on-surface-variant md:text-sm">
+          <span className="text-sm font-semibold text-on-surface-variant md:text-base">
             {unit}
           </span>
         ) : null}
       </p>
       {caption ? (
-        <p className="mt-1 text-[11px] leading-snug text-on-surface-variant">
+        <p className="mt-2 text-xs leading-snug text-on-surface-variant">
           {caption}
         </p>
       ) : null}
