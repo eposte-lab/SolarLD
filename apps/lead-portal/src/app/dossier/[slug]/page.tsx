@@ -342,7 +342,8 @@ export default async function LeadPage({ params }: PageProps) {
           Solo il form sopralluogo dà tracking pulito (POST tracciato →
           webhook CRM del tenant). WhatsApp è stato rimosso a monte. */}
       <section
-        className="mx-auto max-w-6xl px-6 py-8"
+        id="sopralluogo"
+        className="mx-auto max-w-6xl scroll-mt-8 px-6 py-8"
         aria-labelledby="cta-heading"
       >
         <p className="editorial-eyebrow">Prossimo passo</p>
