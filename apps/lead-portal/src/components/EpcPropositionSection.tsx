@@ -547,7 +547,7 @@ export function EpcPropositionSection({
               bracketLabel={`Durata del contratto · ${CONTRACT_YEARS} anni`}
             />
           </div>
-          <p className="mt-4 text-center text-sm font-semibold leading-snug text-on-surface md:text-base">
+          <p className="mt-4 text-center text-xs font-semibold leading-snug text-on-surface md:text-sm">
             Dopo ~20 anni i due modelli arrivano quasi allo stesso punto
             — ma con l&apos;EPC ci arrivate senza immobilizzare un euro e
             senza un solo anno in rosso.
