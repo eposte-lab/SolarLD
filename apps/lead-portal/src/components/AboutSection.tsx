@@ -59,19 +59,14 @@ export function AboutSection({
 
   return (
     <section
-      className="overflow-hidden rounded-3xl bg-surface-container-lowest shadow-ambient"
+      className="overflow-hidden rounded-3xl text-white shadow-ambient"
+      style={{ backgroundColor: brandColor }}
       aria-labelledby="about-heading"
     >
-      {/* Barra d'accento brand in alto — flat, stile sito Total Trade. */}
-      <div className="h-1.5 w-full" style={{ backgroundColor: brandColor }} />
-
       <div className="p-7 md:p-10">
         {/* Header: logo aziendale in evidenza. */}
         <div className="flex items-center justify-between gap-4">
-          <p
-            className="text-[11px] font-bold uppercase tracking-[0.2em]"
-            style={{ color: brandColor }}
-          >
+          <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-white/70">
             Chi siamo
           </p>
           {brandLogoUrl ? (
@@ -88,13 +83,13 @@ export function AboutSection({
         {brandLogoUrl ? null : (
           <h2
             id="about-heading"
-            className="mt-3 font-headline text-2xl font-semibold tracking-tighter text-on-surface md:text-3xl"
+            className="mt-3 font-headline text-2xl font-semibold tracking-tighter text-white md:text-3xl"
           >
             {businessName}
           </h2>
         )}
         {tagline ? (
-          <p className="mt-3 max-w-2xl text-lg leading-snug text-on-surface md:text-xl">
+          <p className="mt-3 max-w-2xl text-lg leading-snug text-white md:text-xl">
             {tagline}
           </p>
         ) : null}
@@ -111,7 +106,7 @@ export function AboutSection({
 
           <div className={heroImageUrl ? '' : 'md:col-span-2'}>
             {aboutMd ? (
-              <div className="prose-editorial text-on-surface-variant">
+              <div className="prose-editorial text-white/90 [&_a]:text-white [&_a]:underline [&_strong]:text-white">
                 <Markdown rehypePlugins={[rehypeSanitize]}>{aboutMd}</Markdown>
               </div>
             ) : null}
@@ -121,11 +116,7 @@ export function AboutSection({
                 {chips.map((chip) => (
                   <li
                     key={chip.key}
-                    className="inline-flex items-center rounded-full px-3.5 py-1.5 text-xs font-semibold"
-                    style={{
-                      backgroundColor: `${brandColor}12`,
-                      color: brandColor,
-                    }}
+                    className="inline-flex items-center rounded-full bg-white/15 px-3.5 py-1.5 text-xs font-semibold text-white"
                   >
                     {chip.label}
                   </li>
