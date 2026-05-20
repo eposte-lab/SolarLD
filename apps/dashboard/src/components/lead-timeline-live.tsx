@@ -43,8 +43,15 @@ const EVENT_LABEL: Record<string, string> = {
   'lead.outreach_sent': 'Email inviata',
   'lead.outreach_skipped_tier': 'Invio bloccato (piano insufficiente)',
   'lead.outreach_ratelimited': 'Invio rinviato (reputazione dominio)',
-  'lead.followup_sent_step2': 'Follow-up #2 inviato',
-  'lead.followup_sent_step3': 'Follow-up #3 inviato',
+  'lead.followup_sent_step2': 'Follow-up giorno 4 inviato',
+  'lead.followup_sent_step3': 'Follow-up giorno 9 inviato',
+  'lead.followup_sent_step4': 'Follow-up finale inviato',
+  'lead.followup_sent_step5': 'Follow-up automatico inviato',
+  'lead.followup_sent_step6': 'Follow-up automatico inviato',
+  'lead.followup_sent_step7': 'Follow-up automatico inviato',
+  'lead.followup_sent_step8': 'Follow-up automatico inviato',
+  'lead.followup_sent_step9': 'Follow-up automatico inviato',
+  'lead.follow_up_sent': 'Follow-up manuale inviato',
 
   // Engagement (operator-relevant — what the lead is doing)
   'lead.email_delivered': 'Email consegnata',
@@ -99,6 +106,18 @@ const DOT: Record<Category, string> = {
 /** Normalise the id — Postgres bigint serializes as number via REST, string via Realtime. */
 function eventKey(e: EventRow): string {
   return String(e.id);
+}
+
+/** Resolve the user-facing label for an event_type. Falls back to a
+ *  regex-derived Italian label for any future follow-up step beyond
+ *  the explicit map (so `lead.followup_sent_step12` doesn't leak the
+ *  raw type into the timeline). */
+function resolveEventLabel(eventType: string): string {
+  const mapped = EVENT_LABEL[eventType];
+  if (mapped) return mapped;
+  const m = /^lead\.followup_sent_step(\d+)$/.exec(eventType);
+  if (m) return `Follow-up automatico inviato (step ${m[1]})`;
+  return eventType;
 }
 
 interface GroupedEvent {
@@ -219,7 +238,7 @@ export function LeadTimelineLive({ leadId, initialEvents }: LeadTimelineLiveProp
               className="flex items-start gap-4 rounded-lg px-3 py-2 text-sm transition-colors hover:bg-surface-container-low"
             >
               <span className="w-28 shrink-0 text-xs text-on-surface-variant">
-                {relativeTime(g.firstAt)}
+                {relativeTime(g.lastAt)}
               </span>
               <span className="mt-1.5 flex items-center">
                 <span
@@ -229,16 +248,16 @@ export function LeadTimelineLive({ leadId, initialEvents }: LeadTimelineLiveProp
               </span>
               <div className="flex-1">
                 <p className="font-semibold">
-                  {EVENT_LABEL[g.type] ?? g.type}
+                  {resolveEventLabel(g.type)}
                   {g.count > 1 && (
                     <span className="ml-2 rounded-full bg-surface-container-high px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-on-surface-variant">
                       ×{g.count}
                     </span>
                   )}
                 </p>
-                {g.count > 1 && g.lastAt && g.firstAt !== g.lastAt && (
+                {g.count > 1 && g.firstAt && g.firstAt !== g.lastAt && (
                   <p className="text-xs text-on-surface-variant">
-                    Prima volta {relativeTime(g.lastAt)}
+                    Prima volta {relativeTime(g.firstAt)}
                   </p>
                 )}
               </div>
