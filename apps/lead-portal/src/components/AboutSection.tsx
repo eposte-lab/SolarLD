@@ -63,27 +63,38 @@ export function AboutSection({
       style={{ backgroundColor: brandColor }}
       aria-labelledby="about-heading"
     >
-      {/* Semicerchio bianco che sporge dal lato destro della card: il
-          wordmark del tenant (es. Total Trade) ha testo blu navy ed è
-          illeggibile sul fondo brand. Il disco bianco — centrato sul
-          bordo destro, metà interno e metà clippato dall'overflow-hidden
-          della section — fornisce uno sfondo bianco per il logo blu. Su
-          mobile non sporge: il logo va in un blocco normale sopra il
-          testo con un fondo bianco arrotondato dedicato. */}
+      {/* Semicerchio bianco che sporge dal lato destro della card e
+          logo del tenant sopra di esso. Entrambi sono posizionati
+          absolute sulla section e ancorati a `top-1/2 -translate-y-1/2`,
+          così rimangono SEMPRE allineati al centro verticale della card,
+          indipendentemente da quanto è alta la narrativa "Chi siamo". Il
+          wordmark di Total Trade è blu navy: senza il disco bianco non
+          si leggerebbe sul fondo brand. Su mobile niente disco: il logo
+          va in un blocco con pill bianca in cima al contenuto. */}
       {brandLogoUrl ? (
-        <div
-          aria-hidden
-          className="pointer-events-none absolute right-0 top-1/2 hidden h-80 w-80 -translate-y-1/2 translate-x-1/3 rounded-full bg-white md:block"
-        />
+        <>
+          <div
+            aria-hidden
+            className="pointer-events-none absolute right-0 top-1/2 hidden h-80 w-80 -translate-y-1/2 translate-x-1/3 rounded-full bg-white md:block"
+          />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={brandLogoUrl}
+            alt={businessName}
+            className="pointer-events-none absolute right-12 top-1/2 z-10 hidden h-20 w-auto -translate-y-1/2 md:block md:h-24 lg:h-28"
+          />
+        </>
       ) : null}
 
-      <div className="relative p-7 md:p-10">
+      {/* Padding destro extra su desktop per non far entrare il testo
+          sotto al disco/logo (il disco visibile è largo ~213 px). */}
+      <div className="relative p-7 md:p-10 md:pr-64">
         <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-white/70">
           Chi siamo
         </p>
 
-        {/* Mobile: logo su pill bianca in alto. Desktop: spostato sul
-            semicerchio nella colonna destra del grid sotto. */}
+        {/* Mobile: logo su pill bianca in alto. Desktop: il logo
+            assoluto qui sopra ha già il suo posto sul disco. */}
         {brandLogoUrl ? (
           /* eslint-disable-next-line @next/next/no-img-element */
           <img
@@ -106,50 +117,33 @@ export function AboutSection({
           </p>
         ) : null}
 
-        <div className="mt-7 grid gap-7 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-          {/* Colonna sinistra: narrativa + chips. */}
-          <div className="min-w-0">
-            {aboutMd ? (
-              <div className="prose-editorial text-white/90 [&_a]:text-white [&_a]:underline [&_strong]:text-white">
-                <Markdown rehypePlugins={[rehypeSanitize]}>{aboutMd}</Markdown>
-              </div>
-            ) : null}
+        {heroImageUrl ? (
+          /* eslint-disable-next-line @next/next/no-img-element */
+          <img
+            src={heroImageUrl}
+            alt={`Foto di ${businessName}`}
+            className="mt-6 h-48 w-full rounded-2xl object-cover md:h-64"
+          />
+        ) : null}
 
-            {chips.length > 0 ? (
-              <ul className="mt-6 flex flex-wrap gap-2">
-                {chips.map((chip) => (
-                  <li
-                    key={chip.key}
-                    className="inline-flex items-center rounded-full bg-white/15 px-3.5 py-1.5 text-xs font-semibold text-white"
-                  >
-                    {chip.label}
-                  </li>
-                ))}
-              </ul>
-            ) : null}
+        {aboutMd ? (
+          <div className="prose-editorial mt-6 text-white/90 [&_a]:text-white [&_a]:underline [&_strong]:text-white">
+            <Markdown rehypePlugins={[rehypeSanitize]}>{aboutMd}</Markdown>
           </div>
+        ) : null}
 
-          {/* Colonna destra: logo (o hero image) sul semicerchio bianco
-              su desktop. Nascosto su mobile (il logo è già visibile in
-              cima alla card). */}
-          <div className="relative hidden items-center justify-end md:flex">
-            {heroImageUrl ? (
-              /* eslint-disable-next-line @next/next/no-img-element */
-              <img
-                src={heroImageUrl}
-                alt={`Foto di ${businessName}`}
-                className="h-full w-full rounded-2xl object-cover"
-              />
-            ) : brandLogoUrl ? (
-              /* eslint-disable-next-line @next/next/no-img-element */
-              <img
-                src={brandLogoUrl}
-                alt={businessName}
-                className="relative z-10 h-20 w-auto md:h-24 lg:h-28"
-              />
-            ) : null}
-          </div>
-        </div>
+        {chips.length > 0 ? (
+          <ul className="mt-6 flex flex-wrap gap-2">
+            {chips.map((chip) => (
+              <li
+                key={chip.key}
+                className="inline-flex items-center rounded-full bg-white/15 px-3.5 py-1.5 text-xs font-semibold text-white"
+              >
+                {chip.label}
+              </li>
+            ))}
+          </ul>
+        ) : null}
       </div>
     </section>
   );

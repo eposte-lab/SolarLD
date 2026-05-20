@@ -22,6 +22,11 @@ type Props = {
   /** Optional second-line caption — used to clarify ambiguous units
    *  (es. "Potenza installabile: 75 kWp" → caption "≈ 107.590 kWh/anno"). */
   caption?: string | null;
+  /** Optional prefix rendered before the number at near-headline size —
+   *  used for currency display ("€ 34.881"), so the symbol carries the
+   *  same visual weight as the number instead of disappearing into the
+   *  small suffix. */
+  prefix?: string;
 };
 
 export function HeroStat({
@@ -31,6 +36,7 @@ export function HeroStat({
   decimals = 0,
   accentColor = '#1F8F76',
   caption,
+  prefix,
 }: Props) {
   const isNumeric =
     value !== null && value !== undefined && !Number.isNaN(value);
@@ -62,7 +68,15 @@ export function HeroStat({
       >
         {label}
       </p>
-      <p className="mt-3 flex items-baseline gap-1.5 font-headline tracking-tightest">
+      <p className="mt-3 flex flex-wrap items-baseline gap-x-2 gap-y-1 font-headline tracking-tightest">
+        {prefix && isNumeric ? (
+          <span
+            className="text-3xl font-bold leading-none md:text-4xl"
+            style={{ color: accentColor }}
+          >
+            {prefix}
+          </span>
+        ) : null}
         <span
           className="text-4xl font-bold leading-none md:text-5xl"
           style={{ color: accentColor }}
