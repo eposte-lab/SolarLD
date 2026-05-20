@@ -24,7 +24,6 @@ import {
   Clock,
   ExternalLink,
   Eye,
-  FileText,
   FolderOpen,
   Inbox,
   Mail,
@@ -424,27 +423,12 @@ export default async function LeadDetailPage({ params }: PageProps) {
                 <ExternalLink size={13} strokeWidth={2.25} aria-hidden />
                 Pagina personale
               </a>
-              {/* Preventivo entry-point. Hidden for generic_outreach leads
-                  (no Solar data). Disabled without ROI + dimensionamento. */}
-              {!isGenericOutreach &&
-                (lead.roi_data && lead.roofs?.estimated_kwp ? (
-                  <Link
-                    href={`/leads/${lead.id}/quote`}
-                    title="Genera un preventivo formale (PDF) per questo lead"
-                    className={actionBtn}
-                  >
-                    <FileText size={13} strokeWidth={2.25} aria-hidden />
-                    Genera preventivo
-                  </Link>
-                ) : (
-                  <span
-                    title="Disponibile solo per lead con ROI e dimensionamento completati"
-                    className={actionBtnDisabled}
-                  >
-                    <FileText size={13} strokeWidth={2.25} aria-hidden />
-                    Genera preventivo
-                  </span>
-                ))}
+              {/* "Genera preventivo" entry-point nascosto temporaneamente —
+                  la generazione preventivi diventerà una feature a sé e
+                  per ora non vogliamo che parta da nessuna superficie
+                  operativa. La rotta `/leads/[id]/quote` resta in piedi
+                  così si può riattivare con un solo blocco JSX quando si
+                  lavorerà sulla feature dedicata. */}
               {/* GSE practice — abilitato solo dopo "Contratto firmato". */}
               {lead.feedback === 'contract_signed' ? (
                 <Link

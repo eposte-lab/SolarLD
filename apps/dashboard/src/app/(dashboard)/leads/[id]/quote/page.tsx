@@ -110,7 +110,7 @@ const DEFAULT_FORM: ManualForm = {
   }),
   preventivo_validita: '60 giorni',
   commerciale_nome: '',
-  commerciale_ruolo: 'Responsabile commerciale',
+  commerciale_ruolo: 'Riferimento commerciale',
   commerciale_email: '',
   commerciale_telefono: '',
   tech_marca_pannelli: 'JA Solar',
