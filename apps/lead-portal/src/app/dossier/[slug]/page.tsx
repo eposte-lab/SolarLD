@@ -230,7 +230,7 @@ export default async function LeadPage({ params }: PageProps) {
         </h2>
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
           <HeroStat
-            label="Energia prodotta dal pannello"
+            label="Energia prodotta"
             value={roi.yearly_kwh ?? null}
             unit="kWh/anno"
             decimals={0}
