@@ -42,27 +42,41 @@ export function HeroStat({
     : '—';
 
   return (
-    <div className="bento p-5">
-      <div className="editorial-eyebrow flex items-center gap-2">
-        <span
-          aria-hidden
-          className="inline-block h-1.5 w-1.5 rounded-full"
-          style={{ backgroundColor: accentColor }}
-        />
+    <div
+      className="relative overflow-hidden rounded-2xl border p-5 transition-shadow hover:shadow-ambient-md"
+      style={{
+        borderColor: `${accentColor}22`,
+        backgroundColor: `${accentColor}08`,
+      }}
+    >
+      {/* Striscia d'accento brand in alto — il gesto che dà identità
+          alla card senza saturare il riquadro. */}
+      <div
+        aria-hidden
+        className="absolute inset-x-0 top-0 h-1"
+        style={{ backgroundColor: accentColor }}
+      />
+      <p
+        className="mt-1 text-[10px] font-bold uppercase tracking-[0.18em]"
+        style={{ color: accentColor }}
+      >
         {label}
-      </div>
-      <p className="mt-3 flex items-baseline gap-1.5 font-headline tracking-tightest text-on-surface">
-        <span className="text-4xl font-semibold leading-none md:text-5xl">
+      </p>
+      <p className="mt-3 flex items-baseline gap-1.5 font-headline tracking-tightest">
+        <span
+          className="text-4xl font-bold leading-none md:text-5xl"
+          style={{ color: accentColor }}
+        >
           {formatted}
         </span>
         {isNumeric ? (
-          <span className="text-sm font-medium text-on-surface-variant md:text-base">
+          <span className="text-sm font-semibold text-on-surface-variant md:text-base">
             {unit}
           </span>
         ) : null}
       </p>
       {caption ? (
-        <p className="mt-1 text-xs text-on-surface-variant">{caption}</p>
+        <p className="mt-2 text-xs text-on-surface-variant">{caption}</p>
       ) : null}
     </div>
   );
