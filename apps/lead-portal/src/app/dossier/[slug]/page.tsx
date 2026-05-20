@@ -255,7 +255,8 @@ export default async function LeadPage({ params }: PageProps) {
               // classification.
               roi.realistic_yearly_savings_eur ?? roi.yearly_savings_eur ?? null
             }
-            unit="€/anno"
+            prefix="€"
+            unit="/anno"
             accentColor={brandColor}
           />
           {tenant?.epc_enabled ? (
