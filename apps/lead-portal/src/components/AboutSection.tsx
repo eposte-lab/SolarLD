@@ -75,13 +75,13 @@ export function AboutSection({
         <>
           <div
             aria-hidden
-            className="pointer-events-none absolute right-0 top-1/2 hidden h-80 w-80 -translate-y-1/2 translate-x-[15%] rounded-full bg-white md:block"
+            className="pointer-events-none absolute right-0 top-1/2 hidden h-80 w-80 -translate-y-1/2 translate-x-1/3 rounded-full bg-white md:block"
           />
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={brandLogoUrl}
             alt={businessName}
-            className="pointer-events-none absolute right-20 top-1/2 z-10 hidden h-20 w-auto -translate-y-1/2 md:block md:h-24 lg:h-28"
+            className="pointer-events-none absolute right-8 top-1/2 z-10 hidden h-20 w-auto -translate-y-1/2 md:block md:h-24 lg:h-28"
           />
         </>
       ) : null}
