@@ -585,6 +585,22 @@ export function EpcPropositionSection({
                 : `Con l'EPC ${brandName} non immobilizzate capitale: ~20% di risparmio in bolletta durante il contratto e dopo ${CONTRACT_YEARS} anni l'impianto è vostro.`}
             </p>
           </div>
+
+          {/* CTA "Contattaci subito" — anchor smooth-scroll al form
+              sopralluogo in fondo alla pagina. Posizionato qui, subito
+              dopo il numero del capitale che non si immobilizza, perché
+              è il momento di massima persuasione della motion: se il
+              lead ha letto fin qui senza scrollare via, deve poter
+              agire senza dover cercare il form. */}
+          <div className="mt-6 text-center">
+            <a
+              href="#sopralluogo"
+              className="inline-flex items-center justify-center rounded-full px-7 py-3 text-sm font-semibold text-white shadow-sm transition hover:opacity-90"
+              style={{ backgroundColor: brandColor }}
+            >
+              Contattaci subito →
+            </a>
+          </div>
         </div>
       )}
 
