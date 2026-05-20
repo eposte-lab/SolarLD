@@ -76,11 +76,18 @@ function epcBarColor(idx: number): string {
 }
 
 /** Trigger one-shot: `inView` diventa true quando l'elemento entra nel
- *  viewport, poi l'observer si disconnette. */
-function useInViewOnce<T extends HTMLElement>(): [
-  React.RefObject<T | null>,
-  boolean,
-] {
+ *  viewport, poi l'observer si disconnette.
+ *
+ *  `rootMargin` permette di ritardare l'innesco: con
+ *  `'0px 0px -50% 0px'` lo scatto avviene solo quando il bordo
+ *  superiore della section ha raggiunto la metà del viewport — cioè
+ *  quando l'utente è davvero arrivato sulla sezione, non al primo
+ *  pixel intercettato dal fondo della pagina. Soluzione la motion
+ *  EPC, che altrimenti partirebbe quando l'utente è ancora sulle
+ *  sezioni sopra e perderebbe l'impatto. */
+function useInViewOnce<T extends HTMLElement>(
+  opts: { threshold?: number; rootMargin?: string } = {},
+): [React.RefObject<T | null>, boolean] {
   const ref = useRef<T>(null);
   const [inView, setInView] = useState(false);
 
@@ -100,11 +107,11 @@ function useInViewOnce<T extends HTMLElement>(): [
           }
         }
       },
-      { threshold: 0 },
+      { threshold: opts.threshold ?? 0, rootMargin: opts.rootMargin },
     );
     obs.observe(el);
     return () => obs.disconnect();
-  }, [inView]);
+  }, [inView, opts.threshold, opts.rootMargin]);
 
   return [ref, inView];
 }
@@ -265,7 +272,14 @@ export function EpcPropositionSection({
   brandLogoUrl,
   yearlySavingsEur,
 }: Props) {
-  const [ref, played] = useInViewOnce<HTMLElement>();
+  // Innesca la motion solo quando il bordo superiore della sezione ha
+  // raggiunto la metà del viewport — cioè quando l'utente è davvero
+  // arrivato qui scrollando, non al primo pixel intercettato. Senza
+  // questo ritardo le animazioni partono mentre l'utente è ancora sopra
+  // e l'impatto sensibilizzante della "rivelazione" va perso.
+  const [ref, played] = useInViewOnce<HTMLElement>({
+    rootMargin: '0px 0px -50% 0px',
+  });
 
   const annualSavings = Math.max(0, yearlySavingsEur ?? 0);
 
