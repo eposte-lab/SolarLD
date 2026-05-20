@@ -368,11 +368,27 @@ export default async function LeadPage({ params }: PageProps) {
       </section>
 
       {/* ============== Footer ============== */}
-      <footer className="mt-12 border-t border-outline-variant bg-surface-container">
-        <div className="mx-auto max-w-6xl px-6 py-8 text-xs text-on-surface-muted">
+      <footer
+        className="relative mt-12 overflow-hidden text-white"
+        style={{ backgroundColor: brandColor }}
+      >
+        {/* Backdrop industriale appena percepibile: foto Unsplash di un
+            tetto industriale con fotovoltaico, opacità bassa e blend
+            screen così resta sotto la cortina navy senza distrarre. */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 opacity-15 mix-blend-screen"
+          style={{
+            backgroundImage:
+              "url('https://images.unsplash.com/photo-1466611653911-95081537e5b7?auto=format&fit=crop&w=2400&q=70')",
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+          }}
+        />
+        <div className="relative mx-auto max-w-6xl px-6 py-10 text-xs text-white/80">
           <div className="flex flex-col items-start gap-3 md:flex-row md:items-center md:justify-between">
             <div>
-              <p className="font-medium text-on-surface-variant">
+              <p className="font-semibold text-white">
                 {tenant?.legal_name ?? tenantName}
               </p>
               <p className="mt-1">
@@ -387,27 +403,39 @@ export default async function LeadPage({ params }: PageProps) {
             <div className="flex flex-wrap gap-x-3 gap-y-1">
               <a
                 href={`/optout/${encodeURIComponent(slug)}`}
-                className="underline hover:text-on-surface-variant"
+                className="underline hover:text-white"
               >
                 Non voglio più ricevere comunicazioni
               </a>
               <a
                 href={`/privacy?slug=${encodeURIComponent(slug)}`}
-                className="underline hover:text-on-surface-variant"
+                className="underline hover:text-white"
               >
                 Privacy policy
               </a>
-              {tenant?.contact_email ? (
+              {/* "Contatta {tenant}" — punta al sito del tenant quando
+                  configurato (`tenant.website_url`), altrimenti torna
+                  alla vecchia mailto per i tenant senza website. */}
+              {tenant?.website_url ? (
+                <a
+                  href={tenant.website_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline hover:text-white"
+                >
+                  Contatta {tenantName}
+                </a>
+              ) : tenant?.contact_email ? (
                 <a
                   href={`mailto:${tenant.contact_email}`}
-                  className="underline hover:text-on-surface-variant"
+                  className="underline hover:text-white"
                 >
                   Contatta {tenantName}
                 </a>
               ) : null}
             </div>
           </div>
-          <p className="mt-4 border-t border-outline-variant/50 pt-4 leading-relaxed">
+          <p className="mt-4 border-t border-white/15 pt-4 leading-relaxed">
             Questa è una pagina personale generata da {tenantName} per la
             tua azienda. I dati sono trattati per finalità commerciali B2B
             sulla base del legittimo interesse, su un link non indicizzato
