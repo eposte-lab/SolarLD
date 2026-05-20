@@ -389,15 +389,16 @@ export default async function LeadPage({ params }: PageProps) {
         className="relative mt-12 overflow-hidden text-white"
         style={{ backgroundColor: brandColor }}
       >
-        {/* Backdrop industriale appena percepibile: foto Unsplash di un
-            tetto industriale con fotovoltaico, opacità bassa e blend
-            screen così resta sotto la cortina navy senza distrarre. */}
+        {/* Backdrop industriale appena percepibile: foto Unsplash di
+            pannelli fotovoltaici (la precedente mostrava pale eoliche,
+            wrong scope). Opacità bassa e mix-blend-screen così resta
+            sotto la cortina navy senza distrarre. */}
         <div
           aria-hidden
-          className="pointer-events-none absolute inset-0 opacity-15 mix-blend-screen"
+          className="pointer-events-none absolute inset-0 opacity-20 mix-blend-screen"
           style={{
             backgroundImage:
-              "url('https://images.unsplash.com/photo-1466611653911-95081537e5b7?auto=format&fit=crop&w=2400&q=70')",
+              "url('https://images.unsplash.com/photo-1509391366360-2e959784a276?auto=format&fit=crop&w=2400&q=70')",
             backgroundSize: 'cover',
             backgroundPosition: 'center',
           }}
