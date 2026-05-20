@@ -5,7 +5,6 @@ import { AboutSection } from '@/components/AboutSection';
 import { BollettaSection } from '@/components/BollettaSection';
 import { DossierExpired } from '@/components/DossierExpired';
 import { EditorialHero } from '@/components/EditorialHero';
-import { EmailReplyCta } from '@/components/EmailReplyCta';
 import { EpcPropositionSection } from '@/components/EpcPropositionSection';
 import { HeroStat } from '@/components/HeroStat';
 import { fetchPublicLead, leadHeroCopy } from '@/lib/api';
@@ -337,7 +336,11 @@ export default async function LeadPage({ params }: PageProps) {
         </section>
       ) : null}
 
-      {/* ============== Dual CTA ============== */}
+      {/* ============== CTA — sopralluogo è l'unico path di contatto. ======
+          La "risposta via email" è stata rimossa: il click apriva solo il
+          client mail del lead e da lì il signale di reply si perdeva.
+          Solo il form sopralluogo dà tracking pulito (POST tracciato →
+          webhook CRM del tenant). WhatsApp è stato rimosso a monte. */}
       <section
         className="mx-auto max-w-6xl px-6 py-8"
         aria-labelledby="cta-heading"
@@ -347,29 +350,10 @@ export default async function LeadPage({ params }: PageProps) {
           id="cta-heading"
           className="mt-2 font-headline text-2xl font-semibold tracking-tighter text-on-surface md:text-3xl"
         >
-          Parliamone come preferisci
+          Richiedi un sopralluogo tecnico
         </h2>
-        <div className="mt-6">
-          <EmailReplyCta
-            slug={slug}
-            contactEmail={tenant?.contact_email ?? null}
-            tenantName={tenantName}
-            heroTitle={hero.title}
-            brandColor={brandColor}
-          />
-        </div>
-
-        <div
-          className="mt-4 bento p-6"
-          aria-labelledby="appointment-heading"
-        >
-          <h3
-            id="appointment-heading"
-            className="font-headline text-lg font-semibold text-on-surface"
-          >
-            Preferisci un sopralluogo gratuito?
-          </h3>
-          <p className="mt-1 text-sm text-on-surface-variant">
+        <div className="mt-6 bento p-6">
+          <p className="text-sm text-on-surface-variant">
             Un tecnico di {tenantName} vi ricontatterà entro 48 ore.
             Nessun impegno, nessun venditore.
           </p>
