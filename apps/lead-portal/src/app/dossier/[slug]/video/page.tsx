@@ -14,7 +14,7 @@ export default async function LeadVideoPage({ params }: PageProps) {
     notFound();
   }
 
-  if (result.kind === 'not_found' || result.kind === 'gone') notFound();
+  if (result.kind !== 'ok') notFound();
 
   const lead = result.lead;
   const portalHref = `/dossier/${slug}`;

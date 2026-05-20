@@ -81,7 +81,16 @@ async def get_public_lead(slug: str) -> dict[str, object]:
     if lead.get("pipeline_status") == LeadStatus.BLACKLISTED.value:
         raise HTTPException(
             status_code=status.HTTP_410_GONE,
-            detail="Lead unsubscribed",
+            detail="lead_unsubscribed",
+        )
+
+    # Dossier link auto-expiry — same TTL as the frontend fallback.
+    # See `_dossier_is_expired`; the 410 detail discriminator lets the
+    # portal show the "scaduto" page rather than the opt-out page.
+    if _dossier_is_expired(lead):
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail="dossier_expired",
         )
 
     # Fetch tenant branding + About narrative (Sprint 8 Fase A.2/A.3).
@@ -1284,12 +1293,46 @@ async def optout(slug: str) -> dict[str, object]:
 # ---------------------------------------------------------------------------
 
 
-def _load_lead_by_slug(sb: Any, slug: str) -> dict[str, Any] | None:
-    """Single-row fetch by slug — returns None (not raise) on miss."""
+# Privacy-budget for the public dossier link: 30 giorni dopo l'invio
+# dell'outreach il portale non è più raggiungibile. Stessa soglia è
+# rispecchiata in `apps/lead-portal/src/app/dossier/[slug]/page.tsx`
+# come fallback lato client, ma l'enforcement vero deve essere qui:
+# altrimenti chiunque conoscesse lo slug potrebbe scaricare i dati via
+# API dopo la scadenza.
+_DOSSIER_TTL_DAYS = 30
+
+
+def _dossier_is_expired(lead: dict[str, Any], *, now: datetime | None = None) -> bool:
+    """True quando un lead ha superato la finestra di esposizione.
+
+    Un lead senza ``outreach_sent_at`` non scade mai: può essere in
+    anteprima per l'operatore (preview pre-invio).
+    """
+    sent_at = lead.get("outreach_sent_at")
+    if not sent_at:
+        return False
+    try:
+        sent_dt = datetime.fromisoformat(str(sent_at).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return False
+    if sent_dt.tzinfo is None:
+        sent_dt = sent_dt.replace(tzinfo=UTC)
+    age = (now or datetime.now(UTC)) - sent_dt
+    return age.days >= _DOSSIER_TTL_DAYS
+
+
+def _load_lead_by_slug(sb: Any, slug: str, *, allow_expired: bool = False) -> dict[str, Any] | None:
+    """Single-row fetch by slug — returns None (not raise) on miss.
+
+    Raises 410 ``dossier_expired`` when the link has aged past the TTL
+    (unless ``allow_expired=True`` — used by the optout flow, which
+    must always work so a recipient can always unsubscribe).
+    """
     res = (
         sb.table("leads")
         .select(
-            "id, tenant_id, pipeline_status, dashboard_visited_at, whatsapp_initiated_at, source"
+            "id, tenant_id, pipeline_status, outreach_sent_at, "
+            "dashboard_visited_at, whatsapp_initiated_at, source"
         )
         .eq("public_slug", slug)
         .limit(1)
@@ -1297,7 +1340,13 @@ def _load_lead_by_slug(sb: Any, slug: str) -> dict[str, Any] | None:
     )
     if not res.data:
         return None
-    return res.data[0]
+    lead = res.data[0]
+    if not allow_expired and _dossier_is_expired(lead):
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail="dossier_expired",
+        )
+    return lead
 
 
 async def _recompute_roi_after_bolletta(
