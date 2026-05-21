@@ -82,7 +82,7 @@ export function NavigationProgress() {
   return (
     <div
       aria-hidden
-      className="pointer-events-none fixed left-0 right-0 top-0 z-[100] h-0.5 overflow-hidden"
+      className="pointer-events-none fixed left-0 right-0 top-0 z-[100] h-[3px] overflow-hidden"
     >
       <div
         className={`h-full bg-primary transition-[width,opacity] ease-out ${
@@ -90,7 +90,7 @@ export function NavigationProgress() {
             ? 'w-[90%] opacity-100 duration-[1500ms]'
             : 'w-0 opacity-0 duration-200'
         }`}
-        style={{ boxShadow: '0 0 8px rgba(111,207,151,0.6)' }}
+        style={{ boxShadow: '0 0 10px rgba(111,207,151,0.85)' }}
       />
     </div>
   );
