@@ -84,7 +84,15 @@ function epcBarColor(idx: number): string {
  *  quando l'utente è davvero arrivato sulla sezione, non al primo
  *  pixel intercettato dal fondo della pagina. Soluzione la motion
  *  EPC, che altrimenti partirebbe quando l'utente è ancora sulle
- *  sezioni sopra e perderebbe l'impatto. */
+ *  sezioni sopra e perderebbe l'impatto.
+ *
+ *  Triplo paracadute contro i browser in-app che ogni tanto saltano
+ *  l'IntersectionObserver con rootMargin negativi (Outlook iOS, certe
+ *  versioni di WebView2): (1) check immediato sul bounding box al
+ *  mount — copre il caso "atterra già scrollato alla sezione";
+ *  (2) IntersectionObserver come strada primaria; (3) listener di
+ *  scroll/resize che rifà il check manualmente, così se l'observer
+ *  non scatta lo scroll lo fa scattare al passaggio del trigger. */
 function useInViewOnce<T extends HTMLElement>(
   opts: { threshold?: number; rootMargin?: string } = {},
 ): [React.RefObject<T | null>, boolean] {
@@ -98,19 +106,55 @@ function useInViewOnce<T extends HTMLElement>(
       setInView(true);
       return;
     }
+
+    // Replica manuale del rootMargin '-50% bottom': il top dell'elemento
+    // deve aver attraversato la linea metà-viewport.
+    const reachedTrigger = (): boolean => {
+      const rect = el.getBoundingClientRect();
+      const vh =
+        window.innerHeight || document.documentElement.clientHeight || 0;
+      if (vh <= 0) return false;
+      return rect.top <= vh * 0.5 && rect.bottom >= 0;
+    };
+
+    // (1) Check immediato — l'utente potrebbe atterrare già scrollato
+    //     alla sezione (deep link / scroll restoration).
+    if (reachedTrigger()) {
+      setInView(true);
+      return;
+    }
+
+    // (2) IntersectionObserver — strada primaria.
     const obs = new IntersectionObserver(
       (entries) => {
         for (const e of entries) {
           if (e.isIntersecting) {
             setInView(true);
-            obs.disconnect();
+            cleanup();
           }
         }
       },
       { threshold: opts.threshold ?? 0, rootMargin: opts.rootMargin },
     );
     obs.observe(el);
-    return () => obs.disconnect();
+
+    // (3) Scroll/resize listeners — backup per i browser in-app che
+    //     non firano l'observer in modo affidabile.
+    const onScroll = () => {
+      if (reachedTrigger()) {
+        setInView(true);
+        cleanup();
+      }
+    };
+    const cleanup = () => {
+      obs.disconnect();
+      window.removeEventListener('scroll', onScroll);
+      window.removeEventListener('resize', onScroll);
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onScroll, { passive: true });
+
+    return cleanup;
   }, [inView, opts.threshold, opts.rootMargin]);
 
   return [ref, inView];
