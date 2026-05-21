@@ -25,6 +25,7 @@ import {
   Home,
   Inbox,
   LineChart,
+  Loader2,
   Mail,
   type LucideIcon,
   Plus,
@@ -36,7 +37,7 @@ import {
   Terminal,
   Users,
 } from 'lucide-react';
-import Link from 'next/link';
+import Link, { useLinkStatus } from 'next/link';
 import { usePathname } from 'next/navigation';
 
 import { GradientButton } from '@/components/ui/gradient-button';
@@ -135,32 +136,59 @@ function NavLink({ item, active }: { item: NavItem; active: boolean }) {
   const Icon = item.icon ? ICON_MAP[item.icon] : null;
   return (
     <li className="relative">
-      {active && (
+      <Link href={item.href} className="block">
+        <NavLinkBody Icon={Icon} active={active} label={item.label} />
+      </Link>
+    </li>
+  );
+}
+
+/**
+ * Body del NavLink: `useLinkStatus` (Next 15) ci dà subito lo stato
+ * "navigazione partita" senza aspettare il cambio URL. Così appena
+ * clicchi il link si accende il pill attivo + spinner — niente più
+ * sensazione di "ho premuto ma non succede nulla per 1-2 secondi".
+ * Deve stare DENTRO il `<Link>`, il hook lo richiede.
+ */
+function NavLinkBody({
+  Icon,
+  active,
+  label,
+}: {
+  Icon: LucideIcon | null;
+  active: boolean;
+  label: string;
+}) {
+  const { pending } = useLinkStatus();
+  const highlighted = active || pending;
+  return (
+    <span
+      className={cn(
+        'group relative flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-[13.5px] font-medium transition-all duration-200',
+        highlighted
+          ? 'bg-primary/10 text-primary'
+          : 'text-on-surface-variant hover:bg-white/[0.04] hover:text-on-surface',
+      )}
+    >
+      {highlighted && (
         <span
           className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-full bg-primary shadow-[0_0_12px_rgba(111,207,151,0.6)]"
           aria-hidden
         />
       )}
-      <Link
-        href={item.href}
-        className={cn(
-          'group flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-[13.5px] font-medium transition-all duration-200',
-          active
-            ? 'bg-primary/10 text-primary'
-            : 'text-on-surface-variant hover:bg-white/[0.04] hover:text-on-surface',
-        )}
-      >
-        {Icon && (
-          <Icon
-            size={18}
-            strokeWidth={active ? 2 : 1.75}
-            className="shrink-0"
-            aria-hidden
-          />
-        )}
-        <span className="tracking-tight">{item.label}</span>
-      </Link>
-    </li>
+      {Icon && (
+        <Icon
+          size={18}
+          strokeWidth={highlighted ? 2 : 1.75}
+          className="shrink-0"
+          aria-hidden
+        />
+      )}
+      <span className="flex-1 tracking-tight">{label}</span>
+      {pending && (
+        <Loader2 size={13} className="shrink-0 animate-spin" aria-hidden />
+      )}
+    </span>
   );
 }
 
