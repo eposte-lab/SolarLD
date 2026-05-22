@@ -429,6 +429,23 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
                         api_key=settings.google_solar_api_key or None,
                     )
                     after_bytes_offline = None  # filled in by the paint path below
+                # Stampa la stessa fascia navy sul fondo del before.png
+                # MA SENZA TESTO. La fascia su after.png include label +
+                # valore; con questa "ombra" sul before, durante la
+                # crossfade `wipedown` la zona bassa è già navy in
+                # entrambi i frame → la tendina non fa "saltare" il
+                # contenuto dal fondo aeriale al fondo navy (era quello
+                # che faceva sembrare i frame disallineati). Si rivela
+                # solo il TESTO durante la transition, lo sfondo è
+                # invariante. Best-effort: errori PIL → before invariato.
+                if roi is not None and float(roi.yearly_savings_eur) > 0:
+                    before_bytes = bake_savings_strip(
+                        before_bytes,
+                        savings_eur=float(roi.yearly_savings_eur),
+                        kwp=(float(roi.estimated_kwp) if roi is not None else None),
+                        brand_color_hex=(tenant_row.get("brand_primary_color") or "#183054"),
+                        include_text=False,
+                    )
                 before_url = upload_bytes(
                     bucket=RENDERINGS_BUCKET,
                     path=f"{payload.tenant_id}/{payload.lead_id}/before.png",
