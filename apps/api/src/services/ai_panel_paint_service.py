@@ -101,6 +101,23 @@ def build_paint_prompt(*, panel_count: int, kwp: float | None = None) -> str:
         "of the roof NOT under a panel still shows its original tiles "
         "or covering. Keep tidy gaps around chimneys, skylights and "
         "other obstacles, leaving them visible. "
+        # ── 3b. CRITICAL — real-world panel scale ────────────────────
+        # Without explicit scale, the model often paints a handful of
+        # huge panels each as big as a parked car. Anchor the size to
+        # real units AND to objects that are commonly visible in
+        # aerial photographs (cars, parking spaces) so the AI has a
+        # ground-truth reference frame.
+        "STEP 3b — REAL-WORLD PANEL SCALE (CRITICAL). Each individual "
+        "panel is a STANDARD photovoltaic module measuring roughly "
+        "1.65 m × 1 m in the real world — about HALF the size of a "
+        "parked car or a single parking space. Use any cars, trucks, "
+        "parking lines, doors or people visible in the photograph as "
+        "a scale reference and size the panels to match: a single "
+        "panel must be SMALLER than a single car or parking space. "
+        "If the requested panel count seems too large for the roof "
+        "at this real size, prefer painting many small panels in "
+        "tight rows rather than a few oversized ones. Panels the "
+        "size of cars or larger are NEVER correct. "
         # ── 4. Panel realism ─────────────────────────────────────────
         "STEP 4 — REALISM. The panels are modern dark monocrystalline "
         "silicon modules: near-black/very dark blue, low-glare, with "

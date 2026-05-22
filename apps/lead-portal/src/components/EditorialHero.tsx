@@ -24,18 +24,6 @@ import { postPortalEvent } from '@/lib/tracking';
  *  lì in poi, finché l'utente non scrolla altrove. */
 const FIRST_CYCLE_FALLBACK_MS = 4000;
 
-/** Converte "#RRGGBB" in "r, g, b". Permette di costruire `rgba(...)`
- *  con qualsiasi alpha senza dipendere da `color-mix` (non supportato
- *  in alcune WebView aziendali). */
-function hexToRgbChannels(hex: string): string {
-  const h = (hex || '').replace('#', '').trim();
-  const full = h.length === 3 ? h.split('').map((c) => c + c).join('') : h;
-  if (full.length !== 6 || /[^0-9a-fA-F]/.test(full)) return '24, 48, 84';
-  const r = parseInt(full.slice(0, 2), 16);
-  const g = parseInt(full.slice(2, 4), 16);
-  const b = parseInt(full.slice(4, 6), 16);
-  return `${r}, ${g}, ${b}`;
-}
 
 type Props = {
   slug: string;
@@ -58,7 +46,6 @@ export function EditorialHero({
   const [muted, setMuted] = useState(true);
   const [auraOn, setAuraOn] = useState(false);
   const auraTimerRef = useRef<number | null>(null);
-  const auraRgb = hexToRgbChannels(brandColor);
 
   // Fallback unconditional: 5 s dopo il mount accendiamo l'aura comunque,
   // anche se `onLoadedMetadata` non scatta (alcuni browser interni di
@@ -123,63 +110,45 @@ export function EditorialHero({
   if (videoUrl) {
     return (
       <div
-        className="relative rounded-3xl"
-        style={
-          {
-            aspectRatio: '16 / 9',
-            // Canali RGB del brand color iniettati come custom property
-            // così i keyframe possono costruire rgba() con alpha
-            // variabile senza dipendere da `color-mix` (non supportato
-            // ovunque). L'`animation` è sempre attiva: l'aura più
-            // intensa dopo il primo ciclo del video, soft prima — vedi
-            // i keyframe `ehAuraPulse*` sotto. Niente `overflow-hidden`
-            // su questo wrapper esterno: certi engine (WebKit con
-            // border-radius + overflow-hidden) chiudono il paint nello
-            // stacking context dell'elemento e la box-shadow non esce.
-            '--ehAuraRgb': auraRgb,
-            animation: auraOn
-              ? 'ehAuraPulseHigh 2.4s ease-in-out infinite'
-              : 'ehAuraPulseSoft 3.6s ease-in-out infinite',
-          } as React.CSSProperties
-        }
+        className="relative"
+        style={{ aspectRatio: '16 / 9' }}
       >
-        {/* Keyframes — due livelli: "soft" prima del primo ciclo del
-            video, "high" dopo. Definiti inline così niente cambia in
-            globals.css. */}
+        {/* AURA — div sibling reale dietro al video, NON box-shadow.
+            Le ombre via CSS sparivano in alcuni motori per via dello
+            stacking-context creato da overflow-hidden + border-radius
+            + animation sul wrapper interno. Un blocco color brand con
+            filter:blur(...) è invece PIXEL veri: nessun engine può
+            "non disegnarli". Inset negativo (-inset-6) per farlo
+            sporgere oltre il bordo del video, opacità che pulsa.
+            Più intensa dopo il primo ciclo (`auraOn`). */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute -inset-6 rounded-[2rem]"
+          style={{
+            backgroundColor: brandColor,
+            filter: 'blur(36px)',
+            opacity: 0.6,
+            animation: auraOn
+              ? 'ehAuraGlowHigh 2.4s ease-in-out infinite'
+              : 'ehAuraGlowSoft 3.6s ease-in-out infinite',
+          }}
+        />
         <style>
           {`
-            @keyframes ehAuraPulseSoft {
-              0%, 100% {
-                box-shadow:
-                  0 0 24px 4px rgba(var(--ehAuraRgb), 0.35),
-                  0 0 0 1px rgba(var(--ehAuraRgb), 0.20);
-              }
-              50% {
-                box-shadow:
-                  0 0 48px 10px rgba(var(--ehAuraRgb), 0.55),
-                  0 0 0 2px rgba(var(--ehAuraRgb), 0.40);
-              }
+            @keyframes ehAuraGlowSoft {
+              0%, 100% { opacity: 0.35; transform: scale(0.97); }
+              50%      { opacity: 0.60; transform: scale(1.00); }
             }
-            @keyframes ehAuraPulseHigh {
-              0%, 100% {
-                box-shadow:
-                  0 0 40px 8px rgba(var(--ehAuraRgb), 0.65),
-                  0 0 0 2px rgba(var(--ehAuraRgb), 0.50);
-              }
-              50% {
-                box-shadow:
-                  0 0 110px 28px rgba(var(--ehAuraRgb), 0.95),
-                  0 0 0 4px rgba(var(--ehAuraRgb), 0.80);
-              }
+            @keyframes ehAuraGlowHigh {
+              0%, 100% { opacity: 0.55; transform: scale(0.98); }
+              50%      { opacity: 0.95; transform: scale(1.04); }
             }
           `}
         </style>
-        {/* Wrapper INTERNO che si occupa di clippare il video sugli
-            angoli arrotondati. L'overflow-hidden vive QUI così non
-            tocca lo stacking-context del box-shadow del wrapper esterno. */}
-        <div
-          className="absolute inset-0 overflow-hidden rounded-3xl shadow-ambient-lg"
-        >
+        {/* Wrapper video sopra all'aura. overflow-hidden vive QUI così
+            riguarda solo il clipping degli angoli del video; l'aura è
+            un sibling, fuori dallo stacking-context interno. */}
+        <div className="absolute inset-0 overflow-hidden rounded-3xl shadow-ambient-lg">
           <video
             ref={videoRef}
             src={videoUrl}
