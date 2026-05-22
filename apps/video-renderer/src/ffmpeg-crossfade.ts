@@ -1,6 +1,6 @@
 /**
  * Reveal locale — anima le immagini start/end con una transizione a
- * tendina (`xfade=wiperight`) + leggero zoom (Ken Burns) via FFmpeg,
+ * tendina (`xfade=wipedown`) + leggero zoom (Ken Burns) via FFmpeg,
  * senza modelli AI.
  *
  * Sostituisce la generazione video Kling (~€0,49/clip su Replicate) con
@@ -40,7 +40,7 @@ export const CROSSFADE_DURATION_S = HOLD_BEFORE + CROSSFADE + HOLD_AFTER;
  *
  * Ogni immagine diventa una clip con zoom Ken Burns identico (così le
  * due clip restano allineate al pixel durante la tendina);
- * `xfade=wiperight` rivela la clip "after" da sinistra a destra.
+ * `xfade=wipedown` rivela la clip "after" dall'alto verso il basso.
  * Entrambe le clip durano HOLD_BEFORE+CROSSFADE: l'output di `xfade` è
  * `2·clip − CROSSFADE` = HOLD_BEFORE+CROSSFADE+HOLD_AFTER.
  */
@@ -59,7 +59,7 @@ export const buildCrossfadeArgs = (
     `setpts=PTS-STARTPTS`;
   const filter =
     `${zoom('0:v')}[a];${zoom('1:v')}[b];` +
-    `[a][b]xfade=transition=wiperight:duration=${CROSSFADE}:offset=${HOLD_BEFORE}[v]`;
+    `[a][b]xfade=transition=wipedown:duration=${CROSSFADE}:offset=${HOLD_BEFORE}[v]`;
 
   return [
     '-y',

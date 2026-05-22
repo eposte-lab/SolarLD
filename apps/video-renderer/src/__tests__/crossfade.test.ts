@@ -23,7 +23,7 @@ describe('buildCrossfadeArgs', () => {
     const fi = args.indexOf('-filter_complex');
     expect(fi).toBeGreaterThan(-1);
     const filter = args[fi + 1] ?? '';
-    expect(filter).toContain('xfade=transition=wiperight');
+    expect(filter).toContain('xfade=transition=wipedown');
     expect(filter).toContain('zoompan');
     expect(filter).toContain('[v]');
   });
