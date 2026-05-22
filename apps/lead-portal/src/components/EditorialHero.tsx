@@ -113,41 +113,10 @@ export function EditorialHero({
         className="relative"
         style={{ aspectRatio: '16 / 9' }}
       >
-        {/* AURA — div sibling reale dietro al video, NON box-shadow.
-            Le ombre via CSS sparivano in alcuni motori per via dello
-            stacking-context creato da overflow-hidden + border-radius
-            + animation sul wrapper interno. Un blocco color brand con
-            filter:blur(...) è invece PIXEL veri: nessun engine può
-            "non disegnarli". Inset negativo (-inset-6) per farlo
-            sporgere oltre il bordo del video, opacità che pulsa.
-            Più intensa dopo il primo ciclo (`auraOn`). */}
-        <div
-          aria-hidden
-          className="pointer-events-none absolute -inset-6 rounded-[2rem]"
-          style={{
-            backgroundColor: brandColor,
-            filter: 'blur(36px)',
-            opacity: 0.6,
-            animation: auraOn
-              ? 'ehAuraGlowHigh 2.4s ease-in-out infinite'
-              : 'ehAuraGlowSoft 3.6s ease-in-out infinite',
-          }}
-        />
-        <style>
-          {`
-            @keyframes ehAuraGlowSoft {
-              0%, 100% { opacity: 0.35; transform: scale(0.97); }
-              50%      { opacity: 0.60; transform: scale(1.00); }
-            }
-            @keyframes ehAuraGlowHigh {
-              0%, 100% { opacity: 0.55; transform: scale(0.98); }
-              50%      { opacity: 0.95; transform: scale(1.04); }
-            }
-          `}
-        </style>
-        {/* Wrapper video sopra all'aura. overflow-hidden vive QUI così
-            riguarda solo il clipping degli angoli del video; l'aura è
-            un sibling, fuori dallo stacking-context interno. */}
+        {/* Wrapper video. overflow-hidden vive QUI così riguarda solo
+            il clipping degli angoli del video; il flash dell'aura è un
+            overlay sibling sopra al video, fuori dallo stacking-context
+            interno (così il radial-gradient si vede sempre). */}
         <div className="absolute inset-0 overflow-hidden rounded-3xl shadow-ambient-lg">
           <video
             ref={videoRef}
@@ -190,6 +159,40 @@ export function EditorialHero({
             </button>
           </div>
         </div>
+
+        {/* AURA — flash bianco radiale dal bordo verso il centro,
+            sopra al video. Si attiva una volta sola alla fine del
+            primo ciclo del crossfade (auraOn = true), pulsa due volte
+            in ~2,6 s e poi resta invisibile (animation-iteration-count:
+            1 + ultimo keyframe a opacity 0). Niente loop continuo: è
+            il "click di attivazione" dell'impianto. Il radial gradient
+            è trasparente al centro e bianco ai bordi → l'effetto è
+            "edge-inward", non un alone esterno. */}
+        {auraOn ? (
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-0 rounded-3xl"
+            style={{
+              background:
+                'radial-gradient(ellipse at center, rgba(255,255,255,0) 55%, rgba(255,255,255,0.95) 100%)',
+              opacity: 0,
+              animation: 'ehEdgeFlash 2.6s ease-in-out 1 forwards',
+              zIndex: 5,
+              mixBlendMode: 'screen',
+            }}
+          />
+        ) : null}
+        <style>
+          {`
+            @keyframes ehEdgeFlash {
+              0%   { opacity: 0; }
+              20%  { opacity: 1; }
+              45%  { opacity: 0; }
+              70%  { opacity: 0.85; }
+              100% { opacity: 0; }
+            }
+          `}
+        </style>
       </div>
     );
   }
