@@ -456,8 +456,8 @@ export default async function LeadDetailPage({ params }: PageProps) {
           </div>
         </div>
 
-        {/* ── Funnel di attività — stepper orizzontale ── */}
-        <LeadActivityStrip flags={activityFlags} className="max-w-2xl" />
+        {/* ── Funnel di attività — stepper orizzontale a tutta larghezza ── */}
+        <LeadActivityStrip flags={activityFlags} className="mt-2" />
       </header>
 
       {/* Demo-mode: replace the regular send button with a form that

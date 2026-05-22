@@ -1,15 +1,29 @@
 /**
- * LeadActivityStrip — the lead's activity funnel as a horizontal stepper.
+ * LeadActivityStrip — funnel timeline del lead, stile Resend / "verify
+ * your domain": una traccia orizzontale a piena larghezza con nodi a
+ * pillola gradient e connettori che si "accendono" tra step completati.
  *
- * The operator opens the lead and wants to know in 2 seconds how far the
- * lead got: inviata → letta → cliccata → portale → bolletta → appuntamento.
- * Reached steps are lit and connected by a filled line; future steps are
- * dimmed. Tooltip carries the timestamp. No counts here — the timeline
- * below has the full chronology; this stepper is the at-a-glance funnel.
+ * Step: inviata → letta → cliccata → portale → bolletta → appuntamento.
+ *
+ * Note di design:
+ * - Layout a grid di 6 colonne UGUALI: nodi e label condividono lo
+ *   stesso asse verticale di centro-cella, quindi primo e ultimo step
+ *   restano perfettamente allineati come quelli intermedi (era il bug
+ *   del flex precedente).
+ * - Nodi 44 px, riempiti con un gradient brand quando lo step è
+ *   raggiunto, contorno tratteggiato neutro quando è ancora pending.
+ * - Il nodo "current" (ultimo completato) ha un halo pulsante: dà la
+ *   sensazione "siamo qui adesso".
+ * - I connettori sono linee da 2 px con gradient brand quando ENTRAMBI
+ *   gli step adiacenti sono done, neutri (track grigio) quando almeno
+ *   uno è pending.
+ * - Niente larghezza fissa: lo strip si estende per tutta la larghezza
+ *   del contenitore (in `page.tsx` rimosso il vecchio `max-w-2xl`).
  */
 
 import {
   CalendarCheck,
+  Check,
   FileText,
   Globe,
   MailCheck,
@@ -33,7 +47,6 @@ interface PillSpec {
   label: string;
   Icon: typeof Send;
   at: string | null;
-  /** True when the step has happened (node lit, connector filled). */
   active: boolean;
 }
 
@@ -89,67 +102,165 @@ export function LeadActivityStrip({
     },
   ];
 
-  const lastIdx = pills.length - 1;
+  // Indice dell'ultimo step completato — riceve l'halo "current".
+  const lastDoneIdx = pills.reduce<number>(
+    (acc, p, i) => (p.active ? i : acc),
+    -1,
+  );
 
   return (
-    <div className={`flex items-start ${className ?? ''}`}>
-      {pills.map((p, idx) => {
-        const done = p.active;
-        const isFirst = idx === 0;
-        const isLast = idx === lastIdx;
-        // Un connettore è "pieno" quando lo step verso cui porta è fatto.
-        const leftFilled = !isFirst && done;
-        const rightFilled = !isLast && (pills[idx + 1]?.active ?? false);
-        const conn = (filled: boolean): string =>
-          `h-0.5 flex-1 ${filled ? 'bg-primary' : 'bg-on-surface/12'}`;
-        return (
-          <div key={p.key} className="flex flex-1 flex-col items-center">
-            <div className="flex w-full items-center">
-              {/* Il primo/ultimo step non ha connettore esterno: niente
-                  flex-1, così il nodo 1 parte a sinistra e il 6 finisce
-                  a destra invece di restare centrati nella loro cella. */}
-              {isFirst ? (
-                <span className="flex-none" />
-              ) : (
-                <span className={conn(leftFilled)} aria-hidden />
-              )}
+    <div className={`relative w-full ${className ?? ''}`}>
+      {/* Keyframes locali: halo che pulsa attorno al nodo "current". */}
+      <style>
+        {`
+          @keyframes lasCurrentHalo {
+            0%, 100% { transform: scale(1);   opacity: 0.55; }
+            50%      { transform: scale(1.35); opacity: 0;   }
+          }
+          @keyframes lasNodeIn {
+            0%   { transform: scale(0.85); opacity: 0; }
+            100% { transform: scale(1);    opacity: 1; }
+          }
+        `}
+      </style>
+
+      <ol
+        className="grid grid-cols-6 items-start"
+        aria-label="Funnel di interazione del lead"
+      >
+        {pills.map((p, idx) => {
+          const isFirst = idx === 0;
+          const isLast = idx === pills.length - 1;
+          const done = p.active;
+          const nextDone = !isLast && (pills[idx + 1]?.active ?? false);
+          const prevDone = !isFirst && (pills[idx - 1]?.active ?? false);
+          const isCurrent = idx === lastDoneIdx;
+
+          // Connettore sinistro: pieno-brand quando precedente E corrente
+          // sono done, half-fade quando solo precedente, neutro altrimenti.
+          const leftFilled = prevDone && done;
+          const leftHalf = prevDone && !done; // gradient fade verso il neutro
+          // Connettore destro: simmetrico.
+          const rightFilled = done && nextDone;
+          const rightHalf = done && !nextDone;
+
+          return (
+            <li
+              key={p.key}
+              className="relative flex flex-col items-center"
+            >
+              {/* === RIGA DEI CONNETTORI + NODO === */}
+              <div className="relative flex h-12 w-full items-center justify-center">
+                {/* Connettore sinistro (dalla metà sinistra della cella
+                    al centro). Nascosto sul primo step. */}
+                {!isFirst && (
+                  <span
+                    aria-hidden
+                    className="absolute left-0 right-1/2 top-1/2 h-[2px] -translate-y-1/2"
+                    style={{
+                      background: leftFilled
+                        ? 'linear-gradient(90deg, var(--brand-mint, #6FCF97) 0%, var(--brand-mint, #6FCF97) 100%)'
+                        : leftHalf
+                          ? 'linear-gradient(90deg, var(--brand-mint, #6FCF97) 0%, rgba(255,255,255,0.10) 100%)'
+                          : 'rgba(255,255,255,0.10)',
+                      boxShadow: leftFilled
+                        ? '0 0 12px rgba(111,207,151,0.45)'
+                        : undefined,
+                    }}
+                  />
+                )}
+                {/* Connettore destro (dal centro al bordo destro).
+                    Nascosto sull'ultimo step. */}
+                {!isLast && (
+                  <span
+                    aria-hidden
+                    className="absolute left-1/2 right-0 top-1/2 h-[2px] -translate-y-1/2"
+                    style={{
+                      background: rightFilled
+                        ? 'linear-gradient(90deg, var(--brand-mint, #6FCF97) 0%, var(--brand-mint, #6FCF97) 100%)'
+                        : rightHalf
+                          ? 'linear-gradient(90deg, var(--brand-mint, #6FCF97) 0%, rgba(255,255,255,0.10) 100%)'
+                          : 'rgba(255,255,255,0.10)',
+                      boxShadow: rightFilled
+                        ? '0 0 12px rgba(111,207,151,0.45)'
+                        : undefined,
+                    }}
+                  />
+                )}
+
+                {/* Halo pulsante sul nodo "current" — l'ultimo step
+                    completato. Dà l'idea di "stato attivo adesso". */}
+                {isCurrent && (
+                  <span
+                    aria-hidden
+                    className="pointer-events-none absolute h-11 w-11 rounded-full"
+                    style={{
+                      backgroundColor: 'rgba(111,207,151,0.45)',
+                      animation: 'lasCurrentHalo 2s ease-in-out infinite',
+                    }}
+                  />
+                )}
+
+                {/* Nodo */}
+                <span
+                  title={
+                    done
+                      ? `${p.label} · ${relativeTime(p.at)}`
+                      : `${p.label} · non ancora`
+                  }
+                  className={`relative z-10 inline-flex h-11 w-11 items-center justify-center rounded-full transition-all duration-300 ${
+                    done
+                      ? 'text-white shadow-[0_4px_18px_rgba(111,207,151,0.35)]'
+                      : 'border-2 border-dashed border-on-surface/20 bg-surface-container-low text-on-surface-variant/45'
+                  }`}
+                  style={
+                    done
+                      ? {
+                          background:
+                            'linear-gradient(135deg, var(--brand-mint, #6FCF97) 0%, var(--brand-mint-dark, #4FAE7A) 100%)',
+                          animation: 'lasNodeIn 0.4s ease-out',
+                        }
+                      : undefined
+                  }
+                >
+                  <p.Icon
+                    size={17}
+                    strokeWidth={done ? 2.4 : 1.8}
+                    aria-hidden
+                  />
+                  {/* Mini check d'angolo per step done che NON sono il
+                      current (decoratore "completed"). Sul current
+                      l'icona del passo basta + l'halo. */}
+                  {done && !isCurrent && (
+                    <span
+                      aria-hidden
+                      className="absolute -bottom-0.5 -right-0.5 inline-flex h-4 w-4 items-center justify-center rounded-full bg-primary text-on-primary ring-2 ring-surface-container-lowest"
+                    >
+                      <Check size={10} strokeWidth={3} />
+                    </span>
+                  )}
+                </span>
+              </div>
+
+              {/* === LABEL + TIMESTAMP === */}
               <span
-                title={
-                  done
-                    ? `${p.label} · ${relativeTime(p.at)}`
-                    : `${p.label} · non ancora`
-                }
-                className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
-                  done
-                    ? 'bg-primary text-on-primary'
-                    : 'border-2 border-dashed border-on-surface/25 text-on-surface-variant/50'
+                className={`mt-3 text-center text-[11px] font-semibold uppercase tracking-[0.08em] ${
+                  done ? 'text-on-surface' : 'text-on-surface-variant/55'
                 }`}
               >
-                <p.Icon size={14} strokeWidth={2.5} aria-hidden />
+                {p.label}
               </span>
-              {isLast ? (
-                <span className="flex-none" />
-              ) : (
-                <span className={conn(rightFilled)} aria-hidden />
-              )}
-            </div>
-            <span
-              className={`mt-1.5 text-center text-[11px] font-semibold ${
-                done ? 'text-on-surface' : 'text-on-surface-variant/60'
-              }`}
-            >
-              {p.label}
-            </span>
-            <span
-              className={`text-center text-[10px] ${
-                done ? 'text-on-surface-variant' : 'text-on-surface-variant/40'
-              }`}
-            >
-              {done ? relativeTime(p.at) : 'in attesa'}
-            </span>
-          </div>
-        );
-      })}
+              <span
+                className={`mt-0.5 text-center text-[10px] tabular-nums ${
+                  done ? 'text-on-surface-variant' : 'text-on-surface-variant/40'
+                }`}
+              >
+                {done ? relativeTime(p.at) : 'in attesa'}
+              </span>
+            </li>
+          );
+        })}
+      </ol>
     </div>
   );
 }
