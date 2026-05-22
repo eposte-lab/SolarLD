@@ -127,6 +127,34 @@
         </tr>
         {%- endif %}
 
+        <!-- BANNER EPC — fascia prominente subito sotto l'hero/render
+             per dichiarare il modello "investimento zero" PRIMA dei
+             numeri. Parole scelte per restare puliti dagli antispam:
+             niente "gratis", "100%", emoji, esclamativi, urgency;
+             linguaggio finanziario B2B ("non investe nulla", "a nostro
+             carico", "energia scontata"). Solo per tenant con epc_enabled. -->
+        {%- if epc_enabled %}
+        <tr>
+          <td style="padding:0 40px 24px 40px;" class="padding-mobile">
+            <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color:{{ brand_primary_color | default('#0B3D2E', true) }}; border-radius:8px;">
+              <tr>
+                <td style="padding:18px 22px;">
+                  <p style="margin:0; font-size:11px; color:rgba(255,255,255,0.78); font-family:Arial,sans-serif; letter-spacing:0.14em; text-transform:uppercase;">
+                    Modalità EPC
+                  </p>
+                  <p style="margin:6px 0 0 0; font-size:17px; line-height:23px; color:#ffffff; font-family:Arial,sans-serif; font-weight:700;">
+                    L'impianto è a nostro carico — la vostra azienda non investe nulla
+                  </p>
+                  <p style="margin:6px 0 0 0; font-size:13px; line-height:19px; color:rgba(255,255,255,0.92); font-family:Arial,sans-serif;">
+                    Pagate solo l'energia che consumate, scontata. A fine contratto, l'impianto resta vostro.
+                  </p>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+        {%- endif %}
+
         <!-- BLOCCO DATI TECNICI — 4 metriche grid -->
         {%- if roi %}
         <tr>
@@ -249,31 +277,6 @@
               </table>
 
             </div>
-          </td>
-        </tr>
-        {%- endif %}
-
-        <!-- CALLOUT EPC — solo se il tenant ha epc_enabled. Frasi
-             scelte per restare puliti dagli antispam (niente "gratis",
-             "100%", "zero costi"): si parla di "non immobilizzare
-             capitale" e "energia consumata scontata", linguaggio B2B
-             che lascia intendere il modello EPC senza dichiararlo. -->
-        {%- if epc_enabled %}
-        <tr>
-          <td class="padding-mobile" style="padding:0 40px 24px 40px;">
-            <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color:#fafaf6; border-left:3px solid {{ brand_color_accent | default('#F4A300', true) }}; border-radius:4px;">
-              <tr>
-                <td style="padding:16px 20px;">
-                  <p style="margin:0 0 6px 0; font-size:11px; color:#6b6b6b; font-family:Arial,sans-serif; letter-spacing:0.8px; text-transform:uppercase;">
-                    Una proposta su misura
-                  </p>
-                  <p style="margin:0; font-size:14px; line-height:20px; color:#2b2b2b; font-family:Arial,sans-serif;">
-                    <strong style="color:{{ brand_primary_color }};">Anche senza immobilizzare capitale.</strong>
-                    Possiamo installare l'impianto a nostro carico: la vostra azienda paga solo l'energia che consuma, scontata. A fine contratto, l'impianto resta vostro.
-                  </p>
-                </td>
-              </tr>
-            </table>
           </td>
         </tr>
         {%- endif %}
