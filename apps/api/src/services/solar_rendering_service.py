@@ -83,20 +83,32 @@ def _adaptive_padding_factor(cluster_half_diag_m: float) -> float:
     so the roof is never clipped.
 
     Curve (half-diagonal in metres → padding multiplier):
-      ≤  8 m (≈ <150 m² roof)  → 1.50  — small house, some context
-      ≈ 15 m (≈  ~400 m² roof) → 1.41
-      ≈ 25 m (≈ 1500 m² roof)  → 1.31
-      ≥ 35 m (industrial)      → 1.22  — big roof, tight but uncut
+      ≤  8 m (≈ <150 m² roof)   → 1.50  — small house, some context
+      ≈ 15 m (≈  ~400 m² roof)  → 1.39
+      ≈ 25 m (≈ 1500 m² roof)   → 1.27
+      ≈ 35 m (industrial)       → 1.22  — biggest "tight" frame
+      ≈ 60 m (>5000 m² roof)    → 1.34  — torna ad allargare
+      ≥ 80 m (>16k m² roof)     → 1.45  — sconfinato, serve aria
 
-    Linear taper between the anchor points; clamped at the edges.
+    Per i tetti molto grandi (industriali da decine di migliaia di m²)
+    la curva non clampa più al basso: la regola "tight ma uncut" valeva
+    quando i pannelli del cluster ≈ l'intero tetto. Su edifici enormi
+    coperti solo in parte (cluster_half_diag misura i pannelli, non
+    l'edificio), 1.22× tagliava il resto del fabbricato. La nuova
+    salita 35→80 m dà aria sufficiente perché l'intero edificio entri
+    in inquadratura.
     """
     if cluster_half_diag_m <= 8.0:
         return 1.50
-    if cluster_half_diag_m >= 35.0:
-        return 1.22
-    # Linear interpolation 8m → 35m maps to 1.50 → 1.22
-    t = (cluster_half_diag_m - 8.0) / (35.0 - 8.0)
-    return 1.50 - 0.28 * t
+    if cluster_half_diag_m <= 35.0:
+        # Discesa: 8→35 m mappa 1.50 → 1.22.
+        t = (cluster_half_diag_m - 8.0) / (35.0 - 8.0)
+        return 1.50 - 0.28 * t
+    if cluster_half_diag_m >= 80.0:
+        return 1.45
+    # Risalita: 35→80 m mappa 1.22 → 1.45.
+    t = (cluster_half_diag_m - 35.0) / (80.0 - 35.0)
+    return 1.22 + 0.23 * t
 
 
 # ── Panel visual style ─────────────────────────────────────────────────────
@@ -1027,40 +1039,75 @@ def bake_savings_strip(
     after_png_bytes: bytes,
     *,
     savings_eur: float | int,
+    kwp: float | None = None,
     brand_color_hex: str,
-    label: str = "Risparmio annuo stimato",
+    label: str = "RISPARMIO ANNUO STIMATO",
 ) -> bytes:
-    """Stamp a solid brand-color strip across the bottom of the after.png
-    with the lead's yearly savings figure.
+    """Stamp a solid brand-color strip across the bottom of the after.png.
 
-    The ffmpeg crossfade in `apps/video-renderer` then naturally reveals
-    the strip alongside the panels — no separate video overlay layer
-    required, and the static after.png (used as poster + email fallback)
-    already shows the figure on first paint. Best-effort: any failure
-    returns the original bytes so a font/PIL issue never breaks the
-    rendering pipeline.
+    Layout intenzionalmente speculare a quello che faceva l'overlay
+    ffmpeg in ``apps/video-renderer`` (ora rimosso): striscia in fondo,
+    label maiuscoletto piccolo + riga grossa con "€34.881  ·  132,4 kW".
+    Allineata a sinistra (~3,75 % di margine), proporzioni studiate per
+    matchare l'overlay video precedente così la transizione before→after
+    rivela esattamente lo stesso contenuto.
+
+    Crossfade ffmpeg + strip nel frame di destinazione = la fascia
+    compare gradualmente insieme ai pannelli. Niente overlay video
+    separato, e l'after.png statico (poster del video + fallback email)
+    mostra subito il numero. Best-effort: in caso di errore PIL la
+    funzione ritorna gli input bytes invariati.
     """
     try:
         img = Image.open(io.BytesIO(after_png_bytes)).convert("RGB")
         width, height = img.size
-        # Strip height ~11% of image height, floor of 64 px for legibility.
-        strip_h = max(64, int(height * 0.11))
+        # 14,4 % di altezza — match dell'STRIP_H ffmpeg (104 px su 720 →
+        # ~124 px su 864). Floor 96 px per leggibilità su immagini basse.
+        strip_h = max(96, int(height * 0.144))
         bg_rgb = _hex_to_rgb(brand_color_hex)
         strip = Image.new("RGB", (width, strip_h), bg_rgb)
         draw = ImageDraw.Draw(strip)
-        text = f"{label}  €{_format_eur_it(savings_eur)}/anno"
-        font_size = max(20, int(strip_h * 0.36))
-        font = _resolve_strip_font(font_size)
-        # textbbox returns (x0, y0, x1, y1) of the rendered glyphs;
-        # center horizontally + vertically using its actual width/height.
-        bbox = draw.textbbox((0, 0), text, font=font)
-        tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+
+        # Label piccolo (matcha font 21 dell'overlay → ~3 % di 864).
+        label_font_size = max(18, int(height * 0.030))
+        label_font = _resolve_strip_font(label_font_size)
+        # Valore grosso (matcha font 34 dell'overlay → ~4,7 % di 864).
+        value_font_size = max(28, int(height * 0.047))
+        value_font = _resolve_strip_font(value_font_size)
+
+        value_parts: list[str] = [f"€{_format_eur_it(savings_eur)}/anno"]
+        if kwp is not None and kwp > 0:
+            kw_str = f"{round(kwp * 10) / 10:g}".replace(".", ",")
+            value_parts.append(f"{kw_str} kW")
+        value_text = "   ·   ".join(value_parts)
+
+        left_pad = int(width * 0.0375)  # ~58 px su 1536
+        # Posizionamento verticale: label sulla riga alta, valore sotto.
+        # Ricavato dai bbox per un'ancoraggio robusto al baseline.
+        label_bbox = draw.textbbox((0, 0), label, font=label_font)
+        value_bbox = draw.textbbox((0, 0), value_text, font=value_font)
+        label_h = label_bbox[3] - label_bbox[1]
+        value_h = value_bbox[3] - value_bbox[1]
+        gap = max(4, int(strip_h * 0.04))
+        total_h = label_h + gap + value_h
+        top = (strip_h - total_h) // 2
+
         draw.text(
-            ((width - tw) / 2 - bbox[0], (strip_h - th) / 2 - bbox[1]),
-            text,
-            fill=(255, 255, 255),
-            font=font,
+            (left_pad - label_bbox[0], top - label_bbox[1]),
+            label,
+            fill=(255, 255, 255, 178),  # ≈ 70 % opacità sul brand bg
+            font=label_font,
         )
+        draw.text(
+            (
+                left_pad - value_bbox[0],
+                top + label_h + gap - value_bbox[1],
+            ),
+            value_text,
+            fill=(255, 255, 255),
+            font=value_font,
+        )
+
         out = img.copy()
         out.paste(strip, (0, height - strip_h))
         buf = io.BytesIO()

@@ -32,11 +32,7 @@ import {
   renderRequestSchema,
 } from './schema';
 import { generateTransitionVideo, pickDuration } from './replicate-service';
-import {
-  postProcessVideo,
-  overlayStatsOnVideo,
-  convertToGif,
-} from './ffmpeg-service';
+import { postProcessVideo, convertToGif } from './ffmpeg-service';
 import { generateCrossfadeVideo } from './ffmpeg-crossfade';
 
 // Re-export so existing imports (server.ts, tests) don't have to chase
@@ -124,19 +120,21 @@ export const renderTransition = async (
       ));
     } else {
       // Default path: FFmpeg crossfade (zoom + dissolve) — no AI, no
-      // per-clip API cost. The raw MP4 is built locally, then the same
-      // overlay + GIF post-processing runs on it.
+      // per-clip API cost. The "Risparmio annuo" strip è ora bakeata
+      // direttamente nell'after.png (vedi
+      // `solar_rendering_service.bake_savings_strip`), quindi la
+      // crossfade la rivela in modo naturale insieme ai pannelli — non
+      // serve più passare per `overlayStatsOnVideo`. `stats` resta in
+      // scope solo per il prossimo eventuale uso (es. tinta delle barre).
       const crossfade = deps.generateCrossfade ?? generateCrossfadeVideo;
-      const rawPath = path.join(workDir, 'raw.mp4');
-      const { durationS } = await crossfade(
+      mp4Path = path.join(workDir, 'transition.mp4');
+      gifPath = path.join(workDir, 'transition.gif');
+      await crossfade(
         req.beforeImageUrl,
         req.afterImageUrl,
         workDir,
-        rawPath,
+        mp4Path,
       );
-      mp4Path = path.join(workDir, 'transition.mp4');
-      gifPath = path.join(workDir, 'transition.gif');
-      await overlayStatsOnVideo(rawPath, mp4Path, stats, durationS);
       await convertToGif(mp4Path, gifPath);
     }
 
