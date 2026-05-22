@@ -55,100 +55,80 @@ class AiPaintError(Exception):
 def build_paint_prompt(*, panel_count: int, kwp: float | None = None) -> str:
     """Prompt nano-banana to paint panels onto the rooftop.
 
-    The prompt does three jobs, in order: lock onto the *correct*
-    building, cover its roof *completely* with a realistic array, and
-    keep the framing pixel-identical to the input.
+    Hard-learned design notes (every line is a previous failure):
+
+    * Long prompts dilute. The model loses focus and starts inventing.
+      We keep it short and rule-numbered so each constraint gets equal
+      weight. Earlier rules carry more weight in LLM attention → SCALE
+      and PIXEL-PRESERVATION go first.
+    * Never give the model "permission to skip" (previous version said
+      "if you cannot mount a panel without altering the roof, leave
+      that spot bare" → it left HALF the roof bare). Coverage must be
+      framed as a hard requirement.
+    * Without an explicit physical scale, the model paints panels as
+      large as cars. Anchor the size to objects naturally visible in
+      aerial photos (cars, parking lines) so the model has a ground
+      truth to measure against.
+    * Pixel preservation must apply to the ENTIRE photo, not just the
+      roof. Otherwise the model "improves" cars, parking lines, the
+      surrounding context — and the before→after crossfade looks like
+      two different photos.
     """
-    count = f"approximately {panel_count} " if panel_count > 0 else ""
-    scale = f", together forming roughly a {kwp:.0f} kWp array" if kwp and kwp > 0 else ""
+    count = f"~{panel_count} " if panel_count > 0 else ""
+    scale = f" forming a roughly {kwp:.0f} kWp array" if kwp and kwp > 0 else ""
     return (
-        "TASK: Edit this top-down aerial photograph by mounting "
-        "photorealistic solar panels ON TOP of an existing rooftop. "
-        "You are adding panels to the roof — you are NOT rebuilding, "
-        "reshaping or replacing the roof. "
-        # ── 1. Identify the correct rooftop ──────────────────────────
-        "STEP 1 — IDENTIFY THE TARGET ROOF. The target is the single "
-        "main building whose rooftop occupies the CENTRE of the frame: "
-        "the largest contiguous roof surface closest to the middle of "
-        "the image. Trace its full perimeter and include EVERY roof "
-        "segment that belongs to it (separate wings, differently-angled "
-        "pitches, lower annexes of the SAME building). Do not confuse "
-        "it with adjacent buildings, internal courtyards or paved "
-        "areas. "
-        # ── 2. PRESERVE the roof — the critical rule ─────────────────
-        "STEP 2 — PRESERVE THE EXISTING ROOF, PIXEL-FOR-PIXEL (CRITICAL). "
-        "Imagine the input photo as a fixed background. You may ONLY add "
-        "panels on top of it. You may NOT modify, repaint or re-imagine "
-        "the roof's covering, colour, texture or geometry in any way: "
-        "the same tiles, sheets, gravel, bitumen or membrane visible in "
-        "the input must be visible in the output, with the same shade, "
-        "same pattern, same weathering and the same shadows. Every "
-        "pitch and slope angle, every ridge line, hip, valley, eave, "
-        "chimney, skylight, dormer, HVAC unit or vent must stay in the "
-        "EXACT pixel position as in the input. ABSOLUTELY DO NOT "
-        "introduce roof tiles, terracotta, shingles or any covering "
-        "that wasn't already there. DO NOT flatten a pitched roof or "
-        "pitch a flat one. DO NOT change the roof outline, height, "
-        "colour or material. If you cannot mount a panel without "
-        "altering the roof underneath, leave that spot bare. The ONLY "
-        "permitted modification is the addition of panels resting ON "
-        "TOP of the existing surface — every other pixel outside the "
-        "panel footprint must match the input identically. "
-        # ── 3. Place the panels ──────────────────────────────────────
-        f"STEP 3 — MOUNT THE PANELS. Add {count}photorealistic solar "
-        f"panels{scale} resting flush ON the existing roof surface, "
-        "conforming to it. On each sloped face the panels lie flat "
-        "against that pitch and follow its exact slope, angle and "
-        "perspective, in neat rows parallel to the eaves; the original "
-        "tiles stay visible along the ridge, the hips and a margin at "
-        "the eaves and verges. On a genuinely flat roof, lay parallel "
-        "rows across the flat area. Cover the suitable roof faces "
-        "generously so it reads as a real installation, but every part "
-        "of the roof NOT under a panel still shows its original tiles "
-        "or covering. Keep tidy gaps around chimneys, skylights and "
-        "other obstacles, leaving them visible. "
-        # ── 3b. CRITICAL — real-world panel scale ────────────────────
-        # Without explicit scale, the model often paints a handful of
-        # huge panels each as big as a parked car. Anchor the size to
-        # real units AND to objects that are commonly visible in
-        # aerial photographs (cars, parking spaces) so the AI has a
-        # ground-truth reference frame.
-        "STEP 3b — REAL-WORLD PANEL SCALE (CRITICAL). Each individual "
-        "panel is a STANDARD photovoltaic module measuring roughly "
-        "1.65 m × 1 m in the real world — about HALF the size of a "
-        "parked car or a single parking space. Use any cars, trucks, "
-        "parking lines, doors or people visible in the photograph as "
-        "a scale reference and size the panels to match: a single "
-        "panel must be SMALLER than a single car or parking space. "
-        "If the requested panel count seems too large for the roof "
-        "at this real size, prefer painting many small panels in "
-        "tight rows rather than a few oversized ones. Panels the "
-        "size of cars or larger are NEVER correct. "
-        # ── 4. Panel realism ─────────────────────────────────────────
-        "STEP 4 — REALISM. The panels are modern dark monocrystalline "
-        "silicon modules: near-black/very dark blue, low-glare, with "
-        "thin silver aluminium frames and a faint visible cell grid. "
-        "Render realistic soft shadows where each row meets the roof "
-        "and a subtle specular sheen consistent with the sun direction, "
-        "exposure and resolution of the surrounding photograph, so the "
-        "array looks photographed, not pasted. "
-        # ── 5. Strict boundaries ─────────────────────────────────────
-        "STRICT BOUNDARIES: place panels ONLY on the target building's "
-        "rooftop. NEVER place panels on the ground, lawn, garden, "
-        "courtyard, driveway, parking, road, or on any neighbouring "
-        "building. If a row would run past a roof edge, shorten it "
-        "rather than let it overhang. "
-        # ── 6. Framing lock — alignment with the before frame ───────
-        "CRITICAL FRAMING LOCK: the output MUST keep the EXACT same "
-        "pixel dimensions, framing, zoom, crop and camera position as "
-        "the input image. Do NOT pan, zoom, rotate or re-crop. Every "
-        "roof edge, wall, road, vehicle and tree must stay at the "
-        "IDENTICAL pixel position as in the input — the ONLY change "
-        "from input to output is the added panels, so the two frames "
-        "overlay each other perfectly. "
-        # ── 7. Output ────────────────────────────────────────────────
-        "Output: photorealistic, top-down aerial perspective, natural "
-        "daylight, sharp focus, no text, no watermarks."
+        "TASK: in this top-down aerial photo, add photorealistic solar "
+        "panels on top of the main central building's rooftop. Do "
+        "nothing else.\n\n"
+        # ── Rule 1: PIXEL PRESERVATION (everything, not just roof) ──
+        "RULE 1 — PRESERVE EVERY PIXEL EXCEPT WHERE A PANEL COVERS IT. "
+        "The output must be IDENTICAL to the input everywhere except "
+        "where you place a panel. The roof's existing surface (tiles, "
+        "sheets, gravel, membrane) underneath any uncovered area must "
+        "stay exactly as in the input. Cars, parking lines, trees, "
+        "roads, sidewalks, neighbouring buildings, the building's "
+        "walls and outline — none of these may be modified, "
+        "re-imagined, recoloured, repainted or shifted by even one "
+        "pixel. Do not invent objects that aren't there. Do not "
+        "introduce roof tiles or coverings the input doesn't show. "
+        "Treat the input as a fixed background. The ONLY permitted "
+        "change is adding panels.\n\n"
+        # ── Rule 2: SCALE (panels are SMALL) ────────────────────────
+        "RULE 2 — PANEL SCALE: a single panel is ~1.65 m × 1 m in the "
+        "real world. That is HALF the length of a parked car and "
+        "HALF the width of a single parking space. Use cars and "
+        "parking-line markings visible in the photo as your scale "
+        "reference. A single panel painted as wide as a car or wider "
+        "is WRONG. Always paint many small panels in tight rows, "
+        "never a few oversized ones.\n\n"
+        # ── Rule 3: COVERAGE (full, not partial) ─────────────────────
+        f"RULE 3 — COVER THE WHOLE SUITABLE ROOF. Add {count}panels"
+        f"{scale} in continuous, neat rows over EVERY usable roof "
+        "surface of the central main building. On sloped faces the "
+        "rows lie flat against each pitch and follow its slope. On "
+        "flat roofs lay parallel rows across the area. Leave only "
+        "the minimum required gaps: a slim margin at the eaves and "
+        "verges, the ridges/hips themselves, tight cut-outs around "
+        "chimneys, skylights, HVAC units and vents. The installation "
+        "must read as FULL coverage of the roof, not as a few "
+        "scattered patches.\n\n"
+        # ── Rule 4: BOUNDARIES ──────────────────────────────────────
+        "RULE 4 — BOUNDARIES. Panels go ONLY on the main central "
+        "building's rooftop. Never on the ground, parking, road, "
+        "garden, courtyard, or any neighbouring building. If a row "
+        "reaches a roof edge, shorten it rather than overhang.\n\n"
+        # ── Rule 5: FRAMING LOCK ─────────────────────────────────────
+        "RULE 5 — FRAMING LOCK. Same pixel dimensions, same crop, "
+        "same zoom, same camera position as the input. No pan, no "
+        "rotation, no re-crop, no scale change.\n\n"
+        # ── Style ────────────────────────────────────────────────────
+        "STYLE — Modern monocrystalline silicon: near-black / very "
+        "dark blue, thin silver aluminium frame, faint cell grid, "
+        "soft realistic shadows where each row meets the roof, sun-"
+        "consistent specular sheen. The array looks photographed, "
+        "not pasted.\n\n"
+        "OUTPUT — photorealistic, top-down aerial, sharp focus, no "
+        "text, no watermarks."
     )
 
 
