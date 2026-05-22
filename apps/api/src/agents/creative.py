@@ -82,6 +82,7 @@ from ..services.remotion_service import (
 from ..services.roi_service import compute_roi
 from ..services.solar_rendering_service import (
     SolarRenderingError,
+    bake_savings_strip,
     normalize_to_output_dimensions,
     render_before_after,
     render_before_only,
@@ -481,6 +482,21 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
                         status="success",
                         metadata={"lead_id": payload.lead_id},
                     )
+                # Stampa la fascia "Risparmio annuo stimato €X" in fondo
+                # all'after.png: la crossfade ffmpeg che genera il video la
+                # rivela in modo naturale insieme ai pannelli, e l'immagine
+                # statica (usata come poster del video + fallback email)
+                # mostra subito il numero. Best-effort: in caso di errore
+                # PIL ritorna i byte originali — la rendering pipeline non
+                # si rompe per un problema di font.
+                savings_for_strip = float(roi.yearly_savings_eur) if roi is not None else 0.0
+                if savings_for_strip > 0:
+                    after_bytes = bake_savings_strip(
+                        after_bytes,
+                        savings_eur=savings_for_strip,
+                        brand_color_hex=(tenant_row.get("brand_primary_color") or "#183054"),
+                    )
+
                 after_url = upload_bytes(
                     bucket=RENDERINGS_BUCKET,
                     path=f"{payload.tenant_id}/{payload.lead_id}/after.png",
