@@ -13,7 +13,7 @@
  * Falls back to the GIF, then the static image, then a placeholder.
  */
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { postPortalEvent } from '@/lib/tracking';
 
@@ -23,6 +23,19 @@ import { postPortalEvent } from '@/lib/tracking';
  *  di "impianto acceso / efficientamento attivato". Loop continuo da
  *  lì in poi, finché l'utente non scrolla altrove. */
 const FIRST_CYCLE_FALLBACK_MS = 4000;
+
+/** Converte "#RRGGBB" in "r, g, b". Permette di costruire `rgba(...)`
+ *  con qualsiasi alpha senza dipendere da `color-mix` (non supportato
+ *  in alcune WebView aziendali). */
+function hexToRgbChannels(hex: string): string {
+  const h = (hex || '').replace('#', '').trim();
+  const full = h.length === 3 ? h.split('').map((c) => c + c).join('') : h;
+  if (full.length !== 6 || /[^0-9a-fA-F]/.test(full)) return '24, 48, 84';
+  const r = parseInt(full.slice(0, 2), 16);
+  const g = parseInt(full.slice(2, 4), 16);
+  const b = parseInt(full.slice(4, 6), 16);
+  return `${r}, ${g}, ${b}`;
+}
 
 type Props = {
   slug: string;
@@ -44,18 +57,32 @@ export function EditorialHero({
   const videoRef = useRef<HTMLVideoElement>(null);
   const [muted, setMuted] = useState(true);
   const [auraOn, setAuraOn] = useState(false);
+  const auraTimerRef = useRef<number | null>(null);
+  const auraRgb = hexToRgbChannels(brandColor);
+
+  // Fallback unconditional: 5 s dopo il mount accendiamo l'aura comunque,
+  // anche se `onLoadedMetadata` non scatta (alcuni browser interni di
+  // mail-client non firano l'evento in modo affidabile). `setAuraOn` è
+  // idempotente: se l'evento è già scattato prima, questo è un no-op.
+  useEffect(() => {
+    const t = window.setTimeout(() => setAuraOn(true), 5000);
+    return () => window.clearTimeout(t);
+  }, []);
+
+  const scheduleAura = (ms: number) => {
+    if (auraTimerRef.current !== null) {
+      window.clearTimeout(auraTimerRef.current);
+    }
+    auraTimerRef.current = window.setTimeout(() => setAuraOn(true), ms);
+  };
 
   const handleLoadedMetadata = (e: React.SyntheticEvent<HTMLVideoElement>) => {
-    // Il video è in loop, quindi `onEnded` non scatta mai. Usiamo la
-    // durata letta dai metadata per decidere quando il primo ciclo è
-    // finito e accendere l'aura. Fallback a 4 s se la durata non è
-    // determinabile (alcuni stream/H.264 con metadata in coda).
     const dur = e.currentTarget.duration;
     const ms =
       Number.isFinite(dur) && dur > 0
         ? Math.round(dur * 1000) + 100
         : FIRST_CYCLE_FALLBACK_MS;
-    window.setTimeout(() => setAuraOn(true), ms);
+    scheduleAura(ms);
   };
 
   const handleAudioToggle = () => {
@@ -100,22 +127,32 @@ export function EditorialHero({
         style={
           {
             aspectRatio: '16 / 9',
-            // Variabile col brand color per il keyframe della pulsazione.
-            '--ehAuraColor': brandColor,
+            // Canali RGB del brand color, usati dai keyframe per
+            // costruire `rgba(...)` con alpha variabile. Niente
+            // `color-mix` perché non è supportato in alcune WebView.
+            '--ehAuraRgb': auraRgb,
             animation: auraOn
-              ? 'ehAuraPulse 2.6s ease-in-out infinite'
+              ? 'ehAuraPulse 2.4s ease-in-out infinite'
               : undefined,
           } as React.CSSProperties
         }
       >
         {/* Keyframes locali — l'aura cresce e si attenua attorno al box
             (box-shadow non viene clippata da overflow-hidden, che agisce
-            solo sui figli interni). Tenuti inline così niente cambia in
-            globals.css. */}
+            solo sui figli interni). Valori spinti rispetto alla v1 così
+            si vede davvero anche su sfondi chiari. */}
         <style>
           {`@keyframes ehAuraPulse {
-              0%, 100% { box-shadow: 0 0 24px 4px color-mix(in srgb, var(--ehAuraColor) 45%, transparent), 0 0 0 0 transparent; }
-              50%      { box-shadow: 0 0 60px 14px color-mix(in srgb, var(--ehAuraColor) 65%, transparent), 0 0 0 2px color-mix(in srgb, var(--ehAuraColor) 55%, transparent); }
+              0%, 100% {
+                box-shadow:
+                  0 0 30px 6px rgba(var(--ehAuraRgb), 0.55),
+                  0 0 0 0 rgba(var(--ehAuraRgb), 0);
+              }
+              50% {
+                box-shadow:
+                  0 0 80px 18px rgba(var(--ehAuraRgb), 0.85),
+                  0 0 0 3px rgba(var(--ehAuraRgb), 0.65);
+              }
             }`}
         </style>
         <video

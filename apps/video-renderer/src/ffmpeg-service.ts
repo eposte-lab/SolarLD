@@ -285,21 +285,24 @@ export const convertToGif = async (
 };
 
 /**
- * High-level entry: download the Replicate URL, burn overlay, produce
- * GIF. Returns local paths; the caller uploads to Supabase + cleans up.
+ * High-level entry: download the Replicate URL, produce GIF. Returns
+ * local paths; the caller uploads to Supabase + cleans up.
+ *
+ * Nota: `stats` e `clipDurationS` restano nella signature per non
+ * rompere i caller, ma l'overlay ffmpeg è disabilitato — il "Risparmio
+ * annuo" è ora bakeato nell'after.png server-side
+ * (`solar_rendering_service.bake_savings_strip`).
  */
 export const postProcessVideo = async (
   videoUrl: string,
   workDir: string,
-  stats: OverlayStats,
-  clipDurationS: number,
+  _stats: OverlayStats,
+  _clipDurationS: number,
 ): Promise<PostProcessResult> => {
-  const rawPath = path.join(workDir, 'raw.mp4');
   const mp4Path = path.join(workDir, 'transition.mp4');
   const gifPath = path.join(workDir, 'transition.gif');
 
-  await downloadVideo(videoUrl, rawPath);
-  await overlayStatsOnVideo(rawPath, mp4Path, stats, clipDurationS);
+  await downloadVideo(videoUrl, mp4Path);
   await convertToGif(mp4Path, gifPath);
 
   return { mp4Path, gifPath };

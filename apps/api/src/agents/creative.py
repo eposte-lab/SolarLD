@@ -494,6 +494,7 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
                     after_bytes = bake_savings_strip(
                         after_bytes,
                         savings_eur=savings_for_strip,
+                        kwp=(float(roi.estimated_kwp) if roi is not None else None),
                         brand_color_hex=(tenant_row.get("brand_primary_color") or "#183054"),
                     )
 
