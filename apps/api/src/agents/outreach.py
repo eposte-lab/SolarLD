@@ -1357,13 +1357,20 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
         # Outlook blocca per default ogni <img> remota: il destinatario
         # deve cliccare "scarica immagini". Un'immagine incorporata via
         # Content-ID fa parte del messaggio e si vede subito — anche se
-        # la mail finisce in posta indesiderata. Incorporiamo sia il
-        # logo del tenant sia il render statico dell'impianto; entrambi
-        # vengono downscalati + ricompressi così l'email resta leggera.
+        # la mail finisce in posta indesiderata.
         #
-        # Fail-safe: se il download/elaborazione di una fallisce si
-        # lascia l'URL remoto per quella immagine — non blocchiamo mai
-        # l'invio.
+        # Per il render preferiamo SEMPRE la GIF animata quando disponibile
+        # (start frame = aerial pulita del tetto, end frame = stesso tetto
+        # con i pannelli, prodotto dal crossfade xfade=wipedown). I client
+        # che la animano (Gmail web/Android/iOS, Apple Mail, Outlook web /
+        # Outlook M365 moderno) mostrano il reveal; Outlook desktop fissa
+        # il primo frame — che è già la foto aerea del tetto, non
+        # un'anteprima del "dopo": il destinatario apre la mail e vede
+        # subito IL SUO tetto, non un'immagine già modificata.
+        #
+        # Fallback statico: se la GIF è troppo pesante (>6.5MB) o non
+        # è disponibile / scaricabile, si embeddha il PNG/JPEG con
+        # downscale via PIL. Nessun caso resta senza immagine inline.
         # ------------------------------------------------------------------
         attachments: list[EmailAttachment] = []
         _html = rendered.html
@@ -1384,21 +1391,39 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
                     )
                 )
 
-        # 2) Render statico dell'impianto (la GIF/video animati restano
-        #    sul portale — Outlook desktop non li anima comunque).
-        _render_candidates = [
-            lead.get("rendering_image_url"),
+        # 2) Render dell'impianto — GIF animata preferita, statica come
+        #    fallback. L'ordine dei candidati GIF segue lo stesso fallback
+        #    usato dal template (CDN GIF → signed Supabase GIF).
+        _gif_candidates = [
             lead.get("rendering_gif_cdn_url"),
             lead.get("rendering_gif_url"),
         ]
-        _cid_source = next((u for u in _render_candidates if u), None)
-        if _cid_source and any(u and u in _html for u in _render_candidates):
-            _render = await _image_to_inline_cid(_cid_source, max_width=_RENDER_EMAIL_MAX_W)
+        _static_candidate = lead.get("rendering_image_url")
+        _all_render_urls = [u for u in _gif_candidates + [_static_candidate] if u]
+
+        if any(u in _html for u in _all_render_urls):
+            _render: tuple[str, str, str] | None = None
+            _render_kind = "none"
+            # GIF animata: streaming raw, niente PIL (preserve animation).
+            for _gu in _gif_candidates:
+                if _gu:
+                    _render = await _gif_to_inline_cid(_gu)
+                    if _render is not None:
+                        _render_kind = "gif"
+                        break
+            # Fallback statico (PIL-resampled JPEG/PNG) quando la GIF
+            # manca, è troppo pesante o non scaricabile.
+            if _render is None and _static_candidate:
+                _render = await _image_to_inline_cid(
+                    _static_candidate, max_width=_RENDER_EMAIL_MAX_W
+                )
+                if _render is not None:
+                    _render_kind = "static"
+
             if _render is not None:
                 _b64, _ctype, _ext = _render
-                for _u in _render_candidates:
-                    if _u:
-                        _html = _html.replace(_u, f"cid:{RENDER_CID}")
+                for _u in _all_render_urls:
+                    _html = _html.replace(_u, f"cid:{RENDER_CID}")
                 attachments.append(
                     EmailAttachment(
                         filename=f"impianto.{_ext}",
@@ -1406,6 +1431,12 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
                         content_type=_ctype,
                         content_id=RENDER_CID,
                     )
+                )
+                log.info(
+                    "outreach.render_embedded_cid",
+                    lead_id=payload.lead_id,
+                    kind=_render_kind,
+                    bytes=len(_b64) * 3 // 4,
                 )
 
         if _html != rendered.html:
@@ -2367,6 +2398,53 @@ _LOGO_CID = "tenant-logo"
 # si vede anche quando Outlook la classifica come posta indesiderata.
 _RENDER_EMAIL_MAX_W = 960
 _LOGO_EMAIL_MAX_W = 360
+
+
+# Soglia oltre la quale la GIF è troppo pesante per essere allegata
+# inline a una outreach email — base64 inflate ~33%, quindi 6.5 MB di
+# bytes ≈ 8.6 MB di payload trasmesso, ancora abbondantemente sotto i
+# 10 MB tipici dei provider SMTP (Resend / SES). Sopra questo cap si
+# ripiega sul render statico così l'email non viene rifiutata dal MTA.
+_GIF_INLINE_MAX_BYTES = 6_500_000
+
+
+async def _gif_to_inline_cid(url: str) -> tuple[str, str, str] | None:
+    """Scarica una GIF e la prepara per l'embedding inline (CID).
+
+    A differenza di ``_image_to_inline_cid`` NON ri-encodiamo via PIL:
+    ``Image.open(...).save(...)`` salverebbe il solo primo frame
+    perdendo l'animazione che è proprio il motivo per cui mostriamo
+    una GIF. Il file della pipeline crossfade è già 1280×720, 15fps,
+    palette ottimizzata e tipicamente 4-6 MB — un volume accettabile
+    per un'email inline.
+
+    Verifica sulla firma magic-bytes (``GIF87a`` / ``GIF89a``) prima
+    di accettare il file: se il server risponde HTML o un'immagine
+    non-GIF (es. ridireziona a una pagina d'errore) si torna ``None``
+    e il chiamante ripiega sul JPEG statico.
+
+    Ritorna ``(base64, content_type, ext)`` o ``None`` su qualsiasi
+    errore o se la GIF supera il cap di peso.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            resp = await client.get(url)
+        if resp.status_code != 200 or not resp.content:
+            return None
+        head = resp.content[:6]
+        if head not in (b"GIF87a", b"GIF89a"):
+            return None
+        if len(resp.content) > _GIF_INLINE_MAX_BYTES:
+            log.info(
+                "outreach.gif_too_heavy_fallback",
+                url=url[:120],
+                size=len(resp.content),
+                cap=_GIF_INLINE_MAX_BYTES,
+            )
+            return None
+        return base64.b64encode(resp.content).decode("ascii"), "image/gif", "gif"
+    except Exception:  # noqa: BLE001
+        return None
 
 
 async def _image_to_inline_cid(url: str, *, max_width: int) -> tuple[str, str, str] | None:

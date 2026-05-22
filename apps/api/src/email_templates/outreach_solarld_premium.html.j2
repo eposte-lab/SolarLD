@@ -113,6 +113,50 @@
           </td>
         </tr>
 
+        <!-- BANNER EPC — prima dell'hero quando il tenant lavora in
+             EPC: il "€ 0" è la promessa di valore che vogliamo far
+             leggere SUBITO, prima del rendering e dei numeri.
+             Layout a due colonne: a sinistra il claim + dettaglio,
+             a destra la cifra "€ 0" trattata come metrica. Tonalità
+             scura (brand_primary_color) per contrastare il container
+             chiaro dell'email e farsi notare anche nella preview
+             collassata di Outlook/Gmail.
+             Parole scelte per restare puliti dagli antispam: niente
+             "gratis", "100%", emoji, esclamativi, urgency; linguaggio
+             finanziario B2B ("non investe nulla", "a nostro carico",
+             "energia scontata"). -->
+        {%- if epc_enabled %}
+        <tr>
+          <td style="padding:0 40px 24px 40px;" class="padding-mobile">
+            <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color:{{ brand_primary_color | default('#0B3D2E', true) }}; border-radius:10px;">
+              <tr>
+                <td style="padding:20px 24px;" class="stack-column">
+                  <p style="margin:0; font-size:10px; color:{{ brand_color_accent | default('#F4A300', true) }}; font-family:Arial,sans-serif; letter-spacing:0.18em; text-transform:uppercase; font-weight:700;">
+                    Modalità EPC · Formula chiavi in mano
+                  </p>
+                  <p style="margin:8px 0 0 0; font-size:19px; line-height:25px; color:#ffffff; font-family:Arial,sans-serif; font-weight:700;">
+                    Investimento iniziale a carico vostro: <span style="color:{{ brand_color_accent | default('#F4A300', true) }};">€ 0</span>
+                  </p>
+                  <p style="margin:8px 0 0 0; font-size:13px; line-height:19px; color:rgba(255,255,255,0.88); font-family:Arial,sans-serif;">
+                    L'impianto è a nostro carico. Pagate solo l'energia che consumate, scontata in bolletta. A fine contratto, l'impianto resta vostro.
+                  </p>
+                </td>
+                <td align="right" valign="middle" width="140" style="padding:20px 24px 20px 0; vertical-align:middle;" class="stack-column">
+                  <div style="background-color:{{ brand_color_accent | default('#F4A300', true) }}; border-radius:8px; padding:16px 18px; display:inline-block; text-align:center;">
+                    <p style="margin:0; font-size:9px; color:{{ brand_primary_color | default('#0B3D2E', true) }}; font-family:Arial,sans-serif; letter-spacing:0.16em; text-transform:uppercase; font-weight:700;">
+                      Voi investite
+                    </p>
+                    <p style="margin:4px 0 0 0; font-size:30px; line-height:32px; color:{{ brand_primary_color | default('#0B3D2E', true) }}; font-family:Arial,sans-serif; font-weight:700; letter-spacing:-0.5px;">
+                      € 0
+                    </p>
+                  </div>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+        {%- endif %}
+
         <!-- GIF rendering personalizzato -->
         {%- if hero_gif_url or hero_image_url %}
         <tr>
@@ -123,34 +167,6 @@
             <p style="margin:8px 0 0 0; font-size:11px; color:#6b6b6b; font-family:Arial,sans-serif; text-align:center; font-style:italic;">
               Simulazione fotorealistica · Vista aerea della vostra sede
             </p>
-          </td>
-        </tr>
-        {%- endif %}
-
-        <!-- BANNER EPC — fascia prominente subito sotto l'hero/render
-             per dichiarare il modello "investimento zero" PRIMA dei
-             numeri. Parole scelte per restare puliti dagli antispam:
-             niente "gratis", "100%", emoji, esclamativi, urgency;
-             linguaggio finanziario B2B ("non investe nulla", "a nostro
-             carico", "energia scontata"). Solo per tenant con epc_enabled. -->
-        {%- if epc_enabled %}
-        <tr>
-          <td style="padding:0 40px 24px 40px;" class="padding-mobile">
-            <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color:{{ brand_primary_color | default('#0B3D2E', true) }}; border-radius:8px;">
-              <tr>
-                <td style="padding:18px 22px;">
-                  <p style="margin:0; font-size:11px; color:rgba(255,255,255,0.78); font-family:Arial,sans-serif; letter-spacing:0.14em; text-transform:uppercase;">
-                    Modalità EPC
-                  </p>
-                  <p style="margin:6px 0 0 0; font-size:17px; line-height:23px; color:#ffffff; font-family:Arial,sans-serif; font-weight:700;">
-                    L'impianto è a nostro carico — la vostra azienda non investe nulla
-                  </p>
-                  <p style="margin:6px 0 0 0; font-size:13px; line-height:19px; color:rgba(255,255,255,0.92); font-family:Arial,sans-serif;">
-                    Pagate solo l'energia che consumate, scontata. A fine contratto, l'impianto resta vostro.
-                  </p>
-                </td>
-              </tr>
-            </table>
           </td>
         </tr>
         {%- endif %}
@@ -191,7 +207,18 @@
                   </div>
                 </td>
                 {%- endif %}
-                {%- if roi.panel_count is defined %}
+                {%- if epc_enabled %}
+                {# In EPC il dato di valore non è il numero di pannelli,
+                   è il fatto che l'investimento iniziale sia zero.
+                   Tema invertito: sfondo accent, testo scuro, così la
+                   card "rompe" la griglia e attira l'occhio. #}
+                <td class="stack-column" width="50%" style="padding:0 0 0 8px; vertical-align:top;">
+                  <div style="background-color:{{ brand_color_accent | default('#F4A300', true) }}; border-left:3px solid {{ brand_primary_color }}; padding:16px 18px; border-radius:4px;">
+                    <p style="margin:0 0 4px 0; font-size:10px; color:{{ brand_primary_color }}; font-family:Arial,sans-serif; letter-spacing:0.8px; text-transform:uppercase; font-weight:700;">Investimento iniziale</p>
+                    <p class="stat-number-mobile" style="margin:0; font-size:24px; line-height:28px; font-weight:700; color:{{ brand_primary_color }}; font-family:Arial,sans-serif;">€ 0</p>
+                  </div>
+                </td>
+                {%- elif roi.panel_count is defined %}
                 <td class="stack-column" width="50%" style="padding:0 0 0 8px; vertical-align:top;">
                   <div style="background-color:#f5f2eb; border-left:3px solid {{ brand_color_accent | default('#F4A300', true) }}; padding:16px 18px; border-radius:4px;">
                     <p style="margin:0 0 4px 0; font-size:10px; color:#6b6b6b; font-family:Arial,sans-serif; letter-spacing:0.8px; text-transform:uppercase;">Pannelli stimati</p>
@@ -240,7 +267,25 @@
                     </table>
                   </td>
                 </tr>
-                {%- if roi.payback_years is defined %}
+                {%- if epc_enabled %}
+                {# Modalità EPC: niente "tempo di rientro" — non c'è nulla
+                   da rientrare. Riga dedicata che esplicita la cifra zero. #}
+                <tr>
+                  <td style="padding:20px 0; border-bottom:1px solid rgba(255,255,255,0.15);">
+                    <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%">
+                      <tr>
+                        <td style="vertical-align:middle;">
+                          <p style="margin:0; font-size:13px; color:rgba(255,255,255,0.85); font-family:Arial,sans-serif;">Investimento iniziale</p>
+                          <p style="margin:2px 0 0 0; font-size:11px; color:rgba(255,255,255,0.6); font-family:Arial,sans-serif;">Impianto a carico nostro</p>
+                        </td>
+                        <td align="right" style="vertical-align:middle;">
+                          <p style="margin:0; font-size:28px; line-height:32px; font-weight:700; color:{{ brand_color_accent | default('#F4A300', true) }}; font-family:Arial,sans-serif;">€ 0</p>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+                {%- elif roi.payback_years is defined %}
                 <tr>
                   <td style="padding:20px 0; border-bottom:1px solid rgba(255,255,255,0.15);">
                     <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%">
