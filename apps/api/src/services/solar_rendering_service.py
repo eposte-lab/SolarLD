@@ -20,9 +20,10 @@ from __future__ import annotations
 import io
 import math
 import struct
+from pathlib import Path
 
 import httpx
-from PIL import Image, ImageDraw, ImageFilter, ImageSequence
+from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageSequence
 
 from ..core.config import settings
 from ..core.logging import get_logger
@@ -974,3 +975,97 @@ async def render_lead(
     async with httpx.AsyncClient(timeout=60.0) as client:
         insight = await fetch_building_insight(lat, lng, client=client, api_key=api_key)
         return await render_before_after(lat, lng, insight, api_key=api_key, http_client=client)
+
+
+# ---------------------------------------------------------------------------
+# Post-render strip overlay
+# ---------------------------------------------------------------------------
+
+_FONT_CANDIDATES = (
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",  # Debian/Ubuntu (Railway base)
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+    "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
+    "/System/Library/Fonts/Helvetica.ttc",  # macOS dev
+    "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+)
+
+
+def _resolve_strip_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+    """Try a few common font paths; fall back to PIL's bitmap default
+    so we never crash inside the rendering pipeline because a font is
+    missing on a particular image (the strip is preferable to no
+    after.png at all)."""
+    for path in _FONT_CANDIDATES:
+        if Path(path).exists():
+            try:
+                return ImageFont.truetype(path, size)
+            except OSError:
+                continue
+    return ImageFont.load_default()
+
+
+def _hex_to_rgb(hex_color: str) -> tuple[int, int, int]:
+    """Best-effort hex → RGB. Accepts '#RGB' / '#RRGGBB' / 'RRGGBB';
+    falls back to a neutral navy if the input is malformed."""
+    s = (hex_color or "").lstrip("#")
+    if len(s) == 3:
+        s = "".join(c * 2 for c in s)
+    if len(s) != 6:
+        return (24, 48, 84)
+    try:
+        return (int(s[0:2], 16), int(s[2:4], 16), int(s[4:6], 16))
+    except ValueError:
+        return (24, 48, 84)
+
+
+def _format_eur_it(value: float | int) -> str:
+    """Italian thousand separator: 34881 → '34.881'."""
+    return f"{int(round(float(value))):,}".replace(",", ".")
+
+
+def bake_savings_strip(
+    after_png_bytes: bytes,
+    *,
+    savings_eur: float | int,
+    brand_color_hex: str,
+    label: str = "Risparmio annuo stimato",
+) -> bytes:
+    """Stamp a solid brand-color strip across the bottom of the after.png
+    with the lead's yearly savings figure.
+
+    The ffmpeg crossfade in `apps/video-renderer` then naturally reveals
+    the strip alongside the panels — no separate video overlay layer
+    required, and the static after.png (used as poster + email fallback)
+    already shows the figure on first paint. Best-effort: any failure
+    returns the original bytes so a font/PIL issue never breaks the
+    rendering pipeline.
+    """
+    try:
+        img = Image.open(io.BytesIO(after_png_bytes)).convert("RGB")
+        width, height = img.size
+        # Strip height ~11% of image height, floor of 64 px for legibility.
+        strip_h = max(64, int(height * 0.11))
+        bg_rgb = _hex_to_rgb(brand_color_hex)
+        strip = Image.new("RGB", (width, strip_h), bg_rgb)
+        draw = ImageDraw.Draw(strip)
+        text = f"{label}  €{_format_eur_it(savings_eur)}/anno"
+        font_size = max(20, int(strip_h * 0.36))
+        font = _resolve_strip_font(font_size)
+        # textbbox returns (x0, y0, x1, y1) of the rendered glyphs;
+        # center horizontally + vertically using its actual width/height.
+        bbox = draw.textbbox((0, 0), text, font=font)
+        tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+        draw.text(
+            ((width - tw) / 2 - bbox[0], (strip_h - th) / 2 - bbox[1]),
+            text,
+            fill=(255, 255, 255),
+            font=font,
+        )
+        out = img.copy()
+        out.paste(strip, (0, height - strip_h))
+        buf = io.BytesIO()
+        out.save(buf, format="PNG", optimize=True)
+        return buf.getvalue()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("solar_rendering.strip_bake_failed", err=str(exc))
+        return after_png_bytes

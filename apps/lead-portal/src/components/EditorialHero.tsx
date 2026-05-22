@@ -17,6 +17,13 @@ import { useRef, useState } from 'react';
 
 import { postPortalEvent } from '@/lib/tracking';
 
+/** Quando la prima riproduzione della transition finisce (il crossfade
+ *  before→after ha raggiunto il frame finale, di solito 3-4 s), attiviamo
+ *  un'aura luminosa pulsante in brand color attorno al video — dà l'idea
+ *  di "impianto acceso / efficientamento attivato". Loop continuo da
+ *  lì in poi, finché l'utente non scrolla altrove. */
+const FIRST_CYCLE_FALLBACK_MS = 4000;
+
 type Props = {
   slug: string;
   videoUrl: string | null;
@@ -36,6 +43,20 @@ export function EditorialHero({
 }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [muted, setMuted] = useState(true);
+  const [auraOn, setAuraOn] = useState(false);
+
+  const handleLoadedMetadata = (e: React.SyntheticEvent<HTMLVideoElement>) => {
+    // Il video è in loop, quindi `onEnded` non scatta mai. Usiamo la
+    // durata letta dai metadata per decidere quando il primo ciclo è
+    // finito e accendere l'aura. Fallback a 4 s se la durata non è
+    // determinabile (alcuni stream/H.264 con metadata in coda).
+    const dur = e.currentTarget.duration;
+    const ms =
+      Number.isFinite(dur) && dur > 0
+        ? Math.round(dur * 1000) + 100
+        : FIRST_CYCLE_FALLBACK_MS;
+    window.setTimeout(() => setAuraOn(true), ms);
+  };
 
   const handleAudioToggle = () => {
     const v = videoRef.current;
@@ -75,9 +96,28 @@ export function EditorialHero({
   if (videoUrl) {
     return (
       <div
-        className="relative overflow-hidden rounded-3xl shadow-ambient-lg"
-        style={{ aspectRatio: '16 / 9' }}
+        className="relative overflow-hidden rounded-3xl shadow-ambient-lg transition-shadow"
+        style={
+          {
+            aspectRatio: '16 / 9',
+            // Variabile col brand color per il keyframe della pulsazione.
+            '--ehAuraColor': brandColor,
+            animation: auraOn
+              ? 'ehAuraPulse 2.6s ease-in-out infinite'
+              : undefined,
+          } as React.CSSProperties
+        }
       >
+        {/* Keyframes locali — l'aura cresce e si attenua attorno al box
+            (box-shadow non viene clippata da overflow-hidden, che agisce
+            solo sui figli interni). Tenuti inline così niente cambia in
+            globals.css. */}
+        <style>
+          {`@keyframes ehAuraPulse {
+              0%, 100% { box-shadow: 0 0 24px 4px color-mix(in srgb, var(--ehAuraColor) 45%, transparent), 0 0 0 0 transparent; }
+              50%      { box-shadow: 0 0 60px 14px color-mix(in srgb, var(--ehAuraColor) 65%, transparent), 0 0 0 2px color-mix(in srgb, var(--ehAuraColor) 55%, transparent); }
+            }`}
+        </style>
         <video
           ref={videoRef}
           src={videoUrl}
@@ -86,6 +126,7 @@ export function EditorialHero({
           muted={muted}
           loop
           playsInline
+          onLoadedMetadata={handleLoadedMetadata}
           className="h-full w-full object-cover"
           data-portal-video
         />
