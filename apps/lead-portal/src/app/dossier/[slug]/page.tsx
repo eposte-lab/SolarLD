@@ -20,6 +20,19 @@ type PageProps = { params: Promise<{ slug: string }> };
  *  limita la finestra di esposizione dei dati del prospect. */
 const DOSSIER_TTL_DAYS = 30;
 
+/** Append `?v=<timestamp>` alla URL del rendering così la CDN di
+ *  Supabase Storage (Cloudflare) ricalcola la cache-key e ri-recupera
+ *  dallo storage la versione fresca anche se il path è invariato.
+ *  Quando l'operatore rigenera il render dal dashboard, dietro le
+ *  scene il path è lo stesso → senza cache-bust la cache CDN serve la
+ *  vecchia versione fino a 24h. Cambiando ?v il portale vede subito
+ *  il nuovo render. */
+function withCacheBust(url: string | null): string | null {
+  if (!url) return url;
+  const sep = url.includes('?') ? '&' : '?';
+  return `${url}${sep}v=${Date.now()}`;
+}
+
 /** Favicon + titolo per-tenant: il portale del lead usa il logo
  *  dell'azienda cliente come favicon, così la scheda browser è
  *  brandizzata sul cliente (es. Total Trade) e non su SolarLead. */
@@ -208,12 +221,22 @@ export default async function LeadPage({ params }: PageProps) {
         </p>
 
         <div className="mt-8">
+          {/* Cache-bust delle URL del rendering: Supabase Storage +
+              Cloudflare CDN cachano fino a 24h con la stessa URL anche
+              dopo una rigenerazione dal dashboard (le immagini sono
+              riscritte allo stesso path, l'URL non cambia → la cache
+              continua a servire la versione vecchia). Aggiungendo un
+              `?v=<timestamp>` calcolato server-side a ogni richiesta
+              della pagina dossier la cache-key cambia e il CDN
+              ri-recupera dallo storage. Il portale non riempie la cache
+              perché la pagina è dynamic (`cache: 'no-store'` su
+              `fetchPublicLead`) — un timestamp per request è ok. */}
           <EditorialHero
             slug={slug}
-            videoUrl={lead.rendering_video_url}
-            gifUrl={lead.rendering_gif_url}
-            imageUrl={lead.rendering_image_url}
-            posterUrl={lead.rendering_image_url}
+            videoUrl={withCacheBust(lead.rendering_video_url)}
+            gifUrl={withCacheBust(lead.rendering_gif_url)}
+            imageUrl={withCacheBust(lead.rendering_image_url)}
+            posterUrl={withCacheBust(lead.rendering_image_url)}
             brandColor={brandColor}
           />
         </div>

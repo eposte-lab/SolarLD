@@ -13,17 +13,9 @@
  * Falls back to the GIF, then the static image, then a placeholder.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 
 import { postPortalEvent } from '@/lib/tracking';
-
-/** Quando la prima riproduzione della transition finisce (il crossfade
- *  before→after ha raggiunto il frame finale, di solito 3-4 s), attiviamo
- *  un'aura luminosa pulsante in brand color attorno al video — dà l'idea
- *  di "impianto acceso / efficientamento attivato". Loop continuo da
- *  lì in poi, finché l'utente non scrolla altrove. */
-const FIRST_CYCLE_FALLBACK_MS = 4000;
-
 
 type Props = {
   slug: string;
@@ -44,33 +36,6 @@ export function EditorialHero({
 }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [muted, setMuted] = useState(true);
-  const [auraOn, setAuraOn] = useState(false);
-  const auraTimerRef = useRef<number | null>(null);
-
-  // Fallback unconditional: 5 s dopo il mount accendiamo l'aura comunque,
-  // anche se `onLoadedMetadata` non scatta (alcuni browser interni di
-  // mail-client non firano l'evento in modo affidabile). `setAuraOn` è
-  // idempotente: se l'evento è già scattato prima, questo è un no-op.
-  useEffect(() => {
-    const t = window.setTimeout(() => setAuraOn(true), 5000);
-    return () => window.clearTimeout(t);
-  }, []);
-
-  const scheduleAura = (ms: number) => {
-    if (auraTimerRef.current !== null) {
-      window.clearTimeout(auraTimerRef.current);
-    }
-    auraTimerRef.current = window.setTimeout(() => setAuraOn(true), ms);
-  };
-
-  const handleLoadedMetadata = (e: React.SyntheticEvent<HTMLVideoElement>) => {
-    const dur = e.currentTarget.duration;
-    const ms =
-      Number.isFinite(dur) && dur > 0
-        ? Math.round(dur * 1000) + 100
-        : FIRST_CYCLE_FALLBACK_MS;
-    scheduleAura(ms);
-  };
 
   const handleAudioToggle = () => {
     const v = videoRef.current;
@@ -110,89 +75,48 @@ export function EditorialHero({
   if (videoUrl) {
     return (
       <div
-        className="relative"
+        className="relative overflow-hidden rounded-3xl shadow-ambient-lg"
         style={{ aspectRatio: '16 / 9' }}
       >
-        {/* Wrapper video. overflow-hidden vive QUI così riguarda solo
-            il clipping degli angoli del video; il flash dell'aura è un
-            overlay sibling sopra al video, fuori dallo stacking-context
-            interno (così il radial-gradient si vede sempre). */}
-        <div className="absolute inset-0 overflow-hidden rounded-3xl shadow-ambient-lg">
-          <video
-            ref={videoRef}
-            src={videoUrl}
-            poster={posterUrl ?? undefined}
-            autoPlay
-            muted={muted}
-            loop
-            playsInline
-            onLoadedMetadata={handleLoadedMetadata}
-            className="h-full w-full object-cover"
-            data-portal-video
-          />
-          {/* Subtle vignette for legibility of the controls. */}
-          <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/35 via-transparent to-black/10" />
-          {/* Brand band along bottom edge. */}
-          <div
-            className="pointer-events-none absolute inset-x-0 bottom-0 h-1.5"
-            style={{ backgroundColor: brandColor }}
-          />
-          {/* Controls overlay */}
-          <div className="absolute bottom-4 right-4 flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handleAudioToggle}
-              className="inline-flex items-center gap-2 rounded-full bg-black/55 px-4 py-2 text-xs font-semibold text-white backdrop-blur transition-colors hover:bg-black/75"
-              aria-label={muted ? 'Attiva audio' : 'Silenzia'}
-            >
-              <span aria-hidden>{muted ? '🔇' : '🔊'}</span>
-              <span>{muted ? 'Audio off' : 'Audio on'}</span>
-            </button>
-            <button
-              type="button"
-              onClick={handleFullscreen}
-              className="inline-flex items-center gap-2 rounded-full bg-black/55 px-4 py-2 text-xs font-semibold text-white backdrop-blur transition-colors hover:bg-black/75"
-              aria-label="Schermo intero"
-            >
-              <span aria-hidden>⛶</span>
-              <span>Full screen</span>
-            </button>
-          </div>
+        <video
+          ref={videoRef}
+          src={videoUrl}
+          poster={posterUrl ?? undefined}
+          autoPlay
+          muted={muted}
+          loop
+          playsInline
+          className="h-full w-full object-cover"
+          data-portal-video
+        />
+        {/* Subtle vignette for legibility of the controls. */}
+        <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/35 via-transparent to-black/10" />
+        {/* Brand band along bottom edge. */}
+        <div
+          className="pointer-events-none absolute inset-x-0 bottom-0 h-1.5"
+          style={{ backgroundColor: brandColor }}
+        />
+        {/* Controls overlay */}
+        <div className="absolute bottom-4 right-4 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleAudioToggle}
+            className="inline-flex items-center gap-2 rounded-full bg-black/55 px-4 py-2 text-xs font-semibold text-white backdrop-blur transition-colors hover:bg-black/75"
+            aria-label={muted ? 'Attiva audio' : 'Silenzia'}
+          >
+            <span aria-hidden>{muted ? '🔇' : '🔊'}</span>
+            <span>{muted ? 'Audio off' : 'Audio on'}</span>
+          </button>
+          <button
+            type="button"
+            onClick={handleFullscreen}
+            className="inline-flex items-center gap-2 rounded-full bg-black/55 px-4 py-2 text-xs font-semibold text-white backdrop-blur transition-colors hover:bg-black/75"
+            aria-label="Schermo intero"
+          >
+            <span aria-hidden>⛶</span>
+            <span>Full screen</span>
+          </button>
         </div>
-
-        {/* AURA — flash bianco radiale dal bordo verso il centro,
-            sopra al video. Si attiva una volta sola alla fine del
-            primo ciclo del crossfade (auraOn = true), pulsa due volte
-            in ~2,6 s e poi resta invisibile (animation-iteration-count:
-            1 + ultimo keyframe a opacity 0). Niente loop continuo: è
-            il "click di attivazione" dell'impianto. Il radial gradient
-            è trasparente al centro e bianco ai bordi → l'effetto è
-            "edge-inward", non un alone esterno. */}
-        {auraOn ? (
-          <div
-            aria-hidden
-            className="pointer-events-none absolute inset-0 rounded-3xl"
-            style={{
-              background:
-                'radial-gradient(ellipse at center, rgba(255,255,255,0) 55%, rgba(255,255,255,0.95) 100%)',
-              opacity: 0,
-              animation: 'ehEdgeFlash 2.6s ease-in-out 1 forwards',
-              zIndex: 5,
-              mixBlendMode: 'screen',
-            }}
-          />
-        ) : null}
-        <style>
-          {`
-            @keyframes ehEdgeFlash {
-              0%   { opacity: 0; }
-              20%  { opacity: 1; }
-              45%  { opacity: 0; }
-              70%  { opacity: 0.85; }
-              100% { opacity: 0; }
-            }
-          `}
-        </style>
       </div>
     );
   }
