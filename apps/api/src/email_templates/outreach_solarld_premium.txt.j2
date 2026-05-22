@@ -3,14 +3,14 @@
 Per {{ greeting_name }},
 
 {{ copy_opening_line | default('Abbiamo analizzato la vostra sede via satellite.', true) }}
-
-{{ copy_proposition_line | default('Vi proponiamo un sopralluogo tecnico, senza oneri, per validare i dati e presentare un preventivo completo.', true) }}
 {% if epc_enabled %}
-Una proposta su misura, anche senza immobilizzare capitale: possiamo
-installare l'impianto a nostro carico — la vostra azienda paga solo
-l'energia che consuma, scontata. A fine contratto, l'impianto resta
-vostro.
+=== MODALITÀ EPC ===
+L'impianto è a nostro carico: la vostra azienda non investe nulla.
+Pagate solo l'energia che consumate, scontata. A fine contratto
+l'impianto resta vostro.
+=====================
 {% endif %}
+{{ copy_proposition_line | default('Vi proponiamo un sopralluogo tecnico, senza oneri, per validare i dati e presentare un preventivo completo.', true) }}
 
 {% if roi and roi.yearly_savings_eur is defined -%}
 I NUMERI PER VOI:
