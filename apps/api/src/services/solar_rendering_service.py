@@ -1042,6 +1042,7 @@ def bake_savings_strip(
     kwp: float | None = None,
     brand_color_hex: str,
     label: str = "RISPARMIO ANNUO STIMATO",
+    include_text: bool = True,
 ) -> bytes:
     """Stamp a solid brand-color strip across the bottom of the after.png.
 
@@ -1066,47 +1067,55 @@ def bake_savings_strip(
         strip_h = max(96, int(height * 0.144))
         bg_rgb = _hex_to_rgb(brand_color_hex)
         strip = Image.new("RGB", (width, strip_h), bg_rgb)
-        draw = ImageDraw.Draw(strip)
 
-        # Label piccolo (matcha font 21 dell'overlay → ~3 % di 864).
-        label_font_size = max(18, int(height * 0.030))
-        label_font = _resolve_strip_font(label_font_size)
-        # Valore grosso (matcha font 34 dell'overlay → ~4,7 % di 864).
-        value_font_size = max(28, int(height * 0.047))
-        value_font = _resolve_strip_font(value_font_size)
+        # `include_text=False` mode: si dipinge SOLO il riquadro pieno
+        # navy (stesso identico background della strip con testo). Usato
+        # sul `before.png` per dare al wipedown una zona inferiore
+        # uniforme su entrambi i frame — la tendina passa fra navy e
+        # navy, solo il TESTO si rivela nella metà bassa, niente jump
+        # apparente fra "aeriale" e "navy" che fa sembrare i frame
+        # disallineati.
+        if include_text:
+            draw = ImageDraw.Draw(strip)
+            # Label piccolo (matcha font 21 dell'overlay → ~3 % di 864).
+            label_font_size = max(18, int(height * 0.030))
+            label_font = _resolve_strip_font(label_font_size)
+            # Valore grosso (matcha font 34 dell'overlay → ~4,7 % di 864).
+            value_font_size = max(28, int(height * 0.047))
+            value_font = _resolve_strip_font(value_font_size)
 
-        value_parts: list[str] = [f"€{_format_eur_it(savings_eur)}/anno"]
-        if kwp is not None and kwp > 0:
-            kw_str = f"{round(kwp * 10) / 10:g}".replace(".", ",")
-            value_parts.append(f"{kw_str} kW")
-        value_text = "   ·   ".join(value_parts)
+            value_parts: list[str] = [f"€{_format_eur_it(savings_eur)}/anno"]
+            if kwp is not None and kwp > 0:
+                kw_str = f"{round(kwp * 10) / 10:g}".replace(".", ",")
+                value_parts.append(f"{kw_str} kW")
+            value_text = "   ·   ".join(value_parts)
 
-        left_pad = int(width * 0.0375)  # ~58 px su 1536
-        # Posizionamento verticale: label sulla riga alta, valore sotto.
-        # Ricavato dai bbox per un'ancoraggio robusto al baseline.
-        label_bbox = draw.textbbox((0, 0), label, font=label_font)
-        value_bbox = draw.textbbox((0, 0), value_text, font=value_font)
-        label_h = label_bbox[3] - label_bbox[1]
-        value_h = value_bbox[3] - value_bbox[1]
-        gap = max(4, int(strip_h * 0.04))
-        total_h = label_h + gap + value_h
-        top = (strip_h - total_h) // 2
+            left_pad = int(width * 0.0375)  # ~58 px su 1536
+            # Posizionamento verticale: label sulla riga alta, valore sotto.
+            # Ricavato dai bbox per un'ancoraggio robusto al baseline.
+            label_bbox = draw.textbbox((0, 0), label, font=label_font)
+            value_bbox = draw.textbbox((0, 0), value_text, font=value_font)
+            label_h = label_bbox[3] - label_bbox[1]
+            value_h = value_bbox[3] - value_bbox[1]
+            gap = max(4, int(strip_h * 0.04))
+            total_h = label_h + gap + value_h
+            top = (strip_h - total_h) // 2
 
-        draw.text(
-            (left_pad - label_bbox[0], top - label_bbox[1]),
-            label,
-            fill=(255, 255, 255, 178),  # ≈ 70 % opacità sul brand bg
-            font=label_font,
-        )
-        draw.text(
-            (
-                left_pad - value_bbox[0],
-                top + label_h + gap - value_bbox[1],
-            ),
-            value_text,
-            fill=(255, 255, 255),
-            font=value_font,
-        )
+            draw.text(
+                (left_pad - label_bbox[0], top - label_bbox[1]),
+                label,
+                fill=(255, 255, 255, 178),  # ≈ 70 % opacità sul brand bg
+                font=label_font,
+            )
+            draw.text(
+                (
+                    left_pad - value_bbox[0],
+                    top + label_h + gap - value_bbox[1],
+                ),
+                value_text,
+                fill=(255, 255, 255),
+                font=value_font,
+            )
 
         out = img.copy()
         out.paste(strip, (0, height - strip_h))
