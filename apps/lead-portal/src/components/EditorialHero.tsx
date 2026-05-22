@@ -123,77 +123,103 @@ export function EditorialHero({
   if (videoUrl) {
     return (
       <div
-        className="relative overflow-hidden rounded-3xl shadow-ambient-lg transition-shadow"
+        className="relative rounded-3xl"
         style={
           {
             aspectRatio: '16 / 9',
-            // Canali RGB del brand color, usati dai keyframe per
-            // costruire `rgba(...)` con alpha variabile. Niente
-            // `color-mix` perché non è supportato in alcune WebView.
+            // Canali RGB del brand color iniettati come custom property
+            // così i keyframe possono costruire rgba() con alpha
+            // variabile senza dipendere da `color-mix` (non supportato
+            // ovunque). L'`animation` è sempre attiva: l'aura più
+            // intensa dopo il primo ciclo del video, soft prima — vedi
+            // i keyframe `ehAuraPulse*` sotto. Niente `overflow-hidden`
+            // su questo wrapper esterno: certi engine (WebKit con
+            // border-radius + overflow-hidden) chiudono il paint nello
+            // stacking context dell'elemento e la box-shadow non esce.
             '--ehAuraRgb': auraRgb,
             animation: auraOn
-              ? 'ehAuraPulse 2.4s ease-in-out infinite'
-              : undefined,
+              ? 'ehAuraPulseHigh 2.4s ease-in-out infinite'
+              : 'ehAuraPulseSoft 3.6s ease-in-out infinite',
           } as React.CSSProperties
         }
       >
-        {/* Keyframes locali — l'aura cresce e si attenua attorno al box
-            (box-shadow non viene clippata da overflow-hidden, che agisce
-            solo sui figli interni). Valori spinti rispetto alla v1 così
-            si vede davvero anche su sfondi chiari. */}
+        {/* Keyframes — due livelli: "soft" prima del primo ciclo del
+            video, "high" dopo. Definiti inline così niente cambia in
+            globals.css. */}
         <style>
-          {`@keyframes ehAuraPulse {
+          {`
+            @keyframes ehAuraPulseSoft {
               0%, 100% {
                 box-shadow:
-                  0 0 30px 6px rgba(var(--ehAuraRgb), 0.55),
-                  0 0 0 0 rgba(var(--ehAuraRgb), 0);
+                  0 0 24px 4px rgba(var(--ehAuraRgb), 0.35),
+                  0 0 0 1px rgba(var(--ehAuraRgb), 0.20);
               }
               50% {
                 box-shadow:
-                  0 0 80px 18px rgba(var(--ehAuraRgb), 0.85),
-                  0 0 0 3px rgba(var(--ehAuraRgb), 0.65);
+                  0 0 48px 10px rgba(var(--ehAuraRgb), 0.55),
+                  0 0 0 2px rgba(var(--ehAuraRgb), 0.40);
               }
-            }`}
+            }
+            @keyframes ehAuraPulseHigh {
+              0%, 100% {
+                box-shadow:
+                  0 0 40px 8px rgba(var(--ehAuraRgb), 0.65),
+                  0 0 0 2px rgba(var(--ehAuraRgb), 0.50);
+              }
+              50% {
+                box-shadow:
+                  0 0 110px 28px rgba(var(--ehAuraRgb), 0.95),
+                  0 0 0 4px rgba(var(--ehAuraRgb), 0.80);
+              }
+            }
+          `}
         </style>
-        <video
-          ref={videoRef}
-          src={videoUrl}
-          poster={posterUrl ?? undefined}
-          autoPlay
-          muted={muted}
-          loop
-          playsInline
-          onLoadedMetadata={handleLoadedMetadata}
-          className="h-full w-full object-cover"
-          data-portal-video
-        />
-        {/* Subtle vignette for legibility of the controls. */}
-        <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/35 via-transparent to-black/10" />
-        {/* Brand band along bottom edge. */}
+        {/* Wrapper INTERNO che si occupa di clippare il video sugli
+            angoli arrotondati. L'overflow-hidden vive QUI così non
+            tocca lo stacking-context del box-shadow del wrapper esterno. */}
         <div
-          className="pointer-events-none absolute inset-x-0 bottom-0 h-1.5"
-          style={{ backgroundColor: brandColor }}
-        />
-        {/* Controls overlay */}
-        <div className="absolute bottom-4 right-4 flex items-center gap-2">
-          <button
-            type="button"
-            onClick={handleAudioToggle}
-            className="inline-flex items-center gap-2 rounded-full bg-black/55 px-4 py-2 text-xs font-semibold text-white backdrop-blur transition-colors hover:bg-black/75"
-            aria-label={muted ? 'Attiva audio' : 'Silenzia'}
-          >
-            <span aria-hidden>{muted ? '🔇' : '🔊'}</span>
-            <span>{muted ? 'Audio off' : 'Audio on'}</span>
-          </button>
-          <button
-            type="button"
-            onClick={handleFullscreen}
-            className="inline-flex items-center gap-2 rounded-full bg-black/55 px-4 py-2 text-xs font-semibold text-white backdrop-blur transition-colors hover:bg-black/75"
-            aria-label="Schermo intero"
-          >
-            <span aria-hidden>⛶</span>
-            <span>Full screen</span>
-          </button>
+          className="absolute inset-0 overflow-hidden rounded-3xl shadow-ambient-lg"
+        >
+          <video
+            ref={videoRef}
+            src={videoUrl}
+            poster={posterUrl ?? undefined}
+            autoPlay
+            muted={muted}
+            loop
+            playsInline
+            onLoadedMetadata={handleLoadedMetadata}
+            className="h-full w-full object-cover"
+            data-portal-video
+          />
+          {/* Subtle vignette for legibility of the controls. */}
+          <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/35 via-transparent to-black/10" />
+          {/* Brand band along bottom edge. */}
+          <div
+            className="pointer-events-none absolute inset-x-0 bottom-0 h-1.5"
+            style={{ backgroundColor: brandColor }}
+          />
+          {/* Controls overlay */}
+          <div className="absolute bottom-4 right-4 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleAudioToggle}
+              className="inline-flex items-center gap-2 rounded-full bg-black/55 px-4 py-2 text-xs font-semibold text-white backdrop-blur transition-colors hover:bg-black/75"
+              aria-label={muted ? 'Attiva audio' : 'Silenzia'}
+            >
+              <span aria-hidden>{muted ? '🔇' : '🔊'}</span>
+              <span>{muted ? 'Audio off' : 'Audio on'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleFullscreen}
+              className="inline-flex items-center gap-2 rounded-full bg-black/55 px-4 py-2 text-xs font-semibold text-white backdrop-blur transition-colors hover:bg-black/75"
+              aria-label="Schermo intero"
+            >
+              <span aria-hidden>⛶</span>
+              <span>Full screen</span>
+            </button>
+          </div>
         </div>
       </div>
     );
