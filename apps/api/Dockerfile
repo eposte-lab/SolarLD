@@ -49,6 +49,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libffi8 \
         shared-mime-info \
         fonts-dejavu \
+        # opencv-python-headless (before/after ECC alignment in
+        # image_alignment_service.py) links libglib at runtime. Present
+        # transitively via Pango, but pinned explicitly so a future Pango
+        # dependency change can't silently break `import cv2`.
+        libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
 RUN useradd -m -u 1000 solarlead
