@@ -1182,7 +1182,7 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
                 or lead.get("rendering_image_url")
             ),
             video_landing_url=_video_landing_url(
-                lead.get("portal_video_slug"),
+                lead.get("public_slug"),
                 tracking_host=tracking_host,
             ),
             # Premium template surfaces a discreet EPC callout when set.
@@ -2355,18 +2355,22 @@ def _optout_url(
 
 
 def _video_landing_url(
-    portal_video_slug: str | None,
+    public_slug: str | None,
     *,
     tracking_host: str | None = None,
 ) -> str | None:
     """Build the public video landing page URL for a lead.
 
-    Returns None when portal_video_slug is absent (render hasn't run yet).
+    Must use ``public_slug`` — the video page (``/dossier/{slug}/video``)
+    resolves the lead via the same public endpoint as the dossier, which
+    looks the lead up by ``public_slug`` ONLY. ``portal_video_slug`` is an
+    orphan column that no endpoint can resolve, so a URL built from it
+    404s ("link non valido"). Returns None when the slug is absent.
     """
-    if not portal_video_slug:
+    if not public_slug:
         return None
     base = _portal_origin(tracking_host)
-    return f"{base}/dossier/{portal_video_slug.strip()}/video"
+    return f"{base}/dossier/{public_slug.strip()}/video"
 
 
 def _tracking_pixel_url(
