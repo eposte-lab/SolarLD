@@ -102,9 +102,29 @@ export function LeadActivityStrip({
     },
   ];
 
-  // Indice dell'ultimo step completato — riceve l'halo "current".
-  const lastDoneIdx = pills.reduce<number>(
-    (acc, p, i) => (p.active ? i : acc),
+  // Funnel MONOTÒNO. Il tracking a monte è inaffidabile per natura: il
+  // pixel di apertura viene bloccato da Outlook / Apple Mail Privacy, e
+  // un click può non passare dal redirect tracciato (es. il lead apre il
+  // portale da un link diretto). Risultato: capita di registrare
+  // "Portale visitato" senza "Letta"/"Cliccata" — uno stato impossibile
+  // (per arrivare al portale DEVI aver aperto e cliccato).
+  //
+  // Quindi un nodo è "done" se il suo evento è arrivato O se ne è
+  // arrivato uno a valle nella catena causale. La catena email è
+  // strettamente sequenziale fino al portale (inviata → letta → cliccata
+  // → portale): qualunque step successivo implica tutti i precedenti.
+  // Bolletta e Appuntamento sono invece "azioni di portale" indipendenti
+  // tra loro (si può fissare un appuntamento senza caricare la bolletta),
+  // perciò NON si accendono a vicenda — restano foglie, accese solo dal
+  // proprio evento (ma implicano comunque il portale, indice ≤ PORTAL).
+  const PORTAL_IDX = pills.findIndex((p) => p.key === 'portal');
+  const doneFlags = pills.map((p, i) =>
+    i <= PORTAL_IDX ? pills.slice(i).some((s) => s.active) : p.active,
+  );
+
+  // Indice dell'ultimo step completato (monotòno) — riceve l'halo "current".
+  const lastDoneIdx = doneFlags.reduce<number>(
+    (acc, d, i) => (d ? i : acc),
     -1,
   );
 
@@ -131,10 +151,13 @@ export function LeadActivityStrip({
         {pills.map((p, idx) => {
           const isFirst = idx === 0;
           const isLast = idx === pills.length - 1;
-          const done = p.active;
-          const nextDone = !isLast && (pills[idx + 1]?.active ?? false);
-          const prevDone = !isFirst && (pills[idx - 1]?.active ?? false);
+          const done = doneFlags[idx] ?? false;
+          const nextDone = !isLast && (doneFlags[idx + 1] ?? false);
+          const prevDone = !isFirst && (doneFlags[idx - 1] ?? false);
           const isCurrent = idx === lastDoneIdx;
+          // Step raggiunto per implicazione (a valle) ma senza un proprio
+          // timestamp: niente "in attesa", ma nemmeno un orario inventato.
+          const impliedOnly = done && p.at == null;
 
           // Connettore sinistro: pieno-brand quando precedente E corrente
           // sono done, half-fade quando solo precedente, neutro altrimenti.
@@ -204,9 +227,11 @@ export function LeadActivityStrip({
                 {/* Nodo */}
                 <span
                   title={
-                    done
-                      ? `${p.label} · ${relativeTime(p.at)}`
-                      : `${p.label} · non ancora`
+                    impliedOnly
+                      ? `${p.label} · raggiunta`
+                      : done
+                        ? `${p.label} · ${relativeTime(p.at)}`
+                        : `${p.label} · non ancora`
                   }
                   className={`relative z-10 inline-flex h-11 w-11 items-center justify-center rounded-full transition-all duration-300 ${
                     done
@@ -255,7 +280,11 @@ export function LeadActivityStrip({
                   done ? 'text-on-surface-variant' : 'text-on-surface-variant/40'
                 }`}
               >
-                {done ? relativeTime(p.at) : 'in attesa'}
+                {impliedOnly
+                  ? 'raggiunta'
+                  : done
+                    ? relativeTime(p.at)
+                    : 'in attesa'}
               </span>
             </li>
           );
