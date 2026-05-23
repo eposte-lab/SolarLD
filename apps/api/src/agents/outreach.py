@@ -254,7 +254,13 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
                 "test_recipient_override, "
                 # Sprint 9 Fase C: custom template + template family
                 "email_template_family, custom_email_template_active, "
-                "custom_email_template_path"
+                "custom_email_template_path, "
+                # Firma email + accento brand + flag EPC: letti dal context
+                # builder (email_signature, brand_color_accent, epc_enabled)
+                # ma finora NON selezionati → tornavano None e il banner
+                # "€ 0" EPC non compariva mai, l'accento restava sull'oro
+                # di default. brand_color_accent: migration 0142.
+                "email_signature, brand_color_accent, epc_enabled"
             )
             .eq("id", payload.tenant_id)
             .single()
