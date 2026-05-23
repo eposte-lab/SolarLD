@@ -63,7 +63,19 @@
               <tr>
                 <td align="left" style="vertical-align:middle;">
                   {%- if brand_logo_url %}
-                  <img src="{{ brand_logo_url }}" alt="{{ tenant_name }}" width="140" height="auto" style="display:block; max-height:40px; width:auto;">
+                  {# Pastiglia bianca dietro al logo: molti loghi (incluso
+                     Total Trade) hanno wordmark scuro/navy che su una
+                     barra navy sparirebbe. Un contenitore bianco
+                     arrotondato — l'equivalente email-safe del semidisco
+                     bianco usato sul portale — garantisce che il logo sia
+                     sempre leggibile su qualsiasi brand_primary_color. #}
+                  <table role="presentation" border="0" cellpadding="0" cellspacing="0" style="background-color:#ffffff; border-radius:10px;">
+                    <tr>
+                      <td style="padding:8px 14px;">
+                        <img src="{{ brand_logo_url }}" alt="{{ tenant_name }}" width="132" height="auto" style="display:block; max-height:34px; width:auto;">
+                      </td>
+                    </tr>
+                  </table>
                   {%- else %}
                   <span style="color:#ffffff; font-size:15px; font-weight:700; font-family:Arial,sans-serif;">{{ tenant_name }}</span>
                   {%- endif %}
