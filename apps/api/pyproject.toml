@@ -69,6 +69,10 @@ dependencies = [
 
   # Image processing — solar panel overlay on GeoTIFF aerial imagery
   "Pillow>=11.0.0",
+  # Before/after pixel alignment (ECC registration) so the crossfade
+  # reveal doesn't show the roof jumping. headless = no GUI/X11 deps.
+  "opencv-python-headless>=4.10.0",
+  "numpy>=1.26.0",
 
   # PDF generation for postcards + B2C door-to-door exports
   "reportlab>=4.2.5",

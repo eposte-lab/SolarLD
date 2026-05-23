@@ -73,6 +73,7 @@ from ..services.google_solar_service import (
     SolarApiNotFound,
     fetch_building_insight,
 )
+from ..services.image_alignment_service import align_after_to_before
 from ..services.osm_building_service import find_nearest_building
 from ..services.remotion_service import (
     RemotionError,
@@ -478,6 +479,13 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
                         kwp=insight.estimated_kwp,
                     )
                     after_bytes = normalize_to_output_dimensions(after_bytes)
+                    # Riallinea l'after al before: nano-banana spesso shifta
+                    # / ri-croppa leggermente il frame nonostante il
+                    # framing-lock del prompt, e il crossfade wipedown
+                    # rende visibile il salto del tetto. La registrazione
+                    # ECC (best-effort, fallback ai byte invariati) blocca
+                    # il tetto al pixel sfruttando il contesto immutato.
+                    after_bytes = align_after_to_before(before_bytes, after_bytes)
                     _log_api_cost(
                         sb,
                         tenant_id=payload.tenant_id,
