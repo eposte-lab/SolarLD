@@ -73,6 +73,7 @@ from ..services.google_solar_service import (
     SolarApiNotFound,
     fetch_building_insight,
 )
+from ..services.image_alignment_service import align_after_to_before
 from ..services.osm_building_service import find_nearest_building
 from ..services.remotion_service import (
     RemotionError,
@@ -80,7 +81,6 @@ from ..services.remotion_service import (
     render_transition,
 )
 from ..services.roi_service import compute_roi
-from ..services.image_alignment_service import align_after_to_before
 from ..services.solar_rendering_service import (
     SolarRenderingError,
     bake_savings_strip,
