@@ -21,7 +21,7 @@ jobs:
     name: Deploy API → Railway
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       # The third-party action bervProject/railway-deploy@main broke
       # (its container lost the `railway` binary and dropped the
