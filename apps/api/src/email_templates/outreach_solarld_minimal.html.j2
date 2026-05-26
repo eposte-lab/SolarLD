@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<title>{{ tenant_name }} — Analisi fotovoltaica per {{ business_name | default(greeting_name, true) }}</title>
+
+<style type="text/css">
+  body, table, td, a { -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; }
+  table, td { mso-table-lspace: 0pt; mso-table-rspace: 0pt; }
+  img { -ms-interpolation-mode: bicubic; border: 0; height: auto; line-height: 100%; outline: none; text-decoration: none; }
+  body { margin: 0 !important; padding: 0 !important; width: 100% !important; }
+  .ExternalClass { width: 100%; }
+  .ExternalClass, .ExternalClass p, .ExternalClass span,
+  .ExternalClass font, .ExternalClass td, .ExternalClass div { line-height: 100%; }
+
+  @media only screen and (max-width: 600px) {
+    .container { width: 100% !important; max-width: 100% !important; }
+    .stack-column { display: block !important; width: 100% !important; max-width: 100% !important; }
+    .padding-mobile { padding: 24px !important; }
+    .h1-mobile { font-size: 23px !important; line-height: 30px !important; }
+    .kpi-num-mobile { font-size: 26px !important; }
+  }
+</style>
+</head>
+
+{# ── Stile "minimal/premium": fondo grigio freddo, container bianco,
+     header su bianco con logo piccolo, navy dominante, verde solo come
+     accento sottile (hairline, check, eyebrow). Volutamente scarno —
+     l'analisi completa vive sul dossier, l'email è l'aggancio. ── #}
+<body style="margin:0; padding:0; background-color:#f4f5f7; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+
+{# Preview text #}
+<div style="display:none; max-height:0; overflow:hidden; mso-hide:all; font-size:1px; color:#f4f5f7; line-height:1px;">
+  {%- if roi and roi.yearly_kwh %}Il tetto della vostra sede produrrebbe {{ roi.yearly_kwh | int | format_money }} kWh/anno — analisi satellitare per {{ business_name | default('la vostra azienda', true) }}
+  {%- else %}Analisi fotovoltaica personalizzata per {{ business_name | default('la vostra azienda', true) }}{%- endif %}
+</div>
+
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color:#f4f5f7;">
+  <tr>
+    <td align="center" style="padding:28px 12px;">
+
+      <table class="container" role="presentation" border="0" cellpadding="0" cellspacing="0" width="600" style="max-width:600px; background-color:#ffffff; border:1px solid #e8eaed; border-radius:14px; overflow:hidden;">
+
+        {# Hairline d'accento brand in cima — l'unico tocco di colore forte #}
+        <tr><td style="height:3px; line-height:3px; font-size:0; background-color:{{ brand_color_accent | default('#5CB82E', true) }};">&nbsp;</td></tr>
+
+        <!-- HEADER — logo su bianco, piccolo, hairline inferiore -->
+        <tr>
+          <td style="padding:20px 36px; background-color:#ffffff; border-bottom:1px solid #eceef1;">
+            <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%">
+              <tr>
+                <td align="left" style="vertical-align:middle;">
+                  {%- if brand_logo_url %}
+                  <img src="{{ brand_logo_url }}" alt="{{ tenant_name }}" width="116" height="auto" style="display:block; max-height:28px; width:auto;">
+                  {%- else %}
+                  <span style="color:{{ brand_primary_color | default('#183054', true) }}; font-size:15px; font-weight:700;">{{ tenant_name }}</span>
+                  {%- endif %}
+                </td>
+                <td align="right" style="vertical-align:middle; color:#8a9099; font-size:10px; letter-spacing:0.12em; text-transform:uppercase; font-family:Arial,sans-serif;">
+                  Analisi fotovoltaica{% if hq_province %}<br><span style="color:{{ brand_primary_color | default('#183054', true) }}; font-size:12px; letter-spacing:0;">{{ hq_province }}</span>{% endif %}
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+
+        <!-- INTRO -->
+        <tr>
+          <td class="padding-mobile" style="padding:34px 36px 22px 36px;">
+            <p style="margin:0 0 10px 0; font-size:12px; color:#8a9099; font-family:Arial,sans-serif; letter-spacing:0.4px; text-transform:uppercase;">
+              Per <strong style="color:#3a3f47;">{{ greeting_name }}</strong>{% if ateco_description %}, {{ ateco_description }}{% endif %}
+            </p>
+            <h1 class="h1-mobile" style="margin:0 0 14px 0; font-size:27px; line-height:34px; font-weight:800; color:{{ brand_primary_color | default('#183054', true) }}; font-family:Arial,sans-serif; letter-spacing:-0.3px;">
+              {%- if business_name %}{{ business_name }}, il vostro tetto può produrre{% else %}Il vostro tetto può produrre{% endif %}
+              {%- if roi and roi.yearly_kwh %} <span style="color:{{ brand_color_accent | default('#5CB82E', true) }};">{{ roi.yearly_kwh | int | format_money }} kWh</span> all'anno{% else %} energia pulita{% endif %}
+            </h1>
+            <p style="margin:0; font-size:15px; line-height:23px; color:#4a4f57; font-family:Arial,sans-serif;">
+              {{ copy_opening_line | default('Abbiamo analizzato la vostra sede via satellite. Qui sotto trovate la sintesi; l\'analisi completa è sul vostro report personale.', true) }}
+            </p>
+          </td>
+        </tr>
+
+        <!-- RENDERING — subito dopo l'intro -->
+        {%- if hero_gif_url or hero_image_url %}
+        <tr>
+          <td style="padding:0 36px 22px 36px;" class="padding-mobile">
+            <img src="{{ hero_gif_url | default(hero_image_url, true) }}" alt="Vista aerea del tetto{% if business_name %} di {{ business_name }}{% endif %} con simulazione impianto fotovoltaico" width="528" height="auto" style="display:block; width:100%; height:auto; border-radius:10px; border:1px solid #e8eaed;">
+            <p style="margin:8px 0 0 0; font-size:11px; color:#9aa0aa; font-family:Arial,sans-serif; text-align:center; font-style:italic;">
+              Simulazione fotorealistica · Vista aerea della vostra sede
+            </p>
+          </td>
+        </tr>
+        {%- endif %}
+
+        <!-- BANNER EPC — claim + badge € 0, niente paragrafo -->
+        {%- if epc_enabled %}
+        <tr>
+          <td style="padding:0 36px 22px 36px;" class="padding-mobile">
+            <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color:{{ brand_primary_color | default('#183054', true) }}; border-radius:12px;">
+              <tr>
+                <td style="padding:20px 24px;" class="stack-column">
+                  <p style="margin:0; font-size:10px; color:{{ brand_color_accent | default('#5CB82E', true) }}; font-family:Arial,sans-serif; letter-spacing:0.16em; text-transform:uppercase; font-weight:700;">
+                    Modalità EPC · Formula chiavi in mano
+                  </p>
+                  <p style="margin:8px 0 0 0; font-size:19px; line-height:25px; color:#ffffff; font-family:Arial,sans-serif; font-weight:700;">
+                    Investimento iniziale a carico vostro: <span style="color:{{ brand_color_accent | default('#5CB82E', true) }};">€ 0</span>
+                  </p>
+                </td>
+                <td align="right" valign="middle" width="120" style="padding:20px 24px 20px 0; vertical-align:middle;" class="stack-column">
+                  <div style="background-color:{{ brand_color_accent | default('#5CB82E', true) }}; border-radius:10px; padding:14px 16px; display:inline-block; text-align:center;">
+                    <p style="margin:0; font-size:9px; color:{{ brand_primary_color | default('#183054', true) }}; font-family:Arial,sans-serif; letter-spacing:0.14em; text-transform:uppercase; font-weight:700;">Voi investite</p>
+                    <p style="margin:3px 0 0 0; font-size:28px; line-height:30px; color:{{ brand_primary_color | default('#183054', true) }}; font-family:Arial,sans-serif; font-weight:800; letter-spacing:-0.5px;">€ 0</p>
+                  </div>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+        {%- endif %}
+
+        <!-- DUE KPI — producibilità annua + risparmio in bolletta -->
+        {%- if roi and (roi.get('yearly_kwh') or roi.get('yearly_savings_eur')) %}
+        <tr>
+          <td style="padding:0 36px 26px 36px;" class="padding-mobile">
+            <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%">
+              <tr>
+                {%- if roi.get('yearly_kwh') %}
+                <td class="stack-column" width="50%" style="padding:0 6px 0 0; vertical-align:top;">
+                  <div style="border:1px solid #e8eaed; border-radius:10px; padding:18px 20px;">
+                    <p style="margin:0 0 6px 0; font-size:10px; color:#8a9099; font-family:Arial,sans-serif; letter-spacing:0.7px; text-transform:uppercase;">Producibilità annua</p>
+                    <p class="kpi-num-mobile" style="margin:0; font-size:28px; line-height:30px; font-weight:800; color:{{ brand_primary_color | default('#183054', true) }}; font-family:Arial,sans-serif;">{{ roi.yearly_kwh | int | format_money }} <span style="font-size:14px; font-weight:700; color:#8a9099;">kWh</span></p>
+                  </div>
+                </td>
+                {%- endif %}
+                {%- if roi.get('yearly_savings_eur') %}
+                <td class="stack-column" width="50%" style="padding:0 0 0 6px; vertical-align:top;">
+                  <div style="border:1px solid #e8eaed; border-radius:10px; padding:18px 20px;">
+                    <p style="margin:0 0 6px 0; font-size:10px; color:#8a9099; font-family:Arial,sans-serif; letter-spacing:0.7px; text-transform:uppercase;">Risparmio annuo in bolletta</p>
+                    <p class="kpi-num-mobile" style="margin:0; font-size:28px; line-height:30px; font-weight:800; color:{{ brand_primary_color | default('#183054', true) }}; font-family:Arial,sans-serif;">€{{ roi.yearly_savings_eur | int | format_money }}</p>
+                  </div>
+                </td>
+                {%- endif %}
+              </tr>
+            </table>
+          </td>
+        </tr>
+        {%- endif %}
+
+        <!-- PROPOSTA -->
+        <tr>
+          <td class="padding-mobile" style="padding:6px 36px 8px 36px;">
+            <h2 style="margin:0 0 14px 0; font-size:18px; line-height:24px; font-weight:800; color:{{ brand_primary_color | default('#183054', true) }}; font-family:Arial,sans-serif;">
+              La nostra proposta per voi
+            </h2>
+            <p style="margin:0 0 18px 0; font-size:15px; line-height:23px; color:#4a4f57; font-family:Arial,sans-serif;">
+              {{ copy_proposition_line | default('Offriamo un percorso completo: dall\'analisi alla realizzazione chiavi in mano.', true) }}
+            </p>
+            <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%">
+              {%- for item in [
+                ('Sopralluogo tecnico incluso', 'per validare la stima satellitare e produrre il preventivo definitivo'),
+                ('Analisi degli incentivi disponibili', 'per la vostra azienda (Transizione 5.0, CER, autoconsumo)'),
+                ('Gestione completa', 'dalla progettazione alla pratica GSE')
+              ] %}
+              <tr>
+                <td style="padding:0 0 12px 0;">
+                  <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%">
+                    <tr>
+                      <td width="26" valign="top" style="padding-top:1px;">
+                        <div style="width:18px; height:18px; border:1.5px solid {{ brand_color_accent | default('#5CB82E', true) }}; border-radius:50%; text-align:center; line-height:17px; color:{{ brand_color_accent | default('#5CB82E', true) }}; font-size:11px; font-weight:700; font-family:Arial,sans-serif;">✓</div>
+                      </td>
+                      <td>
+                        <p style="margin:0; font-size:14px; line-height:21px; color:#4a4f57; font-family:Arial,sans-serif;">
+                          <strong style="color:{{ brand_primary_color | default('#183054', true) }};">{{ item[0] }}</strong> {{ item[1] }}
+                        </p>
+                      </td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+              {%- endfor %}
+            </table>
+          </td>
+        </tr>
+
+        <!-- CTA -->
+        <tr>
+          <td class="padding-mobile" style="padding:16px 36px 34px 36px;">
+            <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%">
+              <tr>
+                <td align="center" style="padding:0 0 12px 0;">
+                  <table role="presentation" border="0" cellpadding="0" cellspacing="0">
+                    <tr>
+                      <td style="background-color:{{ brand_primary_color | default('#183054', true) }}; border-radius:10px;">
+                        <a href="{{ lead_url }}" target="_blank" style="display:inline-block; padding:15px 34px; font-size:15px; font-weight:700; color:#ffffff; text-decoration:none; font-family:Arial,sans-serif; letter-spacing:0.2px;">
+                          {{ cta_primary_label | default('Scopri la tua analisi completa', true) }} →
+                        </a>
+                      </td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+              {%- if video_landing_url %}
+              <tr>
+                <td align="center">
+                  <p style="margin:0; font-size:13px; color:#8a9099; font-family:Arial,sans-serif;">
+                    Oppure <a href="{{ video_landing_url }}" target="_blank" style="color:{{ brand_primary_color | default('#183054', true) }}; text-decoration:underline; font-weight:600;">guarda il video del tuo tetto</a>
+                  </p>
+                </td>
+              </tr>
+              {%- endif %}
+            </table>
+          </td>
+        </tr>
+
+        <!-- FIRMA -->
+        <tr>
+          <td class="padding-mobile" style="padding:22px 36px 28px 36px; border-top:1px solid #eceef1;">
+            <p style="margin:0 0 8px 0; font-size:14px; line-height:20px; color:#4a4f57; font-family:Arial,sans-serif;">A disposizione per qualsiasi domanda,</p>
+            <p style="margin:0; font-size:15px; line-height:22px; color:{{ brand_primary_color | default('#183054', true) }}; font-family:Arial,sans-serif; font-weight:700;">
+              {{ email_signature | default(sender_first_name | default(tenant_name, true), true) }}
+            </p>
+            {%- if not email_signature %}
+            <p style="margin:0; font-size:13px; line-height:18px; color:#8a9099; font-family:Arial,sans-serif;">{{ tenant_name }}</p>
+            {%- endif %}
+          </td>
+        </tr>
+
+        <!-- FOOTER GDPR -->
+        <tr>
+          <td style="padding:20px 36px; background-color:#fafbfc;">
+            <p style="margin:0 0 10px 0; font-size:11px; line-height:16px; color:#8a9099; font-family:Arial,sans-serif;">
+              <strong style="color:#4a4f57;">{{ tenant_legal_name | default(tenant_name, true) }}</strong>{% if tenant_vat_number %} · P.IVA {{ tenant_vat_number }}{% endif %}{% if tenant_legal_address %} · {{ tenant_legal_address }}{% endif %}
+            </p>
+            <p style="margin:0 0 10px 0; font-size:10px; line-height:15px; color:#a3a8b0; font-family:Arial,sans-serif;">
+              Email inviata a {{ recipient_email | default('voi', true) }} per finalità di contatto commerciale B2B, base giuridica art. 6.1.f GDPR (legittimo interesse). L'indirizzo è stato reperito da fonti pubbliche aziendali.
+            </p>
+            <p style="margin:0; font-size:10px; line-height:15px; color:#a3a8b0; font-family:Arial,sans-serif;">
+              <a href="{{ optout_url }}" style="color:#a3a8b0; text-decoration:underline;">Annulla iscrizione</a>
+            </p>
+          </td>
+        </tr>
+
+      </table>
+
+    </td>
+  </tr>
+</table>
+
+{%- if tracking_pixel_url %}
+<img src="{{ tracking_pixel_url }}" width="1" height="1" alt="" style="display:block; width:1px; height:1px; border:0;">
+{%- endif %}
+
+</body>
+</html>

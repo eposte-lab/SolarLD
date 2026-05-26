@@ -392,7 +392,7 @@ def default_subject_for(
     """
     st = (subject_type or "").lower()
 
-    if email_style == "premium":
+    if email_style in ("premium", "premium_minimal"):
         # Premium subjects are crisp and informative — delegate to B2B visual
         # defaults as a sensible baseline; A/B copy_subject overrides these at
         # render time (the OutreachContext.copy_subject field takes precedence).
@@ -688,6 +688,19 @@ def _template_stem_for(
         st = "b2c"
     step = max(1, min(4, int(sequence_step or 1)))
     env = _env()
+
+    # ── Minimal/premium family (pared-down, more premium look) ─────────
+    # Step 1 uses the dedicated minimal template; follow-up steps 2-4 reuse
+    # the existing premium step templates (the follow-ups are already short).
+    if email_style == "premium_minimal":
+        if step == 1 and "outreach_solarld_minimal.html.j2" in env.list_templates():
+            return "outreach_solarld_minimal"
+        cand = f"outreach_solarld_premium_step{step}"
+        if step > 1 and f"{cand}.html.j2" in env.list_templates():
+            return cand
+        if "outreach_solarld_minimal.html.j2" in env.list_templates():
+            return "outreach_solarld_minimal"
+        return "outreach_solarld_premium"
 
     # ── Premium family (Sprint 9) ──────────────────────────────────────
     if email_style == "premium":
