@@ -47,7 +47,13 @@ const CAMPAIGN_COLUMNS = `
 
 const CAMPAIGN_WITH_LEAD_COLUMNS = `
   ${CAMPAIGN_COLUMNS},
-  leads:leads(outreach_delivered_at, outreach_opened_at, outreach_clicked_at)
+  leads:leads(
+    outreach_delivered_at, outreach_opened_at, outreach_clicked_at,
+    subjects:subjects(
+      business_name, decision_maker_name,
+      decision_maker_phone, decision_maker_email
+    )
+  )
 `.trim();
 
 /**
