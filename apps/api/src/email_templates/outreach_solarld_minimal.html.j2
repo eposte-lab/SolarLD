@@ -109,9 +109,12 @@
                   </p>
                 </td>
                 <td align="right" valign="middle" width="120" style="padding:20px 24px 20px 0; vertical-align:middle;" class="stack-column">
-                  <div style="background-color:{{ brand_color_accent | default('#5CB82E', true) }}; border-radius:10px; padding:14px 16px; display:inline-block; text-align:center;">
-                    <p style="margin:0; font-size:9px; color:{{ brand_primary_color | default('#183054', true) }}; font-family:Arial,sans-serif; letter-spacing:0.14em; text-transform:uppercase; font-weight:700;">Voi investite</p>
-                    <p style="margin:3px 0 0 0; font-size:28px; line-height:30px; color:{{ brand_primary_color | default('#183054', true) }}; font-family:Arial,sans-serif; font-weight:800; letter-spacing:-0.5px;">€ 0</p>
+                  {# Badge € 0 valorizzato: gradiente verde + glow. Il
+                     background-color resta come fallback (Outlook ignora
+                     il gradient e il box-shadow ma mostra il verde pieno). #}
+                  <div style="background-color:{{ brand_color_accent | default('#5CB82E', true) }}; background-image:linear-gradient(135deg, #7BDB46 0%, {{ brand_color_accent | default('#5CB82E', true) }} 55%, #3F9A1C 100%); border-radius:12px; padding:15px 18px; display:inline-block; text-align:center; box-shadow:0 6px 20px rgba(92,184,46,0.5);">
+                    <p style="margin:0; font-size:9px; color:#ffffff; font-family:Arial,sans-serif; letter-spacing:0.14em; text-transform:uppercase; font-weight:700; opacity:0.9;">Voi investite</p>
+                    <p style="margin:3px 0 0 0; font-size:30px; line-height:32px; color:#ffffff; font-family:Arial,sans-serif; font-weight:800; letter-spacing:-0.5px;">€ 0</p>
                   </div>
                 </td>
               </tr>
@@ -192,8 +195,12 @@
                 <td align="center" style="padding:0 0 12px 0;">
                   <table role="presentation" border="0" cellpadding="0" cellspacing="0">
                     <tr>
-                      <td style="background-color:{{ brand_primary_color | default('#183054', true) }}; border-radius:10px;">
-                        <a href="{{ lead_url }}" target="_blank" style="display:inline-block; padding:15px 34px; font-size:15px; font-weight:700; color:#ffffff; text-decoration:none; font-family:Arial,sans-serif; letter-spacing:0.2px;">
+                      {# CTA verde "luminescente": gradiente + glow verde.
+                         background-color = accento pieno come fallback per
+                         Outlook (che ignora gradient/box-shadow). Testo
+                         navy per contrasto sul verde brillante. #}
+                      <td style="background-color:{{ brand_color_accent | default('#5CB82E', true) }}; background-image:linear-gradient(135deg, #7BDB46 0%, {{ brand_color_accent | default('#5CB82E', true) }} 55%, #3F9A1C 100%); border-radius:10px; box-shadow:0 6px 22px rgba(92,184,46,0.6);">
+                        <a href="{{ lead_url }}" target="_blank" style="display:inline-block; padding:16px 38px; font-size:15px; font-weight:800; color:{{ brand_primary_color | default('#183054', true) }}; text-decoration:none; font-family:Arial,sans-serif; letter-spacing:0.2px;">
                           {{ cta_primary_label | default('Scopri la tua analisi completa', true) }} →
                         </a>
                       </td>
