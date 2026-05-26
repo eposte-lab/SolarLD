@@ -1,23 +1,25 @@
 name: Deploy
 
-# Gate on CI workflow completing successfully — prevents deploys on red CI.
-# The workflow_run trigger fires when the named workflow (CI) completes on main.
+# Deploy on every push to main, plus a manual "Run workflow" button.
+#
+# We deliberately do NOT gate on the CI workflow_run anymore: that
+# coupling silently stranded deploys whenever CI was flaky or blocked
+# (e.g. Actions-minutes exhaustion). Railway's own Docker build is the
+# real gate — a broken build never promotes. workflow_dispatch lets an
+# operator ship the current main on demand without pushing a commit.
 on:
-  workflow_run:
-    workflows: [CI]
-    types: [completed]
+  push:
     branches: [main]
+  workflow_dispatch:
 
 concurrency:
-  group: deploy-${{ github.ref }}
+  group: deploy-main
   cancel-in-progress: false
 
 jobs:
   deploy-api:
     name: Deploy API → Railway
     runs-on: ubuntu-latest
-    # Only deploy when CI passed (not just completed)
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -37,7 +39,6 @@ jobs:
   deploy-frontend:
     name: Vercel deploys (dashboard + lead-portal)
     runs-on: ubuntu-latest
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     steps:
       - run: |
           echo "Vercel auto-deploys from main — no manual action required."
