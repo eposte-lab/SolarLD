@@ -125,9 +125,24 @@
           </td>
         </tr>
 
-        <!-- BANNER EPC — prima dell'hero quando il tenant lavora in
-             EPC: il "€ 0" è la promessa di valore che vogliamo far
-             leggere SUBITO, prima del rendering e dei numeri.
+        <!-- GIF rendering personalizzato — subito sotto l'apertura.
+             È l'elemento d'impatto (il tetto del cliente coi pannelli),
+             quindi va visto PRIMA del banner EPC e dei numeri. -->
+        {%- if hero_gif_url or hero_image_url %}
+        <tr>
+          <td style="padding:0 40px 24px 40px;" class="padding-mobile">
+            <div style="position:relative; border-radius:8px; overflow:hidden; background-color:#f5f2eb;">
+              <img src="{{ hero_gif_url | default(hero_image_url, true) }}" alt="Vista aerea del tetto{% if business_name %} di {{ business_name }}{% endif %} con simulazione impianto fotovoltaico" width="520" height="auto" style="display:block; width:100%; height:auto; border-radius:8px;">
+            </div>
+            <p style="margin:8px 0 0 0; font-size:11px; color:#6b6b6b; font-family:Arial,sans-serif; text-align:center; font-style:italic;">
+              Simulazione fotorealistica · Vista aerea della vostra sede
+            </p>
+          </td>
+        </tr>
+        {%- endif %}
+
+        <!-- BANNER EPC — subito dopo il rendering: visto il proprio tetto
+             coi pannelli, il lead legge la promessa "investimento € 0".
              Layout a due colonne: a sinistra il claim + dettaglio,
              a destra la cifra "€ 0" trattata come metrica. Tonalità
              scura (brand_primary_color) per contrastare il container
@@ -169,20 +184,6 @@
         </tr>
         {%- endif %}
 
-        <!-- GIF rendering personalizzato -->
-        {%- if hero_gif_url or hero_image_url %}
-        <tr>
-          <td style="padding:0 40px 24px 40px;" class="padding-mobile">
-            <div style="position:relative; border-radius:8px; overflow:hidden; background-color:#f5f2eb;">
-              <img src="{{ hero_gif_url | default(hero_image_url, true) }}" alt="Vista aerea del tetto{% if business_name %} di {{ business_name }}{% endif %} con simulazione impianto fotovoltaico" width="520" height="auto" style="display:block; width:100%; height:auto; border-radius:8px;">
-            </div>
-            <p style="margin:8px 0 0 0; font-size:11px; color:#6b6b6b; font-family:Arial,sans-serif; text-align:center; font-style:italic;">
-              Simulazione fotorealistica · Vista aerea della vostra sede
-            </p>
-          </td>
-        </tr>
-        {%- endif %}
-
         <!-- BLOCCO DATI TECNICI — 4 metriche grid -->
         {%- if roi %}
         <tr>
@@ -193,7 +194,7 @@
 
             <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%">
               <tr>
-                {%- if roi.estimated_kwp %}
+                {%- if roi.get('estimated_kwp') %}
                 <td class="stack-column" width="50%" style="padding:0 8px 16px 0; vertical-align:top;">
                   <div style="background-color:#f5f2eb; border-left:3px solid {{ brand_color_accent | default('#F4A300', true) }}; padding:16px 18px; border-radius:4px;">
                     <p style="margin:0 0 4px 0; font-size:10px; color:#6b6b6b; font-family:Arial,sans-serif; letter-spacing:0.8px; text-transform:uppercase;">Potenza installabile</p>
@@ -201,7 +202,7 @@
                   </div>
                 </td>
                 {%- endif %}
-                {%- if roi.yearly_kwh %}
+                {%- if roi.get('yearly_kwh') %}
                 <td class="stack-column" width="50%" style="padding:0 0 16px 8px; vertical-align:top;">
                   <div style="background-color:#f5f2eb; border-left:3px solid {{ brand_color_accent | default('#F4A300', true) }}; padding:16px 18px; border-radius:4px;">
                     <p style="margin:0 0 4px 0; font-size:10px; color:#6b6b6b; font-family:Arial,sans-serif; letter-spacing:0.8px; text-transform:uppercase;">Producibilità annua</p>
@@ -216,7 +217,7 @@
                    `is defined` la lasciava passare mostrando "0 m²".
                    Con il check di verità la scheda sparisce del tutto
                    quando non c'è un valore reale. #}
-                {%- if roi.area_sqm %}
+                {%- if roi.get('area_sqm') %}
                 <td class="stack-column" width="50%" style="padding:0 8px 0 0; vertical-align:top;">
                   <div style="background-color:#f5f2eb; border-left:3px solid {{ brand_color_accent | default('#F4A300', true) }}; padding:16px 18px; border-radius:4px;">
                     <p style="margin:0 0 4px 0; font-size:10px; color:#6b6b6b; font-family:Arial,sans-serif; letter-spacing:0.8px; text-transform:uppercase;">Superficie utile</p>
@@ -235,7 +236,7 @@
                     <p class="stat-number-mobile" style="margin:0; font-size:24px; line-height:28px; font-weight:700; color:{{ brand_primary_color }}; font-family:Arial,sans-serif;">€ 0</p>
                   </div>
                 </td>
-                {%- elif roi.panel_count %}
+                {%- elif roi.get('panel_count') %}
                 <td class="stack-column" width="50%" style="padding:0 0 0 8px; vertical-align:top;">
                   <div style="background-color:#f5f2eb; border-left:3px solid {{ brand_color_accent | default('#F4A300', true) }}; padding:16px 18px; border-radius:4px;">
                     <p style="margin:0 0 4px 0; font-size:10px; color:#6b6b6b; font-family:Arial,sans-serif; letter-spacing:0.8px; text-transform:uppercase;">Pannelli stimati</p>
