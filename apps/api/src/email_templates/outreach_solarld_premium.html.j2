@@ -193,7 +193,7 @@
 
             <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%">
               <tr>
-                {%- if roi.estimated_kwp is defined %}
+                {%- if roi.estimated_kwp %}
                 <td class="stack-column" width="50%" style="padding:0 8px 16px 0; vertical-align:top;">
                   <div style="background-color:#f5f2eb; border-left:3px solid {{ brand_color_accent | default('#F4A300', true) }}; padding:16px 18px; border-radius:4px;">
                     <p style="margin:0 0 4px 0; font-size:10px; color:#6b6b6b; font-family:Arial,sans-serif; letter-spacing:0.8px; text-transform:uppercase;">Potenza installabile</p>
@@ -201,7 +201,7 @@
                   </div>
                 </td>
                 {%- endif %}
-                {%- if roi.yearly_kwh is defined %}
+                {%- if roi.yearly_kwh %}
                 <td class="stack-column" width="50%" style="padding:0 0 16px 8px; vertical-align:top;">
                   <div style="background-color:#f5f2eb; border-left:3px solid {{ brand_color_accent | default('#F4A300', true) }}; padding:16px 18px; border-radius:4px;">
                     <p style="margin:0 0 4px 0; font-size:10px; color:#6b6b6b; font-family:Arial,sans-serif; letter-spacing:0.8px; text-transform:uppercase;">Producibilità annua</p>
@@ -211,7 +211,12 @@
                 {%- endif %}
               </tr>
               <tr>
-                {%- if roi.area_sqm is defined %}
+                {# Verità, non `is defined`: per molti lead area_sqm è null
+                   (geometria pannelli non disponibile da Solar) e
+                   `is defined` la lasciava passare mostrando "0 m²".
+                   Con il check di verità la scheda sparisce del tutto
+                   quando non c'è un valore reale. #}
+                {%- if roi.area_sqm %}
                 <td class="stack-column" width="50%" style="padding:0 8px 0 0; vertical-align:top;">
                   <div style="background-color:#f5f2eb; border-left:3px solid {{ brand_color_accent | default('#F4A300', true) }}; padding:16px 18px; border-radius:4px;">
                     <p style="margin:0 0 4px 0; font-size:10px; color:#6b6b6b; font-family:Arial,sans-serif; letter-spacing:0.8px; text-transform:uppercase;">Superficie utile</p>
@@ -230,7 +235,7 @@
                     <p class="stat-number-mobile" style="margin:0; font-size:24px; line-height:28px; font-weight:700; color:{{ brand_primary_color }}; font-family:Arial,sans-serif;">€ 0</p>
                   </div>
                 </td>
-                {%- elif roi.panel_count is defined %}
+                {%- elif roi.panel_count %}
                 <td class="stack-column" width="50%" style="padding:0 0 0 8px; vertical-align:top;">
                   <div style="background-color:#f5f2eb; border-left:3px solid {{ brand_color_accent | default('#F4A300', true) }}; padding:16px 18px; border-radius:4px;">
                     <p style="margin:0 0 4px 0; font-size:10px; color:#6b6b6b; font-family:Arial,sans-serif; letter-spacing:0.8px; text-transform:uppercase;">Pannelli stimati</p>
@@ -347,15 +352,14 @@
             </h2>
 
             <p style="margin:0 0 20px 0; font-size:15px; line-height:22px; color:#2b2b2b; font-family:Arial,sans-serif;">
-              {{ copy_proposition_line | default('Offriamo un percorso completo: dall\'analisi alla realizzazione chiavi in mano, con garanzia su pannelli e produzione per 25 anni.', true) }}
+              {{ copy_proposition_line | default('Offriamo un percorso completo: dall\'analisi alla realizzazione chiavi in mano.', true) }}
             </p>
 
             <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%">
               {%- for item in [
                 ('Sopralluogo tecnico incluso', 'per validare la stima satellitare e produrre il preventivo definitivo'),
                 ('Analisi degli incentivi disponibili', 'per la vostra azienda (Transizione 5.0, CER, autoconsumo)'),
-                ('Soluzioni di finanziamento dedicate', 'anche con investimento iniziale zero distribuito sul risparmio in bolletta'),
-                ('Gestione completa', 'dalla progettazione alla pratica GSE, con garanzia 25 anni sui pannelli')
+                ('Gestione completa', 'dalla progettazione alla pratica GSE')
               ] %}
               <tr>
                 <td style="padding:0 0 12px 0;">
