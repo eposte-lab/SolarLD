@@ -437,6 +437,15 @@ export interface OutreachSendWithEngagement extends OutreachSendRow {
     outreach_delivered_at: string | null;
     outreach_opened_at: string | null;
     outreach_clicked_at: string | null;
+    // Parent subject contact — surfaced inline in the Invii table so the
+    // operator sees who/what each send went to (business + phone/email)
+    // without opening the lead.
+    subjects: {
+      business_name: string | null;
+      decision_maker_name: string | null;
+      decision_maker_phone: string | null;
+      decision_maker_email: string | null;
+    } | null;
   } | null;
 }
 

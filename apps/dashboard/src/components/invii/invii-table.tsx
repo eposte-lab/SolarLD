@@ -51,6 +51,7 @@ type SortKey =
   | 'sent_at'
   | 'step'
   | 'channel'
+  | 'contact'
   | 'subject'
   | 'status'
   | 'delivered'
@@ -69,6 +70,10 @@ export function InviiTable({ rows }: { rows: CampaignWithLeadEngagement[] }) {
         return c.sequence_step ?? 0;
       case 'channel':
         return CHANNEL_LABELS[c.channel] ?? c.channel;
+      case 'contact': {
+        const s = c.leads?.subjects;
+        return s?.business_name ?? s?.decision_maker_name ?? '';
+      }
       case 'subject':
         return c.email_subject ?? c.template_id ?? '';
       case 'status':
@@ -90,6 +95,7 @@ export function InviiTable({ rows }: { rows: CampaignWithLeadEngagement[] }) {
             <SortableTh sortKey="sent_at" active={sortKey} dir={sortDir} onSort={requestSort} className="px-5 py-3">Data invio</SortableTh>
             <SortableTh sortKey="step" active={sortKey} dir={sortDir} onSort={requestSort} className="px-5 py-3">Step</SortableTh>
             <SortableTh sortKey="channel" active={sortKey} dir={sortDir} onSort={requestSort} className="px-5 py-3">Canale</SortableTh>
+            <SortableTh sortKey="contact" active={sortKey} dir={sortDir} onSort={requestSort} className="px-5 py-3">Contatto</SortableTh>
             <SortableTh sortKey="subject" active={sortKey} dir={sortDir} onSort={requestSort} className="px-5 py-3">Subject / Template</SortableTh>
             <SortableTh sortKey="status" active={sortKey} dir={sortDir} onSort={requestSort} className="px-5 py-3">Stato invio</SortableTh>
             <SortableTh sortKey="delivered" active={sortKey} dir={sortDir} onSort={requestSort} className="px-5 py-3">Consegnato</SortableTh>
@@ -124,6 +130,36 @@ export function InviiTable({ rows }: { rows: CampaignWithLeadEngagement[] }) {
                 >
                   {CHANNEL_LABELS[c.channel] ?? c.channel}
                 </span>
+              </td>
+              <td className="px-5 py-3 text-xs">
+                {(() => {
+                  const s = c.leads?.subjects;
+                  const name = s?.business_name || s?.decision_maker_name;
+                  const phone = s?.decision_maker_phone;
+                  const email = s?.decision_maker_email;
+                  if (!name && !phone && !email) {
+                    return <span className="text-on-surface-variant">—</span>;
+                  }
+                  return (
+                    <div className="flex flex-col gap-0.5">
+                      {name && (
+                        <span className="font-medium text-on-surface">{name}</span>
+                      )}
+                      {phone ? (
+                        <a
+                          href={`tel:${phone}`}
+                          className="tabular-nums text-on-surface-variant hover:text-primary hover:underline"
+                        >
+                          {phone}
+                        </a>
+                      ) : email ? (
+                        <span className="max-w-[180px] truncate text-on-surface-variant">
+                          {email}
+                        </span>
+                      ) : null}
+                    </div>
+                  );
+                })()}
               </td>
               <td className="max-w-xs truncate px-5 py-3 text-xs font-medium text-on-surface">
                 {c.email_subject ?? c.template_id ?? (
