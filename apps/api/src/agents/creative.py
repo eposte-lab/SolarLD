@@ -502,12 +502,55 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
                 # mostra subito il numero. Best-effort: in caso di errore
                 # PIL ritorna i byte originali — la rendering pipeline non
                 # si rompe per un problema di font.
-                savings_for_strip = float(roi.yearly_savings_eur) if roi is not None else 0.0
+                # Il numero sullo strip DEVE coincidere con quello mostrato
+                # da email e dossier. Quelli leggono `roof.derivations`
+                # (compute_full_derivations, col cost_assumptions del tenant)
+                # e promuovono `realistic_yearly_savings_eur`. Lo strip
+                # usava invece compute_roi.yearly_savings_eur — una stima
+                # astratta diversa (es. 35.750 sull'overlay vs 34.881 in
+                # mail). Ricalcoliamo qui con la stessa funzione/sorgente
+                # così l'overlay è coerente; fallback a compute_roi solo se
+                # le derivazioni complete non sono disponibili.
+                savings_for_strip = 0.0
+                kwp_for_strip = float(roi.estimated_kwp) if roi is not None else None
+                try:
+                    from ..services.roi_service import compute_full_derivations
+
+                    _strip_deriv = compute_full_derivations(
+                        estimated_kwp=insight.estimated_kwp,
+                        estimated_yearly_kwh=insight.estimated_yearly_kwh,
+                        roof_area_sqm=insight.area_sqm,
+                        panel_count=(
+                            len(insight.panels) if insight.panels else insight.max_panel_count
+                        ),
+                        panel_capacity_w=insight.panel_capacity_w,
+                        panel_width_m=insight.panel_width_m,
+                        panel_height_m=insight.panel_height_m,
+                        subject_type=(subject.get("type") or "unknown"),
+                        tenant_cost_assumptions=tenant_row.get("cost_assumptions"),
+                    )
+                    if _strip_deriv:
+                        savings_for_strip = float(
+                            _strip_deriv.get("realistic_yearly_savings_eur")
+                            or _strip_deriv.get("yearly_savings_eur")
+                            or 0.0
+                        )
+                        _strip_kwp = _strip_deriv.get("estimated_kwp")
+                        if _strip_kwp:
+                            kwp_for_strip = float(_strip_kwp)
+                except Exception as exc:  # noqa: BLE001 — best-effort
+                    log.warning(
+                        "creative.strip_derivations_failed",
+                        lead_id=payload.lead_id,
+                        err=str(exc)[:160],
+                    )
+                if savings_for_strip <= 0 and roi is not None:
+                    savings_for_strip = float(roi.yearly_savings_eur or 0.0)
                 if savings_for_strip > 0:
                     after_bytes = bake_savings_strip(
                         after_bytes,
                         savings_eur=savings_for_strip,
-                        kwp=(float(roi.estimated_kwp) if roi is not None else None),
+                        kwp=kwp_for_strip,
                         brand_color_hex=(tenant_row.get("brand_primary_color") or "#183054"),
                     )
 
