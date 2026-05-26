@@ -254,21 +254,25 @@ export const overlayStatsOnVideo = async (
  * produces banded gradients and 3-4× larger files.
  *
  * Targets:
- *   - 1280×720 (16:9) — allineato al formato delle immagini start/end
- *     e del crossfade; niente crop verticale quando il rendering è
- *     mostrato a 16:9 su portale e dashboard
+ *   - 800×450 (16:9) — l'email mostra la GIF a ~528px di larghezza, quindi
+ *     1280×720 era sovradimensionato e appesantiva il caricamento inline
+ *     (la GIF è incorporata via CID nell'outreach). 800px resta nitida al
+ *     display reale e taglia il file a ~40-50%, così carica molto prima
+ *     su Gmail/mobile. Il portale usa l'MP4, non la GIF, quindi non perde
+ *     qualità. Resta 16:9: nessun crop.
  *   - 15 fps (was 12, Replicate native is 24-30) — 15 is the perceptual
  *     sweet spot for a slow reveal: anything <12 stutters visibly,
  *     anything >18 inflates filesize without buying smoothness
- *   - typical output: 4-6 MB for a 5s clip, ~9-12 MB for 10s
- *     (Gmail caps inline at ~25 MB so we have headroom)
+ *   - typical output: ~1.8-2.8 MB for a 5s clip (was 4-6 MB) — ben sotto
+ *     il cap di 6.5 MB dell'embed inline, così l'animazione passa sempre
+ *     senza ripiegare sull'immagine statica
  */
 export const convertToGif = async (
   inputMp4Path: string,
   outputGifPath: string,
 ): Promise<void> => {
   const filterComplex =
-    'fps=15,scale=1280:720:flags=lanczos,split[s0][s1];' +
+    'fps=15,scale=800:450:flags=lanczos,split[s0][s1];' +
     '[s0]palettegen=stats_mode=diff[p];' +
     '[s1][p]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle';
 
