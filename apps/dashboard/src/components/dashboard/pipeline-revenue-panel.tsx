@@ -2,7 +2,7 @@
  * PipelineRevenuePanel — estimated revenue by funnel stage.
  *
  * Server component. Uses CSS horizontal bars (no Recharts/JS required).
- * Revenue formula: Σ(estimated_kwp × €1500/kWp × stage_conversion).
+ * Revenue formula: Σ(estimated_kwp × €1000/kWp × stage_conversion).
  */
 
 import type { PipelineStageRevenue } from '@/lib/data/geo-analytics';
@@ -99,7 +99,7 @@ export function PipelineRevenuePanel({ stages, className }: PipelineRevenuePanel
 
       {/* Footer note */}
       <p className="mt-4 text-[9px] text-on-surface-variant/50">
-        Stima basata su kW × €1 500/kW × tasso conversione per stage.
+        Stima basata su kW × €1 000/kW × tasso conversione per stage.
         Non è un valore contrattuale.
       </p>
     </div>

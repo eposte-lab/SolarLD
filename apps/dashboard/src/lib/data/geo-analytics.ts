@@ -207,9 +207,9 @@ export async function getSendTimeHeatmap(days = 90): Promise<HeatmapCell[]> {
 /**
  * Estimates pipeline revenue by funnel stage.
  *
- * Formula: Σ(lead.roi_data.estimated_kwp ?? 8) × €1 500/kWp × stage_conversion_factor
+ * Formula: Σ(lead.roi_data.estimated_kwp ?? 8) × €1 000/kWp × stage_conversion_factor
  *
- * The €1 500/kWp is a conservative Italian market reference rate. The
+ * The €1 000/kWp is a conservative Italian market reference rate. The
  * conversion factors reflect average close rates for each stage:
  *   sent/new    5%, opened/clicked  15%, whatsapp  35%,
  *   appointment 55%, won           100%.
@@ -281,7 +281,7 @@ export async function getPipelineRevenue(): Promise<PipelineStageRevenue[]> {
         label: bucket.label,
         status: key,
         count: entry.count,
-        estimated_eur: Math.round(entry.kwp * 1500 * bucket.conversion),
+        estimated_eur: Math.round(entry.kwp * 1000 * bucket.conversion),
         color: bucket.color,
       };
     });
@@ -447,7 +447,7 @@ export async function getAiInsights(): Promise<AiInsight[]> {
         roi_data: { estimated_kwp?: number } | null;
       }>) {
         const kwp = lr.roi_data?.estimated_kwp ?? 8;
-        roiByLead.set(lr.id, kwp * 1500);
+        roiByLead.set(lr.id, kwp * 1000);
       }
     }
     const wonValue = wonRows.reduce((acc, r) => {
@@ -456,7 +456,7 @@ export async function getAiInsights(): Promise<AiInsight[]> {
       if (row.lead_id && roiByLead.has(row.lead_id)) {
         return acc + (roiByLead.get(row.lead_id) ?? 0);
       }
-      return acc + 8 * 1500;
+      return acc + 8 * 1000;
     }, 0);
     const prevWon = wonConversionsPrevMonthRes.count ?? 0;
     const delta = prevWon > 0 ? Math.round(((wonCount - prevWon) / prevWon) * 100) : null;

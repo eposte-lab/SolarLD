@@ -6,7 +6,7 @@
  * Columns:
  *   Temperatura (score_tier chip), Ragione sociale, Zona (comune),
  *   Score, Ultimo evento, P.Conv. (conversion probability),
- *   Valore est. (kWp × €1500), Azione
+ *   Valore est. (kWp × €1000), Azione
  *
  * Sort: click any column header to toggle ASC/DESC.
  * Initial sort: score DESC.
@@ -52,9 +52,9 @@ function conversionProb(status: string): number {
 
 /** Estimated deal value in EUR from roi_data */
 function estimatedEur(lead: LeadListRow): number {
-  // roofs.estimated_kwp * €1500/kWp * conversion prob
+  // roofs.estimated_kwp * €1000/kWp * conversion prob
   const kwp = (lead.roofs?.estimated_kwp ?? 8);
-  return Math.round(kwp * 1500 * conversionProb(lead.pipeline_status));
+  return Math.round(kwp * 1000 * conversionProb(lead.pipeline_status));
 }
 
 function displayName(lead: LeadListRow): string {
