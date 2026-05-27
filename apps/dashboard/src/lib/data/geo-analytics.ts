@@ -23,6 +23,9 @@ export interface GeoLeadPin {
   id: string;
   provincia: string; // 2-char province code
   comune: string | null;
+  lat: number; // precise rooftop position
+  lng: number;
+  business_name: string | null;
   pipeline_status: LeadStatus;
   score_tier: LeadScoreTier;
   score: number;
@@ -98,14 +101,19 @@ export async function getGeoLeads(): Promise<{
   aggregates: ProvinceAggregate[];
 }> {
   const supabase = await createSupabaseServerClient();
+  // Solo LEAD ATTIVI: si escludono i contatti non lavorati ('new') e gli
+  // stati terminali/negativi (blacklisted, closed_lost). E si richiede la
+  // posizione PRECISA del tetto (roofs.lat/lng) per pinnarli sul punto
+  // reale, non sul centroide provincia.
   const { data, error } = await supabase
     .from('leads')
     .select(
       `id, pipeline_status, score_tier, score,
        outreach_opened_at, outreach_clicked_at, created_at,
-       roofs:roofs(provincia, comune)`,
+       roofs:roofs(lat, lng, provincia, comune),
+       subjects:subjects(business_name)`,
     )
-    .not('pipeline_status', 'in', '("blacklisted")')
+    .not('pipeline_status', 'in', '("blacklisted","closed_lost","new")')
     .order('score', { ascending: false })
     .limit(500);
 
@@ -119,17 +127,26 @@ export async function getGeoLeads(): Promise<{
     outreach_opened_at: string | null;
     outreach_clicked_at: string | null;
     created_at: string;
-    roofs: { provincia: string | null; comune: string | null } | null;
+    roofs: {
+      lat: number | null;
+      lng: number | null;
+      provincia: string | null;
+      comune: string | null;
+    } | null;
+    subjects: { business_name: string | null } | null;
   };
 
   const rows = (data ?? []) as unknown as RawRow[];
 
   const pins: GeoLeadPin[] = rows
-    .filter((r) => r.roofs?.provincia)
+    .filter((r) => r.roofs?.lat != null && r.roofs?.lng != null)
     .map((r) => ({
       id: r.id,
-      provincia: r.roofs!.provincia!.toUpperCase().trim(),
+      provincia: (r.roofs?.provincia ?? '').toUpperCase().trim(),
       comune: r.roofs?.comune ?? null,
+      lat: r.roofs!.lat!,
+      lng: r.roofs!.lng!,
+      business_name: r.subjects?.business_name ?? null,
       pipeline_status: r.pipeline_status,
       score_tier: r.score_tier,
       score: r.score,

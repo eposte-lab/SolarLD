@@ -11,7 +11,7 @@
 
 import dynamic from 'next/dynamic';
 
-import type { ProvinceAggregate } from '@/lib/data/geo-analytics';
+import type { GeoLeadPin, ProvinceAggregate } from '@/lib/data/geo-analytics';
 
 const GeoRadarMapClient = dynamic(
   () =>
@@ -28,8 +28,9 @@ const GeoRadarMapClient = dynamic(
 
 export interface GeoRadarMapLoaderProps {
   aggregates: ProvinceAggregate[];
+  pins?: GeoLeadPin[];
 }
 
-export function GeoRadarMapLoader({ aggregates }: GeoRadarMapLoaderProps) {
-  return <GeoRadarMapClient aggregates={aggregates} />;
+export function GeoRadarMapLoader({ aggregates, pins }: GeoRadarMapLoaderProps) {
+  return <GeoRadarMapClient aggregates={aggregates} pins={pins} />;
 }

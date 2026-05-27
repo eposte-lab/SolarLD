@@ -23,15 +23,18 @@ interface GeoRadarMapProps {
 
 export async function GeoRadarMap({ className }: GeoRadarMapProps) {
   let aggregates: ProvinceAggregate[] = [];
+  let pins: Awaited<ReturnType<typeof getGeoLeads>>['pins'] = [];
 
   try {
-    const { aggregates: agg } = await getGeoLeads();
-    aggregates = agg;
+    const res = await getGeoLeads();
+    aggregates = res.aggregates;
+    pins = res.pins;
   } catch {
     // Non-fatal — renders empty map
   }
 
-  const totalLeads = aggregates.reduce((s, a) => s + a.total, 0);
+  // Header counts based on geolocated ACTIVE leads (the precise pins).
+  const totalLeads = pins.length;
   const hotProvinces = aggregates.filter((a) => a.hot > 0).length;
 
   return (
@@ -97,8 +100,8 @@ export async function GeoRadarMap({ className }: GeoRadarMapProps) {
           non c'è ancora nessun lead con provincia mostriamo solo una
           nota fluttuante in basso, invece di nascondere la mappa. */}
       <div className="relative h-[360px] overflow-hidden rounded-2xl ghost-border-strong">
-        <GeoRadarMapLoader aggregates={aggregates} />
-        {aggregates.length === 0 ? (
+        <GeoRadarMapLoader aggregates={aggregates} pins={pins} />
+        {pins.length === 0 ? (
           <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center p-4">
             <p className="pointer-events-auto rounded-full liquid-glass-sm px-4 py-2 text-xs text-on-surface-variant shadow-liquid-glass">
               Nessun lead con provincia ancora.{' '}

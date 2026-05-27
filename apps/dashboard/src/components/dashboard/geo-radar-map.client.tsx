@@ -15,7 +15,7 @@ import mapboxgl from 'mapbox-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { useEffect, useRef, useState } from 'react';
 
-import type { ProvinceAggregate } from '@/lib/data/geo-analytics';
+import type { GeoLeadPin, ProvinceAggregate } from '@/lib/data/geo-analytics';
 import { getCentroid } from './italy-provinces';
 
 // ── colour helpers ────────────────────────────────────────────────────────────
@@ -33,6 +33,33 @@ function dominantColor(agg: ProvinceAggregate): string {
   return COLOR_DIM;
 }
 
+/** Per-lead marker colour by funnel status / tier. */
+function pinColor(pin: GeoLeadPin): string {
+  if (pin.pipeline_status === 'closed_won') return COLOR_MINT;
+  if (pin.pipeline_status === 'appointment') return COLOR_MINT_DIM;
+  if (pin.score_tier === 'hot') return COLOR_WARNING;
+  return COLOR_DIM;
+}
+
+const STATUS_LABEL: Record<string, string> = {
+  ready_to_send: 'Pronto',
+  sent: 'Inviato',
+  delivered: 'Consegnato',
+  opened: 'Letto',
+  clicked: 'Cliccato',
+  engaged: 'Engaged',
+  to_call: 'Da chiamare',
+  whatsapp: 'WhatsApp',
+  appointment: 'Appuntamento',
+  closed_won: 'Firmato',
+};
+
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] ?? c,
+  );
+}
+
 function markerSize(count: number): number {
   // Scale: 1 lead → 10px, 50+ leads → 40px (logarithmic)
   return Math.max(10, Math.min(40, 10 + Math.log10(count + 1) * 14));
@@ -42,12 +69,16 @@ function markerSize(count: number): number {
 
 export interface GeoRadarMapClientProps {
   aggregates: ProvinceAggregate[];
+  /** Per-lead precise pins (preferred). When present, the map plots one
+   *  marker at each rooftop's lat/lng instead of one blob per province. */
+  pins?: GeoLeadPin[];
   /** Optional: pre-selected province code (highlights that marker). */
   selectedProvincia?: string;
 }
 
 export function GeoRadarMapClient({
   aggregates,
+  pins,
   selectedProvincia,
 }: GeoRadarMapClientProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -128,6 +159,45 @@ export function GeoRadarMapClient({
       className: 'geo-popup',
       maxWidth: '240px',
     });
+
+    // ── Preferred: one precise marker per active lead (rooftop lat/lng) ──
+    if (pins && pins.length > 0) {
+      for (const pin of pins) {
+        const color = pinColor(pin);
+        const el = document.createElement('div');
+        el.className = 'geo-marker';
+        el.style.cssText = `
+          width: 11px; height: 11px; border-radius: 50%;
+          background-color: ${color};
+          border: 1.5px solid rgba(255,255,255,0.85);
+          box-shadow: 0 0 0 1px rgba(0,0,0,0.30);
+          cursor: pointer;
+        `;
+        const marker = new mapboxgl.Marker({ element: el, anchor: 'center' })
+          .setLngLat([pin.lng, pin.lat])
+          .addTo(mapRef.current!);
+
+        el.addEventListener('mouseenter', () => {
+          const label = pin.business_name || pin.comune || 'Lead';
+          const meta = [
+            pin.comune ? escapeHtml(pin.comune) : null,
+            STATUS_LABEL[pin.pipeline_status] ?? pin.pipeline_status,
+            `score ${pin.score}`,
+          ]
+            .filter(Boolean)
+            .join(' · ');
+          const content = `
+            <div style="font-family:'Plus Jakarta Sans',sans-serif;font-size:12px;line-height:1.5">
+              <div style="font-weight:700;font-size:13px;margin-bottom:4px;letter-spacing:-0.01em">${escapeHtml(label)}</div>
+              <div style="color:#8A9499">${meta}</div>
+            </div>`;
+          popup.setLngLat([pin.lng, pin.lat]).setHTML(content).addTo(mapRef.current!);
+        });
+        el.addEventListener('mouseleave', () => popup.remove());
+        markersRef.current.push(marker);
+      }
+      return;
+    }
 
     for (const agg of aggregates) {
       const centroid = getCentroid(agg.provincia);
@@ -228,7 +298,7 @@ export function GeoRadarMapClient({
 
       markersRef.current.push(marker);
     }
-  }, [ready, aggregates, selectedProvincia]);
+  }, [ready, aggregates, pins, selectedProvincia]);
 
   // ── no token → static fallback ─────────────────────────────────────────────
   if (!token) {
