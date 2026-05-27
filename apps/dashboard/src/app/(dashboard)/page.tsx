@@ -21,7 +21,6 @@ import { KpiChipCard } from '@/components/ui/kpi-chip-card';
 import { SectionEyebrow } from '@/components/ui/section-eyebrow';
 
 import { AiExecutiveInsights } from '@/components/dashboard/ai-executive-insights';
-import { DailyCapWidget } from '@/components/dashboard/daily-cap-widget';
 import { GeoRadarMap } from '@/components/dashboard/geo-radar-map';
 import { HotLeadsWidget } from '@/components/dashboard/hot-leads-widget';
 import { LeadTemperatureBoard } from '@/components/dashboard/lead-temperature-board';
@@ -125,9 +124,20 @@ export default async function DashboardOverview() {
           className="md:col-span-2"
         />
         <KpiChipCard
-          label="Appuntamenti 30gg"
-          value={formatNumber(kpis.appointments_30d)}
-          tone="neutral"
+          label="Invii in target oggi"
+          value={`${dailyCap.sent_today} / ${dailyCap.cap}`}
+          hint={`${
+            dailyCap.cap > 0
+              ? Math.round((dailyCap.sent_today / dailyCap.cap) * 100)
+              : 0
+          }% · Europe/Rome`}
+          tone={
+            dailyCap.cap > 0 && dailyCap.sent_today / dailyCap.cap >= 0.9
+              ? 'critical'
+              : dailyCap.cap > 0 && dailyCap.sent_today / dailyCap.cap >= 0.7
+                ? 'warning'
+                : 'success'
+          }
         />
         <KpiChipCard
           label="Contratti firmati"
@@ -136,9 +146,6 @@ export default async function DashboardOverview() {
           tone="success"
         />
       </BentoGrid>
-
-      {/* ── Row 2b: Daily cap SLA widget ─────────────────────────────────── */}
-      <DailyCapWidget stats={dailyCap} />
 
       {/* ── Row 3: Pipeline Revenue (full width) ─────────────────────────── */}
       <BentoCard span="full">
