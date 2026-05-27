@@ -230,6 +230,95 @@ class AppointmentRequest(BaseModel):
     notes: str | None = Field(default=None, max_length=1000)
 
 
+async def _notify_tenant_contact_request(
+    sb: Any,
+    *,
+    tenant_id: str,
+    tenant_data: dict[str, Any],
+    payload: AppointmentRequest,
+    dossier_url: str | None,
+) -> None:
+    """Email the tenant when a lead submits the dossier contact form.
+
+    Sends to ``tenants.contact_email`` from the tenant's active inbox
+    (verified domain → deliverable), with Reply-To set to the prospect's
+    email so the installer can reply to the lead in one click.
+    Fail-open: any error is logged and never blocks the 202 response.
+    """
+    to_email = (tenant_data.get("contact_email") or "").strip()
+    if not to_email:
+        return
+    try:
+        inbox = (
+            sb.table("tenant_inboxes")
+            .select("email")
+            .eq("tenant_id", tenant_id)
+            .eq("active", True)
+            .order("created_at")
+            .limit(1)
+            .execute()
+        )
+        from_addr = (inbox.data or [{}])[0].get("email") if inbox.data else None
+        if not from_addr:
+            log.warning("appointment.email_no_inbox", tenant_id=tenant_id)
+            return
+
+        biz = tenant_data.get("business_name") or "la vostra azienda"
+        name = payload.contact_name or "Un contatto"
+        rows: list[str] = []
+        if payload.contact_name:
+            rows.append(f"<b>Nome:</b> {payload.contact_name}")
+        if payload.phone:
+            rows.append(f"<b>Telefono:</b> <a href=\"tel:{payload.phone}\">{payload.phone}</a>")
+        if payload.email:
+            rows.append(f"<b>Email:</b> <a href=\"mailto:{payload.email}\">{payload.email}</a>")
+        if payload.preferred_time:
+            rows.append(f"<b>Preferenza orario:</b> {payload.preferred_time}")
+        if payload.notes:
+            rows.append(f"<b>Note:</b> {payload.notes}")
+        details = "<br>".join(rows) or "(nessun dettaglio fornito)"
+        link = (
+            f'<p style="margin:16px 0 0 0;"><a href="{dossier_url}" '
+            f'style="color:#16a34a;font-weight:700;">Apri il dossier del lead →</a></p>'
+            if dossier_url
+            else ""
+        )
+        html = (
+            f'<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.6;color:#1f2937;">'
+            f'<p style="margin:0 0 12px 0;font-size:16px;font-weight:700;color:#0f1f3d;">'
+            f"Nuova richiesta di contatto dal dossier</p>"
+            f'<p style="margin:0 0 12px 0;">Un prospect ha lasciato i suoi dati '
+            f"per essere ricontattato da {biz}.</p>"
+            f'<div style="background:#f5f7fa;border-radius:8px;padding:14px 16px;">{details}</div>'
+            f"{link}"
+            f'<p style="margin:16px 0 0 0;font-size:12px;color:#8a9099;">'
+            f"Rispondi a questa email per scrivere direttamente al cliente.</p></div>"
+        )
+        text = (
+            "Nuova richiesta di contatto dal dossier.\n\n"
+            + "\n".join(
+                r.replace("<b>", "").replace("</b>", "")
+                for r in rows
+            )
+            + (f"\n\nDossier: {dossier_url}" if dossier_url else "")
+        )
+        from ..services.resend_service import SendEmailInput, send_email
+
+        await send_email(
+            SendEmailInput(
+                from_address=from_addr,
+                to=[to_email],
+                subject=f"Nuova richiesta di contatto dal dossier — {name}",
+                html=html,
+                text=text,
+                reply_to=(payload.email or None),
+            )
+        )
+        log.info("appointment.email_sent", tenant_id=tenant_id, to=to_email)
+    except Exception as exc:  # noqa: BLE001 — never block the 202
+        log.warning("appointment.email_failed", tenant_id=tenant_id, err=str(exc)[:200])
+
+
 @router.post("/lead/{slug}/appointment", status_code=status.HTTP_202_ACCEPTED)
 async def request_appointment(slug: str, payload: AppointmentRequest) -> dict[str, object]:
     """Lead submits the in-portal appointment form.
@@ -283,25 +372,39 @@ async def request_appointment(slug: str, payload: AppointmentRequest) -> dict[st
         payload=event_payload,
     )
 
-    # ── CRM webhook (fail-open, 5s timeout) ──────────────────────────
+    # Tenant config for downstream notifications (CRM webhook + email).
     tenant_row = (
         sb.table("tenants")
-        .select("appointment_webhook_url")
+        .select("appointment_webhook_url, contact_email, business_name")
         .eq("id", lead["tenant_id"])
         .limit(1)
         .maybe_single()
         .execute()
     )
-    webhook_url: str | None = (
-        (tenant_row.data or {}).get("appointment_webhook_url") if tenant_row else None
-    )
-    if webhook_url:
-        from ..core.config import settings
+    tenant_data = (tenant_row.data or {}) if tenant_row else {}
 
-        # Link al dossier che il prospect ha visto, così nel CRM del
-        # cliente il contatto arriva con il riferimento alla proposta.
-        portal_origin = (settings.next_public_lead_portal_url or "").rstrip("/")
-        dossier_url = f"{portal_origin}/dossier/{slug}" if portal_origin else None
+    # Link al dossier (riusato da webhook + email).
+    from ..core.config import settings as _settings
+
+    _portal_origin = (_settings.next_public_lead_portal_url or "").rstrip("/")
+    dossier_url = f"{_portal_origin}/dossier/{slug}" if _portal_origin else None
+
+    # ── Notifica EMAIL al tenant (fail-open) ─────────────────────────
+    # Il form del dossier recapita la richiesta di contatto direttamente
+    # nella casella del tenant (tenants.contact_email), dall'inbox
+    # verificato, con Reply-To = email del prospect così l'installatore
+    # risponde con un clic al cliente.
+    await _notify_tenant_contact_request(
+        sb,
+        tenant_id=lead["tenant_id"],
+        tenant_data=tenant_data,
+        payload=payload,
+        dossier_url=dossier_url,
+    )
+
+    # ── CRM webhook (fail-open, 5s timeout) ──────────────────────────
+    webhook_url: str | None = tenant_data.get("appointment_webhook_url")
+    if webhook_url:
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
                 await client.post(
