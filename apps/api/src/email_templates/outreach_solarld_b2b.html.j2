@@ -148,7 +148,7 @@
             <td class="px" style="padding:16px 32px 0 32px;">
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="social" style="background-color:#f5f7fa;border-radius:8px;"><tr>
                 <td style="padding:12px 16px;font-size:12px;line-height:18px;color:#4a4f57;">
-                  <span style="color:{{ accent }};font-weight:700;">&#10003;</span>&nbsp; {{ tenant_legal_name | default(tenant_name, true) }} · Installatore certificato GSE{% if installations_count | default(0, true) %} · {{ installations_count }} impianti realizzati{% endif %}
+                  <span style="color:{{ accent }};font-weight:700;">&#10003;</span>&nbsp; {{ tenant_legal_name | default(tenant_name, true) }} · Installatore certificato GSE{% if installations_count | default(0, true) %} · <strong style="color:{{ navy }};">{{ installations_count }} impianti realizzati</strong>{% if installations_area %} in {{ installations_area }}{% endif %}{% endif %}
                 </td>
               </tr></table>
             </td>
@@ -220,17 +220,34 @@
           </tr>
           <tr><td class="center-mb" align="center" style="padding:0 32px 4px 32px;"><p class="txt-muted-d" style="margin:0;font-size:11px;line-height:16px;color:#8a9099;">Accesso al report personale · Nessuna registrazione richiesta</p></td></tr>
 
-          {# FIRMA #}
+          {# FIRMA — persona reale (referente) con foto/telefono/email.
+             Fallback alla firma testuale del tenant se i campi referente
+             non sono configurati. NB: si mostrano i contatti del MITTENTE
+             (referente), mai l'email del destinatario. #}
           <tr>
             <td class="px" style="padding:22px 32px 26px 32px;">
               <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-top:1px solid #eceef1;width:100%;">
-                <tr><td style="height:18px;line-height:18px;font-size:0;">&nbsp;</td></tr>
+                <tr><td colspan="2" style="height:18px;line-height:18px;font-size:0;">&nbsp;</td></tr>
                 <tr>
+                  {%- if referente_photo_url %}
+                  <td width="60" valign="top" style="padding-right:12px;">
+                    <img src="{{ referente_photo_url }}" width="48" height="48" alt="{{ referente_name | default(tenant_name, true) }}" style="width:48px;height:48px;border-radius:50%;">
+                  </td>
+                  {%- endif %}
                   <td valign="top" style="font-size:13px;line-height:19px;color:#4a4f57;">
                     A disposizione per qualsiasi domanda,<br>
-                    <strong style="color:{{ navy }};font-size:15px;">{{ email_signature | default(sender_first_name | default(tenant_name, true), true) }}</strong><br>
-                    {% if not email_signature %}{{ tenant_name }}{% endif %}
-                    {%- if recipient_email %}<br><a href="mailto:{{ recipient_email }}" style="color:{{ accent }};">{{ recipient_email }}</a>{%- endif %}
+                    {%- if referente_name %}
+                    <strong style="color:{{ navy }};font-size:15px;">{{ referente_name }}</strong><br>
+                    {%- if referente_role %}{{ referente_role }} · {% endif %}{{ tenant_name }}
+                    {%- if referente_phone or referente_email %}<br>
+                      {%- if referente_phone %}<a href="tel:{{ referente_phone }}" style="color:{{ accent }};font-weight:600;">{{ referente_phone }}</a>{% endif %}
+                      {%- if referente_phone and referente_email %} · {% endif %}
+                      {%- if referente_email %}<a href="mailto:{{ referente_email }}" style="color:{{ accent }};">{{ referente_email }}</a>{% endif %}
+                    {%- endif %}
+                    {%- else %}
+                    <strong style="color:{{ navy }};font-size:15px;">{{ email_signature | default(sender_first_name | default(tenant_name, true), true) }}</strong>
+                    {%- if not email_signature %}<br>{{ tenant_name }}{% endif %}
+                    {%- endif %}
                   </td>
                 </tr>
               </table>
