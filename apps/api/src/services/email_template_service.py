@@ -121,6 +121,11 @@ class OutreachContext:
     # discreet callout that hints at the zero-capex / impianto-ceduto
     # offer — wording kept clean of "gratis/gratuito"-style spam triggers.
     epc_enabled: bool = False
+    # "Lavori realizzati" — fino a 2 case study (a rotazione) mostrati come
+    # social proof compatto nell'email B2B; `installations_count` è il
+    # numero totale impianti realizzati per la riga di social proof.
+    case_studies: list[dict[str, Any]] | None = None
+    installations_count: int | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -185,6 +190,8 @@ def render_outreach_email(ctx: OutreachContext) -> RenderedEmail:
         "copy_proposition_line": ctx.copy_proposition_line,
         "cta_primary_label": ctx.cta_primary_label,
         "epc_enabled": ctx.epc_enabled,
+        "case_studies": ctx.case_studies or [],
+        "installations_count": ctx.installations_count,
     }
 
     # Apply copy_overrides last — A/B variant fields override everything.

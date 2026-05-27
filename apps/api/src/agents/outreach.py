@@ -260,7 +260,9 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
                 # ma finora NON selezionati → tornavano None e il banner
                 # "€ 0" EPC non compariva mai, l'accento restava sull'oro
                 # di default. brand_color_accent: migration 0142.
-                "email_signature, brand_color_accent, epc_enabled"
+                "email_signature, brand_color_accent, epc_enabled, "
+                # Social proof: numero totale impianti realizzati.
+                "installations_count"
             )
             .eq("id", payload.tenant_id)
             .single()
@@ -1187,6 +1189,9 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
             ),
             # Premium template surfaces a discreet EPC callout when set.
             epc_enabled=bool(tenant_row.get("epc_enabled")),
+            # "Lavori realizzati": 2 case study a rotazione + totale impianti.
+            case_studies=_load_rotating_case_studies(sb, payload.tenant_id, n=2),
+            installations_count=tenant_row.get("installations_count"),
         )
         # ── Phase 2 campagne custom: DB-stored HTML template ──────────────
         # When effective_template_id is set (generic_outreach lists), load the
@@ -2416,6 +2421,40 @@ _LOGO_EMAIL_MAX_W = 360
 # 10 MB tipici dei provider SMTP (Resend / SES). Sopra questo cap si
 # ripiega sul render statico così l'email non viene rifiutata dal MTA.
 _GIF_INLINE_MAX_BYTES = 6_500_000
+
+
+def _load_rotating_case_studies(
+    sb: Any, tenant_id: str, *, n: int = 2
+) -> list[dict[str, Any]]:
+    """Return up to ``n`` active case studies for the tenant, ROTATING.
+
+    The two shown in each email alternate over time so successive sends
+    don't always feature the same installations. We fetch all active
+    case studies (ordered) and pick a window of ``n`` starting at an
+    offset derived from the current epoch-minutes — cheap, deterministic
+    per-minute, and rotates naturally across a send batch. Best-effort:
+    any error returns an empty list (the email module just hides).
+    """
+    try:
+        res = (
+            sb.table("tenant_case_studies")
+            .select("client_name, story, image_url, logo_url, kwp, location, year")
+            .eq("tenant_id", tenant_id)
+            .eq("active", True)
+            .order("display_order")
+            .limit(20)
+            .execute()
+        )
+        rows = res.data or []
+        if len(rows) <= n:
+            return rows
+        import time as _time
+
+        offset = int(_time.time() // 60) % len(rows)
+        rotated = rows[offset:] + rows[:offset]
+        return rotated[:n]
+    except Exception:  # noqa: BLE001 — never block the send
+        return []
 
 
 async def _gif_to_inline_cid(url: str) -> tuple[str, str, str] | None:

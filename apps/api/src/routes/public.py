@@ -106,13 +106,31 @@ async def get_public_lead(slug: str) -> dict[str, object]:
             "legal_name, vat_number, legal_address, "
             "about_md, about_year_founded, about_team_size, "
             "about_certifications, about_hero_image_url, about_tagline, "
-            "epc_enabled, privacy_policy_url, website_url"
+            "epc_enabled, privacy_policy_url, website_url, installations_count"
         )
         .eq("id", lead["tenant_id"])
         .limit(1)
         .execute()
     )
     lead["tenant"] = tenant.data[0] if tenant.data else None
+
+    # "Lavori realizzati" — case study attivi del tenant per la sezione
+    # portfolio del dossier. Best-effort: un errore qui non deve far
+    # fallire il dossier.
+    try:
+        cs = (
+            sb.table("tenant_case_studies")
+            .select("id, client_name, story, image_url, logo_url, kwp, location, year")
+            .eq("tenant_id", lead["tenant_id"])
+            .eq("active", True)
+            .order("display_order")
+            .limit(12)
+            .execute()
+        )
+        lead["case_studies"] = cs.data or []
+    except Exception:  # noqa: BLE001
+        lead["case_studies"] = []
+
     # Hide raw tenant_id from the public response
     lead.pop("tenant_id", None)
     return lead
