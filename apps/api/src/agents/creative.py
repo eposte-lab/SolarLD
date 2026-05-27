@@ -176,6 +176,12 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
         before_url: str | None = None
         after_url: str | None = None
         skipped_reason: str | None = None
+        # Derivazioni complete (compute_full_derivations) calcolate al render:
+        # quando valorizzate diventano l'UNICA fonte di verità per il
+        # risparmio mostrato ovunque — overlay sulla GIF, KPI dashboard,
+        # email e dossier — così non divergono più. Persistite su
+        # roofs.derivations + leads.roi_data nel blocco (7).
+        full_deriv: dict[str, Any] | None = None
 
         lat = _to_float(roof.get("lat"))
         lng = _to_float(roof.get("lng"))
@@ -530,6 +536,10 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
                         tenant_cost_assumptions=tenant_row.get("cost_assumptions"),
                     )
                     if _strip_deriv:
+                        # Diventa la fonte unica: persistita su roof/roi_data
+                        # nel blocco (7), così dashboard/email/dossier
+                        # mostrano lo STESSO numero bakeato qui.
+                        full_deriv = _strip_deriv
                         savings_for_strip = float(
                             _strip_deriv.get("realistic_yearly_savings_eur")
                             or _strip_deriv.get("yearly_savings_eur")
@@ -710,7 +720,13 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
         # earlier skipped_reason (pre-image: missing_coords, solar key,
         # roof confidence). When everything succeeded both video_url and
         # gif_url are set and the column is cleared.
-        update: dict[str, Any] = {"roi_data": roi_jsonb}
+        # Fonte unica del risparmio: se abbiamo le derivazioni complete del
+        # render, sono loro a finire su roi_data (superset di compute_roi) E
+        # su roofs.derivations — così overlay GIF, KPI dashboard, email e
+        # dossier leggono tutti lo stesso valore. Fallback a compute_roi solo
+        # quando le derivazioni complete non sono disponibili.
+        roi_data_to_persist = full_deriv if full_deriv else roi_jsonb
+        update: dict[str, Any] = {"roi_data": roi_data_to_persist}
         if after_url is not None:
             update["rendering_image_url"] = after_url
         if video_url is not None:
@@ -724,6 +740,14 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
             if reason_to_persist:
                 update["creative_skipped_reason"] = reason_to_persist
         sb.table("leads").update(update).eq("id", payload.lead_id).execute()
+
+        # Allinea anche roofs.derivations alla stessa fonte: la dashboard e
+        # l'email leggono da qui, quindi senza questo update mostrerebbero il
+        # valore vecchio del funnel mentre l'overlay mostra quello nuovo.
+        if full_deriv:
+            sb.table("roofs").update({"derivations": full_deriv}).eq(
+                "id", lead["roof_id"]
+            ).execute()
 
         # 8) Roof status progression — only once we have the full
         # rendered asset (at minimum the after-image). Having a video
