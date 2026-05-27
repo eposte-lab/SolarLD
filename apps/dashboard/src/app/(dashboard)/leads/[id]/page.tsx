@@ -630,11 +630,18 @@ export default async function LeadDetailPage({ params }: PageProps) {
                   <KpiChipCard
                     label="Producibilità"
                     value={
-                      yearlyProd != null
-                        ? `${Number(yearlyProd).toLocaleString('it-IT', {
-                            maximumFractionDigits: 2,
-                          })} kWh/anno`
-                        : '—'
+                      yearlyProd != null ? (
+                        <span className="whitespace-nowrap">
+                          {Number(yearlyProd).toLocaleString('it-IT', {
+                            maximumFractionDigits: 0,
+                          })}
+                          <span className="ml-1 text-[1.05rem] font-semibold tracking-tight text-on-surface-variant">
+                            kWh/anno
+                          </span>
+                        </span>
+                      ) : (
+                        '—'
+                      )
                     }
                     accent="neutral"
                   />
