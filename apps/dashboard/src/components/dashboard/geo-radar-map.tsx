@@ -90,11 +90,17 @@ export async function GeoRadarMap({ className }: GeoRadarMapProps) {
         </div>
       )}
 
-      {/* Map container — fixed height with floating glass overlay */}
+      {/* Map container — fixed height with floating glass overlay.
+          La mappa dell'Italia viene SEMPRE mostrata (centrata su [12.5,
+          41.9], zoom 4.8) anche senza lead: con aggregates vuoti il
+          client non disegna marker ma rende comunque la mappa. Quando
+          non c'è ancora nessun lead con provincia mostriamo solo una
+          nota fluttuante in basso, invece di nascondere la mappa. */}
       <div className="relative h-[360px] overflow-hidden rounded-2xl ghost-border-strong">
+        <GeoRadarMapLoader aggregates={aggregates} />
         {aggregates.length === 0 ? (
-          <div className="flex h-full items-center justify-center rounded-2xl bg-surface-container-low">
-            <p className="text-sm text-on-surface-variant">
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center p-4">
+            <p className="pointer-events-auto rounded-full liquid-glass-sm px-4 py-2 text-xs text-on-surface-variant shadow-liquid-glass">
               Nessun lead con provincia ancora.{' '}
               <a href="/territorio" className="font-semibold text-primary hover:underline">
                 Configura il territorio →
@@ -103,7 +109,6 @@ export async function GeoRadarMap({ className }: GeoRadarMapProps) {
           </div>
         ) : (
           <>
-            <GeoRadarMapLoader aggregates={aggregates} />
             {hotProvinces > 0 && (
               <Link
                 href="/leads"
