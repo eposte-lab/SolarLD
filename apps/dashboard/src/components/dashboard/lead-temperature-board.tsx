@@ -6,7 +6,7 @@
  * Columns:
  *   Temperatura (score_tier chip), Ragione sociale, Zona (comune),
  *   Score, Ultimo evento, P.Conv. (conversion probability),
- *   Valore est. (kWp × €1000), Azione
+ *   Valore deal (kWp × €1000, valore pieno del contratto), Azione
  *
  * Sort: click any column header to toggle ASC/DESC.
  * Initial sort: score DESC.
@@ -50,11 +50,13 @@ function conversionProb(status: string): number {
   return MAP[status] ?? 0.05;
 }
 
-/** Estimated deal value in EUR from roi_data */
+/** Full deal/contract value in EUR (kWp × €1000/kWp).
+ *  Valore PIENO del contratto se il cliente accetta — NON pesato per la
+ *  probabilità di conversione (quella resta nella colonna P.Conv. a
+ *  parte). Così "Valore deal" è la cifra reale dell'impianto. */
 function estimatedEur(lead: LeadListRow): number {
-  // roofs.estimated_kwp * €1000/kWp * conversion prob
-  const kwp = (lead.roofs?.estimated_kwp ?? 8);
-  return Math.round(kwp * 1000 * conversionProb(lead.pipeline_status));
+  const kwp = lead.roofs?.estimated_kwp ?? 8;
+  return Math.round(kwp * 1000);
 }
 
 function displayName(lead: LeadListRow): string {
@@ -179,7 +181,7 @@ export function LeadTemperatureBoard({ leads, className }: LeadTemperatureBoardP
               <SortableTh sortKey="score" active={sortKey} dir={sortDir} onSort={requestSort}>Score</SortableTh>
               <SortableTh sortKey="last_event" active={sortKey} dir={sortDir} onSort={requestSort}>Ultimo evento</SortableTh>
               <SortableTh sortKey="p_conv" active={sortKey} dir={sortDir} onSort={requestSort}>P.Conv.</SortableTh>
-              <SortableTh sortKey="value_eur" active={sortKey} dir={sortDir} onSort={requestSort}>Valore est.</SortableTh>
+              <SortableTh sortKey="value_eur" active={sortKey} dir={sortDir} onSort={requestSort}>Valore deal</SortableTh>
               <th className="px-4 py-3" />
             </tr>
           </thead>

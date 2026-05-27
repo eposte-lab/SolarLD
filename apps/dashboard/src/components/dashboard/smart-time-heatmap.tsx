@@ -18,6 +18,8 @@ const HOUR_AXIS = [0, 4, 8, 12, 16, 20];
 
 interface SmartTimeHeatmapProps {
   cells: HeatmapCell[];
+  /** 'opens' = aperture email; 'sent' = fallback su orari d'invio. */
+  basis?: 'opens' | 'sent';
   className?: string;
 }
 
@@ -34,7 +36,7 @@ function cellStyle(normalized: number): React.CSSProperties {
   };
 }
 
-export function SmartTimeHeatmap({ cells, className }: SmartTimeHeatmapProps) {
+export function SmartTimeHeatmap({ cells, basis = 'opens', className }: SmartTimeHeatmapProps) {
   // Flat map keyed by dow * 24 + hour — avoids noUncheckedIndexedAccess issues
   const normMap = new Map<number, number>();
   let totalOpens = 0;
@@ -52,18 +54,24 @@ export function SmartTimeHeatmap({ cells, className }: SmartTimeHeatmapProps) {
     }
   }
 
-  if (cells.length === 0) {
+  // Sottotitolo dinamico: quando non ci sono ancora aperture tracciate il
+  // grafico ripiega sugli orari d'invio (lo segnaliamo).
+  const subtitle =
+    basis === 'opens' ? 'Orari migliori · Aperture email' : 'Orari · Invii email';
+
+  // Empty state reale: nessun dato in entrambe le basi (né aperture né invii).
+  if (cells.length === 0 || totalOpens === 0) {
     return (
       <div className={className}>
         <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
-          Orari migliori · Aperture email
+          {subtitle}
         </p>
         <h2 className="font-headline text-2xl font-bold tracking-tighter">
           Smart Time
         </h2>
         <div className="mt-6 flex items-center justify-center rounded-xl bg-surface-container-low py-10">
           <p className="text-sm text-on-surface-variant">
-            Nessuna apertura email registrata ancora.
+            Nessun invio o apertura registrati ancora.
           </p>
         </div>
       </div>
@@ -76,7 +84,7 @@ export function SmartTimeHeatmap({ cells, className }: SmartTimeHeatmapProps) {
       <div className="mb-4 flex items-end justify-between">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
-            Orari migliori · Aperture email
+            {subtitle}
           </p>
           <h2 className="font-headline text-2xl font-bold tracking-tighter">
             Smart Time

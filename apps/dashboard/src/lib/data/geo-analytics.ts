@@ -157,32 +157,54 @@ export async function getGeoLeads(): Promise<{
 
 // ── send-time heatmap ─────────────────────────────────────────────────────────
 
+export interface SmartTimeData {
+  cells: HeatmapCell[];
+  /** Whether the heatmap is built from email opens or (fallback) send times. */
+  basis: 'opens' | 'sent';
+}
+
 /**
- * Returns a 7×24 matrix of email-open counts (indexed by DOW and hour,
- * Rome timezone), plus a normalized 0-1 value for CSS intensity mapping.
+ * Returns a 7×24 matrix of activity counts (DOW × hour, Rome timezone)
+ * plus a normalized 0-1 value for CSS intensity.
+ *
+ * Prefers email OPENS. When open tracking has no data yet (the open
+ * pixel/webhook isn't live), it falls back to SEND times so the heatmap
+ * still shows real activity instead of an all-empty grid — and it
+ * auto-upgrades to opens the moment they start being recorded. `basis`
+ * tells the UI which signal it's showing.
  */
-export async function getSendTimeHeatmap(days = 90): Promise<HeatmapCell[]> {
+export async function getSendTimeHeatmap(days = 90): Promise<SmartTimeData> {
   const supabase = await createSupabaseServerClient();
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
 
-  const { data, error } = await supabase
-    .from('leads')
-    .select('outreach_opened_at')
-    .not('outreach_opened_at', 'is', null)
-    .gte('outreach_opened_at', since);
+  async function loadStamps(
+    col: 'outreach_opened_at' | 'outreach_sent_at',
+  ): Promise<string[]> {
+    const { data, error } = await supabase
+      .from('leads')
+      .select(col)
+      .not(col, 'is', null)
+      .gte(col, since);
+    if (error) throw new Error(`getSendTimeHeatmap(${col}): ${error.message}`);
+    return (data ?? [])
+      .map((r) => (r as Record<string, string | null>)[col])
+      .filter((v): v is string => !!v);
+  }
 
-  if (error) throw new Error(`getSendTimeHeatmap: ${error.message}`);
+  let basis: 'opens' | 'sent' = 'opens';
+  let stamps = await loadStamps('outreach_opened_at');
+  if (stamps.length === 0) {
+    basis = 'sent';
+    stamps = await loadStamps('outreach_sent_at');
+  }
 
   // Flat map keyed by `dow * 24 + hour` to avoid noUncheckedIndexedAccess issues
   const flat = new Map<number, number>();
   let maxVal = 0;
-
-  for (const row of data ?? []) {
-    if (!row.outreach_opened_at) continue;
-    const { dow, hour } = toRomeParts(row.outreach_opened_at);
+  for (const ts of stamps) {
+    const { dow, hour } = toRomeParts(ts);
     const k = dow * 24 + hour;
-    const prev = flat.get(k) ?? 0;
-    const next = prev + 1;
+    const next = (flat.get(k) ?? 0) + 1;
     flat.set(k, next);
     if (next > maxVal) maxVal = next;
   }
@@ -199,7 +221,7 @@ export async function getSendTimeHeatmap(days = 90): Promise<HeatmapCell[]> {
       });
     }
   }
-  return cells;
+  return { cells, basis };
 }
 
 // ── pipeline revenue ──────────────────────────────────────────────────────────
