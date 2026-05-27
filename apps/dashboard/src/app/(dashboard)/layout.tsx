@@ -51,8 +51,9 @@ const NAV_SECTIONS: NavSection[] = [
       { href: '/funnel', label: 'Funnel', icon: 'funnel' },
       { href: '/invii', label: 'Invii', icon: 'invii' },
       { href: '/ab-testing', label: 'Esperimenti A/B', icon: 'experiments' },
-      { href: '/practices', label: 'Pratiche GSE', icon: 'pratiche' },
-      { href: '/scadenze', label: 'Scadenze', icon: 'scadenze' },
+      // Servizio "Pratiche GSE" + "Scadenze" archiviato temporaneamente:
+      // voci di menu rimosse. Le pagine /practices, /scadenze e il flusso
+      // pratica restano nel repo per riattivarlo all'occorrenza.
       { href: '/deliverability', label: 'Deliverability', icon: 'deliverability' },
     ],
   },

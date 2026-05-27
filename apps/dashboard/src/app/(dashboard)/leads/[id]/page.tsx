@@ -429,25 +429,9 @@ export default async function LeadDetailPage({ params }: PageProps) {
                   operativa. La rotta `/leads/[id]/quote` resta in piedi
                   così si può riattivare con un solo blocco JSX quando si
                   lavorerà sulla feature dedicata. */}
-              {/* GSE practice — abilitato solo dopo "Contratto firmato". */}
-              {lead.feedback === 'contract_signed' ? (
-                <Link
-                  href={`/leads/${lead.id}/practice/new`}
-                  className={actionBtn}
-                  title="Crea pratica GSE post-firma (DM 37/08, Comunicazione Comune)"
-                >
-                  <FolderOpen size={13} strokeWidth={2.25} aria-hidden />
-                  Crea pratica GSE
-                </Link>
-              ) : (
-                <span
-                  className={actionBtnDisabled}
-                  title="Marca il lead come 'Contratto firmato' per abilitare la pratica GSE"
-                >
-                  <FolderOpen size={13} strokeWidth={2.25} aria-hidden />
-                  Crea pratica GSE
-                </span>
-              )}
+              {/* Bottone "Crea pratica GSE" archiviato col servizio
+                  Pratiche GSE. La rotta /leads/[id]/practice/new resta nel
+                  repo per riattivarlo. */}
               <LeadFeedbackPicker
                 leadId={lead.id}
                 currentFeedback={lead.feedback ?? null}

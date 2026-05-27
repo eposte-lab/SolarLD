@@ -355,8 +355,8 @@ function IntegrationsCard({ tenant, isDemo }: { tenant: TenantRow; isDemo: boole
         />
         <IntegrationLink
           href="/settings/legal"
-          title="Dati legali (pratiche GSE)"
-          blurb="Anagrafica impresa, codice fiscale, CCIAA e responsabile tecnico. Richiesti dal DM 37/08 e dalle pratiche GSE."
+          title="Dati legali aziendali"
+          blurb="Anagrafica impresa, codice fiscale, CCIAA e responsabile tecnico. Usati nel footer legale GDPR delle email outreach."
           locked={isDemo}
           lockedReason={isDemo ? 'Configurato in onboarding' : undefined}
         />
