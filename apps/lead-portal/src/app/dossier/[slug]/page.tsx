@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { notFound, redirect } from 'next/navigation';
 
 import { AboutSection } from '@/components/AboutSection';
+import { WorksSection } from '@/components/WorksSection';
 import { BollettaSection } from '@/components/BollettaSection';
 import { DossierExpired } from '@/components/DossierExpired';
 import { EditorialHero } from '@/components/EditorialHero';
@@ -355,6 +356,15 @@ export default async function LeadPage({ params }: PageProps) {
             heroImageUrl={tenant.about_hero_image_url}
           />
         </section>
+      ) : null}
+
+      {/* ============== Lavori realizzati (portfolio) ============== */}
+      {tenant ? (
+        <WorksSection
+          caseStudies={lead.case_studies ?? []}
+          installationsCount={tenant.installations_count ?? null}
+          brandColor={brandColor}
+        />
       ) : null}
 
       {/* ============== Technical specs ============== */}

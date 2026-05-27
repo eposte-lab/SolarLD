@@ -87,7 +87,21 @@ export type PublicLead = {
     privacy_policy_url?: string | null;
     /* Sprint 6 — logo cliccabile target URL. */
     website_url?: string | null;
+    /* "Lavori realizzati" — numero totale impianti (social proof). */
+    installations_count?: number | null;
   } | null;
+  /* "Lavori realizzati" — case study attivi del tenant (portfolio). */
+  case_studies?: CaseStudy[];
+};
+
+export type CaseStudy = {
+  client_name: string;
+  story: string | null;
+  image_url: string | null;
+  logo_url: string | null;
+  kwp: number | null;
+  location: string | null;
+  year: number | null;
 };
 
 export type LeadFetchResult =

@@ -154,6 +154,36 @@
             </td>
           </tr>
 
+          {# LAVORI REALIZZATI — 2 case study compatti (a rotazione) #}
+          {%- if case_studies %}
+          <tr>
+            <td class="px" style="padding:22px 32px 0 32px;">
+              <p class="txt-muted-d" style="margin:0 0 12px 0;font-size:10px;line-height:13px;color:#8a9099;font-weight:600;letter-spacing:0.7px;text-transform:uppercase;">Lavori realizzati</p>
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+                {%- for cs in case_studies[:2] %}
+                <td class="stack stack-mb" style="width:50%;vertical-align:top;padding-{{ 'right' if loop.first else 'left' }}:6px;">
+                  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="border-d" style="border:1px solid #e8eaed;border-radius:10px;overflow:hidden;">
+                    {%- if cs.image_url %}
+                    <tr><td style="font-size:0;line-height:0;"><img src="{{ cs.image_url }}" width="252" alt="Impianto realizzato{% if cs.client_name %} per {{ cs.client_name }}{% endif %}" style="width:100%;max-width:252px;height:96px;object-fit:cover;display:block;"></td></tr>
+                    {%- endif %}
+                    <tr><td style="padding:11px 13px;">
+                      <p class="txt-dark" style="margin:0;font-size:13px;line-height:17px;color:{{ navy }};font-weight:700;">{{ cs.client_name }}</p>
+                      <p class="txt-muted-d" style="margin:3px 0 0 0;font-size:11px;line-height:15px;color:#8a9099;">
+                        {%- set bits = [] %}
+                        {%- if cs.kwp %}{% set _ = bits.append((cs.kwp | round(1)) ~ ' kWp') %}{% endif %}
+                        {%- if cs.location %}{% set _ = bits.append(cs.location) %}{% endif %}
+                        {%- if cs.year %}{% set _ = bits.append(cs.year | string) %}{% endif %}
+                        {{ bits | join(' · ') if bits else (cs.story or '') | truncate(60) }}
+                      </p>
+                    </td></tr>
+                  </table>
+                </td>
+                {%- endfor %}
+              </tr></table>
+            </td>
+          </tr>
+          {%- endif %}
+
           {# PROPOSTA #}
           <tr>
             <td class="px" style="padding:24px 32px 0 32px;">
