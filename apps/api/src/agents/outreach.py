@@ -261,8 +261,11 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
                 # "€ 0" EPC non compariva mai, l'accento restava sull'oro
                 # di default. brand_color_accent: migration 0142.
                 "email_signature, brand_color_accent, epc_enabled, "
-                # Social proof: numero totale impianti realizzati.
-                "installations_count"
+                # Social proof: numero totale impianti realizzati + area.
+                "installations_count, installations_area, "
+                # Firma persona reale (referente).
+                "signature_name, signature_role, signature_phone, "
+                "signature_email, signature_photo_url"
             )
             .eq("id", payload.tenant_id)
             .single()
@@ -1192,6 +1195,13 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
             # "Lavori realizzati": 2 case study a rotazione + totale impianti.
             case_studies=_load_rotating_case_studies(sb, payload.tenant_id, n=2),
             installations_count=tenant_row.get("installations_count"),
+            installations_area=tenant_row.get("installations_area"),
+            # Firma persona reale (referente).
+            referente_name=tenant_row.get("signature_name"),
+            referente_role=tenant_row.get("signature_role"),
+            referente_phone=tenant_row.get("signature_phone"),
+            referente_email=tenant_row.get("signature_email"),
+            referente_photo_url=tenant_row.get("signature_photo_url"),
         )
         # ── Phase 2 campagne custom: DB-stored HTML template ──────────────
         # When effective_template_id is set (generic_outreach lists), load the

@@ -126,6 +126,14 @@ class OutreachContext:
     # numero totale impianti realizzati per la riga di social proof.
     case_studies: list[dict[str, Any]] | None = None
     installations_count: int | None = None
+    installations_area: str | None = None  # social proof: "in Campania"
+    # Firma "persona reale" (referente): nome + ruolo + telefono + email +
+    # foto. Sposta il reply rate nel cold B2B vs firma azienda.
+    referente_name: str | None = None
+    referente_role: str | None = None
+    referente_phone: str | None = None
+    referente_email: str | None = None
+    referente_photo_url: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -192,6 +200,12 @@ def render_outreach_email(ctx: OutreachContext) -> RenderedEmail:
         "epc_enabled": ctx.epc_enabled,
         "case_studies": ctx.case_studies or [],
         "installations_count": ctx.installations_count,
+        "installations_area": ctx.installations_area,
+        "referente_name": ctx.referente_name,
+        "referente_role": ctx.referente_role,
+        "referente_phone": ctx.referente_phone,
+        "referente_email": ctx.referente_email,
+        "referente_photo_url": ctx.referente_photo_url,
     }
 
     # Apply copy_overrides last — A/B variant fields override everything.
