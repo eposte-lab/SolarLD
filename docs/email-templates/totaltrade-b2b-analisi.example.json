@@ -1,0 +1,22 @@
+{
+  "nome_azienda": "Dodecà",
+  "città": "Giugliano in Campania",
+  "indirizzo_sede": "Via Santa Chiara 12, Giugliano in Campania (NA)",
+  "kwh_annui": "197.515",
+  "risparmio_annuo": "34.881",
+  "n_impianti_installati": "120",
+  "immagine_satellitare_url": "https://portale.solarlead.it/renderings/df08df04-4c90-4613-b21e-80879fc958d1/64ad0709-210e-4b9f-8bed-20f493ca7d79/after.png",
+  "landing_url": "https://portale.solarlead.it/dossier/<public_slug>",
+  "logo_url": "https://portale.solarlead.it/total-trade-logo.png",
+  "nome_referente": "Alfonso Gallo",
+  "ruolo_referente": "Responsabile commerciale",
+  "foto_referente_url": "https://portale.solarlead.it/team/alfonso-gallo.jpg",
+  "telefono_referente": "+390211234567",
+  "email_referente": "alfonso@agenda-pro.it",
+  "piva": "IT07874501211",
+  "sede_legale": "Via Alessandro Scarlatti 105, 80127 Napoli (NA)",
+  "email_destinatario": "info@dodeca.it",
+  "unsubscribe_url": "https://portale.solarlead.it/optout/<public_slug>",
+  "privacy_url": "https://www.totaltrade.it/privacy",
+  "tracking_pixel_url": "https://api-production-b5c97.up.railway.app/v1/public/track/open/<public_slug>"
+}
