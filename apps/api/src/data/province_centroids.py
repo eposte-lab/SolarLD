@@ -139,3 +139,34 @@ def province_centroid(code: str | None) -> tuple[float, float] | None:
     if not code:
         return None
     return PROVINCE_CENTROIDS.get(code.strip().upper())
+
+
+def nearest_province(lat: float | None, lng: float | None) -> str | None:
+    """Return the 2-letter province code whose capoluogo centroid is
+    nearest to ``(lat, lng)``.
+
+    Best-effort geo assignment when no explicit province is on file
+    (Google Solar buildingInsights rarely returns locality/province for
+    Italy). Accurate enough for province-level aggregation (the lead heat
+    map) — provinces are large relative to the inter-capoluogo distance,
+    so the nearest capital is almost always the right province.
+
+    Squared planar distance with a cos(lat) longitude correction; fine at
+    Italian latitudes for a nearest-centroid pick. Returns None when the
+    coordinates are missing.
+    """
+    if lat is None or lng is None:
+        return None
+    import math
+
+    coslat = math.cos(math.radians(lat))
+    best_code: str | None = None
+    best_d = float("inf")
+    for code, (clat, clng) in PROVINCE_CENTROIDS.items():
+        dlat = clat - lat
+        dlng = (clng - lng) * coslat
+        d = dlat * dlat + dlng * dlng
+        if d < best_d:
+            best_d = d
+            best_code = code
+    return best_code

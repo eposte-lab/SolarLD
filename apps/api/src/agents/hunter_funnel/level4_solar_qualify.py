@@ -146,6 +146,8 @@ async def _persist_roof_and_link(
         (insight.locality or "") + " " + (insight.postal_code or "")
     ).strip() or None
 
+    from ...data.province_centroids import nearest_province
+
     row: dict[str, Any] = {
         "tenant_id": tenant_id,
         "lat": insight.lat,
@@ -161,6 +163,12 @@ async def _persist_roof_and_link(
         "raw_data": insight.raw,
         "address": real_address or fallback_address,
         "comune": insight.locality,
+        # Provincia (codice 2 lettere) derivata dal centroide provinciale
+        # più vicino alle coordinate del tetto: Google Solar non restituisce
+        # quasi mai la provincia per l'Italia, e senza questo campo la heat
+        # map dei lead resta vuota. Best-effort, sufficiente per
+        # l'aggregazione per provincia.
+        "provincia": nearest_province(insight.lat, insight.lng),
         "cap": insight.postal_code,
         "status": "identified",
     }
