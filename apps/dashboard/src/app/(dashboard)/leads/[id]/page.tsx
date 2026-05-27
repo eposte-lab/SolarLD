@@ -589,7 +589,12 @@ export default async function LeadDetailPage({ params }: PageProps) {
               roi?.yearly_savings_eur ??
               roi?.annual_savings_eur ??
               null;
-            const co2Year = roi?.co2_kg_per_year ?? roi?.co2_saved_kg ?? null;
+            // Producibilità annua (kWh/anno) — sostituisce la CO₂ nelle KPI:
+            // dato più "commerciale" e coerente con dossier/email.
+            const yearlyProd =
+              roi?.yearly_kwh ??
+              lead.roofs?.estimated_yearly_kwh ??
+              null;
             const netCapex = roi?.net_capex_eur ?? null;
             const savings25y = roi?.savings_25y_eur ?? null;
             return (
@@ -623,9 +628,13 @@ export default async function LeadDetailPage({ params }: PageProps) {
                     accent="tertiary"
                   />
                   <KpiChipCard
-                    label="CO₂ evitata/anno"
+                    label="Producibilità"
                     value={
-                      co2Year != null ? `${formatNumber(co2Year)} kg` : '—'
+                      yearlyProd != null
+                        ? `${Number(yearlyProd).toLocaleString('it-IT', {
+                            maximumFractionDigits: 2,
+                          })} kWh/anno`
+                        : '—'
                     }
                     accent="neutral"
                   />
