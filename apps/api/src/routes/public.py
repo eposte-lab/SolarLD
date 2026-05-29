@@ -269,9 +269,9 @@ async def _notify_tenant_contact_request(
         if payload.contact_name:
             rows.append(f"<b>Nome:</b> {payload.contact_name}")
         if payload.phone:
-            rows.append(f"<b>Telefono:</b> <a href=\"tel:{payload.phone}\">{payload.phone}</a>")
+            rows.append(f'<b>Telefono:</b> <a href="tel:{payload.phone}">{payload.phone}</a>')
         if payload.email:
-            rows.append(f"<b>Email:</b> <a href=\"mailto:{payload.email}\">{payload.email}</a>")
+            rows.append(f'<b>Email:</b> <a href="mailto:{payload.email}">{payload.email}</a>')
         if payload.preferred_time:
             rows.append(f"<b>Preferenza orario:</b> {payload.preferred_time}")
         if payload.notes:
@@ -296,10 +296,7 @@ async def _notify_tenant_contact_request(
         )
         text = (
             "Nuova richiesta di contatto dal dossier.\n\n"
-            + "\n".join(
-                r.replace("<b>", "").replace("</b>", "")
-                for r in rows
-            )
+            + "\n".join(r.replace("<b>", "").replace("</b>", "") for r in rows)
             + (f"\n\nDossier: {dossier_url}" if dossier_url else "")
         )
         from ..services.resend_service import SendEmailInput, send_email

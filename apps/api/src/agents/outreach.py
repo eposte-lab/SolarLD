@@ -2433,9 +2433,7 @@ _LOGO_EMAIL_MAX_W = 360
 _GIF_INLINE_MAX_BYTES = 6_500_000
 
 
-def _load_rotating_case_studies(
-    sb: Any, tenant_id: str, *, n: int = 2
-) -> list[dict[str, Any]]:
+def _load_rotating_case_studies(sb: Any, tenant_id: str, *, n: int = 2) -> list[dict[str, Any]]:
     """Return up to ``n`` active case studies for the tenant, ROTATING.
 
     The two shown in each email alternate over time so successive sends
