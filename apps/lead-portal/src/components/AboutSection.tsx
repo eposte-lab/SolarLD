@@ -78,10 +78,16 @@ export function AboutSection({
             className="pointer-events-none absolute right-0 top-1/2 hidden h-80 w-80 -translate-y-1/2 translate-x-1/3 rounded-full bg-white md:block"
           />
           {/* eslint-disable-next-line @next/next/no-img-element */}
+          {/* Dimensionato per LARGHEZZA (non altezza): il wordmark Total
+              Trade è molto largo (≈1.82:1), quindi a parità di altezza
+              sborderebbe a sinistra del disco finendo sul fondo navy dove
+              il logo blu sparisce. Con `w-32` (128 px) + `right-10` resta
+              centrato e contenuto nella banda bianca visibile del disco
+              (~209 px all'altezza del logo). */}
           <img
             src={brandLogoUrl}
             alt={businessName}
-            className="pointer-events-none absolute right-8 top-1/2 z-10 hidden h-20 w-auto -translate-y-1/2 md:block md:h-24 lg:h-28"
+            className="pointer-events-none absolute right-10 top-1/2 z-10 hidden h-auto w-32 -translate-y-1/2 md:block"
           />
         </>
       ) : null}
