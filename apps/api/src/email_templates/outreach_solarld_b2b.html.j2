@@ -19,14 +19,23 @@
     .ExternalClass{width:100%;}
     .ExternalClass,.ExternalClass p,.ExternalClass span,.ExternalClass td,.ExternalClass div{line-height:100%;}
     @media screen and (max-width:600px){
-      .container{width:100%!important;}
-      .px{padding-left:20px!important;padding-right:20px!important;}
+      .container{width:100%!important;border-radius:0!important;border-left:0!important;border-right:0!important;}
+      .px{padding-left:18px!important;padding-right:18px!important;}
       .stack{display:block!important;width:100%!important;max-width:100%!important;box-sizing:border-box!important;}
       .stack-mb{margin-bottom:10px!important;}
-      .h1{font-size:21px!important;line-height:28px!important;}
-      .kwh{font-size:24px!important;}
-      .metric-num{font-size:24px!important;}
-      .epc-right{padding-top:14px!important;text-align:left!important;}
+      .hero-pad{padding-top:24px!important;padding-bottom:14px!important;}
+      .h1{font-size:20px!important;line-height:26px!important;}
+      .kwh{font-size:21px!important;line-height:27px!important;}
+      .lead-p{font-size:15px!important;line-height:22px!important;}
+      .metric-num{font-size:22px!important;line-height:26px!important;}
+      .logo-img{height:46px!important;max-height:46px!important;}
+      /* EPC: quando le due celle si impilano, niente badge flottante a
+         destra — allinea tutto a sinistra e dai padding simmetrico. */
+      .epc-left{padding:18px 18px 0 18px!important;}
+      .epc-right{padding:12px 18px 18px 18px!important;text-align:left!important;}
+      .epc-badge{float:none!important;margin:0!important;}
+      .h2-prop{font-size:17px!important;line-height:23px!important;}
+      .cta-btn{display:block!important;width:100%!important;box-sizing:border-box!important;text-align:center!important;padding-left:0!important;padding-right:0!important;}
       .center-mb{text-align:center!important;}
     }
     @media (prefers-color-scheme:dark){
@@ -58,7 +67,7 @@
           <tr>
             <td class="px" style="padding:20px 32px 0 32px;">
               {%- if brand_logo_url %}
-              <img src="{{ brand_logo_url }}" width="95" height="52" alt="{{ tenant_name }}" style="height:52px;width:auto;max-height:52px;">
+              <img src="{{ brand_logo_url }}" width="95" height="52" alt="{{ tenant_name }}" class="logo-img" style="height:52px;width:auto;max-height:52px;">
               {%- else %}
               <span style="font-size:15px;font-weight:700;color:{{ navy }};">{{ tenant_name }}</span>
               {%- endif %}
@@ -68,7 +77,7 @@
 
           {# HERO #}
           <tr>
-            <td class="px" style="padding:30px 32px 18px 32px;">
+            <td class="px hero-pad" style="padding:30px 32px 18px 32px;">
               <h1 class="h1 txt-dark" style="margin:0;font-size:25px;line-height:33px;font-weight:700;color:{{ navy }};letter-spacing:-0.3px;">
                 {{ business_name | default(greeting_name, true) }}, il vostro tetto{% if hq_province %} a {{ hq_province }}{% endif %} può produrre<br>
                 {%- if roi and roi.yearly_kwh %}
@@ -77,7 +86,7 @@
                 <span class="kwh" style="font-size:28px;font-weight:700;color:{{ accent }};">energia pulita dall'anno prossimo</span>
                 {%- endif %}
               </h1>
-              <p class="txt-muted-d" style="margin:14px 0 0 0;font-size:15px;line-height:23px;color:#4a4f57;">
+              <p class="txt-muted-d lead-p" style="margin:14px 0 0 0;font-size:15px;line-height:23px;color:#4a4f57;">
                 {{ copy_opening_line | default('Abbiamo analizzato la vostra sede via satellite. Qui sotto la sintesi; il report completo con simulazione, piano incentivi e ROI è nella vostra area personale.', true) }}
               </p>
             </td>
@@ -99,12 +108,12 @@
             <td class="px" style="padding:18px 32px 0 32px;">
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:{{ navy }};border-radius:12px;">
                 <tr>
-                  <td class="stack" style="padding:20px 22px;vertical-align:middle;width:62%;">
+                  <td class="stack epc-left" style="padding:20px 22px;vertical-align:middle;width:62%;">
                     <p style="margin:0;font-size:10px;line-height:14px;color:{{ accent }};font-weight:700;letter-spacing:1px;text-transform:uppercase;">Modalità EPC · Formula chiavi in mano</p>
                     <p style="margin:9px 0 0 0;font-size:18px;line-height:24px;color:#ffffff;font-weight:700;">Investimento iniziale a carico vostro: <span style="color:{{ accent }};">€0</span></p>
                   </td>
                   <td class="stack epc-right" style="padding:20px 22px 20px 0;vertical-align:middle;text-align:right;">
-                    <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="right"><tr>
+                    <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="right" class="epc-badge"><tr>
                       <td style="background-color:{{ accent }};border-radius:9px;padding:13px 18px;text-align:center;">
                         <span style="font-size:10px;line-height:13px;color:{{ navy }};font-weight:700;letter-spacing:1px;text-transform:uppercase;display:block;">Voi investite</span>
                         <span style="font-size:24px;line-height:26px;color:{{ navy }};font-weight:700;display:block;">€0</span>
@@ -187,7 +196,7 @@
           {# PROPOSTA #}
           <tr>
             <td class="px" style="padding:24px 32px 0 32px;">
-              <h2 class="txt-dark" style="margin:0 0 6px 0;font-size:18px;line-height:24px;font-weight:700;color:{{ navy }};">La nostra proposta per voi</h2>
+              <h2 class="txt-dark h2-prop" style="margin:0 0 6px 0;font-size:18px;line-height:24px;font-weight:700;color:{{ navy }};">La nostra proposta per voi</h2>
               <p class="txt-muted-d" style="margin:0 0 16px 0;font-size:14px;line-height:21px;color:#4a4f57;">Percorso completo dall'analisi alla realizzazione chiavi in mano:</p>
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
                 {%- for item in [
@@ -214,7 +223,7 @@
               </v:roundrect>
               <![endif]-->
               <!--[if !mso]><!-- -->
-              <a href="{{ lead_url }}" target="_blank" style="display:inline-block;background-color:{{ accent }};color:#ffffff;font-size:16px;font-weight:700;line-height:16px;padding:16px 32px;border-radius:8px;mso-padding-alt:0;">Vedi il report del vostro tetto &#8594;</a>
+              <a href="{{ lead_url }}" target="_blank" class="cta-btn" style="display:inline-block;background-color:{{ accent }};color:#ffffff;font-size:16px;font-weight:700;line-height:16px;padding:16px 32px;border-radius:8px;mso-padding-alt:0;">Vedi il report del vostro tetto &#8594;</a>
               <!--<![endif]-->
             </td>
           </tr>
