@@ -34,7 +34,7 @@ export default async function OnboardingPage() {
   return (
     <div className="space-y-8">
       <header>
-        <h1 className="font-headline text-4xl font-bold tracking-tighter text-on-surface md:text-5xl">
+        <h1 className="font-headline text-2xl font-bold tracking-tighter text-on-surface md:text-5xl">
           Configura SolarLead per moduli.
         </h1>
         <p className="mt-3 max-w-2xl text-base text-on-surface-variant">

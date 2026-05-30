@@ -76,7 +76,7 @@ export default function ListeIndexPage() {
           <SectionEyebrow tone="mint" icon={<ListPlus size={11} strokeWidth={2.25} />}>
             Liste salvate · {formatNumber(total)} totali
           </SectionEyebrow>
-          <h1 className="mt-1.5 font-headline text-4xl font-bold tracking-tighter text-on-surface">
+          <h1 className="mt-1.5 font-headline text-2xl font-bold tracking-tighter md:text-4xl text-on-surface">
             Le mie liste
           </h1>
           <p className="mt-1 max-w-xl text-sm text-on-surface-variant">

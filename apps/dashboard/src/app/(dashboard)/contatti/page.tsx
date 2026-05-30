@@ -90,7 +90,7 @@ export default async function ContattiPage({
           <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
             Contatti qualificati · {formatNumber(summary.l4_qualified)} con tetto idoneo
           </p>
-          <h1 className="font-headline text-4xl font-bold tracking-tighter">
+          <h1 className="font-headline text-2xl font-bold tracking-tighter md:text-4xl">
             Contatti
           </h1>
         </div>

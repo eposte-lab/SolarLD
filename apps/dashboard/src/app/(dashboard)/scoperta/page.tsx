@@ -183,7 +183,7 @@ export default function ScopertaPage() {
     <div className="space-y-6">
       <header>
         <SectionEyebrow>Trova aziende</SectionEyebrow>
-        <h1 className="font-headline text-4xl font-bold tracking-tighter">
+        <h1 className="font-headline text-2xl font-bold tracking-tighter md:text-4xl">
           Trova aziende
         </h1>
         <p className="mt-2 max-w-3xl text-sm text-on-surface-variant">

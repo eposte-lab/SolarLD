@@ -388,7 +388,7 @@ function ListView({
           <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
             Template email campagne
           </p>
-          <h1 className="font-headline text-4xl font-bold tracking-tighter">
+          <h1 className="font-headline text-2xl font-bold tracking-tighter md:text-4xl">
             Template email
           </h1>
           <p className="mt-1 max-w-2xl text-sm text-on-surface-variant">

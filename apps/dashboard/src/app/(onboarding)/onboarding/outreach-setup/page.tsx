@@ -116,7 +116,7 @@ export default function OutreachSetupPage() {
           <ArrowLeft size={11} strokeWidth={2.25} aria-hidden />
           Onboarding
         </Link>
-        <h1 className="mt-3 font-headline text-4xl font-bold tracking-tighter">
+        <h1 className="mt-3 font-headline text-2xl font-bold tracking-tighter md:text-4xl">
           Setup outreach
         </h1>
         <p className="mt-2 text-sm text-on-surface-variant">

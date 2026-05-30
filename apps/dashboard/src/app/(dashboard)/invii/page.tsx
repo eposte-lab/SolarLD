@@ -131,7 +131,7 @@ export default async function InviiPage({
           <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
             Outreach · {formatNumber(stats.total)} invii totali
           </p>
-          <h1 className="font-headline text-4xl font-bold tracking-tighter">
+          <h1 className="font-headline text-2xl font-bold tracking-tighter md:text-4xl">
             Invii
           </h1>
         </div>
