@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation';
 import { IdleLogout } from '@/components/auth/idle-logout';
 import { RealtimeToaster } from '@/components/realtime-toaster';
 import { BackButton } from '@/components/ui/back-button';
+import { MobileNav } from '@/components/ui/mobile-nav';
 import { NavigationProgress } from '@/components/ui/navigation-progress';
 import { NotificationsBell } from '@/components/ui/notifications-bell';
 import { SideNav, type NavSection } from '@/components/ui/side-nav';
@@ -150,21 +151,29 @@ export default async function DashboardLayout({
         tenant={{ business_name: ctx.tenant.business_name }}
         user_email={ctx.user_email}
       />
-      <main className="flex-1 px-6 py-8 md:px-10">
-        <div className="mx-auto max-w-[1400px]">
-          <div className="mb-6 flex items-center gap-3">
-            <BackButton />
-            <div className="ml-auto">
-              <NotificationsBell
-                initialUnread={unread}
-                initialItems={recent}
-                tenantId={ctx.tenant.id}
-              />
+      <div className="flex min-w-0 flex-1 flex-col">
+        {/* Shell mobile: top-bar + drawer (md:hidden internamente) */}
+        <MobileNav
+          sections={visibleSections}
+          tenant={{ business_name: ctx.tenant.business_name }}
+          user_email={ctx.user_email}
+        />
+        <main className="flex-1 px-6 py-8 md:px-10">
+          <div className="mx-auto max-w-[1400px]">
+            <div className="mb-6 flex items-center gap-3">
+              <BackButton />
+              <div className="ml-auto">
+                <NotificationsBell
+                  initialUnread={unread}
+                  initialItems={recent}
+                  tenantId={ctx.tenant.id}
+                />
+              </div>
             </div>
+            {children}
           </div>
-          {children}
-        </div>
-      </main>
+        </main>
+      </div>
       <RealtimeToaster tenantId={ctx.tenant.id} />
       {ctx.tenant.demo_device_limit_enabled ? (
         <IdleLogout
