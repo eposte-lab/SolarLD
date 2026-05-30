@@ -19,6 +19,7 @@ import {
   type AiVariant,
   type EmailTemplate,
   type EmailTemplateRow,
+  type OutreachPreviewResult,
   type TemplateVariable,
   createEmailTemplate,
   deleteEmailTemplate,
@@ -27,6 +28,7 @@ import {
   listEmailTemplates,
   listTemplateVariables,
   previewEmailTemplate,
+  previewOutreachTemplate,
   updateEmailTemplate,
   validateEmailTemplate,
 } from '@/lib/data/email-templates';
@@ -360,6 +362,142 @@ export function EmailTemplatesClient() {
 }
 
 // ---------------------------------------------------------------------------
+// OutreachPreviewPanel — view the live built-in Solar template (what Total
+// Trade actually sends) rendered with sample data, without auto-sending a
+// test email. Renders via the production `render_outreach_email` entrypoint
+// so it's 1:1 with the real send.
+// ---------------------------------------------------------------------------
+
+const PREVIEW_STEPS = [
+  { step: 1, label: 'Step 1 · primo contatto' },
+  { step: 2, label: 'Step 2 · sollecito' },
+  { step: 3, label: 'Step 3 · case study' },
+  { step: 4, label: 'Step 4 · chiusura' },
+] as const;
+
+function OutreachPreviewPanel() {
+  const [step, setStep] = useState(1);
+  const [epcEnabled, setEpcEnabled] = useState(true);
+  const [result, setResult] = useState<OutreachPreviewResult | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [open, setOpen] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    previewOutreachTemplate({
+      email_style: 'b2b_premium',
+      epc_enabled: epcEnabled,
+      sequence_step: step,
+      subject_type: 'b2b',
+    })
+      .then((res) => {
+        if (!cancelled) setResult(res);
+      })
+      .catch(() => {
+        if (!cancelled) setError('Anteprima non disponibile. Riprova.');
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [step, epcEnabled]);
+
+  return (
+    <section className="rounded-2xl bg-surface-container-low">
+      <header className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
+            Template principale Total Trade
+          </p>
+          <h2 className="font-headline text-lg font-bold tracking-tight">
+            Anteprima email outreach
+          </h2>
+          <p className="mt-0.5 text-xs text-on-surface-variant">
+            Template live renderizzato con dati di esempio — nessuna email inviata.
+          </p>
+        </div>
+        <button
+          onClick={() => setOpen((v) => !v)}
+          className="text-xs font-semibold text-on-surface-variant hover:text-on-surface"
+        >
+          {open ? 'Nascondi' : 'Mostra'}
+        </button>
+      </header>
+
+      {open && (
+        <div className="px-5 pb-5">
+          {/* Controls */}
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="inline-flex rounded-full bg-surface-container-high p-0.5">
+              {PREVIEW_STEPS.map((s) => (
+                <button
+                  key={s.step}
+                  onClick={() => setStep(s.step)}
+                  className={
+                    step === s.step
+                      ? 'rounded-full bg-primary px-3 py-1 text-xs font-semibold text-on-primary'
+                      : 'rounded-full px-3 py-1 text-xs font-semibold text-on-surface-variant hover:text-on-surface'
+                  }
+                  title={s.label}
+                >
+                  Step {s.step}
+                </button>
+              ))}
+            </div>
+            <label className="inline-flex cursor-pointer items-center gap-2 text-xs font-semibold text-on-surface-variant">
+              <input
+                type="checkbox"
+                checked={epcEnabled}
+                onChange={(e) => setEpcEnabled(e.target.checked)}
+                className="h-3.5 w-3.5 accent-primary"
+              />
+              Modalità EPC
+            </label>
+            {result?.stem && (
+              <span className="ml-auto inline-flex items-center rounded-full bg-surface-container-high px-2.5 py-1 font-mono text-[10px] text-on-surface-variant">
+                {result.stem}
+              </span>
+            )}
+          </div>
+
+          {/* Subject line */}
+          {result?.subject && (
+            <p className="mt-3 truncate text-sm text-on-surface">
+              <span className="text-on-surface-variant">Oggetto: </span>
+              <span className="font-semibold">{result.subject}</span>
+            </p>
+          )}
+
+          {/* Preview iframe */}
+          <div className="relative mt-3 overflow-hidden rounded-xl border border-on-surface/10 bg-white">
+            {loading && (
+              <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/70 text-sm text-on-surface-variant">
+                Rendering…
+              </div>
+            )}
+            {error ? (
+              <div className="p-12 text-center text-sm text-error">{error}</div>
+            ) : (
+              <iframe
+                title="Anteprima outreach"
+                srcDoc={result?.html ?? ''}
+                sandbox="allow-same-origin"
+                className="h-[680px] w-full"
+              />
+            )}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // ListView
 // ---------------------------------------------------------------------------
 
@@ -403,6 +541,9 @@ function ListView({
           + Nuovo template
         </button>
       </header>
+
+      {/* Anteprima del template outreach live (Total Trade) */}
+      <OutreachPreviewPanel />
 
       {/* Table */}
       {loading ? (

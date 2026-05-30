@@ -172,6 +172,85 @@ def _render_preview(html: str, subject: str) -> dict[str, str]:
 
 
 # ---------------------------------------------------------------------------
+# Built-in outreach template preview (Solar family)
+# ---------------------------------------------------------------------------
+# The custom-template preview above only covers tenant-authored HTML. The
+# built-in Solar templates (``outreach_solarld_*``) are what most tenants
+# actually send, but had no way to be viewed without sending a real test
+# email. This builds a representative OutreachContext and renders it through
+# the *same* production entrypoint (``render_outreach_email``) so the preview
+# is byte-for-byte what the prospect receives (same stem resolution + premailer
+# inlining). Only sample data is used — never a real lead.
+
+_OUTREACH_PREVIEW_STYLES: frozenset[str] = frozenset(
+    {"b2b_premium", "premium", "premium_minimal", "plain_conversational", "visual_preventivo"}
+)
+
+
+def _sample_outreach_context(
+    *,
+    email_style: str,
+    epc_enabled: bool,
+    sequence_step: int,
+    subject_type: str = "b2b",
+) -> Any:
+    """Build a representative OutreachContext for preview rendering."""
+    from ..services.email_template_service import OutreachContext
+
+    return OutreachContext(
+        tenant_name="Total Trade",
+        brand_primary_color="#0f1f3d",
+        brand_color_accent="#22c55e",
+        greeting_name="Mario Rossi",
+        business_name="Rossi Manifatture S.r.l.",
+        hq_province="Caserta",
+        lead_url="https://solarld.app/lead/anteprima",
+        optout_url="https://solarld.app/optout/anteprima",
+        subject_template="Rossi Manifatture, il vostro tetto può produrre 84.000 kWh all'anno",
+        subject_type=subject_type,
+        sequence_step=max(1, min(4, int(sequence_step or 1))),
+        email_style=email_style,
+        epc_enabled=epc_enabled,
+        roi={"yearly_kwh": 84000, "yearly_savings_eur": 21500},
+        installations_count=120,
+        installations_area="Campania",
+        recipient_email="mario.rossi@esempio.it",
+        tenant_legal_name="Total Trade S.r.l.",
+        tenant_vat_number="IT01234567890",
+        tenant_legal_address="Via Appia 100, 81100 Caserta CE",
+        referente_name="Alfonso Gallo",
+        referente_role="Responsabile tecnico",
+        referente_phone="+39 081 123 4567",
+        referente_email="alfonso@totaltrade.it",
+        case_studies=[
+            {
+                "client_name": "Caseificio Esempio",
+                "kwp": 48.5,
+                "location": "Aversa (CE)",
+                "year": 2025,
+                "image_url": "",
+                "story": "",
+            },
+            {
+                "client_name": "Logistica Sud",
+                "kwp": 96.0,
+                "location": "Marcianise (CE)",
+                "year": 2024,
+                "image_url": "",
+                "story": "",
+            },
+        ],
+    )
+
+
+class OutreachPreviewInput(BaseModel):
+    email_style: str = Field(default="b2b_premium")
+    epc_enabled: bool = Field(default=True)
+    sequence_step: int = Field(default=1, ge=1, le=4)
+    subject_type: str = Field(default="b2b")
+
+
+# ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
 
@@ -347,6 +426,64 @@ async def preview_template(template_id: str, ctx: CurrentUser) -> dict[str, Any]
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="template_not_found")
     row = res.data[0]
     return _render_preview(row["html"], row["subject"])
+
+
+@router.post("/outreach-preview")
+async def preview_outreach_template(
+    body: OutreachPreviewInput,
+    ctx: CurrentUser,
+) -> dict[str, Any]:
+    """Render a built-in Solar outreach template with sample data.
+
+    Returns the rendered ``{html, subject, text, stem}`` for the resolved
+    template stem (e.g. ``outreach_solarld_b2b`` for b2b_premium step 1).
+    No email is sent and no real lead data is touched — only the sample
+    OutreachContext is used. Lets operators eyeball the live template in the
+    dashboard without auto-sending themselves a test message.
+    """
+    require_tenant(ctx)
+
+    email_style = body.email_style
+    if email_style not in _OUTREACH_PREVIEW_STYLES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "code": "unsupported_email_style",
+                "message": f"email_style '{email_style}' non supportato",
+            },
+        )
+
+    from ..services.email_template_service import (
+        _template_stem_for,
+        render_outreach_email,
+    )
+
+    sample = _sample_outreach_context(
+        email_style=email_style,
+        epc_enabled=body.epc_enabled,
+        sequence_step=body.sequence_step,
+        subject_type=body.subject_type,
+    )
+    try:
+        rendered = render_outreach_email(sample)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("outreach_preview.render_failed", err=str(exc)[:200])
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"code": "render_failed", "message": "Render anteprima non riuscito."},
+        ) from exc
+
+    stem = _template_stem_for(
+        body.subject_type,
+        body.sequence_step,
+        email_style=email_style,
+    )
+    return {
+        "html": rendered.html,
+        "subject": rendered.subject,
+        "text": rendered.text,
+        "stem": stem,
+    }
 
 
 @router.post("/validate")
