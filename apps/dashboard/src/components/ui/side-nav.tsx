@@ -229,26 +229,57 @@ function NavLinkBody({
   );
 }
 
+/**
+ * NavGroups — render condiviso dell'albero nav (sezioni → cluster →
+ * children) con risoluzione dell'highlight attivo. Usato sia dalla
+ * SideNav desktop sia dal drawer mobile, così la config nav vive in un
+ * solo posto e i due restano in sync.
+ */
+export function NavGroups({
+  sections,
+  className,
+}: {
+  sections: NavSection[];
+  className?: string;
+}) {
+  const pathname = usePathname() ?? '/';
+
+  // Resolve the single active href across all sections so that nested
+  // routes (e.g. /leads/follow-up) don't also highlight their parent
+  // (/leads). Children hrefs MUST participate too, otherwise a sub-item
+  // route would highlight its parent cluster instead of itself.
+  const allHrefs = sections.flatMap((s) =>
+    s.items.flatMap((i) => [i.href, ...(i.children ?? []).map((c) => c.href)]),
+  );
+  const activeHref = bestActiveHref(pathname, allHrefs);
+
+  return (
+    <div className={cn('space-y-5', className)}>
+      {sections.map((section) => (
+        <div key={section.label}>
+          <p className="mb-2 px-3.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-on-surface-muted">
+            {section.label}
+          </p>
+          <ul className="space-y-0.5">
+            {section.items.map((item) => (
+              <NavLink key={item.href} item={item} activeHref={activeHref} />
+            ))}
+          </ul>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function SideNav({
   items,
   sections,
   tenant,
   user_email,
 }: SideNavProps) {
-  const pathname = usePathname() ?? '/';
-
   // Normalize input: prefer sections, fall back to flat items.
   const renderSections: NavSection[] =
     sections ?? (items ? [{ label: 'Navigazione', items }] : []);
-
-  // Resolve the single active href across all sections so that nested
-  // routes (e.g. /leads/follow-up) don't also highlight their parent
-  // (/leads). Children hrefs MUST participate too, otherwise a sub-item
-  // route would highlight its parent cluster instead of itself.
-  const allHrefs = renderSections.flatMap((s) =>
-    s.items.flatMap((i) => [i.href, ...(i.children ?? []).map((c) => c.href)]),
-  );
-  const activeHref = bestActiveHref(pathname, allHrefs);
 
   return (
     <nav className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col bg-surface-container-lowest/80 backdrop-blur-glass-sm p-5 ghost-border md:flex">
@@ -272,20 +303,10 @@ export function SideNav({
       </div>
 
       {/* Grouped nav */}
-      <div className="mt-1 flex-1 overflow-y-auto -mx-1 px-1 space-y-5">
-        {renderSections.map((section) => (
-          <div key={section.label}>
-            <p className="mb-2 px-3.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-on-surface-muted">
-              {section.label}
-            </p>
-            <ul className="space-y-0.5">
-              {section.items.map((item) => (
-                <NavLink key={item.href} item={item} activeHref={activeHref} />
-              ))}
-            </ul>
-          </div>
-        ))}
-      </div>
+      <NavGroups
+        sections={renderSections}
+        className="mt-1 flex-1 overflow-y-auto -mx-1 px-1"
+      />
 
       {/* Tenant footer */}
       <div className="mt-5 rounded-2xl liquid-glass-sm p-4 relative overflow-hidden">
