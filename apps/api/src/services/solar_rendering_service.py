@@ -174,6 +174,30 @@ def build_scene3d(
     }
 
 
+def _render_center(lat: float, lng: float, insight: RoofInsight) -> tuple[float, float]:
+    """Coordinate su cui centrare base-image e crop del rendering.
+
+    Il punto di verità è dove Solar ha messo i pannelli, NON la
+    coordinata grezza del lead. Se le due divergono (es. il roof
+    salvato è impreciso e ``findClosest`` aggancia l'edificio a
+    centinaia di metri) e centrassimo la tile satellitare sul lead,
+    la tile non conterrebbe affatto l'edificio: il crop finirebbe su
+    una strada/prato e nano-banana non avrebbe alcun tetto da
+    dipingere. Centrando invece sul centroide del cluster di pannelli
+    (fallback: centro edificio Solar, poi coordinata lead) la base
+    image contiene SEMPRE il tetto che verrà reso. In produzione, dove
+    il roof del funnel coincide col building Solar entro pochi metri,
+    lo shift è trascurabile e migliora solo l'inquadratura.
+    """
+    if insight.panels:
+        clat = sum(p.lat for p in insight.panels) / len(insight.panels)
+        clng = sum(p.lng for p in insight.panels) / len(insight.panels)
+        return clat, clng
+    if insight.lat and insight.lng:
+        return insight.lat, insight.lng
+    return lat, lng
+
+
 async def render_before_only(
     lat: float,
     lng: float,
@@ -197,12 +221,13 @@ async def render_before_only(
         used by tests) lets us swap pipelines without churn.
       * fewer disk writes + one less PNG encode in the AI hot path.
     """
+    clat, clng = _render_center(lat, lng, insight)
     owns_client = http_client is None
     client = http_client or httpx.AsyncClient(timeout=60.0)
 
     try:
         base_bytes, georef = await _fetch_base_image(
-            lat, lng, radius_m=50, api_key=api_key, client=client
+            clat, clng, radius_m=50, api_key=api_key, client=client
         )
     finally:
         if owns_client:
@@ -210,7 +235,7 @@ async def render_before_only(
 
     try:
         before_img, _transform = _load_and_crop(
-            base_bytes, lat, lng, insight, radius_m=50, georef=georef
+            base_bytes, clat, clng, insight, radius_m=50, georef=georef
         )
     except Exception as exc:
         raise SolarRenderingError(f"image processing failed: {exc}") from exc
@@ -235,12 +260,13 @@ async def render_before_after(
     Raises:
         SolarRenderingError: any unrecoverable failure (bad imagery, etc.)
     """
+    clat, clng = _render_center(lat, lng, insight)
     owns_client = http_client is None
     client = http_client or httpx.AsyncClient(timeout=60.0)
 
     try:
         base_bytes, georef = await _fetch_base_image(
-            lat, lng, radius_m=50, api_key=api_key, client=client
+            clat, clng, radius_m=50, api_key=api_key, client=client
         )
     finally:
         if owns_client:
@@ -249,7 +275,7 @@ async def render_before_after(
     # Parse + crop.
     try:
         before_img, transform = _load_and_crop(
-            base_bytes, lat, lng, insight, radius_m=50, georef=georef
+            base_bytes, clat, clng, insight, radius_m=50, georef=georef
         )
     except Exception as exc:
         raise SolarRenderingError(f"image processing failed: {exc}") from exc
@@ -300,12 +326,13 @@ async def render_before_and_mask(
     stays byte-identical and the before/after pair is perfectly
     aligned by construction.
     """
+    clat, clng = _render_center(lat, lng, insight)
     owns_client = http_client is None
     client = http_client or httpx.AsyncClient(timeout=60.0)
 
     try:
         base_bytes, georef = await _fetch_base_image(
-            lat, lng, radius_m=50, api_key=api_key, client=client
+            clat, clng, radius_m=50, api_key=api_key, client=client
         )
     finally:
         if owns_client:
@@ -313,7 +340,7 @@ async def render_before_and_mask(
 
     try:
         before_img, transform = _load_and_crop(
-            base_bytes, lat, lng, insight, radius_m=50, georef=georef
+            base_bytes, clat, clng, insight, radius_m=50, georef=georef
         )
     except Exception as exc:
         raise SolarRenderingError(f"image processing failed: {exc}") from exc
@@ -666,13 +693,27 @@ def _load_and_crop(
         desired_shift = _VERTICAL_FOCUS_SHIFT * half_h
         focus_shift_px = int(max(0.0, min(desired_shift, top_margin_px - _FOCUS_SAFETY * half_h)))
 
-    left = max(0, int(center_col - half_w))
-    top = max(0, int(center_row - half_h + focus_shift_px))
-    right = min(img_w, int(center_col + half_w))
-    bottom = min(img_h, int(center_row + half_h + focus_shift_px))
+    # Finestra di crop centrata sul cluster ma SEMPRE contenuta
+    # nell'immagine: prima limito la dimensione alla tile, poi faccio
+    # *scorrere* la finestra dentro i bordi invece di troncarla. Il
+    # vecchio clamp indipendente di left/right poteva invertire la box
+    # (right < left → PIL "Coordinate 'right' is less than 'left'")
+    # quando il cluster di pannelli cadeva oltre il bordo della tile —
+    # es. quando il findClosest di Solar aggancia un edificio spostato
+    # rispetto al punto richiesto.
+    win_w = min(2 * half_w, img_w)
+    win_h = min(2 * half_h, img_h)
+    cx = center_col
+    cy = center_row + focus_shift_px
+    left = int(round(cx - win_w / 2))
+    top = int(round(cy - win_h / 2))
+    left = max(0, min(left, img_w - win_w))
+    top = max(0, min(top, img_h - win_h))
+    right = left + win_w
+    bottom = top + win_h
 
-    # Dopo il clamp la box può non essere più 16:9 — la riporto a 16:9
-    # rifilando il lato in eccesso (verso l'angolo già clampato).
+    # La finestra può non essere 16:9 se l'immagine era più piccola del
+    # crop richiesto su un asse — rifilo il lato in eccesso.
     cur_w = right - left
     cur_h = bottom - top
     if cur_w / max(cur_h, 1) > OUTPUT_ASPECT:
