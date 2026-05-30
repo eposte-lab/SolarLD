@@ -372,7 +372,7 @@ export default async function LeadDetailPage({ params }: PageProps) {
         <div className="flex flex-wrap items-start justify-between gap-4">
           {/* ── SINISTRA — identità + stato del lead ── */}
           <div className="space-y-2">
-            <h1 className="font-headline text-4xl font-bold tracking-tighter">
+            <h1 className="font-headline text-2xl font-bold tracking-tighter md:text-4xl">
               {name}
             </h1>
             {/* Stato corrente: engagement (attività reale sul portale,

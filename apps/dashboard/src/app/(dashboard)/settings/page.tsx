@@ -136,7 +136,7 @@ function Header({ tenantName }: { tenantName: string }) {
         <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
           Impostazioni · {tenantName}
         </p>
-        <h1 className="mt-1 font-headline text-4xl font-bold tracking-tighter text-on-surface md:text-5xl">
+        <h1 className="mt-1 font-headline text-2xl font-bold tracking-tighter text-on-surface md:text-5xl">
           Configurazione
         </h1>
         <p className="mt-2 max-w-2xl text-sm text-on-surface-variant">

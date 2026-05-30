@@ -53,7 +53,7 @@ export default async function AbTestingPage() {
             return `Esperimenti A/B · ${parts.join(' · ')}`;
           })()}
         </p>
-        <h1 className="font-headline text-4xl font-bold tracking-tighter">
+        <h1 className="font-headline text-2xl font-bold tracking-tighter md:text-4xl">
           Esperimenti A/B
         </h1>
         <p className="mt-2 max-w-3xl text-sm text-on-surface-variant">

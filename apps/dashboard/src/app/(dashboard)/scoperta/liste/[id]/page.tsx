@@ -283,7 +283,7 @@ export default function ListDetailPage({
           >
             <ArrowLeft size={12} strokeWidth={2.25} /> Liste salvate
           </Link>
-          <h1 className="mt-2 font-headline text-4xl font-bold tracking-tighter text-on-surface">
+          <h1 className="mt-2 font-headline text-2xl font-bold tracking-tighter md:text-4xl text-on-surface">
             {list.name}
           </h1>
           <p className="mt-1 text-sm text-on-surface-variant">

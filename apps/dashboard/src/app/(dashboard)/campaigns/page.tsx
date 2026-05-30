@@ -42,7 +42,7 @@ export default async function CampaignsPage() {
           <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
             Acquisizione · {campaigns.length} campagn{campaigns.length === 1 ? 'a' : 'e'}
           </p>
-          <h1 className="font-headline text-4xl font-bold tracking-tighter">
+          <h1 className="font-headline text-2xl font-bold tracking-tighter md:text-4xl">
             Campagne
           </h1>
           <p className="mt-1 max-w-xl text-sm text-on-surface-variant">

@@ -105,7 +105,7 @@ export default function InboxesPage() {
           <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
             Impostazioni · Distribuzione invii
           </p>
-          <h1 className="mt-1 font-headline text-4xl font-bold tracking-tighter">
+          <h1 className="mt-1 font-headline text-2xl font-bold tracking-tighter md:text-4xl">
             Inbox mittenti
           </h1>
           <p className="mt-2 max-w-xl text-sm text-on-surface-variant">

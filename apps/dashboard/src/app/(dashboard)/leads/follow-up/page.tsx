@@ -92,7 +92,7 @@ export default async function FollowupPage() {
         <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
           Gestione follow-up
         </p>
-        <h1 className="font-headline text-4xl font-bold tracking-tighter">
+        <h1 className="font-headline text-2xl font-bold tracking-tighter md:text-4xl">
           Follow-up
         </h1>
         <p className="mt-2 max-w-xl text-sm text-on-surface-variant">

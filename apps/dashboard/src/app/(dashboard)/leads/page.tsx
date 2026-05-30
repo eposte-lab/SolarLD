@@ -152,7 +152,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
               ? `Caldi adesso · ${effectiveTotal.toLocaleString('it-IT')} da chiamare`
               : `Contatti che hanno reagito · ${effectiveTotal.toLocaleString('it-IT')} lead engagati`}
           </p>
-          <h1 className="font-headline text-4xl font-bold tracking-tighter">
+          <h1 className="font-headline text-2xl font-bold tracking-tighter md:text-4xl">
             {isHotMode ? 'Caldi adesso' : 'Lead Attivi'}
           </h1>
         </div>

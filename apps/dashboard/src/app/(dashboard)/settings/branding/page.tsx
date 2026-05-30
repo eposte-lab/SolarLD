@@ -37,7 +37,7 @@ export default async function BrandingPage() {
           </Link>
           {' · '}Branding email
         </p>
-        <h1 className="mt-1 font-headline text-4xl font-bold tracking-tighter text-on-surface md:text-5xl">
+        <h1 className="mt-1 font-headline text-2xl font-bold tracking-tighter text-on-surface md:text-5xl">
           Personalizza le tue email
         </h1>
         <p className="mt-2 max-w-2xl text-sm text-on-surface-variant">

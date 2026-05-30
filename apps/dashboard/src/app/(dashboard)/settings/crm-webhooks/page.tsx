@@ -48,7 +48,7 @@ export default async function CrmWebhooksPage() {
             </Link>
             {' · '}Webhook CRM
           </p>
-          <h1 className="mt-1 font-headline text-4xl font-bold tracking-tighter text-on-surface md:text-5xl">
+          <h1 className="mt-1 font-headline text-2xl font-bold tracking-tighter text-on-surface md:text-5xl">
             Webhook CRM in uscita
           </h1>
           <p className="mt-2 max-w-2xl text-sm text-on-surface-variant">

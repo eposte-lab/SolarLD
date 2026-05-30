@@ -226,7 +226,7 @@ export default function PracticesIndexPage() {
           <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
             Pratiche post-firma · {visible.length.toLocaleString('it-IT')}
           </p>
-          <h1 className="font-headline text-4xl font-bold tracking-tighter text-on-surface">
+          <h1 className="font-headline text-2xl font-bold tracking-tighter md:text-4xl text-on-surface">
             Pratiche GSE
           </h1>
           <p className="mt-1 max-w-2xl text-sm text-on-surface-variant">

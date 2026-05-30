@@ -189,7 +189,7 @@ export default function ScadenzePage() {
           <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
             Scadenze regolatorie · {visible.length.toLocaleString('it-IT')}
           </p>
-          <h1 className="font-headline text-4xl font-bold tracking-tighter text-on-surface">
+          <h1 className="font-headline text-2xl font-bold tracking-tighter md:text-4xl text-on-surface">
             Scadenze
           </h1>
           <p className="mt-1 max-w-2xl text-sm text-on-surface-variant">

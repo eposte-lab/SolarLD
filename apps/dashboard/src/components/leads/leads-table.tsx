@@ -145,8 +145,8 @@ export function LeadsTable({
   };
 
   return (
-    <div className="overflow-hidden rounded-lg bg-surface-container-low">
-      <table className="w-full text-sm">
+    <div className="overflow-x-auto rounded-lg bg-surface-container-low">
+      <table className="w-full min-w-[640px] text-sm">
         <thead>
           <tr>
             <SortableTh sortKey="name" active={sortKey} dir={sortDir} onSort={requestSort} className="px-5 py-3">Lead</SortableTh>
