@@ -101,6 +101,40 @@ export async function validateEmailTemplate(html: string): Promise<ValidationRes
   return api.post('/v1/email-templates/validate', { html });
 }
 
+// ---------------------------------------------------------------------------
+// Built-in outreach template preview (Solar family — what most tenants send)
+// ---------------------------------------------------------------------------
+
+export interface OutreachPreviewInput {
+  email_style?: string;
+  epc_enabled?: boolean;
+  sequence_step?: number;
+  subject_type?: string;
+}
+
+export interface OutreachPreviewResult {
+  html: string;
+  subject: string;
+  text: string;
+  stem: string;
+}
+
+/**
+ * Render a built-in Solar outreach template with sample data — no email is
+ * sent. Lets the operator eyeball the live template (e.g. the Total Trade
+ * step-1 b2b_premium template) in the dashboard.
+ */
+export async function previewOutreachTemplate(
+  input: OutreachPreviewInput = {},
+): Promise<OutreachPreviewResult> {
+  return api.post('/v1/email-templates/outreach-preview', {
+    email_style: input.email_style ?? 'b2b_premium',
+    epc_enabled: input.epc_enabled ?? true,
+    sequence_step: input.sequence_step ?? 1,
+    subject_type: input.subject_type ?? 'b2b',
+  });
+}
+
 export async function listTemplateVariables(): Promise<{
   variables: TemplateVariable[];
   required: string[];
