@@ -551,9 +551,7 @@ async def _fetch_base_image(
         data_layers = await fetch_data_layers(
             lat, lng, radius_m=radius_m, client=client, api_key=api_key
         )
-        tiff_bytes = await download_geotiff(
-            data_layers.rgb_url, client=client, api_key=api_key
-        )
+        tiff_bytes = await download_geotiff(data_layers.rgb_url, client=client, api_key=api_key)
         log.info(
             "solar_rendering.base_image",
             source="google_solar",
