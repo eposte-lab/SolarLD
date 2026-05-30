@@ -4,8 +4,9 @@
 
 {{ copy_opening_line | default('Abbiamo analizzato la vostra sede via satellite. Qui sotto la sintesi; il report completo con simulazione, piano incentivi e ROI è nella vostra area personale.', true) }}
 {% if epc_enabled %}
-MODALITÀ EPC — INVESTIMENTO INIZIALE € 0
-L'impianto è a nostro carico: la vostra azienda non anticipa nulla.
+MODALITÀ EPC — FORMULA CHIAVI IN MANO
+Progettazione, fornitura e installazione: dalla A alla Z, le seguiamo noi.
+E sul «come si paga» c'è una formula che cambia le carte in tavola: i numeri, calcolati sul vostro tetto, sono nel report qui sotto.
 {% endif %}
 {% if roi and (roi.get('yearly_kwh') or roi.get('yearly_savings_eur')) -%}
 I NUMERI PRINCIPALI:
