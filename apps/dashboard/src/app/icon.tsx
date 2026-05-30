@@ -55,7 +55,7 @@ export default async function Icon() {
   // Fallback glyph — kept only as a last-resort so a missing PNG
   // never breaks the build. In practice the fs.readFile above always
   // succeeds because `public/logo.png` is committed.
-  const MINT = '#6FCF97';
+  const MINT = '#22C55E';
   const SURFACE = '#0A0B0C';
   return new ImageResponse(
     (

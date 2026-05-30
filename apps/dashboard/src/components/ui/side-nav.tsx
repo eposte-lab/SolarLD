@@ -172,7 +172,7 @@ function NavLinkBody({
     >
       {highlighted && (
         <span
-          className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-full bg-primary shadow-[0_0_12px_rgba(111,207,151,0.6)]"
+          className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-full bg-primary shadow-[0_0_12px_rgba(34,197,94,0.6)]"
           aria-hidden
         />
       )}

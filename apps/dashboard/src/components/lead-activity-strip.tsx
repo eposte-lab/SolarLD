@@ -196,12 +196,12 @@ export function LeadActivityStrip({
                     className="absolute left-0 right-1/2 top-1/2 h-[2px] -translate-y-1/2"
                     style={{
                       background: leftFilled
-                        ? 'linear-gradient(90deg, var(--brand-mint, #6FCF97) 0%, var(--brand-mint, #6FCF97) 100%)'
+                        ? 'linear-gradient(90deg, var(--brand-mint, #22C55E) 0%, var(--brand-mint, #22C55E) 100%)'
                         : leftHalf
-                          ? 'linear-gradient(90deg, var(--brand-mint, #6FCF97) 0%, rgba(255,255,255,0.10) 100%)'
+                          ? 'linear-gradient(90deg, var(--brand-mint, #22C55E) 0%, rgba(255,255,255,0.10) 100%)'
                           : 'rgba(255,255,255,0.10)',
                       boxShadow: leftFilled
-                        ? '0 0 12px rgba(111,207,151,0.45)'
+                        ? '0 0 12px rgba(34,197,94,0.45)'
                         : undefined,
                     }}
                   />
@@ -214,12 +214,12 @@ export function LeadActivityStrip({
                     className="absolute left-1/2 right-0 top-1/2 h-[2px] -translate-y-1/2"
                     style={{
                       background: rightFilled
-                        ? 'linear-gradient(90deg, var(--brand-mint, #6FCF97) 0%, var(--brand-mint, #6FCF97) 100%)'
+                        ? 'linear-gradient(90deg, var(--brand-mint, #22C55E) 0%, var(--brand-mint, #22C55E) 100%)'
                         : rightHalf
-                          ? 'linear-gradient(90deg, var(--brand-mint, #6FCF97) 0%, rgba(255,255,255,0.10) 100%)'
+                          ? 'linear-gradient(90deg, var(--brand-mint, #22C55E) 0%, rgba(255,255,255,0.10) 100%)'
                           : 'rgba(255,255,255,0.10)',
                       boxShadow: rightFilled
-                        ? '0 0 12px rgba(111,207,151,0.45)'
+                        ? '0 0 12px rgba(34,197,94,0.45)'
                         : undefined,
                     }}
                   />
@@ -232,7 +232,7 @@ export function LeadActivityStrip({
                     aria-hidden
                     className="pointer-events-none absolute h-11 w-11 rounded-full"
                     style={{
-                      backgroundColor: 'rgba(111,207,151,0.45)',
+                      backgroundColor: 'rgba(34,197,94,0.45)',
                       animation: 'lasCurrentHalo 2s ease-in-out infinite',
                     }}
                   />
@@ -249,14 +249,14 @@ export function LeadActivityStrip({
                   }
                   className={`relative z-10 inline-flex h-11 w-11 items-center justify-center rounded-full transition-all duration-300 ${
                     done
-                      ? 'text-white shadow-[0_4px_18px_rgba(111,207,151,0.35)]'
+                      ? 'text-white shadow-[0_4px_18px_rgba(34,197,94,0.35)]'
                       : 'border-2 border-dashed border-on-surface/20 bg-surface-container-low text-on-surface-variant/45'
                   }`}
                   style={
                     done
                       ? {
                           background:
-                            'linear-gradient(135deg, var(--brand-mint, #6FCF97) 0%, var(--brand-mint-dark, #4FAE7A) 100%)',
+                            'linear-gradient(135deg, var(--brand-mint, #22C55E) 0%, var(--brand-mint-dark, #16A34A) 100%)',
                           animation: 'lasNodeIn 0.4s ease-out',
                         }
                       : undefined

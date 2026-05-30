@@ -5,7 +5,7 @@
 /*
  * Liquid Glass — global CSS (V2).
  *
- * Dark-only, mint accent (#6FCF97). MD3 token names live in
+ * Dark-only, green accent (#22C55E). MD3 token names live in
  * tailwind.config.ts; HSL variables qui sotto restano per i pochi
  * componenti shadcn-style legacy.
  *
@@ -24,8 +24,8 @@
     --card: 200 14% 6%;
     --card-foreground: 195 5% 93%;
 
-    /* Primary — mint #6FCF97 (HSL 142 47% 62%) */
-    --primary: 142 47% 62%;
+    /* Primary — green #22C55E (HSL 142 71% 45%) */
+    --primary: 142 71% 45%;
     --primary-foreground: 142 60% 5%;
 
     /* Secondary — desaturated grey */
@@ -44,7 +44,7 @@
 
     --border: 200 14% 16%;
     --input: 200 14% 16%;
-    --ring: 142 47% 62%;
+    --ring: 142 71% 45%;
 
     --radius: 1rem;
   }
@@ -54,7 +54,7 @@
     --foreground: 195 5% 93%;
     --card: 200 14% 6%;
     --card-foreground: 195 5% 93%;
-    --primary: 142 47% 62%;
+    --primary: 142 71% 45%;
     --primary-foreground: 142 60% 5%;
     --secondary: 200 14% 12%;
     --secondary-foreground: 195 5% 93%;
@@ -66,7 +66,7 @@
     --destructive-foreground: 0 100% 95%;
     --border: 200 14% 16%;
     --input: 200 14% 16%;
-    --ring: 142 47% 62%;
+    --ring: 142 71% 45%;
   }
 }
 
@@ -75,13 +75,13 @@
     @apply bg-surface text-on-surface antialiased;
     font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11', 'ss01';
 
-    /* Soft mint aurora wash on top + cool deep field below.
-     * Two radial gradients posizionati top-left (mint) e bottom-right
-     * (cool blue-green) creano profondità senza sembrare un wallpaper. */
+    /* Soft green aurora wash on top + cool deep field below.
+     * Two radial gradients posizionati top-left (green) e bottom-right
+     * (deep green) creano profondità senza sembrare un wallpaper. */
     background-color: #07090A;
     background-image:
-      radial-gradient(ellipse 80% 60% at 15% -10%, rgba(111, 207, 151, 0.10), transparent 60%),
-      radial-gradient(ellipse 70% 50% at 90% 110%, rgba(91, 184, 128, 0.06), transparent 55%),
+      radial-gradient(ellipse 80% 60% at 15% -10%, rgba(34, 197, 94, 0.10), transparent 60%),
+      radial-gradient(ellipse 70% 50% at 90% 110%, rgba(22, 163, 74, 0.06), transparent 55%),
       url("data:image/svg+xml;utf8,<svg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/></filter><rect width='100%25' height='100%25' filter='url(%23n)' opacity='0.35'/></svg>");
     background-size: auto, auto, 200px 200px;
     background-attachment: fixed;
@@ -178,10 +178,10 @@
   }
 
   /*
-   * Editorial glow — alone mint subtle sotto i numeri hero.
+   * Editorial glow — alone green subtle sotto i numeri hero.
    */
   .editorial-glow {
-    text-shadow: 0 0 40px rgba(111, 207, 151, 0.22);
+    text-shadow: 0 0 40px rgba(34, 197, 94, 0.22);
   }
 
   /*
@@ -307,8 +307,8 @@
   }
 }
 
-/* ── Selection — mint tint ──────────────────────────────────────────── */
+/* ── Selection — green tint ─────────────────────────────────────────── */
 ::selection {
-  background-color: rgba(111, 207, 151, 0.30);
+  background-color: rgba(34, 197, 94, 0.30);
   color: #ECEFF0;
 }

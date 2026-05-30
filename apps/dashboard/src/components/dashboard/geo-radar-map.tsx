@@ -77,8 +77,8 @@ export async function GeoRadarMap({ className }: GeoRadarMapProps) {
       {totalLeads > 0 && (
         <div className="mb-3 flex flex-wrap gap-3">
           {[
-            { color: '#6FCF97', label: 'Firmato' },
-            { color: '#5BB880', label: 'Appuntamento' },
+            { color: '#22C55E', label: 'Firmato' },
+            { color: '#16A34A', label: 'Appuntamento' },
             { color: '#F4A45C', label: 'Hot' },
             { color: '#8A9499', label: 'Inviato' },
           ].map(({ color, label }) => (

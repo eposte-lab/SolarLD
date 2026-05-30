@@ -35,8 +35,8 @@ import { cn } from '@/lib/utils';
 const COLORS = {
   white: '#ECEFF0',
   whiteDim: '#8A9499',
-  mint: '#6FCF97',
-  mintDim: '#5BB880',
+  mint: '#22C55E',
+  mintDim: '#16A34A',
   grid: 'rgba(255,255,255,0.08)',
 } as const;
 
