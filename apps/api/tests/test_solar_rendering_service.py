@@ -384,6 +384,6 @@ async def test_render_before_after_raises_on_solar_not_found() -> None:
             "src.services.solar_rendering_service.fetch_data_layers",
             new=AsyncMock(side_effect=SolarApiNotFound("no data")),
         ),
-        pytest.raises(SolarRenderingError, match="no imagery"),
+        pytest.raises(SolarRenderingError, match="no Google Solar imagery"),
     ):
         await render_before_after(lat, lng, insight, api_key="fake-key")
