@@ -29,11 +29,6 @@
       .lead-p{font-size:15px!important;line-height:22px!important;}
       .metric-num{font-size:22px!important;line-height:26px!important;}
       .logo-img{height:46px!important;max-height:46px!important;}
-      /* EPC: quando le due celle si impilano, niente badge flottante a
-         destra — allinea tutto a sinistra e dai padding simmetrico. */
-      .epc-left{padding:18px 18px 0 18px!important;}
-      .epc-right{padding:12px 18px 18px 18px!important;text-align:left!important;}
-      .epc-badge{float:none!important;margin:0!important;}
       .h2-prop{font-size:17px!important;line-height:23px!important;}
       .cta-btn{display:block!important;width:100%!important;box-sizing:border-box!important;text-align:center!important;padding-left:0!important;padding-right:0!important;}
       .center-mb{text-align:center!important;}
@@ -77,16 +72,16 @@
 
           {# HERO #}
           <tr>
-            <td class="px hero-pad" style="padding:30px 32px 18px 32px;">
-              <h1 class="h1 txt-dark" style="margin:0;font-size:25px;line-height:33px;font-weight:700;color:{{ navy }};letter-spacing:-0.3px;">
+            <td class="px hero-pad" style="padding:26px 32px 14px 32px;">
+              <h1 class="h1 txt-dark" style="margin:0;font-size:22px;line-height:29px;font-weight:700;color:{{ navy }};letter-spacing:-0.3px;">
                 {{ business_name | default(greeting_name, true) }}, il vostro tetto{% if hq_province %} a {{ hq_province }}{% endif %} può produrre<br>
                 {%- if roi and roi.yearly_kwh %}
-                <span class="kwh" style="font-size:28px;font-weight:700;color:{{ accent }};">{{ roi.yearly_kwh | int | format_money }} kWh all'anno</span>
+                <span class="kwh" style="font-size:23px;font-weight:700;color:{{ accent }};">{{ roi.yearly_kwh | int | format_money }} kWh all'anno</span>
                 {%- else %}
-                <span class="kwh" style="font-size:28px;font-weight:700;color:{{ accent }};">energia pulita dall'anno prossimo</span>
+                <span class="kwh" style="font-size:23px;font-weight:700;color:{{ accent }};">energia pulita dall'anno prossimo</span>
                 {%- endif %}
               </h1>
-              <p class="txt-muted-d lead-p" style="margin:14px 0 0 0;font-size:15px;line-height:23px;color:#4a4f57;">
+              <p class="txt-muted-d lead-p" style="margin:12px 0 0 0;font-size:14px;line-height:21px;color:#4a4f57;">
                 {{ copy_opening_line | default('Abbiamo analizzato la vostra sede via satellite. Qui sotto la sintesi; il report completo con simulazione, piano incentivi e ROI è nella vostra area personale.', true) }}
               </p>
             </td>
@@ -105,18 +100,16 @@
           {# CARD EPC €0 #}
           {%- if epc_enabled %}
           <tr>
-            <td class="px" style="padding:18px 32px 0 32px;">
+            <td class="px" style="padding:14px 32px 0 32px;">
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:{{ navy }};border-radius:12px;">
                 <tr>
-                  <td class="stack epc-left" style="padding:20px 22px;vertical-align:middle;width:60%;">
+                  <td style="padding:15px 20px;">
                     <p style="margin:0;font-size:10px;line-height:14px;color:{{ accent }};font-weight:700;letter-spacing:1px;text-transform:uppercase;">Modalità EPC · Formula chiavi in mano</p>
-                    <p style="margin:9px 0 0 0;font-size:18px;line-height:24px;color:#ffffff;font-weight:700;">L'intero investimento è a carico nostro</p>
-                  </td>
-                  <td class="stack epc-right" style="padding:20px 22px 20px 0;vertical-align:middle;text-align:right;">
-                    <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="right" class="epc-badge"><tr>
-                      <td style="background-color:{{ accent }};border-radius:9px;padding:13px 18px;text-align:center;">
-                        <span style="font-size:10px;line-height:13px;color:{{ navy }};font-weight:700;letter-spacing:1px;text-transform:uppercase;display:block;">Voi investite</span>
-                        <span style="font-size:24px;line-height:26px;color:{{ navy }};font-weight:700;display:block;">€0</span>
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:8px;"><tr>
+                      <td style="vertical-align:middle;font-size:14px;line-height:20px;color:#dfe4ec;font-weight:600;">L'intero investimento<br>è a carico nostro</td>
+                      <td style="vertical-align:middle;text-align:right;white-space:nowrap;">
+                        <span style="font-size:11px;line-height:13px;color:{{ accent }};font-weight:700;letter-spacing:0.5px;text-transform:uppercase;">Voi investite</span>
+                        <span style="font-size:30px;line-height:32px;color:{{ accent }};font-weight:700;">&nbsp;€0</span>
                       </td>
                     </tr></table>
                   </td>
@@ -133,17 +126,17 @@
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
                 {%- if roi.get('yearly_kwh') %}
                 <td class="stack stack-mb" style="width:50%;vertical-align:top;padding-right:6px;">
-                  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="border-d" style="border:1px solid #e8eaed;border-radius:10px;"><tr><td style="padding:16px 18px;">
-                    <p class="txt-muted-d" style="margin:0 0 6px 0;font-size:10px;color:#8a9099;font-weight:600;letter-spacing:0.7px;text-transform:uppercase;">Producibilità annua</p>
-                    <p class="metric-num txt-dark" style="margin:0;font-size:26px;line-height:30px;color:{{ navy }};font-weight:700;">{{ roi.yearly_kwh | int | format_money }} <span style="font-size:14px;color:#8a9099;font-weight:700;">kWh</span></p>
+                  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="border-d" style="border:1px solid #e8eaed;border-radius:10px;"><tr><td style="padding:14px 16px;">
+                    <p class="txt-muted-d" style="margin:0 0 5px 0;font-size:10px;color:#8a9099;font-weight:600;letter-spacing:0.7px;text-transform:uppercase;">Producibilità annua</p>
+                    <p class="metric-num txt-dark" style="margin:0;font-size:22px;line-height:26px;color:{{ navy }};font-weight:700;">{{ roi.yearly_kwh | int | format_money }} <span style="font-size:13px;color:#8a9099;font-weight:700;">kWh</span></p>
                   </td></tr></table>
                 </td>
                 {%- endif %}
                 {%- if roi.get('yearly_savings_eur') %}
                 <td class="stack" style="width:50%;vertical-align:top;padding-left:6px;">
-                  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="border-d" style="border:1px solid #e8eaed;border-radius:10px;"><tr><td style="padding:16px 18px;">
-                    <p class="txt-muted-d" style="margin:0 0 6px 0;font-size:10px;color:#8a9099;font-weight:600;letter-spacing:0.7px;text-transform:uppercase;">Risparmio annuo in bolletta</p>
-                    <p class="metric-num txt-dark" style="margin:0;font-size:26px;line-height:30px;color:{{ navy }};font-weight:700;">€{{ roi.yearly_savings_eur | int | format_money }}</p>
+                  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="border-d" style="border:1px solid #e8eaed;border-radius:10px;"><tr><td style="padding:14px 16px;">
+                    <p class="txt-muted-d" style="margin:0 0 5px 0;font-size:10px;color:#8a9099;font-weight:600;letter-spacing:0.7px;text-transform:uppercase;">Risparmio annuo in bolletta</p>
+                    <p class="metric-num txt-dark" style="margin:0;font-size:22px;line-height:26px;color:{{ navy }};font-weight:700;">€{{ roi.yearly_savings_eur | int | format_money }}</p>
                   </td></tr></table>
                 </td>
                 {%- endif %}
