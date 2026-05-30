@@ -18,7 +18,7 @@ import { cn } from '@/lib/utils';
 
 // Per-kind visual config. `weight` is computed by the helper, not here.
 const STYLES: Record<FollowUpKind, string> = {
-  manual: 'bg-error-container text-on-error-container',
+  manual: 'bg-error/15 text-error ring-1 ring-inset ring-error/25',
   interessato: 'bg-secondary-container text-on-secondary-container',
   engaged: 'bg-tertiary-container text-on-tertiary-container',
   lukewarm: 'bg-surface-container-high text-on-surface',

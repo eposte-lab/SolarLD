@@ -15,6 +15,7 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 
 import { BentoCard } from '@/components/ui/bento-card';
+import { CollapsibleFilters } from '@/components/ui/collapsible-filters';
 import { GradientButton } from '@/components/ui/gradient-button';
 import { LeadsTable } from '@/components/leads/leads-table';
 import {
@@ -142,10 +143,22 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
     return s ? `/leads?${s}` : '/leads';
   };
 
+  // How many filters are narrowing the default list (drives the "Filtri"
+  // toggle badge). Not counted in hot mode (filters are ignored there).
+  const activeFilterCount = isHotMode
+    ? 0
+    : [
+        filter.tier,
+        filter.status,
+        sp.read === '1' ? '1' : undefined,
+        sp.portal === '1' ? '1' : undefined,
+        sp.gestione,
+      ].filter(Boolean).length;
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Header ------------------------------------------------------- */}
-      <header className="flex items-end justify-between">
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
             {isHotMode
@@ -156,34 +169,33 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
             {isHotMode ? 'Caldi adesso' : 'Lead Attivi'}
           </h1>
         </div>
+
+        {/* Mode toggle — moved into the header to remove a redundant row */}
+        <div className="flex gap-2">
+          <Link
+            href="/leads"
+            className={cn(
+              'rounded-full px-4 py-1.5 text-xs font-semibold transition-colors',
+              !isHotMode
+                ? 'bg-primary text-on-primary shadow-ambient-sm'
+                : 'bg-surface-container-high text-on-surface-variant hover:bg-surface-container-highest hover:text-on-surface',
+            )}
+          >
+            Tutti i lead
+          </Link>
+          <Link
+            href="/leads?mode=hot"
+            className={cn(
+              'rounded-full px-4 py-1.5 text-xs font-semibold transition-colors',
+              isHotMode
+                ? 'bg-primary text-on-primary shadow-ambient-sm'
+                : 'bg-surface-container-high text-on-surface-variant hover:bg-surface-container-highest hover:text-on-surface',
+            )}
+          >
+            Caldi adesso
+          </Link>
+        </div>
       </header>
-
-
-      {/* Mode tabs ---------------------------------------------------- */}
-      <div className="flex gap-2">
-        <Link
-          href="/leads"
-          className={cn(
-            'rounded-full px-4 py-1.5 text-xs font-semibold transition-colors',
-            !isHotMode
-              ? 'bg-primary text-on-primary shadow-ambient-sm'
-              : 'bg-surface-container-high text-on-surface-variant hover:bg-surface-container-highest hover:text-on-surface',
-          )}
-        >
-          Tutti i lead
-        </Link>
-        <Link
-          href="/leads?mode=hot"
-          className={cn(
-            'rounded-full px-4 py-1.5 text-xs font-semibold transition-colors',
-            isHotMode
-              ? 'bg-primary text-on-primary shadow-ambient-sm'
-              : 'bg-surface-container-high text-on-surface-variant hover:bg-surface-container-highest hover:text-on-surface',
-          )}
-        >
-          Caldi adesso
-        </Link>
-      </div>
 
       {isHotMode && (
         <div className="rounded-xl bg-surface-container-low px-5 py-3 text-xs text-on-surface-variant">
@@ -265,9 +277,18 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
 
       {/* Filters ------------------------------------------------------ */}
       {!isHotMode && (
-        <BentoCard padding="tight" span="full">
-          <div className="flex flex-wrap gap-6 px-2 py-2">
-            <FilterGroup label="Priorità">
+        <CollapsibleFilters
+          activeCount={activeFilterCount}
+          resetHref={queryFor({
+            tier: undefined,
+            status: undefined,
+            read: undefined,
+            portal: undefined,
+            gestione: undefined,
+            page: undefined,
+          })}
+        >
+          <FilterGroup label="Priorità">
               {TIERS.map((t) => (
                 <FilterChip
                   key={t.value || 'all'}
@@ -331,8 +352,7 @@ export default async function LeadsPage({ searchParams }: { searchParams: Search
                 Manuale
               </FilterChip>
             </FilterGroup>
-          </div>
-        </BentoCard>
+        </CollapsibleFilters>
       )}
 
       {/* Table -------------------------------------------------------- */}
