@@ -28,7 +28,6 @@ import {
   Loader2,
   Mail,
   type LucideIcon,
-  Plus,
   Search,
   Send,
   Settings,
@@ -40,7 +39,6 @@ import {
 import Link, { useLinkStatus } from 'next/link';
 import { usePathname } from 'next/navigation';
 
-import { GradientButton } from '@/components/ui/gradient-button';
 import { SignOutButton } from '@/components/ui/sign-out-button';
 import { cn } from '@/lib/utils';
 
@@ -92,6 +90,12 @@ export interface NavItem {
   href: string;
   label: string;
   icon?: NavIconKey;
+  /**
+   * Sotto-voci del cluster. Renderizzate indentate sotto il parent,
+   * sempre visibili (niente collapse) per non nascondere route. I loro
+   * href partecipano alla risoluzione dell'highlight attivo.
+   */
+  children?: NavItem[];
 }
 
 export interface NavSection {
@@ -132,13 +136,43 @@ function bestActiveHref(pathname: string, allHrefs: string[]): string | null {
   return best;
 }
 
-function NavLink({ item, active }: { item: NavItem; active: boolean }) {
+function NavLink({
+  item,
+  activeHref,
+}: {
+  item: NavItem;
+  activeHref: string | null;
+}) {
   const Icon = item.icon ? ICON_MAP[item.icon] : null;
+  const children = item.children ?? [];
   return (
     <li className="relative">
       <Link href={item.href} className="block">
-        <NavLinkBody Icon={Icon} active={active} label={item.label} />
+        <NavLinkBody
+          Icon={Icon}
+          active={item.href === activeHref}
+          label={item.label}
+        />
       </Link>
+      {children.length > 0 && (
+        <ul className="mt-0.5 ml-[26px] space-y-0.5 border-l border-outline-variant/30 pl-2.5">
+          {children.map((child) => {
+            const ChildIcon = child.icon ? ICON_MAP[child.icon] : null;
+            return (
+              <li key={child.href} className="relative">
+                <Link href={child.href} className="block">
+                  <NavLinkBody
+                    Icon={ChildIcon}
+                    active={child.href === activeHref}
+                    label={child.label}
+                    nested
+                  />
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </li>
   );
 }
@@ -154,17 +188,20 @@ function NavLinkBody({
   Icon,
   active,
   label,
+  nested = false,
 }: {
   Icon: LucideIcon | null;
   active: boolean;
   label: string;
+  nested?: boolean;
 }) {
   const { pending } = useLinkStatus();
   const highlighted = active || pending;
   return (
     <span
       className={cn(
-        'group relative flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-[13.5px] font-medium transition-all duration-200',
+        'group relative flex items-center gap-3 rounded-xl font-medium transition-all duration-200',
+        nested ? 'px-3 py-2 text-[12.5px]' : 'px-3.5 py-2.5 text-[13.5px]',
         highlighted
           ? 'bg-primary/10 text-primary'
           : 'text-on-surface-variant hover:bg-white/[0.04] hover:text-on-surface',
@@ -178,7 +215,7 @@ function NavLinkBody({
       )}
       {Icon && (
         <Icon
-          size={18}
+          size={nested ? 16 : 18}
           strokeWidth={highlighted ? 2 : 1.75}
           className="shrink-0"
           aria-hidden
@@ -189,23 +226,6 @@ function NavLinkBody({
         <Loader2 size={13} className="shrink-0 animate-spin" aria-hidden />
       )}
     </span>
-  );
-}
-
-/**
- * Hero CTA at the top of the sidebar — apre il flusso di acquisizione
- * territoriale (/territorio), l'azione primaria dell'operatore.
- */
-function HeroCta() {
-  return (
-    <GradientButton
-      href="/territorio"
-      size="md"
-      className="mb-6 w-full justify-center"
-    >
-      <Plus size={16} strokeWidth={2.25} aria-hidden />
-      Aggiungi territorio
-    </GradientButton>
   );
 }
 
@@ -223,8 +243,11 @@ export function SideNav({
 
   // Resolve the single active href across all sections so that nested
   // routes (e.g. /leads/follow-up) don't also highlight their parent
-  // (/leads).
-  const allHrefs = renderSections.flatMap((s) => s.items.map((i) => i.href));
+  // (/leads). Children hrefs MUST participate too, otherwise a sub-item
+  // route would highlight its parent cluster instead of itself.
+  const allHrefs = renderSections.flatMap((s) =>
+    s.items.flatMap((i) => [i.href, ...(i.children ?? []).map((c) => c.href)]),
+  );
   const activeHref = bestActiveHref(pathname, allHrefs);
 
   return (
@@ -248,12 +271,8 @@ export function SideNav({
         </div>
       </div>
 
-      {/* Hero CTA — azione primaria: aggiungi territorio */}
-      <HeroCta />
-
-
       {/* Grouped nav */}
-      <div className="flex-1 overflow-y-auto -mx-1 px-1 space-y-5">
+      <div className="mt-1 flex-1 overflow-y-auto -mx-1 px-1 space-y-5">
         {renderSections.map((section) => (
           <div key={section.label}>
             <p className="mb-2 px-3.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-on-surface-muted">
@@ -261,11 +280,7 @@ export function SideNav({
             </p>
             <ul className="space-y-0.5">
               {section.items.map((item) => (
-                <NavLink
-                  key={item.href}
-                  item={item}
-                  active={item.href === activeHref}
-                />
+                <NavLink key={item.href} item={item} activeHref={activeHref} />
               ))}
             </ul>
           </div>

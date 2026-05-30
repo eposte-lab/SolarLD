@@ -27,33 +27,57 @@ import { createSupabaseServerClient } from '@/lib/supabase/server';
  */
 
 /**
- * Navigation è raggruppata per cluster di task:
- *   - Acquisizione → cosa entra (lead, contatti, territori)
- *   - Operatività  → cosa succede ai lead (panoramica, funnel, invii, deliverability)
- *   - Setup        → analytics + configurazione
+ * Navigation consolidata in cluster a 2 livelli (audit UX P-nav): da 12
+ * voci flat a 7 cluster top-level. Le route correlate diventano
+ * sotto-voci (`children`) indentate sotto il parent — tutte le route
+ * restano raggiungibili in un click, nessuna pagina rimossa.
+ *
+ *   Operatività
+ *     - Panoramica
+ *     - Lead          → Follow-up, Contatti
+ *     - Territorio     → Trova aziende
+ *     - Invii          → Template email, Esperimenti A/B
+ *     - Funnel
+ *     - Deliverability
+ *   Setup
+ *     - Impostazioni
+ *
+ * Servizio "Pratiche GSE" + "Scadenze" resta archiviato (voci non
+ * montate); le route /practices, /scadenze e il flusso pratica restano
+ * nel repo per riattivarlo all'occorrenza.
  */
 const NAV_SECTIONS: NavSection[] = [
   {
-    label: 'Acquisizione',
-    items: [
-      { href: '/', label: 'Panoramica', icon: 'dashboard' },
-      { href: '/leads', label: 'Lead Attivi', icon: 'leads' },
-      { href: '/leads/follow-up', label: 'Follow-up', icon: 'invii' },
-      { href: '/contatti', label: 'Contatti', icon: 'contatti' },
-      { href: '/scoperta', label: 'Trova aziende', icon: 'scoperta' },
-      { href: '/email-templates', label: 'Template email', icon: 'email-templates' },
-      { href: '/territorio', label: 'Territorio', icon: 'territories' },
-    ],
-  },
-  {
     label: 'Operatività',
     items: [
+      { href: '/', label: 'Panoramica', icon: 'dashboard' },
+      {
+        href: '/leads',
+        label: 'Lead',
+        icon: 'leads',
+        children: [
+          { href: '/leads/follow-up', label: 'Follow-up', icon: 'scadenze' },
+          { href: '/contatti', label: 'Contatti', icon: 'contatti' },
+        ],
+      },
+      {
+        href: '/territorio',
+        label: 'Territorio',
+        icon: 'territories',
+        children: [
+          { href: '/scoperta', label: 'Trova aziende', icon: 'scoperta' },
+        ],
+      },
+      {
+        href: '/invii',
+        label: 'Invii',
+        icon: 'invii',
+        children: [
+          { href: '/email-templates', label: 'Template email', icon: 'email-templates' },
+          { href: '/ab-testing', label: 'Esperimenti A/B', icon: 'experiments' },
+        ],
+      },
       { href: '/funnel', label: 'Funnel', icon: 'funnel' },
-      { href: '/invii', label: 'Invii', icon: 'invii' },
-      { href: '/ab-testing', label: 'Esperimenti A/B', icon: 'experiments' },
-      // Servizio "Pratiche GSE" + "Scadenze" archiviato temporaneamente:
-      // voci di menu rimosse. Le pagine /practices, /scadenze e il flusso
-      // pratica restano nel repo per riattivarlo all'occorrenza.
       { href: '/deliverability', label: 'Deliverability', icon: 'deliverability' },
     ],
   },
