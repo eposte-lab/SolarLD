@@ -35,6 +35,8 @@ import type { LucideIcon } from 'lucide-react';
 import type { PortalEventRow } from '@/lib/data/engagement';
 import { relativeTime } from '@/lib/utils';
 
+import { BollettaTimelineRow } from './bolletta-timeline-row';
+
 type EventStyle = {
   icon: LucideIcon;
   label: string;
@@ -285,6 +287,19 @@ export function LeadPortalTimeline({ events }: { events: PortalEventRow[] }) {
         const style = EVENT_STYLES[row.event_kind] ?? FALLBACK_STYLE;
         const Icon = style.icon;
         const detail = formatEventDetail(row);
+        // Bolletta caricata → riga "premium" cliccabile (aura mint +
+        // shimmer) che scrolla alla BollettaCard. È il segnale ad alta
+        // intenzione del funnel, merita risalto.
+        if (row.event_kind === 'portal.bolletta_uploaded') {
+          return (
+            <BollettaTimelineRow
+              key={row.id}
+              label={style.label}
+              detail={detail}
+              at={relativeTime(row.occurred_at)}
+            />
+          );
+        }
         return (
           <li
             key={row.id}

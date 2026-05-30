@@ -32,6 +32,7 @@ import {
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 
+import { BollettaCard } from '@/components/bolletta-card';
 import { FollowUpDrafter } from '@/components/follow-up-drafter';
 import { LeadActivityStrip } from '@/components/lead-activity-strip';
 import { LeadRepliesCard } from '@/components/lead-replies-card';
@@ -1105,6 +1106,12 @@ export default async function LeadDetailPage({ params }: PageProps) {
             )}
           </div>
         )}
+
+        {/* Bolletta caricata — segnale ad altissima intenzione. La card
+            si auto-fetcha e, se il lead ha caricato la bolletta, mostra il
+            confronto annuale EPC + anteprima/Apri/Scarica con aura premium.
+            `available:false` → non renderizza nulla. */}
+        <BollettaCard leadId={lead.id} />
 
         {/* Highlight: contact-form inquiries first — these are the
             single strongest intent signal in the entire funnel. The

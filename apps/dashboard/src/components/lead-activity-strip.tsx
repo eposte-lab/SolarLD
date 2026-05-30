@@ -167,11 +167,25 @@ export function LeadActivityStrip({
           const rightFilled = done && nextDone;
           const rightHalf = done && !nextDone;
 
+          // Lo step "bolletta", quando raggiunto, è cliccabile: porta alla
+          // BollettaCard (#bolletta-card) dove l'operatore vede il
+          // risparmio EPC annuale e può aprire/scaricare il documento.
+          // Anchor nativo → niente 'use client' su questo server component.
+          const isBollettaLink = p.key === 'bolletta' && done;
+
           return (
             <li
               key={p.key}
               className="relative flex flex-col items-center"
             >
+              {isBollettaLink && (
+                <a
+                  href="#bolletta-card"
+                  aria-label="Vai alla bolletta caricata"
+                  title="Vai alla bolletta caricata"
+                  className="absolute inset-0 z-20 rounded-lg"
+                />
+              )}
               {/* === RIGA DEI CONNETTORI + NODO === */}
               <div className="relative flex h-12 w-full items-center justify-center">
                 {/* Connettore sinistro (dalla metà sinistra della cella

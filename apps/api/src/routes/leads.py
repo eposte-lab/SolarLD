@@ -18,6 +18,8 @@ from ..core.security import CurrentUser, require_tenant
 from ..core.supabase_client import get_service_client
 from ..models.lead import LeadFeedback, LeadListResponse
 from ..services.audit_service import log_action as audit_log
+from ..services.savings_compare_service import compute_epc_annual, compute_savings_compare
+from ..services.storage_service import sign_url
 
 log = get_logger(__name__)
 
@@ -343,6 +345,85 @@ async def lead_timeline(ctx: CurrentUser, lead_id: str) -> list[dict[str, object
         .execute()
     )
     return res.data or []
+
+
+@router.get("/{lead_id}/bolletta")
+async def lead_bolletta(ctx: CurrentUser, lead_id: str) -> dict[str, Any]:
+    """Bolletta caricata dal lead — file (signed URL) + risparmio EPC annuo.
+
+    Sorgente per la BollettaCard della scheda lead. Riusa la stessa
+    pipeline del dossier (``compute_savings_compare`` + ``compute_epc_annual``)
+    così i numeri coincidono con quelli che vede il cliente. La signed URL
+    del bucket privato ``bollette`` scade in 1h: l'accesso resta dietro
+    ``require_tenant``. Sola lettura: nessuna modifica/eliminazione.
+    """
+    tenant_id = require_tenant(ctx)
+    sb = get_service_client()
+    lead_res = (
+        sb.table("leads")
+        .select("id, tenant_id, roi_data, subjects(type)")
+        .eq("id", lead_id)
+        .eq("tenant_id", tenant_id)
+        .limit(1)
+        .execute()
+    )
+    if not lead_res.data:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    lead = lead_res.data[0]
+
+    bill_res = (
+        sb.table("bolletta_uploads")
+        .select(
+            "id, storage_path, mime_type, ocr_kwh_yearly, ocr_eur_yearly, "
+            "manual_kwh_yearly, manual_eur_yearly, source, uploaded_at"
+        )
+        .eq("lead_id", lead_id)
+        .order("uploaded_at", desc=True)
+        .limit(1)
+        .execute()
+    )
+    if not bill_res.data:
+        return {"available": False, "reason": "no_bolletta_uploaded"}
+    bill = bill_res.data[0]
+
+    # Valori manuali (correzione utente) prevalgono sull'OCR.
+    kwh = bill.get("manual_kwh_yearly") or bill.get("ocr_kwh_yearly")
+    eur = bill.get("manual_eur_yearly") or bill.get("ocr_eur_yearly")
+
+    signed_url: str | None = None
+    storage_path = bill.get("storage_path")
+    if storage_path:
+        try:
+            signed_url = sign_url("bollette", storage_path, 3600)
+        except Exception as exc:  # noqa: BLE001 — file mancante non blocca i numeri
+            log.warning("bolletta.sign_url_failed", lead_id=lead_id, err=str(exc)[:200])
+
+    mime = (bill.get("mime_type") or "").lower()
+    file_kind = "pdf" if "pdf" in mime else ("image" if mime.startswith("image/") else "file")
+
+    epc: dict[str, float] | None = None
+    if kwh and eur:
+        result = compute_savings_compare(
+            roi_data=lead.get("roi_data"),
+            bolletta_kwh_yearly=float(kwh),
+            bolletta_eur_yearly=float(eur),
+            subject_type=(lead.get("subjects") or {}).get("type") or "unknown",
+        )
+        if result is not None:
+            epc = compute_epc_annual(result)
+
+    return {
+        "available": True,
+        "signed_url": signed_url,
+        "file_kind": file_kind,
+        "source": bill.get("source"),
+        "uploaded_at": bill.get("uploaded_at"),
+        "bill": {
+            "kwh": round(float(kwh)) if kwh else None,
+            "eur": round(float(eur)) if eur else None,
+        },
+        "epc": epc,
+    }
 
 
 @router.patch("/{lead_id}/feedback")

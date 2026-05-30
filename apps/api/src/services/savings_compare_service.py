@@ -174,6 +174,42 @@ def compute_savings_compare(
     )
 
 
+# Quota dell'energia che diventa risparmio del cliente durante il
+# contratto EPC, e durata del contratto. Specchio di SavingsComparePanel.tsx
+# (modello EPC) — unica fonte server-side per dashboard + dossier.
+EPC_CLIENT_SHARE = 0.20
+EPC_CONTRACT_YEARS = 10
+
+
+def compute_epc_annual(result: SavingsCompareResult) -> dict[str, float]:
+    """Inquadramento ANNUALE del risparmio EPC da un SavingsCompareResult.
+
+    Il 20% si applica all'energia *effettiva* — il minore fra producibilità
+    del tetto e fabbisogno reale dalla bolletta — esattamente come il
+    pannello EPC del dossier (``SavingsComparePanel.tsx``). Restituisce gli
+    importi annui pronti da mostrare:
+
+      * ``current_annual_eur`` — quanto paga oggi (dalla bolletta)
+      * ``epc_annual_eur``     — quanto pagherebbe con l'EPC
+      * ``saving_annual_eur``  — risparmio annuo (20% energia effettiva)
+      * ``pct_off``            — % di sconto sulla bolletta
+      * ``saving_10y_eur``     — risparmio sui 10 anni di contratto
+    """
+    effective_kwh = max(0.0, min(result.predicted_yearly_kwh, result.actual_yearly_kwh))
+    plant_value = effective_kwh * result.actual_tariff_eur_per_kwh
+    epc_saving = plant_value * EPC_CLIENT_SHARE
+    current_annual = max(0.0, result.actual_yearly_eur)
+    epc_annual = max(0.0, current_annual - epc_saving)
+    pct_off = round((epc_saving / current_annual) * 100) if current_annual > 0 else 0
+    return {
+        "current_annual_eur": round(current_annual, 0),
+        "epc_annual_eur": round(epc_annual, 0),
+        "saving_annual_eur": round(epc_saving, 0),
+        "pct_off": float(pct_off),
+        "saving_10y_eur": round(epc_saving * EPC_CONTRACT_YEARS, 0),
+    }
+
+
 def _to_float(val: object) -> float | None:
     if val is None:
         return None
