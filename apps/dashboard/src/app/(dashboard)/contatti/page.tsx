@@ -127,7 +127,7 @@ export default async function ContattiPage({
               : '—'
           }
           hint="qualità media batch"
-          accent="secondary"
+          tone="neutral"
         />
         <KpiChipCard
           label="Email valida"

@@ -18,7 +18,6 @@
 
 import {
   AlertTriangle,
-  ArrowLeft,
   ArrowUpRight,
   ChevronsDown,
   Clock,
@@ -373,13 +372,6 @@ export default async function LeadDetailPage({ params }: PageProps) {
         <div className="flex flex-wrap items-start justify-between gap-4">
           {/* ── SINISTRA — identità + stato del lead ── */}
           <div className="space-y-2">
-            <Link
-              href="/leads"
-              className="inline-flex items-center gap-1 text-xs font-medium text-on-surface-variant transition-colors hover:text-primary"
-            >
-              <ArrowLeft size={12} strokeWidth={2.25} aria-hidden />
-              Tutti i lead
-            </Link>
             <h1 className="font-headline text-4xl font-bold tracking-tighter">
               {name}
             </h1>

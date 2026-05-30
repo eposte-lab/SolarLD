@@ -40,11 +40,14 @@ const TONE_TEXT: Record<KpiTone, string> = {
   warning: 'text-warning',
 };
 
-// Legacy `accent` → new `tone` rimapping
+// Legacy `accent` → new `tone` rimapping.
+// `secondary` è il grigio neutro MD3 (NON un segnale critico): mapparlo a
+// `critical` accendeva una stripe rossa fuorviante su metriche neutre
+// (es. "Archiviate", "Score AI medio") — bug P03 dell'audit UX/UI.
 const ACCENT_TO_TONE: Record<KpiAccent, KpiTone> = {
   primary: 'highlight',
   tertiary: 'highlight',
-  secondary: 'critical',
+  secondary: 'neutral',
   neutral: 'neutral',
 };
 

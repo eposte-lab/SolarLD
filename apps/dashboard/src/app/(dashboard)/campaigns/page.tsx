@@ -71,7 +71,7 @@ export default async function CampaignsPage() {
           accent={paused > 0 ? 'tertiary' : 'neutral'}
         />
         <KpiChipCard label="Bozze" value={String(draft)} accent="neutral" />
-        <KpiChipCard label="Archiviate" value={String(archived)} accent="secondary" />
+        <KpiChipCard label="Archiviate" value={String(archived)} tone="neutral" />
       </BentoGrid>
 
       {/* Campaign list */}

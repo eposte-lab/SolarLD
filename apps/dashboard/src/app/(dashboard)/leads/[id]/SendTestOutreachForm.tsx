@@ -16,11 +16,12 @@
  * accounting) — only the To: header changes.
  */
 
-import { Send, Check, X } from 'lucide-react';
+import { Send, Check, X, TriangleAlert } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
 import { api, ApiError } from '@/lib/api-client';
+import { GradientButton } from '@/components/ui/gradient-button';
 
 type State =
   | { kind: 'idle' }
@@ -66,19 +67,19 @@ export function SendTestOutreachForm({ leadId, defaultEmail }: Props) {
   const busy = state.kind === 'sending';
 
   return (
-    <section className="rounded-2xl bg-amber-50 p-5 ring-1 ring-amber-200 shadow-ambient">
+    <section className="rounded-2xl bg-surface-container-high p-5 ring-1 ring-warning/25 shadow-ambient">
       <div className="mb-4 flex items-start gap-3">
         <span
           aria-hidden
-          className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-amber-200 text-xs font-bold text-amber-900"
+          className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-warning/15 text-warning"
         >
-          ★
+          <TriangleAlert size={13} strokeWidth={2.25} />
         </span>
         <div>
-          <p className="text-sm font-semibold text-amber-900">
+          <p className="text-sm font-semibold text-on-surface">
             Account demo · invio email reali disattivato
           </p>
-          <p className="mt-1 text-xs leading-relaxed text-amber-800">
+          <p className="mt-1 text-xs leading-relaxed text-on-surface-variant">
             Su questo account il bottone &laquo;Invia email&raquo; standard è
             sospeso: nessuna email partirà mai verso l&apos;email reale del
             lead. Per provare il flusso, inserisci la tua email personale
@@ -96,26 +97,25 @@ export function SendTestOutreachForm({ leadId, defaultEmail }: Props) {
           value={override}
           onChange={(e) => setOverride(e.target.value)}
           disabled={busy}
-          className="flex-1 rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm text-stone-900 placeholder:text-stone-400 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-300 disabled:opacity-50"
+          className="flex-1 rounded-full border border-outline-variant bg-surface-container-low px-4 py-2 text-sm text-on-surface placeholder:text-on-surface-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-50"
         />
-        <button
+        <GradientButton
           type="submit"
           disabled={busy || !override.trim()}
-          className="inline-flex items-center justify-center gap-2 rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white shadow-ambient-sm transition-colors hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-60"
         >
           <Send size={14} strokeWidth={2.25} aria-hidden />
           {busy ? 'Invio in corso…' : 'Invia email di test'}
-        </button>
+        </GradientButton>
       </form>
 
       {state.kind === 'success' && (
-        <p className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700">
+        <p className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-primary">
           <Check size={12} strokeWidth={2.5} aria-hidden />
           {state.message}
         </p>
       )}
       {state.kind === 'error' && (
-        <p className="mt-3 inline-flex items-start gap-1.5 text-xs font-semibold text-rose-700">
+        <p className="mt-3 inline-flex items-start gap-1.5 text-xs font-semibold text-error">
           <X size={12} strokeWidth={2.5} className="mt-0.5 shrink-0" aria-hidden />
           {state.message}
         </p>
