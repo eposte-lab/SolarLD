@@ -5,8 +5,8 @@
 {{ copy_opening_line | default('Abbiamo analizzato la vostra sede via satellite. Qui sotto la sintesi; il report completo con simulazione, piano incentivi e ROI è nella vostra area personale.', true) }}
 {% if epc_enabled %}
 MODALITÀ EPC — FORMULA CHIAVI IN MANO
-Progettazione, fornitura e installazione: dalla A alla Z, le seguiamo noi.
-E sul «come si paga» abbiamo in serbo per voi una formula che cambia le regole del gioco. I numeri, calcolati sul vostro tetto, vi aspettano nel report qui sotto.
+E sul «come si paga»? Una formula che cambia le regole del gioco.
+Scoprite i numeri, calcolati sul vostro tetto, nel report qui sotto.
 {% endif %}
 {% if roi and (roi.get('yearly_kwh') or roi.get('yearly_savings_eur')) -%}
 I NUMERI PRINCIPALI:
