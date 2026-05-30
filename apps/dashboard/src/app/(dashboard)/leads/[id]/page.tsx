@@ -609,6 +609,7 @@ export default async function LeadDetailPage({ params }: PageProps) {
                         : '—'
                     }
                     accent="primary"
+                    aura
                   />
                   <KpiChipCard
                     label="Risparmio annuo"
@@ -618,6 +619,7 @@ export default async function LeadDetailPage({ params }: PageProps) {
                         : '—'
                     }
                     accent="primary"
+                    aura
                   />
                   <KpiChipCard
                     label="Rientro investimento"
@@ -627,6 +629,7 @@ export default async function LeadDetailPage({ params }: PageProps) {
                         : '—'
                     }
                     accent="tertiary"
+                    aura
                   />
                   <KpiChipCard
                     label="Producibilità"
@@ -645,6 +648,7 @@ export default async function LeadDetailPage({ params }: PageProps) {
                       )
                     }
                     accent="neutral"
+                    aura
                   />
                 </BentoGrid>
                 {(netCapex != null || savings25y != null) && (

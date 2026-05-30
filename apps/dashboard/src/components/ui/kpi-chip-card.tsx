@@ -61,6 +61,13 @@ export interface KpiChipCardProps {
   tone?: KpiTone;
   /** Legacy. Mapped to `tone` if provided. */
   accent?: KpiAccent;
+  /**
+   * Aura "premium": alone mint (`shadow-editorial-glow`) + anello mint +
+   * shimmer animato (`animate-liquid-shine`). Stesso trattamento della
+   * BollettaCard — per le KPI ad alto valore commerciale (potenza,
+   * risparmio, rientro, producibilità).
+   */
+  aura?: boolean;
   className?: string;
 }
 
@@ -98,6 +105,7 @@ export function KpiChipCard({
   size = 'default',
   tone,
   accent,
+  aura = false,
   className,
 }: KpiChipCardProps) {
   // Resolve effective tone: explicit `tone` wins, else map from legacy `accent`
@@ -115,9 +123,18 @@ export function KpiChipCard({
         'before:absolute before:left-0 before:right-0 before:top-0 before:h-[3px]',
         'before:rounded-t-2xl',
         TONE_STRIPE[effectiveTone],
+        // Aura premium: alone mint + anello mint
+        aura && 'shadow-editorial-glow ring-1 ring-primary/30',
         className,
       )}
     >
+      {/* Aura premium: shimmer mint che attraversa la card */}
+      {aura && (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-0 animate-liquid-shine bg-gradient-to-r from-transparent via-primary/10 to-transparent"
+        />
+      )}
       {/* Specular top-edge highlight */}
       <span
         className="pointer-events-none absolute inset-x-0 top-0 h-[40%] bg-glass-specular"
