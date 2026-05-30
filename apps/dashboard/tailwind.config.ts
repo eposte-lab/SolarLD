@@ -1,7 +1,7 @@
 /**
  * SolarLead dashboard Tailwind config — "Liquid Glass" design system (V2).
  *
- * Dark-only, single-accent (mint editorial #6FCF97). Replaces V1 amber.
+ * Dark-only, single-accent (green editorial #22C55E). Replaces V1 amber.
  * Aesthetic reference: iOS 18 / visionOS Liquid Glass — heavy backdrop
  * blur (40-60px) + saturate(180%) + specular highlight on top edge of
  * cards, soft fluid color washes, sustainability-coherent mint accent.
@@ -50,13 +50,13 @@ const config: Config = {
         outline: '#283038',
         'outline-variant': 'rgba(255,255,255,0.08)',
 
-        // Primary — Mint Editorial (#6FCF97 desaturato sustainability)
+        // Primary — Green Editorial (#22C55E, saturo "enterprise")
         // L'unico accent del sistema. Usato per CTA, focused chart line,
         // active nav pill, focus ring, success/won status, hover state.
-        primary: '#6FCF97',
-        'primary-dim': '#5BB880',
-        'primary-bright': '#8FE5B0',
-        'primary-container': '#1A3F2A',
+        primary: '#22C55E',
+        'primary-dim': '#16A34A',
+        'primary-bright': '#4ADE80',
+        'primary-container': '#0F3D24',
         'on-primary': '#04140A',
         'on-primary-container': '#C7EFD5',
 
@@ -66,11 +66,11 @@ const config: Config = {
         'on-secondary': '#ECEFF0',
         'on-secondary-container': '#ECEFF0',
 
-        // Tertiary — alias of primary (keep token, route to mint-dim)
-        tertiary: '#5BB880',
+        // Tertiary — alias of primary (keep token, route to green-dim)
+        tertiary: '#16A34A',
         'tertiary-container': '#1E262C',
         'on-tertiary': '#04140A',
-        'on-tertiary-container': '#6FCF97',
+        'on-tertiary-container': '#22C55E',
 
         // Error — desaturated red, leggibile su dark
         error: '#E85C5C',
@@ -86,8 +86,8 @@ const config: Config = {
         'on-warning': '#1A1004',
         'on-warning-container': '#FFD9B0',
 
-        // Success — alias di primary (semanticamente coerente: mint = ok)
-        success: '#6FCF97',
+        // Success — alias di primary (semanticamente coerente: green = ok)
+        success: '#22C55E',
         'success-container': '#1A3F2A',
         'on-success': '#04140A',
         'on-success-container': '#C7EFD5',
@@ -137,10 +137,10 @@ const config: Config = {
         'ambient-sm':
           '0 16px 32px -8px rgba(0,0,0,0.45), 0 0 0 1px rgba(255,255,255,0.05), inset 0 1px 0 rgba(255,255,255,0.06)',
         rail: '30px 0 50px -20px rgba(0,0,0,0.50)',
-        // Mint focus ring (primary @ 28%)
-        'gradient-focus': '0 0 0 4px rgba(111,207,151,0.28)',
-        // Mint subtle glow per hero KPI
-        'editorial-glow': '0 0 40px rgba(111,207,151,0.22)',
+        // Green focus ring (primary @ 28%)
+        'gradient-focus': '0 0 0 4px rgba(34,197,94,0.28)',
+        // Green subtle glow per hero KPI
+        'editorial-glow': '0 0 40px rgba(34,197,94,0.22)',
         // Liquid glass — heavy outer shadow + inset specular edge
         'liquid-glass':
           '0 24px 48px -12px rgba(0,0,0,0.50), 0 0 0 1px rgba(255,255,255,0.06), inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 0 rgba(255,255,255,0.04)',
@@ -148,15 +148,15 @@ const config: Config = {
           '0 40px 80px -20px rgba(0,0,0,0.60), 0 0 0 1px rgba(255,255,255,0.08), inset 0 1px 0 rgba(255,255,255,0.16), inset 0 -1px 0 rgba(255,255,255,0.04)',
       },
       backgroundImage: {
-        // Hero gradient — mint wash su superficie
+        // Hero gradient — green wash su superficie
         'gradient-primary':
-          'linear-gradient(135deg, #6FCF97 0%, #5BB880 100%)',
-        // Gradient delicato bianco→mint per headline hero
+          'linear-gradient(135deg, #22C55E 0%, #16A34A 100%)',
+        // Gradient delicato bianco→green per headline hero
         'gradient-headline':
-          'linear-gradient(135deg, #ECEFF0 0%, #6FCF97 100%)',
+          'linear-gradient(135deg, #ECEFF0 0%, #22C55E 100%)',
         // Glass tint cool — usato dietro card flottanti su map
         'glass-mint':
-          'linear-gradient(135deg, rgba(111,207,151,0.06) 0%, rgba(0,0,0,0.30) 100%)',
+          'linear-gradient(135deg, rgba(34,197,94,0.06) 0%, rgba(0,0,0,0.30) 100%)',
         // Specular top-edge highlight per liquid glass cards
         'glass-specular':
           'linear-gradient(180deg, rgba(255,255,255,0.10) 0%, rgba(255,255,255,0.02) 24%, transparent 50%)',

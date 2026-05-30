@@ -90,7 +90,7 @@ export function NavigationProgress() {
             ? 'w-[90%] opacity-100 duration-[1500ms]'
             : 'w-0 opacity-0 duration-200'
         }`}
-        style={{ boxShadow: '0 0 10px rgba(111,207,151,0.85)' }}
+        style={{ boxShadow: '0 0 10px rgba(34,197,94,0.85)' }}
       />
     </div>
   );

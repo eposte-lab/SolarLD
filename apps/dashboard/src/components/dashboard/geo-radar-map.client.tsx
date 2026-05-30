@@ -20,9 +20,9 @@ import { getCentroid } from './italy-provinces';
 
 // ── colour helpers ────────────────────────────────────────────────────────────
 
-// Liquid Glass palette: mint single-accent + warning amber + dim grey.
-const COLOR_MINT = '#6FCF97';
-const COLOR_MINT_DIM = '#5BB880';
+// Liquid Glass palette: green single-accent + warning amber + dim grey.
+const COLOR_MINT = '#22C55E';
+const COLOR_MINT_DIM = '#16A34A';
 const COLOR_WARNING = '#F4A45C';
 const COLOR_DIM = '#8A9499';
 

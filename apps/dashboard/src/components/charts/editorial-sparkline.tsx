@@ -27,7 +27,7 @@ interface Props {
 
 const COLOR = {
   white: '#ECEFF0',
-  mint: '#6FCF97',
+  mint: '#22C55E',
 } as const;
 
 export function EditorialSparkline({

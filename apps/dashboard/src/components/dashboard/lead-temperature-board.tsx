@@ -227,9 +227,9 @@ export function LeadTemperatureBoard({ leads, className }: LeadTemperatureBoardP
                             width: `${pConv * 100}%`,
                             backgroundColor:
                               pConv >= 0.5
-                                ? '#6FCF97'
+                                ? '#22C55E'
                                 : pConv >= 0.2
-                                  ? '#5BB880'
+                                  ? '#16A34A'
                                   : '#8A9499',
                           }}
                         />
