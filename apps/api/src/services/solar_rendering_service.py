@@ -537,41 +537,47 @@ async def _fetch_base_image(
 ) -> tuple[bytes, tuple[float, float, float, float] | None]:
     """Fetch the aerial base image for a rendering.
 
-    Prefers a high-resolution Mapbox satellite tile (sharp, recent);
-    falls back to the Google Solar dataLayers GeoTIFF when no Mapbox
-    token is configured or the request fails. Returns ``(image_bytes,
-    georef)`` where ``georef`` is ``(west_lng, north_lat, scale_x,
-    scale_y)`` for Mapbox, or ``None`` for the GeoTIFF path (whose
-    georeference is parsed from the TIFF tags downstream).
+    Prefers the Google Solar dataLayers GeoTIFF (sharpest, ~10 cm/px and
+    most recent aerial imagery in Italy); falls back to a Mapbox
+    satellite tile when Google Solar has no coverage at the point, the
+    key is exhausted, or the GeoTIFF download fails. Returns
+    ``(image_bytes, georef)`` where ``georef`` is ``None`` for the
+    GeoTIFF path (its georeference is parsed from the TIFF tags
+    downstream), or ``(west_lng, north_lat, scale_x, scale_y)`` for the
+    Mapbox tile.
     """
-    if settings.mapbox_access_token:
-        try:
-            tile = await fetch_static_satellite(lat, lng, client=client)
-            log.info("solar_rendering.base_image", source="mapbox", lat=lat, lng=lng)
-            return tile.image_bytes, tile.georef
-        except (MapboxError, httpx.HTTPError) as exc:
-            log.warning("solar_rendering.mapbox_fallback", reason=str(exc)[:160])
-
-    # Fallback — Google Solar dataLayers GeoTIFF.
+    # Primary — Google Solar dataLayers GeoTIFF (highest fidelity in IT).
     try:
         data_layers = await fetch_data_layers(
             lat, lng, radius_m=radius_m, client=client, api_key=api_key
         )
-    except SolarApiNotFound as exc:
-        raise SolarRenderingError(f"no imagery at ({lat}, {lng})") from exc
-    except SolarApiError as exc:
-        raise SolarRenderingError(f"Solar API error: {exc}") from exc
+        tiff_bytes = await download_geotiff(
+            data_layers.rgb_url, client=client, api_key=api_key
+        )
+        log.info(
+            "solar_rendering.base_image",
+            source="google_solar",
+            quality=data_layers.imagery_quality,
+            date=data_layers.imagery_date,
+        )
+        return tiff_bytes, None
+    except (SolarApiNotFound, SolarApiError) as exc:
+        # No Google coverage / quota / GeoTIFF error — try Mapbox if available.
+        if not settings.mapbox_access_token:
+            raise SolarRenderingError(
+                f"no Google Solar imagery at ({lat}, {lng}) and no Mapbox fallback"
+            ) from exc
+        log.warning("solar_rendering.google_solar_fallback", reason=str(exc)[:160])
+
+    # Fallback — Mapbox satellite tile.
     try:
-        tiff_bytes = await download_geotiff(data_layers.rgb_url, client=client, api_key=api_key)
-    except SolarApiError as exc:
-        raise SolarRenderingError(f"GeoTIFF download failed: {exc}") from exc
-    log.info(
-        "solar_rendering.base_image",
-        source="google_solar",
-        quality=data_layers.imagery_quality,
-        date=data_layers.imagery_date,
-    )
-    return tiff_bytes, None
+        tile = await fetch_static_satellite(lat, lng, client=client)
+        log.info("solar_rendering.base_image", source="mapbox", lat=lat, lng=lng)
+        return tile.image_bytes, tile.georef
+    except (MapboxError, httpx.HTTPError) as exc:
+        raise SolarRenderingError(
+            f"both Google Solar and Mapbox failed at ({lat}, {lng}): {exc}"
+        ) from exc
 
 
 def _load_and_crop(
