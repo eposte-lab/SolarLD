@@ -264,7 +264,7 @@ export default async function InviiPage({
           label="Falliti"
           value={formatNumber(stats.failed)}
           hint="Bounce / errore"
-          accent="secondary"
+          tone={stats.failed > 0 ? 'critical' : 'neutral'}
         />
       </BentoGrid>
 
