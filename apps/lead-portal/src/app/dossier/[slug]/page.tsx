@@ -34,9 +34,13 @@ function withCacheBust(url: string | null): string | null {
   return `${url}${sep}v=${Date.now()}`;
 }
 
-/** Favicon + titolo per-tenant: il portale del lead usa il logo
- *  dell'azienda cliente come favicon, così la scheda browser è
- *  brandizzata sul cliente (es. Total Trade) e non su SolarLead. */
+/** Titolo per-tenant. La favicon NON viene sovrascritta col
+ *  `brand_logo_url` del tenant: quel logo è un wordmark largo
+ *  (es. albero + "total trade") che, forzato nel riquadro quadrato
+ *  della favicon, esce distorto. Si usa quindi l'icona quadrata
+ *  statica del portale (`app/icon.png`, l'albero ben centrato).
+ *  Per favicon brandizzate per-tenant servirebbe un asset quadrato
+ *  dedicato (es. `brand_icon_url`), non il wordmark. */
 export async function generateMetadata({
   params,
 }: PageProps): Promise<Metadata> {
@@ -45,12 +49,10 @@ export async function generateMetadata({
   if (result.kind !== 'ok') return {};
   const tenant = result.lead.tenant;
   const name = tenant?.business_name?.trim();
-  const logo = tenant?.brand_logo_url?.trim();
   return {
     title: name
       ? `${name} — Il tuo tetto con il fotovoltaico`
       : 'Il tuo tetto con il fotovoltaico',
-    ...(logo ? { icons: { icon: logo } } : {}),
   };
 }
 
