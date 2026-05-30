@@ -99,7 +99,7 @@ export async function GeoRadarMap({ className }: GeoRadarMapProps) {
           client non disegna marker ma rende comunque la mappa. Quando
           non c'è ancora nessun lead con provincia mostriamo solo una
           nota fluttuante in basso, invece di nascondere la mappa. */}
-      <div className="relative h-[360px] overflow-hidden rounded-2xl ghost-border-strong">
+      <div className="relative h-[460px] overflow-hidden rounded-2xl ghost-border-strong lg:h-[560px]">
         <GeoRadarMapLoader aggregates={aggregates} pins={pins} />
         {pins.length === 0 ? (
           <div className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center p-4">
