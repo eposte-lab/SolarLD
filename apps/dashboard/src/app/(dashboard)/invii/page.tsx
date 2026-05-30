@@ -22,6 +22,7 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 
 import { BentoCard, BentoGrid } from '@/components/ui/bento-card';
+import { CollapsibleFilters } from '@/components/ui/collapsible-filters';
 import { GradientButton } from '@/components/ui/gradient-button';
 import { KpiChipCard } from '@/components/ui/kpi-chip-card';
 import { InviiTable } from '@/components/invii/invii-table';
@@ -123,8 +124,10 @@ export default async function InviiPage({
     return s ? `/invii?${s}` : '/invii';
   };
 
+  const activeFilterCount = [channelFilter, statusFilter].filter(Boolean).length;
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Header */}
       <header className="flex items-end justify-between">
         <div>
@@ -269,32 +272,37 @@ export default async function InviiPage({
       </BentoGrid>
 
       {/* Filters */}
-      <BentoCard padding="tight" span="full">
-        <div className="flex flex-wrap gap-6 px-2 py-2">
-          <FilterGroup label="Canale">
-            {CHANNEL_OPTIONS.map((opt) => (
-              <FilterChip
-                key={opt.value || 'all-ch'}
-                active={channelFilter === opt.value}
-                href={queryFor({ channel: opt.value || undefined, page: undefined })}
-              >
-                {opt.label}
-              </FilterChip>
-            ))}
-          </FilterGroup>
-          <FilterGroup label="Stato">
-            {STATUS_OPTIONS.map((opt) => (
-              <FilterChip
-                key={opt.value || 'all-st'}
-                active={statusFilter === opt.value}
-                href={queryFor({ status: opt.value || undefined, page: undefined })}
-              >
-                {opt.label}
-              </FilterChip>
-            ))}
-          </FilterGroup>
-        </div>
-      </BentoCard>
+      <CollapsibleFilters
+        activeCount={activeFilterCount}
+        resetHref={queryFor({
+          channel: undefined,
+          status: undefined,
+          page: undefined,
+        })}
+      >
+        <FilterGroup label="Canale">
+          {CHANNEL_OPTIONS.map((opt) => (
+            <FilterChip
+              key={opt.value || 'all-ch'}
+              active={channelFilter === opt.value}
+              href={queryFor({ channel: opt.value || undefined, page: undefined })}
+            >
+              {opt.label}
+            </FilterChip>
+          ))}
+        </FilterGroup>
+        <FilterGroup label="Stato">
+          {STATUS_OPTIONS.map((opt) => (
+            <FilterChip
+              key={opt.value || 'all-st'}
+              active={statusFilter === opt.value}
+              href={queryFor({ status: opt.value || undefined, page: undefined })}
+            >
+              {opt.label}
+            </FilterChip>
+          ))}
+        </FilterGroup>
+      </CollapsibleFilters>
 
       {/* Table */}
       <BentoCard padding="tight" span="full">

@@ -79,7 +79,7 @@ export default async function ContattiPage({
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {ctx.tenant.outreach_blocked && (
         <DemoModeBanner tenantName={ctx.tenant.business_name ?? null} />
       )}
