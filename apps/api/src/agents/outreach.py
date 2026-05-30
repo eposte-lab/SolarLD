@@ -710,7 +710,30 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
         # inbox restrictions (Phase A) and the demo dialog's "scegli mittente"
         # picker (passes a single inbox UUID via OutreachInput.inbox_id).
         # ------------------------------------------------------------------
-        pinned_inbox_ids: list[str] | None = [payload.inbox_id] if payload.inbox_id else None
+        # Inbox pinning precedence:
+        #   1. An explicit OutreachInput.inbox_id (campaign/demo picker) always wins.
+        #   2. Otherwise, follow-up sends (sequence_step > 1 or an engagement
+        #      scenario) consolidate on the tenant's configured follow-up inbox
+        #      (settings.followup_inbox_id) so the whole conversation comes from
+        #      one consistent sender. Initial touches (step 1) keep round-robining
+        #      across all active inboxes to spread warm-up volume.
+        #   3. No pin → pick_and_claim round-robins across active inboxes.
+        pinned_inbox_ids: list[str] | None = None
+        if payload.inbox_id:
+            pinned_inbox_ids = [payload.inbox_id]
+        else:
+            _is_followup = payload.sequence_step > 1 or payload.engagement_scenario is not None
+            _followup_inbox = (tenant_row.get("settings") or {}).get("followup_inbox_id")
+            if _is_followup and _followup_inbox:
+                pinned_inbox_ids = [str(_followup_inbox)]
+                log.info(
+                    "outreach.followup_inbox_pinned",
+                    lead_id=payload.lead_id,
+                    tenant_id=payload.tenant_id,
+                    sequence_step=payload.sequence_step,
+                    engagement_scenario=payload.engagement_scenario,
+                    inbox_id=str(_followup_inbox),
+                )
         selected_inbox: dict[str, Any] | None = await inbox_service.pick_and_claim(
             sb,
             payload.tenant_id,
