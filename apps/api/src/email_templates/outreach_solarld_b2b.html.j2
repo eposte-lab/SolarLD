@@ -22,12 +22,13 @@
       .container{width:100%!important;border-radius:0!important;border-left:0!important;border-right:0!important;}
       .px{padding-left:18px!important;padding-right:18px!important;}
       .stack{display:block!important;width:100%!important;max-width:100%!important;box-sizing:border-box!important;padding-left:0!important;padding-right:0!important;}
-      .stack-mb{margin-bottom:10px!important;}
       .hero-pad{padding-top:24px!important;padding-bottom:14px!important;}
       .h1{font-size:20px!important;line-height:26px!important;}
       .kwh{font-size:21px!important;line-height:27px!important;}
       .lead-p{font-size:15px!important;line-height:22px!important;}
-      .metric-num{font-size:22px!important;line-height:26px!important;}
+      .mcard{padding:12px 12px!important;}
+      .metric-num{font-size:19px!important;line-height:23px!important;}
+      .metric-unit{font-size:12px!important;}
       .logo-img{height:46px!important;max-height:46px!important;}
       .h2-prop{font-size:17px!important;line-height:23px!important;}
       .cta-btn{display:block!important;width:100%!important;box-sizing:border-box!important;text-align:center!important;padding-left:0!important;padding-right:0!important;}
@@ -105,11 +106,15 @@
                 <tr>
                   <td style="padding:15px 20px;">
                     <p style="margin:0;font-size:10px;line-height:14px;color:{{ accent }};font-weight:700;letter-spacing:1px;text-transform:uppercase;">Modalità EPC · Formula chiavi in mano</p>
-                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:8px;"><tr>
-                      <td style="vertical-align:middle;font-size:14px;line-height:20px;color:#dfe4ec;font-weight:600;">L'intero investimento<br>è a carico nostro</td>
-                      <td style="vertical-align:middle;text-align:right;white-space:nowrap;">
-                        <span style="font-size:11px;line-height:13px;color:{{ accent }};font-weight:700;letter-spacing:0.5px;text-transform:uppercase;">Voi investite</span>
-                        <span style="font-size:30px;line-height:32px;color:{{ accent }};font-weight:700;">&nbsp;€0</span>
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-top:10px;"><tr>
+                      <td style="vertical-align:middle;font-size:14px;line-height:20px;color:#dfe4ec;font-weight:600;padding-right:12px;">L'intero investimento è a carico nostro</td>
+                      <td style="vertical-align:middle;text-align:right;width:1%;white-space:nowrap;">
+                        <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="right"><tr>
+                          <td style="background-color:{{ accent }};border-radius:9px;padding:9px 14px;text-align:center;">
+                            <span style="display:block;font-size:9px;line-height:12px;color:{{ navy }};font-weight:700;letter-spacing:1px;text-transform:uppercase;">Voi investite</span>
+                            <span style="display:block;font-size:24px;line-height:26px;color:{{ navy }};font-weight:700;">€0</span>
+                          </td>
+                        </tr></table>
                       </td>
                     </tr></table>
                   </td>
@@ -125,17 +130,17 @@
             <td class="px" style="padding:14px 32px 0 32px;">
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
                 {%- if roi.get('yearly_kwh') %}
-                <td class="stack stack-mb" style="width:50%;vertical-align:top;padding-right:6px;">
-                  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="border-d" style="border:1px solid #e8eaed;border-radius:10px;"><tr><td style="padding:14px 16px;">
-                    <p class="txt-muted-d" style="margin:0 0 5px 0;font-size:10px;color:#8a9099;font-weight:600;letter-spacing:0.7px;text-transform:uppercase;">Producibilità annua</p>
-                    <p class="metric-num txt-dark" style="margin:0;font-size:22px;line-height:26px;color:{{ navy }};font-weight:700;">{{ roi.yearly_kwh | int | format_money }} <span style="font-size:13px;color:#8a9099;font-weight:700;">kWh</span></p>
+                <td style="width:50%;vertical-align:top;padding-right:5px;">
+                  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="border-d" style="border:1px solid #e8eaed;border-radius:10px;"><tr><td class="mcard" style="padding:14px 16px;">
+                    <p class="txt-muted-d" style="margin:0 0 5px 0;font-size:10px;line-height:13px;color:#8a9099;font-weight:600;letter-spacing:0.7px;text-transform:uppercase;">Producibilità annua</p>
+                    <p class="metric-num txt-dark" style="margin:0;font-size:22px;line-height:26px;color:{{ navy }};font-weight:700;">{{ roi.yearly_kwh | int | format_money }} <span class="metric-unit" style="font-size:13px;color:#8a9099;font-weight:700;">kWh</span></p>
                   </td></tr></table>
                 </td>
                 {%- endif %}
                 {%- if roi.get('yearly_savings_eur') %}
-                <td class="stack" style="width:50%;vertical-align:top;padding-left:6px;">
-                  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="border-d" style="border:1px solid #e8eaed;border-radius:10px;"><tr><td style="padding:14px 16px;">
-                    <p class="txt-muted-d" style="margin:0 0 5px 0;font-size:10px;color:#8a9099;font-weight:600;letter-spacing:0.7px;text-transform:uppercase;">Risparmio annuo in bolletta</p>
+                <td style="width:50%;vertical-align:top;padding-left:5px;">
+                  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="border-d" style="border:1px solid #e8eaed;border-radius:10px;"><tr><td class="mcard" style="padding:14px 16px;">
+                    <p class="txt-muted-d" style="margin:0 0 5px 0;font-size:10px;line-height:13px;color:#8a9099;font-weight:600;letter-spacing:0.7px;text-transform:uppercase;">Risparmio annuo in bolletta</p>
                     <p class="metric-num txt-dark" style="margin:0;font-size:22px;line-height:26px;color:{{ navy }};font-weight:700;">€{{ roi.yearly_savings_eur | int | format_money }}</p>
                   </td></tr></table>
                 </td>
