@@ -976,7 +976,14 @@ async def _admin_demo_runs_impl(
 
 
 class TrialPendingLead(BaseModel):
-    """One curatable lead in the moderation queue."""
+    """One curatable lead in the moderation queue.
+
+    Carries the engagement timestamps so the UI can tell a *contatto*
+    (pre-engagement: at most sent/delivered/opened) from a *lead*
+    (reacted: clicked the CTA, visited the portal, replied, started a
+    WhatsApp chat, or booked an appointment). Same semantic distinction
+    the dashboard draws between /contatti and /leads.
+    """
 
     id: str
     tenant_id: str
@@ -991,6 +998,15 @@ class TrialPendingLead(BaseModel):
     address: str | None = None
     comune: str | None = None
     provincia: str | None = None
+    # Engagement signals — drive the contatto/lead split in the UI.
+    outreach_sent_at: str | None = None
+    outreach_delivered_at: str | None = None
+    outreach_opened_at: str | None = None
+    outreach_clicked_at: str | None = None
+    outreach_replied_at: str | None = None
+    whatsapp_initiated_at: str | None = None
+    dashboard_visited_at: str | None = None
+    last_portal_event_at: str | None = None
 
 
 class TrialPendingLeadsResponse(BaseModel):
@@ -1034,6 +1050,9 @@ async def trial_pending_leads(
         .select(
             "id, tenant_id, operator_review_status, operator_released_at, "
             "pipeline_status, score, score_tier, public_slug, created_at, "
+            "outreach_sent_at, outreach_delivered_at, outreach_opened_at, "
+            "outreach_clicked_at, outreach_replied_at, whatsapp_initiated_at, "
+            "dashboard_visited_at, last_portal_event_at, "
             "subjects(business_name), roofs(address, comune, provincia)"
         )
         .eq("tenant_id", tenant_id)
@@ -1067,6 +1086,14 @@ async def trial_pending_leads(
                 address=(roof or {}).get("address"),
                 comune=(roof or {}).get("comune"),
                 provincia=(roof or {}).get("provincia"),
+                outreach_sent_at=r.get("outreach_sent_at"),
+                outreach_delivered_at=r.get("outreach_delivered_at"),
+                outreach_opened_at=r.get("outreach_opened_at"),
+                outreach_clicked_at=r.get("outreach_clicked_at"),
+                outreach_replied_at=r.get("outreach_replied_at"),
+                whatsapp_initiated_at=r.get("whatsapp_initiated_at"),
+                dashboard_visited_at=r.get("dashboard_visited_at"),
+                last_portal_event_at=r.get("last_portal_event_at"),
             )
         )
 
