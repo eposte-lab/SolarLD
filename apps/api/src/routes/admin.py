@@ -1096,12 +1096,7 @@ async def trial_pending_leads(
     )
     if review_status == "pending":
         res_q = res_q.or_(engagement_or)
-    res = (
-        res_q.order("created_at", desc=True)
-        .limit(limit)
-        .offset(offset)
-        .execute()
-    )
+    res = res_q.order("created_at", desc=True).limit(limit).offset(offset).execute()
 
     leads: list[TrialPendingLead] = []
     for r in res.data or []:
