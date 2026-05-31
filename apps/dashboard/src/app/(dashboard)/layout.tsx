@@ -138,10 +138,24 @@ export default async function DashboardLayout({
 
   const baseSections = NAV_SECTIONS;
 
+  // Moderated trial tenant: the lead pipeline is curated by the operator
+  // (super-admin) and stays hidden until released, so we drop the surfaces
+  // that would reveal un-released leads — Lead (+ Follow-up, Contatti) and
+  // Funnel. The tenant keeps Panoramica, Territorio, Invii (+ tracking),
+  // Deliverability and Impostazioni. We HIDE the entries entirely (rather
+  // than disabling them) so the moderation layer leaves no visible trace.
+  const moderatedHiddenHrefs = new Set(['/leads', '/funnel']);
+  const baseForTenant: NavSection[] = ctx.is_moderated
+    ? baseSections.map((section) => ({
+        ...section,
+        items: section.items.filter((item) => !moderatedHiddenHrefs.has(item.href)),
+      }))
+    : baseSections;
+
   // The previous super-admin "Demo Runs" section was tied to the old
   // execution system. Now that v3 runs through the standard funnel
   // pipeline, no separate admin surface is needed in the nav rail.
-  const visibleSections: NavSection[] = baseSections;
+  const visibleSections: NavSection[] = baseForTenant;
 
   return (
     <div className="flex min-h-screen bg-surface">

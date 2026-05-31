@@ -39,7 +39,11 @@ from ..core.logging import get_logger
 from ..core.queue import enqueue  # noqa: F401 — retained for non-test admin paths
 from ..core.security import CurrentUser
 from ..core.supabase_client import get_service_client
-from ..models.enums import OutreachChannel, RoofDataSource, RoofStatus, SubjectType
+from ..models.enums import LeadStatus, OutreachChannel, RoofDataSource, RoofStatus, SubjectType
+from ..services.appointment_service import (
+    fire_appointment_webhook,
+    notify_tenant_contact_request,
+)
 from ..services.territory_lock_service import unlock as territory_unlock
 
 log = get_logger(__name__)
@@ -948,3 +952,465 @@ async def _admin_demo_runs_impl(
 
     log.info("admin.demo_runs_listed", count=len(rows), total=total, super_admin=ctx.user_id)
     return DemoRunsResponse(runs=rows, total=total)
+
+
+# ---------------------------------------------------------------------------
+# Trial moderation — super-admin curation layer (migration 0145/0146)
+# ---------------------------------------------------------------------------
+#
+# For a *moderated* trial tenant (Total Trade), the operator curates what
+# the tenant perceives. Two queues:
+#
+#   1. Lead visibility — every new lead is hidden from the tenant (RLS gate
+#      on leads.operator_released_at) until the operator "releases" it. The
+#      endpoints below flip operator_released_at / operator_review_status.
+#   2. Inbound requests — a prospect's dossier appointment form is held in
+#      pending_inbound_requests and routed to the operator first. On
+#      approval the held side-effects (status bump, event, tenant email,
+#      CRM webhook) are replayed here — the tenant sees the exact same
+#      notification it would have seen unmoderated.
+#
+# All endpoints are super_admin-only + service-role (RLS bypass). The
+# moderation layer is INVISIBLE to the tenant: it never reaches these
+# routes and never sees pending_inbound_requests (default-deny RLS).
+
+
+class TrialPendingLead(BaseModel):
+    """One curatable lead in the moderation queue."""
+
+    id: str
+    tenant_id: str
+    operator_review_status: str
+    operator_released_at: str | None = None
+    pipeline_status: str | None = None
+    score: int | None = None
+    score_tier: str | None = None
+    public_slug: str | None = None
+    created_at: str | None = None
+    business_name: str | None = None
+    address: str | None = None
+    comune: str | None = None
+    provincia: str | None = None
+
+
+class TrialPendingLeadsResponse(BaseModel):
+    leads: list[TrialPendingLead]
+    total: int
+
+
+@router.get("/trial/pending-leads", response_model=TrialPendingLeadsResponse)
+async def trial_pending_leads(
+    ctx: CurrentUser,
+    tenant_id: str = Query(description="Moderated tenant UUID"),
+    review_status: str = Query(
+        default="pending",
+        description="Filter by operator_review_status (pending|released|held).",
+    ),
+    limit: int = Query(default=200, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
+) -> TrialPendingLeadsResponse:
+    """Leads awaiting operator curation for a moderated tenant.
+
+    Service-role read (RLS bypass), so it sees hidden leads the tenant
+    cannot. Joins subjects/roofs for a human-readable queue row.
+    """
+    _require_super_admin(ctx)
+    sb = get_service_client()
+
+    count_q = (
+        sb.table("leads")
+        .select("id", count="exact", head=True)
+        .eq("tenant_id", tenant_id)
+        .eq("operator_review_status", review_status)
+    )
+    total = 0
+    try:
+        total = count_q.execute().count or 0
+    except Exception as exc:  # noqa: BLE001
+        log.warning("admin.trial_pending_leads_count_failed", err=str(exc)[:200])
+
+    res = (
+        sb.table("leads")
+        .select(
+            "id, tenant_id, operator_review_status, operator_released_at, "
+            "pipeline_status, score, score_tier, public_slug, created_at, "
+            "subjects(business_name), roofs(address, comune, provincia)"
+        )
+        .eq("tenant_id", tenant_id)
+        .eq("operator_review_status", review_status)
+        .order("created_at", desc=True)
+        .limit(limit)
+        .offset(offset)
+        .execute()
+    )
+
+    leads: list[TrialPendingLead] = []
+    for r in res.data or []:
+        subj = r.get("subjects") or {}
+        if isinstance(subj, list):
+            subj = subj[0] if subj else {}
+        roof = r.get("roofs") or {}
+        if isinstance(roof, list):
+            roof = roof[0] if roof else {}
+        leads.append(
+            TrialPendingLead(
+                id=r["id"],
+                tenant_id=r["tenant_id"],
+                operator_review_status=r.get("operator_review_status") or "pending",
+                operator_released_at=r.get("operator_released_at"),
+                pipeline_status=r.get("pipeline_status"),
+                score=r.get("score"),
+                score_tier=r.get("score_tier"),
+                public_slug=r.get("public_slug"),
+                created_at=r.get("created_at"),
+                business_name=(subj or {}).get("business_name"),
+                address=(roof or {}).get("address"),
+                comune=(roof or {}).get("comune"),
+                provincia=(roof or {}).get("provincia"),
+            )
+        )
+
+    log.info(
+        "admin.trial_pending_leads_listed",
+        tenant_id=tenant_id,
+        review_status=review_status,
+        count=len(leads),
+        super_admin=ctx.user_id,
+    )
+    return TrialPendingLeadsResponse(leads=leads, total=total)
+
+
+@router.post("/trial/leads/{lead_id}/release")
+async def trial_release_lead(ctx: CurrentUser, lead_id: str) -> dict[str, Any]:
+    """Make a hidden lead visible to the moderated tenant.
+
+    Sets ``operator_released_at = now()`` + ``operator_review_status =
+    'released'`` so the leads RLS SELECT gate lets the tenant see it.
+    """
+    _require_super_admin(ctx)
+    sb = get_service_client()
+    now_iso = datetime.now(UTC).isoformat()
+    res = (
+        sb.table("leads")
+        .update(
+            {
+                "operator_released_at": now_iso,
+                "operator_review_status": "released",
+            }
+        )
+        .eq("id", lead_id)
+        .execute()
+    )
+    if not res.data:
+        raise HTTPException(status_code=404, detail="lead not found")
+    log.info("admin.trial_lead_released", lead_id=lead_id, super_admin=ctx.user_id)
+    return {"ok": True, "lead_id": lead_id, "operator_review_status": "released"}
+
+
+@router.post("/trial/leads/{lead_id}/hold")
+async def trial_hold_lead(ctx: CurrentUser, lead_id: str) -> dict[str, Any]:
+    """Keep a lead hidden from the moderated tenant (explicit suppress).
+
+    Sets ``operator_review_status = 'held'`` + clears
+    ``operator_released_at`` so the RLS gate hides it again. Distinct from
+    'pending' (not yet reviewed) so the queue UI can tell them apart.
+    """
+    _require_super_admin(ctx)
+    sb = get_service_client()
+    res = (
+        sb.table("leads")
+        .update(
+            {
+                "operator_released_at": None,
+                "operator_review_status": "held",
+            }
+        )
+        .eq("id", lead_id)
+        .execute()
+    )
+    if not res.data:
+        raise HTTPException(status_code=404, detail="lead not found")
+    log.info("admin.trial_lead_held", lead_id=lead_id, super_admin=ctx.user_id)
+    return {"ok": True, "lead_id": lead_id, "operator_review_status": "held"}
+
+
+class TrialPendingInbound(BaseModel):
+    """One held inbound appointment request awaiting operator decision."""
+
+    id: str
+    tenant_id: str
+    lead_id: str
+    status: str
+    dossier_url: str | None = None
+    payload: dict[str, Any] = Field(default_factory=dict)
+    created_at: str | None = None
+    decided_at: str | None = None
+    business_name: str | None = None
+    public_slug: str | None = None
+
+
+class TrialPendingInboundResponse(BaseModel):
+    requests: list[TrialPendingInbound]
+    total: int
+
+
+@router.get("/trial/pending-inbound", response_model=TrialPendingInboundResponse)
+async def trial_pending_inbound(
+    ctx: CurrentUser,
+    status: str = Query(default="pending", description="pending|approved|rejected"),
+    tenant_id: str | None = Query(default=None),
+    limit: int = Query(default=200, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
+) -> TrialPendingInboundResponse:
+    """Held inbound prospect requests (operator-only queue).
+
+    Reads ``pending_inbound_requests`` (default-deny RLS, service-role
+    only). Joins the lead's subject + slug for a readable queue row.
+    """
+    _require_super_admin(ctx)
+    sb = get_service_client()
+
+    count_q = (
+        sb.table("pending_inbound_requests")
+        .select("id", count="exact", head=True)
+        .eq("status", status)
+    )
+    if tenant_id:
+        count_q = count_q.eq("tenant_id", tenant_id)
+    total = 0
+    try:
+        total = count_q.execute().count or 0
+    except Exception as exc:  # noqa: BLE001
+        log.warning("admin.trial_pending_inbound_count_failed", err=str(exc)[:200])
+
+    q = (
+        sb.table("pending_inbound_requests")
+        .select(
+            "id, tenant_id, lead_id, status, dossier_url, payload, "
+            "created_at, decided_at"
+        )
+        .eq("status", status)
+        .order("created_at", desc=True)
+        .limit(limit)
+        .offset(offset)
+    )
+    if tenant_id:
+        q = q.eq("tenant_id", tenant_id)
+    res = q.execute()
+    raw = res.data or []
+
+    # Batch-fetch the leads for slug + business name (best-effort).
+    lead_ids = [r["lead_id"] for r in raw if r.get("lead_id")]
+    leads_by_id: dict[str, dict[str, Any]] = {}
+    if lead_ids:
+        try:
+            lres = (
+                sb.table("leads")
+                .select("id, public_slug, subjects(business_name)")
+                .in_("id", lead_ids)
+                .execute()
+            )
+            for lr in lres.data or []:
+                leads_by_id[lr["id"]] = lr
+        except Exception as exc:  # noqa: BLE001
+            log.warning("admin.trial_pending_inbound_lead_lookup_failed", err=str(exc)[:200])
+
+    requests: list[TrialPendingInbound] = []
+    for r in raw:
+        lead_row = leads_by_id.get(r.get("lead_id") or "") or {}
+        subj = lead_row.get("subjects") or {}
+        if isinstance(subj, list):
+            subj = subj[0] if subj else {}
+        requests.append(
+            TrialPendingInbound(
+                id=r["id"],
+                tenant_id=r["tenant_id"],
+                lead_id=r["lead_id"],
+                status=r["status"],
+                dossier_url=r.get("dossier_url"),
+                payload=r.get("payload") or {},
+                created_at=r.get("created_at"),
+                decided_at=r.get("decided_at"),
+                business_name=(subj or {}).get("business_name"),
+                public_slug=lead_row.get("public_slug"),
+            )
+        )
+
+    log.info(
+        "admin.trial_pending_inbound_listed",
+        status=status,
+        count=len(requests),
+        super_admin=ctx.user_id,
+    )
+    return TrialPendingInboundResponse(requests=requests, total=total)
+
+
+@router.post("/trial/inbound/{request_id}/approve")
+async def trial_approve_inbound(ctx: CurrentUser, request_id: str) -> dict[str, Any]:
+    """Forward a held inbound request to the tenant — replays side-effects.
+
+    Mirrors the unmoderated ``request_appointment`` path exactly:
+      * advance ``pipeline_status='appointment'`` (+ source='cta_click'),
+      * RELEASE the lead so the tenant can see the appointment,
+      * emit ``lead.appointment_requested`` (dashboard realtime/timeline),
+      * email the tenant's ``contact_email`` (reply-to = prospect),
+      * fire the CRM webhook if configured,
+      * mark the queue row ``approved`` + stamp ``decided_by``.
+
+    Side-effects are fail-open; the queue row is still marked approved
+    even if a notification raises, so the operator action is not lost.
+    """
+    _require_super_admin(ctx)
+    sb = get_service_client()
+
+    pir_res = (
+        sb.table("pending_inbound_requests")
+        .select("id, tenant_id, lead_id, payload, dossier_url, status")
+        .eq("id", request_id)
+        .limit(1)
+        .maybe_single()
+        .execute()
+    )
+    pir = (pir_res.data if pir_res else None) or None
+    if not pir:
+        raise HTTPException(status_code=404, detail="inbound request not found")
+    if pir.get("status") != "pending":
+        raise HTTPException(status_code=409, detail=f"already {pir.get('status')}")
+
+    tenant_id = pir["tenant_id"]
+    lead_id = pir["lead_id"]
+    payload_dict: dict[str, Any] = pir.get("payload") or {}
+    dossier_url = pir.get("dossier_url")
+    now_iso = datetime.now(UTC).isoformat()
+
+    # Load the lead to honor the "stamp source once" rule.
+    lead_res = (
+        sb.table("leads")
+        .select("id, source")
+        .eq("id", lead_id)
+        .limit(1)
+        .maybe_single()
+        .execute()
+    )
+    lead = (lead_res.data if lead_res else None) or {}
+
+    # 1) Advance + release the lead (visible to the tenant from now on).
+    update_fields: dict[str, Any] = {
+        "pipeline_status": LeadStatus.APPOINTMENT.value,
+        "operator_released_at": now_iso,
+        "operator_review_status": "released",
+    }
+    if not lead.get("source"):
+        update_fields["source"] = "cta_click"
+    sb.table("leads").update(update_fields).eq("id", lead_id).execute()
+
+    # 2) Emit the tenant-facing event (dashboard realtime + timeline).
+    # Direct insert (NOT _emit_public_event) — the operator already got
+    # their notification at hold-time; we don't want a second operator email.
+    try:
+        sb.table("events").insert(
+            {
+                "tenant_id": tenant_id,
+                "lead_id": lead_id,
+                "event_type": "lead.appointment_requested",
+                "event_source": "route.admin",
+                "payload": {
+                    "contact_name": payload_dict.get("contact_name"),
+                    "phone": payload_dict.get("phone"),
+                    "email": payload_dict.get("email"),
+                    "preferred_time": payload_dict.get("preferred_time"),
+                    "notes": payload_dict.get("notes"),
+                    "moderated_approval": True,
+                },
+            }
+        ).execute()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("admin.trial_approve_event_failed", lead_id=lead_id, err=str(exc)[:200])
+
+    # 3) Tenant email + CRM webhook (the exact notifications it would have
+    #    gotten unmoderated). Both fail-open.
+    tenant_row = (
+        sb.table("tenants")
+        .select("appointment_webhook_url, contact_email, business_name")
+        .eq("id", tenant_id)
+        .limit(1)
+        .maybe_single()
+        .execute()
+    )
+    tenant_data = (tenant_row.data or {}) if tenant_row else {}
+
+    await notify_tenant_contact_request(
+        sb,
+        tenant_id=tenant_id,
+        tenant_data=tenant_data,
+        payload=payload_dict,
+        dossier_url=dossier_url,
+    )
+
+    webhook_url = tenant_data.get("appointment_webhook_url")
+    if webhook_url:
+        await fire_appointment_webhook(
+            webhook_url,
+            lead_id=lead_id,
+            payload=payload_dict,
+            dossier_url=dossier_url,
+        )
+
+    # 4) Mark the queue row decided.
+    sb.table("pending_inbound_requests").update(
+        {
+            "status": "approved",
+            "decided_at": now_iso,
+            "decided_by": ctx.user_id,
+        }
+    ).eq("id", request_id).execute()
+
+    log.info(
+        "admin.trial_inbound_approved",
+        request_id=request_id,
+        tenant_id=tenant_id,
+        lead_id=lead_id,
+        super_admin=ctx.user_id,
+    )
+    return {"ok": True, "request_id": request_id, "status": "approved", "lead_id": lead_id}
+
+
+@router.post("/trial/inbound/{request_id}/reject")
+async def trial_reject_inbound(ctx: CurrentUser, request_id: str) -> dict[str, Any]:
+    """Discard a held inbound request — no tenant-facing effect.
+
+    Marks the queue row ``rejected``; the tenant never learns the request
+    existed. The lead's visibility is untouched (still hidden unless the
+    operator releases it separately).
+    """
+    _require_super_admin(ctx)
+    sb = get_service_client()
+
+    pir_res = (
+        sb.table("pending_inbound_requests")
+        .select("id, status")
+        .eq("id", request_id)
+        .limit(1)
+        .maybe_single()
+        .execute()
+    )
+    pir = (pir_res.data if pir_res else None) or None
+    if not pir:
+        raise HTTPException(status_code=404, detail="inbound request not found")
+    if pir.get("status") != "pending":
+        raise HTTPException(status_code=409, detail=f"already {pir.get('status')}")
+
+    sb.table("pending_inbound_requests").update(
+        {
+            "status": "rejected",
+            "decided_at": datetime.now(UTC).isoformat(),
+            "decided_by": ctx.user_id,
+        }
+    ).eq("id", request_id).execute()
+
+    log.info(
+        "admin.trial_inbound_rejected",
+        request_id=request_id,
+        super_admin=ctx.user_id,
+    )
+    return {"ok": True, "request_id": request_id, "status": "rejected"}
