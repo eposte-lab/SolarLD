@@ -261,7 +261,7 @@ function LeadQueue({ tenantId }: { tenantId: string }) {
         <div className="flex items-center gap-2">
           <Users size={16} strokeWidth={2.25} aria-hidden className="text-primary" />
           <h2 className="font-headline text-lg font-bold tracking-tight text-on-surface">
-            Coda contatti &amp; lead
+            Coda promozione a lead
           </h2>
           <span className="rounded-full bg-surface-container px-2 py-0.5 text-xs font-semibold text-on-surface-variant">
             {total}
@@ -280,7 +280,7 @@ function LeadQueue({ tenantId }: { tenantId: string }) {
                   : 'bg-surface-container text-on-surface-variant hover:text-on-surface'
               }`}
             >
-              {s === 'pending' ? 'Da rivedere' : s === 'held' ? 'Nascosti' : 'Rilasciati'}
+              {s === 'pending' ? 'Da promuovere' : s === 'held' ? 'Tenuti a contatto' : 'Promossi'}
             </button>
           ))}
           <button
@@ -300,12 +300,13 @@ function LeadQueue({ tenantId }: { tenantId: string }) {
       </div>
 
       <p className="mt-1 text-xs text-on-surface-variant">
-        <span className="font-semibold text-on-surface">Contatto</span> = azienda
-        ancora pre-engagement (al massimo email inviata/aperta).{' '}
-        <span className="font-semibold text-on-surface">Lead</span> = ha reagito
-        (click, portale, WhatsApp, risposta o appuntamento). «Far comparire»
-        rende la scheda visibile al tenant; finché è nascosta, il tenant la vede
-        solo tra gli «Invii».
+        Il tenant vede sempre i propri <span className="font-semibold text-on-surface">contatti</span>{' '}
+        e le relative schede. Qui compaiono i contatti che hanno{' '}
+        <span className="font-semibold text-on-surface">reagito</span> (click, portale,
+        WhatsApp, risposta o appuntamento) e attendono la promozione a{' '}
+        <span className="font-semibold text-on-surface">lead</span>. «Promuovi a
+        lead» fa passare la scheda allo stato lead nella dashboard del tenant;
+        finché non la promuovi resta un contatto come gli altri.
       </p>
 
       {error && (
@@ -317,7 +318,7 @@ function LeadQueue({ tenantId }: { tenantId: string }) {
 
       {leads.length === 0 && !loading && !error && (
         <p className="mt-4 rounded-lg bg-surface-container-low px-4 py-8 text-center text-sm text-on-surface-variant">
-          Nessun contatto o lead in questo stato.
+          Nessun contatto in questo stato.
         </p>
       )}
 
@@ -432,7 +433,7 @@ function LeadGroup({
                     ) : (
                       <Eye size={12} strokeWidth={2.25} aria-hidden />
                     )}
-                    Far comparire
+                    Promuovi a lead
                   </button>
                 )}
                 {reviewStatus !== 'held' && (
@@ -447,7 +448,7 @@ function LeadGroup({
                     ) : (
                       <EyeOff size={12} strokeWidth={2.25} aria-hidden />
                     )}
-                    Tieni nascosto
+                    Tieni come contatto
                   </button>
                 )}
               </div>

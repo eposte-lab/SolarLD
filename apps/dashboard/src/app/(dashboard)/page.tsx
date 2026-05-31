@@ -97,13 +97,9 @@ export default async function DashboardOverview() {
               {ctx.tenant.business_name}
             </span>
           </h1>
-          {/* Lead surfaces are hidden for a moderated trial tenant — the
-              operator curates the pipeline; the tenant only sees Invii. */}
-          {!ctx.is_moderated && (
-            <GradientButton href="/leads" variant="secondary" size="sm">
-              Tutti i lead →
-            </GradientButton>
-          )}
+          <GradientButton href="/leads" variant="secondary" size="sm">
+            Tutti i lead →
+          </GradientButton>
         </div>
       </header>
 
@@ -169,8 +165,10 @@ export default async function DashboardOverview() {
 
       {/* ── Row 4b: Hot leads (full width) ──────────────────────────────
               Widget "Scadenze GSE" archiviato col servizio Pratiche.
-              Hidden for a moderated trial tenant (curated lead pipeline). */}
-      {!ctx.is_moderated && <HotLeadsWidget />}
+              For a moderated tenant this lists only operator-promoted leads
+              (the lead-surface queries gate on operator_released_at), so it
+              stays empty until the operator promotes an engaged contatto. */}
+      <HotLeadsWidget />
 
       {/* ── Row 5: Conversion Funnel (full width) ────────────────────────── */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -185,24 +183,23 @@ export default async function DashboardOverview() {
       </BentoCard>
 
       {/* ── Row 6: Lead Temperature Board (full width) ─────────────────────
-              Hidden for a moderated trial tenant — surfaces individual
-              leads the operator hasn't released yet. */}
-      {!ctx.is_moderated && (
-        <BentoCard span="full" padding="tight">
-          <header className="flex items-center justify-between px-2 pb-5 pt-2">
-            <div className="space-y-1">
-              <SectionEyebrow>Classificazione termica</SectionEyebrow>
-              <h2 className="font-headline text-2xl font-bold tracking-tighter text-on-surface">
-                Lead Temperature Board
-              </h2>
-            </div>
-            <GradientButton href="/leads" variant="secondary" size="sm">
-              Tutti i lead →
-            </GradientButton>
-          </header>
-          <LeadTemperatureBoard leads={topLeads} />
-        </BentoCard>
-      )}
+              For a moderated tenant `topLeads` only contains operator-
+              promoted leads (gated on operator_released_at), so the board
+              stays empty until the operator promotes engaged contatti. */}
+      <BentoCard span="full" padding="tight">
+        <header className="flex items-center justify-between px-2 pb-5 pt-2">
+          <div className="space-y-1">
+            <SectionEyebrow>Classificazione termica</SectionEyebrow>
+            <h2 className="font-headline text-2xl font-bold tracking-tighter text-on-surface">
+              Lead Temperature Board
+            </h2>
+          </div>
+          <GradientButton href="/leads" variant="secondary" size="sm">
+            Tutti i lead →
+          </GradientButton>
+        </header>
+        <LeadTemperatureBoard leads={topLeads} />
+      </BentoCard>
     </div>
   );
 }

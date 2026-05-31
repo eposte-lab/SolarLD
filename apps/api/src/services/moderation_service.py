@@ -1,30 +1,35 @@
-"""Tenant-facing lead-visibility gate for moderated trial tenants.
+"""Trial-moderation gate helpers (migration 0147 — gate moved up).
 
-The dashboard's RLS read path (``lib/data/leads.ts``) is gated by the
-``leads_select`` policy from migration 0145 — a moderated tenant simply
-cannot ``SELECT`` an un-released lead. But the API endpoints in
-``routes/leads.py`` read through the **service role**, which *bypasses
-RLS*, so that gate does not apply there. These helpers re-impose the
-exact same gate at the API layer:
+History: migration 0145 hid every un-released lead from a moderated
+tenant at the DB level (the ``leads_select`` RLS policy). Because the
+``routes/leads.py`` endpoints read through the **service role** (which
+bypasses RLS), this module re-imposed the same row-hiding at the API
+layer (``apply_released_filter`` / ``assert_lead_visible``).
 
-  * a hidden (un-released) lead must NOT appear in lists / exports;
-  * a hidden lead must ``404`` on direct fetch / single-lead actions —
-    indistinguishable from "does not exist", so the moderation layer
-    stays invisible to the tenant.
+Revised requirement (pre go-live): the moderated tenant must SEE and
+operate its own contatti normally — browse them, open the scheda of a
+sent ID, fetch its bolletta, etc. So migration 0147 relaxed the RLS gate
+back to plain tenant-scoping and moved the moderation gate UP to a single
+place: the dashboard's lead-surface queries
+(``apps/dashboard/src/lib/data/leads.ts``), which withhold the *lead*
+classification (the /leads list, the hot-leads widgets and KPI) for an
+engaged-but-un-promoted contatto. Everything else the tenant sees stays
+visible.
 
-A lead is *visible* to a moderated tenant when
-``operator_released_at IS NOT NULL`` (mirrors the RLS predicate).
+To match that posture the two row-hiding helpers below are now **no-ops**
+— the API no longer hides un-promoted contatti, so a service-role
+single-lead read/action (bolletta card, GDPR fetch, follow-up draft, …)
+never 404s on a contatto the tenant can legitimately see. The call sites
+in ``routes/leads.py`` are intentionally left in place: they document
+where lead reads happen and keep a single switch to flip should the gate
+ever need to return to the API layer.
 
-**Fail-open**, like ``appointment_service``: any error treats the
-tenant as NON-moderated (everything visible), so a transient config
-hiccup never silently hides a normal tenant's pipeline.
+``is_moderated`` is kept as a truthful helper (still used to label/log).
 """
 
 from __future__ import annotations
 
 from typing import Any
-
-from fastapi import HTTPException
 
 from ..core.logging import get_logger
 from .appointment_service import is_tenant_moderated
@@ -38,38 +43,18 @@ def is_moderated(sb: Any, tenant_id: str) -> bool:
 
 
 def apply_released_filter(query: Any, sb: Any, tenant_id: str) -> Any:
-    """Restrict a ``leads`` query to operator-released rows when moderated.
-
-    No-op for non-moderated tenants, so the query is byte-for-byte the
-    old behavior. For a moderated tenant it appends the same predicate
-    the RLS ``leads_select`` policy enforces (``operator_released_at IS
-    NOT NULL``), hiding pending/held leads from lists and exports.
+    """No-op since migration 0147 — the lead-surface gate lives in the
+    dashboard now (``lib/data/leads.ts``), not at the API/RLS layer. The
+    moderated tenant sees and operates its contatti like any other tenant;
+    only their promotion to a *lead* is withheld, and that is enforced in
+    the dashboard's lead-surface queries. Returns the query unchanged.
     """
-    if is_moderated(sb, tenant_id):
-        return query.not_.is_("operator_released_at", "null")
     return query
 
 
 def assert_lead_visible(sb: Any, tenant_id: str, lead_id: str) -> None:
-    """Raise 404 if ``lead_id`` is hidden from a moderated tenant.
-
-    Use on single-lead endpoints that mutate without a prior ownership
-    SELECT (e.g. PATCH feedback) or that read a different table keyed by
-    ``lead_id`` (e.g. the timeline ``events`` query). Endpoints that
-    already run a ``.eq("id").eq("tenant_id")`` ownership check should
-    instead fold ``apply_released_filter`` into that query so the
-    existing 404 path also covers visibility (one fewer round-trip).
+    """No-op since migration 0147 — see ``apply_released_filter``. A
+    moderated tenant may open the scheda of any contatto it owns, so
+    single-lead reads/actions must never 404 on the moderation gate.
     """
-    if not is_moderated(sb, tenant_id):
-        return
-    res = (
-        sb.table("leads")
-        .select("id")
-        .eq("id", lead_id)
-        .eq("tenant_id", tenant_id)
-        .not_.is_("operator_released_at", "null")
-        .limit(1)
-        .execute()
-    )
-    if not res.data:
-        raise HTTPException(status_code=404, detail="Lead not found")
+    return None

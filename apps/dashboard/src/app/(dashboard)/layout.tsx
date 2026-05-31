@@ -136,26 +136,17 @@ export default async function DashboardLayout({
     redirect('/onboarding/territory-confirm');
   }
 
-  const baseSections = NAV_SECTIONS;
-
-  // Moderated trial tenant: the lead pipeline is curated by the operator
-  // (super-admin) and stays hidden until released, so we drop the surfaces
-  // that would reveal un-released leads — Lead (+ Follow-up, Contatti) and
-  // Funnel. The tenant keeps Panoramica, Territorio, Invii (+ tracking),
-  // Deliverability and Impostazioni. We HIDE the entries entirely (rather
-  // than disabling them) so the moderation layer leaves no visible trace.
-  const moderatedHiddenHrefs = new Set(['/leads', '/funnel']);
-  const baseForTenant: NavSection[] = ctx.is_moderated
-    ? baseSections.map((section) => ({
-        ...section,
-        items: section.items.filter((item) => !moderatedHiddenHrefs.has(item.href)),
-      }))
-    : baseSections;
-
+  // A moderated trial tenant keeps the FULL nav. The moderation gate is
+  // on the contatto → lead STATE promotion (enforced in the lead-surface
+  // queries in lib/data/leads.ts), not on hiding pages: the tenant must be
+  // able to browse its contatti and open the schede of the IDs it was
+  // sent. The /leads list simply stays empty until the operator promotes
+  // an engaged contatto to a lead.
+  //
   // The previous super-admin "Demo Runs" section was tied to the old
   // execution system. Now that v3 runs through the standard funnel
   // pipeline, no separate admin surface is needed in the nav rail.
-  const visibleSections: NavSection[] = baseForTenant;
+  const visibleSections: NavSection[] = NAV_SECTIONS;
 
   return (
     <div className="flex min-h-screen bg-surface">
