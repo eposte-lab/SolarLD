@@ -14,7 +14,7 @@
  */
 
 import Link from 'next/link';
-import { notFound, redirect } from 'next/navigation';
+import { redirect } from 'next/navigation';
 
 import { BentoCard, BentoGrid } from '@/components/ui/bento-card';
 import { DemoModeBanner } from '@/components/demo-mode-banner';
@@ -56,14 +56,9 @@ export default async function ContattiPage({
     include_unpromoted: includeScartati,
   };
 
-  // Moderation gate: /contatti reads scan_candidates (NOT leads), so the
-  // leads RLS policy does not hide it. For a moderated trial tenant this
-  // surface must not exist at all — resolve the context first and 404
-  // before fetching/rendering any contact data.
-  const ctxEarly = await getCurrentTenantContext();
-  if (!ctxEarly) redirect('/login');
-  if (ctxEarly.is_moderated) notFound();
-
+  // A moderated trial tenant SEES its contatti — the moderation gate is on
+  // the contatto → lead state promotion (in lib/data/leads.ts), not on this
+  // page. /contatti reads scan_candidates, which is never gated.
   const [ctx, summary, { rows, total }] = await Promise.all([
     getCurrentTenantContext(),
     getContattiSummary(),

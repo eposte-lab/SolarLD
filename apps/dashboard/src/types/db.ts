@@ -20,7 +20,10 @@ export type TenantTier = 'founding' | 'pro' | 'enterprise';
  * config when round-tripping.
  */
 export interface TenantSettings {
-  feature_flags?: Record<string, boolean>;
+  // JSONB values: a flag may be stored as the boolean `true` or the JSON
+  // string "true" (migration 0146 writes the string form). Readers must
+  // accept both — see getCurrentTenantContext().
+  feature_flags?: Record<string, boolean | string>;
   [key: string]: unknown;
 }
 

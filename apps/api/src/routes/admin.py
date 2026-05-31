@@ -961,9 +961,12 @@ async def _admin_demo_runs_impl(
 # For a *moderated* trial tenant (Total Trade), the operator curates what
 # the tenant perceives. Two queues:
 #
-#   1. Lead visibility — every new lead is hidden from the tenant (RLS gate
-#      on leads.operator_released_at) until the operator "releases" it. The
-#      endpoints below flip operator_released_at / operator_review_status.
+#   1. Lead promotion — the tenant SEES all of its contatti (migration
+#      0147 relaxed the RLS row-hiding). The gate is now on the contatto →
+#      lead STATE change: a reacted (engaged) contatto stays out of the
+#      tenant's lead surfaces until the operator promotes it. The
+#      endpoints below flip operator_released_at / operator_review_status;
+#      the dashboard's lead-surface queries enforce the gate.
 #   2. Inbound requests — a prospect's dossier appointment form is held in
 #      pending_inbound_requests and routed to the operator first. On
 #      approval the held side-effects (status bump, event, tenant email,
@@ -1025,13 +1028,44 @@ async def trial_pending_leads(
     limit: int = Query(default=200, ge=1, le=1000),
     offset: int = Query(default=0, ge=0),
 ) -> TrialPendingLeadsResponse:
-    """Leads awaiting operator curation for a moderated tenant.
+    """Leads awaiting operator promotion to "lead" for a moderated tenant.
 
-    Service-role read (RLS bypass), so it sees hidden leads the tenant
-    cannot. Joins subjects/roofs for a human-readable queue row.
+    Service-role read (RLS bypass). Since migration 0147 the tenant SEES
+    all of its contatti — the gate is now on the contatto → lead STATE
+    promotion. So the actionable ``pending`` queue is the set of contatti
+    that have *reacted* (engaged) but the operator hasn't promoted yet:
+    listing every un-touched contatto here would bury the queue under the
+    whole campaign. The engagement predicate mirrors ``ENGAGEMENT_OR`` in
+    the dashboard's ``lib/data/leads.ts``. The ``released`` / ``held``
+    tabs are explicit operator decisions and are NOT engagement-filtered.
+
+    Joins subjects/roofs for a human-readable queue row.
     """
     _require_super_admin(ctx)
     sb = get_service_client()
+
+    # Engagement predicate — a contatto has "reacted" (PostgREST or-string;
+    # statuses spelled out one-per-clause because in.() commas collide with
+    # the or-delimiter, same workaround as the dashboard).
+    engaged_statuses = (
+        "clicked",
+        "engaged",
+        "whatsapp",
+        "appointment",
+        "closed_won",
+        "closed_lost",
+    )
+    engagement_or = ",".join(
+        [
+            "outreach_clicked_at.not.is.null",
+            "dashboard_visited_at.not.is.null",
+            "whatsapp_initiated_at.not.is.null",
+            "outreach_replied_at.not.is.null",
+            "last_portal_event_at.not.is.null",
+            "engagement_score.gt.0",
+            *[f"pipeline_status.eq.{s}" for s in engaged_statuses],
+        ]
+    )
 
     count_q = (
         sb.table("leads")
@@ -1039,13 +1073,15 @@ async def trial_pending_leads(
         .eq("tenant_id", tenant_id)
         .eq("operator_review_status", review_status)
     )
+    if review_status == "pending":
+        count_q = count_q.or_(engagement_or)
     total = 0
     try:
         total = count_q.execute().count or 0
     except Exception as exc:  # noqa: BLE001
         log.warning("admin.trial_pending_leads_count_failed", err=str(exc)[:200])
 
-    res = (
+    res_q = (
         sb.table("leads")
         .select(
             "id, tenant_id, operator_review_status, operator_released_at, "
@@ -1057,7 +1093,11 @@ async def trial_pending_leads(
         )
         .eq("tenant_id", tenant_id)
         .eq("operator_review_status", review_status)
-        .order("created_at", desc=True)
+    )
+    if review_status == "pending":
+        res_q = res_q.or_(engagement_or)
+    res = (
+        res_q.order("created_at", desc=True)
         .limit(limit)
         .offset(offset)
         .execute()
@@ -1109,10 +1149,12 @@ async def trial_pending_leads(
 
 @router.post("/trial/leads/{lead_id}/release")
 async def trial_release_lead(ctx: CurrentUser, lead_id: str) -> dict[str, Any]:
-    """Make a hidden lead visible to the moderated tenant.
+    """Promote a reacted contatto to a *lead* for the moderated tenant.
 
     Sets ``operator_released_at = now()`` + ``operator_review_status =
-    'released'`` so the leads RLS SELECT gate lets the tenant see it.
+    'released'``. The row was already visible to the tenant as a contatto;
+    this is what lets it surface as a lead (the dashboard's lead-surface
+    queries gate on ``operator_released_at`` — see migration 0147).
     """
     _require_super_admin(ctx)
     sb = get_service_client()
@@ -1136,11 +1178,12 @@ async def trial_release_lead(ctx: CurrentUser, lead_id: str) -> dict[str, Any]:
 
 @router.post("/trial/leads/{lead_id}/hold")
 async def trial_hold_lead(ctx: CurrentUser, lead_id: str) -> dict[str, Any]:
-    """Keep a lead hidden from the moderated tenant (explicit suppress).
+    """Keep a reacted contatto as a contatto (do NOT promote to lead).
 
     Sets ``operator_review_status = 'held'`` + clears
-    ``operator_released_at`` so the RLS gate hides it again. Distinct from
-    'pending' (not yet reviewed) so the queue UI can tell them apart.
+    ``operator_released_at`` so the row stays out of the tenant's lead
+    surfaces (it remains visible as a contatto). Distinct from 'pending'
+    (not yet reviewed) so the queue UI can tell them apart.
     """
     _require_super_admin(ctx)
     sb = get_service_client()

@@ -10,6 +10,7 @@
 import 'server-only';
 
 import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { getCurrentTenantContext } from '@/lib/data/tenant';
 import type {
   LeadDetailRow,
   LeadListRow,
@@ -17,6 +18,21 @@ import type {
   LeadStatus,
   OverviewKpis,
 } from '@/types/db';
+
+/**
+ * Trial-moderation gate (migration 0147). For a moderated tenant a row
+ * only counts as an active *lead* once the operator has promoted it
+ * (`operator_released_at IS NOT NULL`). Engaged-but-un-promoted contatti
+ * stay out of every lead surface — the /leads list, the hot-leads
+ * widgets and the hot-leads KPI — but remain fully visible to the tenant
+ * as contatti (/contatti) and as openable schede. No-op for normal
+ * tenants. The gate lives here (not in RLS) precisely so the tenant can
+ * still see those rows; only their *lead* classification is withheld.
+ */
+async function isModeratedTenant(): Promise<boolean> {
+  const ctx = await getCurrentTenantContext();
+  return ctx?.is_moderated ?? false;
+}
 
 /** Default page size for the leads list. */
 export const LEADS_PAGE_SIZE = 25;
@@ -220,6 +236,11 @@ export async function listLeads(opts: {
 
   // Engagement gate — only leads with at least one concrete action.
   q = q.or(ENGAGEMENT_OR);
+
+  // Trial-moderation gate — an engaged contatto isn't a lead until the
+  // operator promotes it. For a moderated tenant /leads stays empty until
+  // then; the contatto remains visible under /contatti.
+  if (await isModeratedTenant()) q = q.not('operator_released_at', 'is', null);
 
   const { data, error, count } = await q
     .order('score', { ascending: false })
@@ -496,10 +517,10 @@ export async function getLeadV3Signal(
 /** Top-N hot leads for the overview widget. */
 export async function listTopHotLeads(limit = 10): Promise<LeadListRow[]> {
   const supabase = await createSupabaseServerClient();
-  const { data, error } = await supabase
-    .from('leads')
-    .select(LIST_COLUMNS)
-    .eq('score_tier', 'hot')
+  let q = supabase.from('leads').select(LIST_COLUMNS).eq('score_tier', 'hot');
+  // Trial-moderation gate — only operator-promoted leads (see migration 0147).
+  if (await isModeratedTenant()) q = q.not('operator_released_at', 'is', null);
+  const { data, error } = await q
     .order('score', { ascending: false })
     .limit(limit);
   if (error) throw new Error(`listTopHotLeads: ${error.message}`);
@@ -550,12 +571,15 @@ export async function listHotLeadsAwaitingResponse(opts: {
   const cutoff = new Date(Date.now() - sinceHours * 60 * 60 * 1000).toISOString();
 
   try {
-    const { data, error } = await supabase
+    let q = supabase
       .from('leads')
       .select(LIST_COLUMNS)
       .gte('engagement_score', minScore)
       .gte('last_portal_event_at', cutoff)
-      .not('pipeline_status', 'in', `(${HOT_AWAITING_EXCLUDED.join(',')})`)
+      .not('pipeline_status', 'in', `(${HOT_AWAITING_EXCLUDED.join(',')})`);
+    // Trial-moderation gate — only operator-promoted leads (see migration 0147).
+    if (await isModeratedTenant()) q = q.not('operator_released_at', 'is', null);
+    const { data, error } = await q
       .order('engagement_score', { ascending: false })
       .order('last_portal_event_at', { ascending: false })
       .limit(limit);
@@ -597,16 +621,22 @@ export async function getOverviewKpis(): Promise<OverviewKpis> {
   // bolletta/whatsapp/appointment events on their own (each weighted
   // 20-30 — see engagement_service.py).
 
+  // Trial-moderation gate — the "Hot leads" KPI counts only operator-
+  // promoted leads for a moderated tenant (engaged-but-un-promoted contatti
+  // are not leads yet). "Invii" (outreach_sent) is never gated. See 0147.
+  let hotQ = supabase
+    .from('leads')
+    .select('id', { count: 'exact', head: true })
+    .gte('engagement_score', 50);
+  if (await isModeratedTenant()) hotQ = hotQ.not('operator_released_at', 'is', null);
+
   const [sent, hot, conversionRows] = await Promise.all([
     supabase
       .from('leads')
       .select('id', { count: 'exact', head: true })
       .not('outreach_sent_at', 'is', null)
       .gte('outreach_sent_at', since),
-    supabase
-      .from('leads')
-      .select('id', { count: 'exact', head: true })
-      .gte('engagement_score', 50),
+    hotQ,
     // Appointments + closed_won come from the `conversions` table —
     // `closed_at` is the actual transition timestamp, while
     // `leads.created_at` is the lead's birthday and would silently drop

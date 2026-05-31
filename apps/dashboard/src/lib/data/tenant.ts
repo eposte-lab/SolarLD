@@ -20,11 +20,15 @@ export interface TenantContext {
   user_email: string | null;
   /**
    * True when this tenant is under super-admin trial moderation
-   * (tenants.settings.feature_flags.trial_moderation). When set, the
-   * dashboard hides the Lead / Contatti / Funnel surfaces — those leads
-   * are curated by the operator and stay hidden until released. The flag
-   * is invisible to the tenant: it only ever changes what is rendered,
-   * never surfaced as a label or disabled state.
+   * (tenants.settings.feature_flags.trial_moderation). The tenant still
+   * sees everything it normally would — contatti, invii, the schede of
+   * the IDs it was sent. What this flag gates is the STATE promotion
+   * contatto → lead: a row only surfaces as an active *lead* (the /leads
+   * list, the hot-leads widgets and the hot-leads KPI) once the operator
+   * has released it (`operator_released_at IS NOT NULL`). Engaged-but-
+   * un-released rows stay contatti until the operator promotes them.
+   * The flag is invisible to the tenant: it only ever changes which rows
+   * count as leads, never surfaced as a label or disabled state.
    */
   is_moderated: boolean;
 }
@@ -65,7 +69,13 @@ export const getCurrentTenantContext = cache(async (): Promise<TenantContext | n
   if (!tenant) return null;
 
   const tenantRow = tenant as TenantRow;
-  const isModerated = tenantRow.settings?.feature_flags?.trial_moderation === true;
+  // The flag is stored in JSONB and may be either the boolean `true` or
+  // the JSON string "true" (migration 0146 writes the string form, the
+  // PATCH feature-flags endpoint may write either). Mirror the SQL helper
+  // tenant_is_moderated(), which reads it with `->>` (text) and compares
+  // to 'true' — so both shapes resolve to moderated.
+  const flag = tenantRow.settings?.feature_flags?.trial_moderation;
+  const isModerated = flag === true || flag === 'true';
 
   return {
     tenant: tenantRow,
