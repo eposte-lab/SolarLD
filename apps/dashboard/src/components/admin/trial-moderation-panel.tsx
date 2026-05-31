@@ -18,15 +18,17 @@
  * otherwise).
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import {
   AlertTriangle,
   Eye,
   EyeOff,
+  Flame,
   Inbox,
   Loader2,
   MailCheck,
   RefreshCw,
+  Send,
   Users,
   XCircle,
 } from 'lucide-react';
@@ -48,6 +50,15 @@ interface PendingLead {
   address: string | null;
   comune: string | null;
   provincia: string | null;
+  // Engagement signals — drive the contatto/lead classification below.
+  outreach_sent_at: string | null;
+  outreach_delivered_at: string | null;
+  outreach_opened_at: string | null;
+  outreach_clicked_at: string | null;
+  outreach_replied_at: string | null;
+  whatsapp_initiated_at: string | null;
+  dashboard_visited_at: string | null;
+  last_portal_event_at: string | null;
 }
 
 interface PendingLeadsResponse {
@@ -100,6 +111,69 @@ function payloadField(p: Record<string, unknown>, ...keys: string[]): string | n
     if (typeof v === 'string' && v.trim()) return v;
   }
   return null;
+}
+
+// Pipeline statuses that, on their own, mean the prospect has reacted.
+// Matches the dashboard's "Lead = contatto che ha reagito" definition.
+const REACTED_STATUSES = new Set([
+  'clicked',
+  'engaged',
+  'to_call',
+  'whatsapp',
+  'appointment',
+  'closed_won',
+]);
+
+/**
+ * A row is a **lead** (vs a pre-engagement **contatto**) when the prospect
+ * has reacted: clicked the CTA, visited the portal, replied, started a
+ * WhatsApp chat, or moved to a reacted pipeline stage. A plain open or a
+ * delivered/sent email is NOT a reaction — that stays a contatto.
+ */
+function isReactedLead(l: PendingLead): boolean {
+  if (
+    l.outreach_clicked_at ||
+    l.outreach_replied_at ||
+    l.whatsapp_initiated_at ||
+    l.dashboard_visited_at ||
+    l.last_portal_event_at
+  ) {
+    return true;
+  }
+  return l.pipeline_status != null && REACTED_STATUSES.has(l.pipeline_status);
+}
+
+type StageTone = 'neutral' | 'info' | 'hot';
+
+/**
+ * Furthest stage the prospect reached, for a single status chip. Ordered
+ * from coldest (in coda) to hottest (appuntamento) — the last matching
+ * signal wins.
+ */
+function leadStage(l: PendingLead): { label: string; tone: StageTone } {
+  if (l.pipeline_status === 'appointment' || l.pipeline_status === 'closed_won') {
+    return { label: 'Appuntamento', tone: 'hot' };
+  }
+  if (l.whatsapp_initiated_at || l.pipeline_status === 'whatsapp') {
+    return { label: 'WhatsApp', tone: 'hot' };
+  }
+  if (l.outreach_replied_at) return { label: 'Ha risposto', tone: 'hot' };
+  if (l.dashboard_visited_at || l.last_portal_event_at) {
+    return { label: 'Ha visitato il portale', tone: 'hot' };
+  }
+  if (l.outreach_clicked_at || l.pipeline_status === 'clicked') {
+    return { label: 'Ha cliccato', tone: 'hot' };
+  }
+  if (l.outreach_opened_at || l.pipeline_status === 'opened') {
+    return { label: 'Aperta', tone: 'info' };
+  }
+  if (l.outreach_delivered_at || l.pipeline_status === 'delivered') {
+    return { label: 'Consegnata', tone: 'info' };
+  }
+  if (l.outreach_sent_at || l.pipeline_status === 'sent') {
+    return { label: 'Inviata', tone: 'info' };
+  }
+  return { label: 'In coda', tone: 'neutral' };
 }
 
 export function TrialModerationPanel({ initialTenantId }: { initialTenantId: string }) {
@@ -187,7 +261,7 @@ function LeadQueue({ tenantId }: { tenantId: string }) {
         <div className="flex items-center gap-2">
           <Users size={16} strokeWidth={2.25} aria-hidden className="text-primary" />
           <h2 className="font-headline text-lg font-bold tracking-tight text-on-surface">
-            Coda lead
+            Coda contatti &amp; lead
           </h2>
           <span className="rounded-full bg-surface-container px-2 py-0.5 text-xs font-semibold text-on-surface-variant">
             {total}
@@ -225,6 +299,15 @@ function LeadQueue({ tenantId }: { tenantId: string }) {
         </div>
       </div>
 
+      <p className="mt-1 text-xs text-on-surface-variant">
+        <span className="font-semibold text-on-surface">Contatto</span> = azienda
+        ancora pre-engagement (al massimo email inviata/aperta).{' '}
+        <span className="font-semibold text-on-surface">Lead</span> = ha reagito
+        (click, portale, WhatsApp, risposta o appuntamento). «Far comparire»
+        rende la scheda visibile al tenant; finché è nascosta, il tenant la vede
+        solo tra gli «Invii».
+      </p>
+
       {error && (
         <div className="mt-4 flex items-start gap-2 rounded-lg border border-error/30 bg-error-container/20 px-3 py-2 text-sm text-error">
           <AlertTriangle size={14} strokeWidth={2.25} aria-hidden className="mt-0.5 shrink-0" />
@@ -232,71 +315,147 @@ function LeadQueue({ tenantId }: { tenantId: string }) {
         </div>
       )}
 
-      <div className="mt-4 space-y-2">
-        {leads.length === 0 && !loading && !error && (
-          <p className="rounded-lg bg-surface-container-low px-4 py-8 text-center text-sm text-on-surface-variant">
-            Nessun lead in questo stato.
-          </p>
-        )}
+      {leads.length === 0 && !loading && !error && (
+        <p className="mt-4 rounded-lg bg-surface-container-low px-4 py-8 text-center text-sm text-on-surface-variant">
+          Nessun contatto o lead in questo stato.
+        </p>
+      )}
 
-        {leads.map((l) => (
-          <div
-            key={l.id}
-            className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-surface-container-low px-4 py-3"
-          >
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-semibold text-on-surface">
-                {l.business_name || '(azienda senza nome)'}
-              </p>
-              <p className="truncate text-xs text-on-surface-variant">
-                {[l.address, l.comune, l.provincia].filter(Boolean).join(', ') || '—'}
-              </p>
-              <p className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 font-mono text-[11px] text-on-surface-variant">
-                <span>
-                  score: <span className="text-on-surface">{l.score ?? '—'}</span>
-                  {l.score_tier ? ` (${l.score_tier})` : ''}
-                </span>
-                <span>stato: {l.pipeline_status ?? '—'}</span>
-                <span>{fmtDate(l.created_at)}</span>
-              </p>
-            </div>
+      <LeadGroup
+        title="Lead — hanno reagito"
+        icon={<Flame size={14} strokeWidth={2.25} aria-hidden className="text-error" />}
+        rows={leads.filter(isReactedLead)}
+        reviewStatus={reviewStatus}
+        busyId={busyId}
+        act={act}
+        emptyHint="Nessun lead reattivo: nessun prospect ha ancora cliccato, visitato il portale o risposto."
+      />
 
-            <div className="flex shrink-0 items-center gap-2">
-              {reviewStatus !== 'released' && (
-                <button
-                  type="button"
-                  onClick={() => void act(l.id, 'release')}
-                  disabled={busyId === l.id}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-on-primary transition-opacity hover:opacity-90 disabled:opacity-50"
-                >
-                  {busyId === l.id ? (
-                    <Loader2 size={12} strokeWidth={2.25} aria-hidden className="animate-spin" />
-                  ) : (
-                    <Eye size={12} strokeWidth={2.25} aria-hidden />
-                  )}
-                  Far comparire
-                </button>
-              )}
-              {reviewStatus !== 'held' && (
-                <button
-                  type="button"
-                  onClick={() => void act(l.id, 'hold')}
-                  disabled={busyId === l.id}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-surface-container px-3 py-1.5 text-xs font-semibold text-on-surface-variant transition-colors hover:text-on-surface disabled:opacity-50"
-                >
-                  {busyId === l.id ? (
-                    <Loader2 size={12} strokeWidth={2.25} aria-hidden className="animate-spin" />
-                  ) : (
-                    <EyeOff size={12} strokeWidth={2.25} aria-hidden />
-                  )}
-                  Tieni nascosto
-                </button>
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
+      <LeadGroup
+        title="Contatti — pre-engagement"
+        icon={<Send size={14} strokeWidth={2.25} aria-hidden className="text-on-surface-variant" />}
+        rows={leads.filter((l) => !isReactedLead(l))}
+        reviewStatus={reviewStatus}
+        busyId={busyId}
+        act={act}
+        emptyHint="Nessun contatto pre-engagement in questo stato."
+      />
     </BentoCard>
+  );
+}
+
+function StageChip({ lead }: { lead: PendingLead }) {
+  const { label, tone } = leadStage(lead);
+  const cls =
+    tone === 'hot'
+      ? 'bg-error-container/30 text-error'
+      : tone === 'info'
+        ? 'bg-primary/10 text-primary'
+        : 'bg-surface-container text-on-surface-variant';
+  return (
+    <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${cls}`}>
+      {label}
+    </span>
+  );
+}
+
+function LeadGroup({
+  title,
+  icon,
+  rows,
+  reviewStatus,
+  busyId,
+  act,
+  emptyHint,
+}: {
+  title: string;
+  icon: ReactNode;
+  rows: PendingLead[];
+  reviewStatus: ReviewStatus;
+  busyId: string | null;
+  act: (leadId: string, action: 'release' | 'hold') => void;
+  emptyHint: string;
+}) {
+  return (
+    <div className="mt-5">
+      <div className="flex items-center gap-2">
+        {icon}
+        <h3 className="text-xs font-bold uppercase tracking-wider text-on-surface-variant">
+          {title}
+        </h3>
+        <span className="rounded-full bg-surface-container px-2 py-0.5 text-[11px] font-semibold text-on-surface-variant">
+          {rows.length}
+        </span>
+      </div>
+
+      <div className="mt-2 space-y-2">
+        {rows.length === 0 ? (
+          <p className="rounded-lg bg-surface-container-low px-4 py-4 text-center text-xs text-on-surface-variant">
+            {emptyHint}
+          </p>
+        ) : (
+          rows.map((l) => (
+            <div
+              key={l.id}
+              className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-surface-container-low px-4 py-3"
+            >
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <p className="truncate text-sm font-semibold text-on-surface">
+                    {l.business_name || '(azienda senza nome)'}
+                  </p>
+                  <StageChip lead={l} />
+                </div>
+                <p className="truncate text-xs text-on-surface-variant">
+                  {[l.address, l.comune, l.provincia].filter(Boolean).join(', ') || '—'}
+                </p>
+                <p className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 font-mono text-[11px] text-on-surface-variant">
+                  <span>
+                    score: <span className="text-on-surface">{l.score ?? '—'}</span>
+                    {l.score_tier ? ` (${l.score_tier})` : ''}
+                  </span>
+                  <span>stato: {l.pipeline_status ?? '—'}</span>
+                  <span>{fmtDate(l.created_at)}</span>
+                </p>
+              </div>
+
+              <div className="flex shrink-0 items-center gap-2">
+                {reviewStatus !== 'released' && (
+                  <button
+                    type="button"
+                    onClick={() => void act(l.id, 'release')}
+                    disabled={busyId === l.id}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-on-primary transition-opacity hover:opacity-90 disabled:opacity-50"
+                  >
+                    {busyId === l.id ? (
+                      <Loader2 size={12} strokeWidth={2.25} aria-hidden className="animate-spin" />
+                    ) : (
+                      <Eye size={12} strokeWidth={2.25} aria-hidden />
+                    )}
+                    Far comparire
+                  </button>
+                )}
+                {reviewStatus !== 'held' && (
+                  <button
+                    type="button"
+                    onClick={() => void act(l.id, 'hold')}
+                    disabled={busyId === l.id}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-surface-container px-3 py-1.5 text-xs font-semibold text-on-surface-variant transition-colors hover:text-on-surface disabled:opacity-50"
+                  >
+                    {busyId === l.id ? (
+                      <Loader2 size={12} strokeWidth={2.25} aria-hidden className="animate-spin" />
+                    ) : (
+                      <EyeOff size={12} strokeWidth={2.25} aria-hidden />
+                    )}
+                    Tieni nascosto
+                  </button>
+                )}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
   );
 }
 
