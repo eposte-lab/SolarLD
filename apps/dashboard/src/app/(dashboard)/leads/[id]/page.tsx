@@ -49,6 +49,10 @@ import { TierLock } from '@/components/ui/tier-lock';
 import { listCampaignsForLead, listEventsForLead } from '@/lib/data/campaigns';
 import { getPortalSessionStats, listPortalEventsForLead } from '@/lib/data/engagement';
 import { getLeadById, getLeadV3Signal } from '@/lib/data/leads';
+import {
+  freezeModeratedLead,
+  isNeutralEventType,
+} from '@/lib/data/moderation-freeze';
 import { getLeadReplies } from '@/lib/data/replies';
 import { getCurrentTenantContext } from '@/lib/data/tenant';
 import { canTenantUse } from '@/lib/data/tier';
@@ -241,17 +245,44 @@ export default async function LeadDetailPage({ params }: PageProps) {
     );
   }
 
-  const lead = leadR.ok ? leadR.value : null;
+  const rawLead = leadR.ok ? leadR.value : null;
   const campaigns = campaignsR.ok ? campaignsR.value : [];
-  const events = eventsR.ok ? eventsR.value : [];
-  const replies = repliesR.ok ? repliesR.value : [];
-  const portalEvents = portalEventsR.ok ? portalEventsR.value : [];
-  const portalStats = portalStatsR.ok
+  const rawEvents = eventsR.ok ? eventsR.value : [];
+  const rawReplies = repliesR.ok ? repliesR.value : [];
+  const rawPortalEvents = portalEventsR.ok ? portalEventsR.value : [];
+  const rawPortalStats = portalStatsR.ok
     ? portalStatsR.value
     : { sessions: 0, total_time_sec: 0, deepest_scroll_pct: 0, last_event_at: null, is_live_now: false };
   const v3Signal = v3SignalR.ok ? v3SignalR.value : null;
 
-  if (!lead) notFound();
+  if (!rawLead) notFound();
+
+  // ─── Trial moderation "freeze" ──────────────────────────────────────
+  // For a moderated tenant, a contatto that the operator has NOT yet
+  // promoted (operator_released_at IS NULL) is shown frozen at its
+  // sent-time state: every prospect reaction (score, advanced pipeline
+  // status, opens/clicks, portal activity, replies, bolletta,
+  // appointment) is withheld until the operator clicks "Promuovi a lead".
+  // The /leads list + hot widgets already hide it entirely; this is the
+  // one surface (its scheda, reached from /contatti) that still needs the
+  // reactions masked. See lib/data/moderation-freeze.ts. The global
+  // realtime toaster is muted separately (components/realtime-toaster).
+  const frozen = ctx.is_moderated && rawLead.operator_released_at == null;
+  const lead = frozen ? freezeModeratedLead(rawLead) : rawLead;
+  const events = frozen
+    ? rawEvents.filter((e) => isNeutralEventType(e.event_type))
+    : rawEvents;
+  const replies = frozen ? [] : rawReplies;
+  const portalEvents = frozen ? [] : rawPortalEvents;
+  const portalStats = frozen
+    ? {
+        sessions: 0,
+        total_time_sec: 0,
+        deepest_scroll_pct: 0,
+        last_event_at: null,
+        is_live_now: false,
+      }
+    : rawPortalStats;
 
   const name =
     lead.subjects?.business_name ||
@@ -1106,8 +1137,11 @@ export default async function LeadDetailPage({ params }: PageProps) {
         {/* Bolletta caricata — segnale ad altissima intenzione. La card
             si auto-fetcha e, se il lead ha caricato la bolletta, mostra il
             confronto annuale EPC + anteprima/Apri/Scarica con aura premium.
-            `available:false` → non renderizza nulla. */}
-        <BollettaCard leadId={lead.id} />
+            `available:false` → non renderizza nulla.
+            Per un contatto moderato non ancora promosso la card è
+            soppressa: il caricamento bolletta è una reazione e resta
+            congelato finché l'operatore non promuove a lead. */}
+        {!frozen && <BollettaCard leadId={lead.id} />}
 
         {/* Highlight: contact-form inquiries first — these are the
             single strongest intent signal in the entire funnel. The
@@ -1304,7 +1338,11 @@ export default async function LeadDetailPage({ params }: PageProps) {
         badge={events.length > 0 ? `${events.length} eventi` : undefined}
         defaultOpen={false}
       >
-        {canTenantUse(ctx.tenant, 'realtime_timeline') ? (
+        {canTenantUse(ctx.tenant, 'realtime_timeline') && !frozen ? (
+          // `!frozen`: a frozen contatto must not open a realtime
+          // subscription — a live reaction would otherwise stream into the
+          // timeline and defeat the moderation gate. It falls back to the
+          // static (already reaction-filtered) list below.
           <div className="pt-1">
             <div className="mb-3 inline-flex items-center gap-1.5 rounded-full bg-primary-container px-2.5 py-1 text-[10px] font-semibold uppercase tracking-widest text-on-primary-container">
               <span className="relative flex h-1.5 w-1.5">

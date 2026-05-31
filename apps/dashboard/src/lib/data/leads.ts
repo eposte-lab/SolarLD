@@ -74,6 +74,7 @@ const DETAIL_ROOF_COLUMNS = `
 
 const DETAIL_COLUMNS = `
   id, public_slug, pipeline_status, score, score_tier,
+  operator_released_at,
   outreach_channel, outreach_sent_at, outreach_opened_at,
   dashboard_visited_at, created_at,
   engagement_score, engagement_score_updated_at, engagement_peak_score,
