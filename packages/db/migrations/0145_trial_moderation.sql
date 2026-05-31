@@ -142,3 +142,161 @@ CREATE INDEX IF NOT EXISTS idx_pir_tenant
 
 ALTER TABLE pending_inbound_requests ENABLE ROW LEVEL SECURITY;
 -- (intentionally no policy → default-deny; only service_role reads it)
+
+-- ------------------------------------------------------------
+-- 5) Make aggregate analytics moderation-aware (DB-level exclusion)
+-- ------------------------------------------------------------
+-- The funnel/analytics RPCs from 0016 are SECURITY DEFINER and so
+-- BYPASS the leads RLS above. Without this, a moderated tenant's
+-- counters (funnel, territory ROI, MTD usage) would still tally
+-- un-released leads — i.e. the lead would be "hidden from the list"
+-- but "still counted". The requirement is stronger: a hidden lead must
+-- not exist for the tenant at all, counters included.
+--
+-- We re-declare the three leads-derived rollups with the SAME predicate
+-- the RLS leads_select policy uses:
+--   (operator_released_at IS NOT NULL OR NOT tenant_is_moderated(tenant_id))
+-- For a NON-moderated tenant this collapses to TRUE ⇒ every count is
+-- byte-for-byte identical to today (behavior-neutral while the flag is
+-- off). Spend rollups (api_usage_log) are untouched — not leads-derived.
+
+CREATE OR REPLACE FUNCTION analytics_funnel(
+  p_tenant_id UUID,
+  p_from      TIMESTAMPTZ DEFAULT (now() - interval '30 days'),
+  p_to        TIMESTAMPTZ DEFAULT now()
+)
+RETURNS JSONB
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+  SELECT jsonb_build_object(
+    'leads_total',      COUNT(*),
+    'sent',             COUNT(*) FILTER (WHERE outreach_sent_at IS NOT NULL),
+    'delivered',        COUNT(*) FILTER (WHERE outreach_delivered_at IS NOT NULL),
+    'opened',           COUNT(*) FILTER (WHERE outreach_opened_at IS NOT NULL),
+    'clicked',          COUNT(*) FILTER (WHERE outreach_clicked_at IS NOT NULL),
+    'engaged',          COUNT(*) FILTER (WHERE dashboard_visited_at IS NOT NULL
+                                         OR whatsapp_initiated_at IS NOT NULL),
+    'contract_signed',  COUNT(*) FILTER (WHERE feedback = 'contract_signed'),
+    'hot',              COUNT(*) FILTER (WHERE score_tier = 'hot'),
+    'warm',             COUNT(*) FILTER (WHERE score_tier = 'warm'),
+    'cold',             COUNT(*) FILTER (WHERE score_tier = 'cold'),
+    'rejected',         COUNT(*) FILTER (WHERE score_tier = 'rejected')
+  )
+  FROM leads
+  WHERE tenant_id = p_tenant_id
+    AND created_at >= p_from
+    AND created_at <  p_to
+    AND (operator_released_at IS NOT NULL OR NOT tenant_is_moderated(tenant_id));
+$$;
+
+REVOKE ALL ON FUNCTION analytics_funnel(UUID, TIMESTAMPTZ, TIMESTAMPTZ) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION analytics_funnel(UUID, TIMESTAMPTZ, TIMESTAMPTZ)
+  TO authenticated, service_role;
+
+
+CREATE OR REPLACE FUNCTION analytics_territory_roi(
+  p_tenant_id UUID
+)
+RETURNS JSONB
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+  SELECT COALESCE(
+    jsonb_agg(
+      jsonb_build_object(
+        'territory_id',       t.id,
+        'territory_name',     t.name,
+        'leads_total',        COALESCE(agg.leads_total, 0),
+        'leads_hot',          COALESCE(agg.leads_hot, 0),
+        'avg_score',          ROUND(COALESCE(agg.avg_score, 0)::numeric, 1),
+        'signed',             COALESCE(agg.signed, 0),
+        'contract_value_eur', ROUND(COALESCE(agg.contract_value_cents, 0)::numeric / 100, 2)
+      )
+      ORDER BY COALESCE(agg.leads_total, 0) DESC
+    ),
+    '[]'::jsonb
+  )
+  FROM territories t
+  LEFT JOIN LATERAL (
+    SELECT
+      COUNT(l.*)                                       AS leads_total,
+      COUNT(l.*) FILTER (WHERE l.score_tier = 'hot')   AS leads_hot,
+      AVG(l.score)                                     AS avg_score,
+      COUNT(l.*) FILTER (WHERE l.feedback = 'contract_signed') AS signed,
+      SUM(l.contract_value_cents) FILTER (WHERE l.feedback = 'contract_signed') AS contract_value_cents
+    FROM leads l
+    JOIN roofs r ON r.id = l.roof_id
+    WHERE l.tenant_id = p_tenant_id
+      AND r.territory_id = t.id
+      AND (l.operator_released_at IS NOT NULL OR NOT tenant_is_moderated(l.tenant_id))
+  ) agg ON true
+  WHERE t.tenant_id = p_tenant_id;
+$$;
+
+REVOKE ALL ON FUNCTION analytics_territory_roi(UUID) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION analytics_territory_roi(UUID)
+  TO authenticated, service_role;
+
+
+CREATE OR REPLACE FUNCTION analytics_usage_mtd(
+  p_tenant_id UUID
+)
+RETURNS JSONB
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+  WITH
+    roofs_mtd AS (
+      SELECT COUNT(*)::bigint AS n
+      FROM roofs
+      WHERE tenant_id = p_tenant_id
+        AND created_at >= date_trunc('month', now())
+    ),
+    leads_mtd AS (
+      SELECT COUNT(*)::bigint AS n
+      FROM leads
+      WHERE tenant_id = p_tenant_id
+        AND created_at >= date_trunc('month', now())
+        AND (operator_released_at IS NOT NULL OR NOT tenant_is_moderated(tenant_id))
+    ),
+    emails_mtd AS (
+      SELECT COUNT(*)::bigint AS n
+      FROM campaigns
+      WHERE tenant_id = p_tenant_id
+        AND channel = 'email'
+        AND status = 'sent'
+        AND sent_at >= date_trunc('month', now())
+    ),
+    postcards_mtd AS (
+      SELECT COUNT(*)::bigint AS n
+      FROM campaigns
+      WHERE tenant_id = p_tenant_id
+        AND channel = 'postal'
+        AND status = 'sent'
+        AND sent_at >= date_trunc('month', now())
+    ),
+    cost_mtd AS (
+      SELECT COALESCE(SUM(cost_cents), 0)::bigint AS cents
+      FROM api_usage_log
+      WHERE tenant_id = p_tenant_id
+        AND occurred_at >= date_trunc('month', now())
+    )
+  SELECT jsonb_build_object(
+    'roofs_scanned_mtd',  (SELECT n FROM roofs_mtd),
+    'leads_generated_mtd',(SELECT n FROM leads_mtd),
+    'emails_sent_mtd',    (SELECT n FROM emails_mtd),
+    'postcards_sent_mtd', (SELECT n FROM postcards_mtd),
+    'total_cost_eur',     ROUND((SELECT cents FROM cost_mtd)::numeric / 100, 2)
+  );
+$$;
+
+REVOKE ALL ON FUNCTION analytics_usage_mtd(UUID) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION analytics_usage_mtd(UUID)
+  TO authenticated, service_role;

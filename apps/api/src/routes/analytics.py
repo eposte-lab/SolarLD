@@ -20,6 +20,7 @@ from fastapi import APIRouter, HTTPException, Query
 from ..core.logging import get_logger
 from ..core.security import CurrentUser, require_tenant
 from ..core.supabase_client import get_service_client
+from ..services.moderation_service import apply_released_filter
 
 router = APIRouter()
 log = get_logger(__name__)
@@ -170,27 +171,31 @@ async def analytics_scan_funnel(ctx: CurrentUser) -> dict[str, Any]:
         except Exception:  # noqa: BLE001
             return 0
 
+    # Service-role reads bypass RLS, so a moderated tenant's un-released
+    # leads would otherwise still be counted here. apply_released_filter
+    # re-imposes the same gate as the leads_select RLS policy (no-op for
+    # non-moderated tenants), keeping hidden leads out of the funnel counts.
     def _lead_count(**filters: str) -> int:
         q = sb.table("leads").select("id", count="exact").eq("tenant_id", tenant_id)
         for col, val in filters.items():
             if val is not None:
                 q = q.eq(col, val)
+        q = apply_released_filter(q, sb, tenant_id)
         try:
             return q.execute().count or 0
         except Exception:  # noqa: BLE001
             return 0
 
     def _lead_count_not_null(col: str) -> int:
+        q = (
+            sb.table("leads")
+            .select("id", count="exact")
+            .eq("tenant_id", tenant_id)
+            .not_.is_(col, "null")
+        )
+        q = apply_released_filter(q, sb, tenant_id)
         try:
-            return (
-                sb.table("leads")
-                .select("id", count="exact")
-                .eq("tenant_id", tenant_id)
-                .not_.is_(col, "null")
-                .execute()
-                .count
-                or 0
-            )
+            return q.execute().count or 0
         except Exception:  # noqa: BLE001
             return 0
 
