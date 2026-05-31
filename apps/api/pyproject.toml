@@ -54,7 +54,10 @@ dependencies = [
   "python-dotenv>=1.0.1",
   "structlog>=24.4.0",
   "orjson>=3.10.11",
-  "python-geohash>=0.8.5",
+  # Pinned: the 0.9.0 manylinux wheel ships a broken layout missing the
+  # top-level ``geohash`` module (``import geohash`` -> ModuleNotFoundError on
+  # the Linux CI runner). 0.8.5 is the last release with a working module.
+  "python-geohash==0.8.5",
   "shapely>=2.0.6",
   "pyproj>=3.7.0",
 

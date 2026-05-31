@@ -20,6 +20,7 @@ import {
   Minus,
   RefreshCcw,
   Rocket,
+  ShieldCheck,
   Wallet,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -121,6 +122,8 @@ export default async function SettingsPage() {
       <FollowupCard tenant={ctx.tenant} />
 
       <PlanCard tenant={ctx.tenant} />
+
+      {ctx.role === 'super_admin' && <TrialModerationCard />}
 
       {ctx.role === 'super_admin' && <DevToolsCard />}
     </div>
@@ -783,6 +786,36 @@ function tierHasCapability(tier: TenantTier, key: CapabilityKey): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Trial moderation — visible only to super_admin
+// ---------------------------------------------------------------------------
+
+function TrialModerationCard() {
+  return (
+    <BentoCard span="full">
+      <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
+        Trial moderation · solo super_admin
+      </p>
+      <h2 className="mt-1 font-headline text-2xl font-bold tracking-tighter">
+        Coda di moderazione
+      </h2>
+      <p className="mt-1 max-w-xl text-sm text-on-surface-variant">
+        Cura cosa vede un tenant in trial moderata: fai comparire o tieni nascosti
+        i singoli lead e approva le richieste di contatto in arrivo dal dossier
+        prima che raggiungano il tenant.
+      </p>
+      <div className="mt-5">
+        <Link
+          href="/admin/trial"
+          className="inline-flex items-center gap-2 rounded-lg bg-primary px-5 py-2.5 text-sm font-semibold text-on-primary transition-opacity hover:opacity-90"
+        >
+          <ShieldCheck size={14} strokeWidth={2.25} aria-hidden />
+          Apri la coda di moderazione
+        </Link>
+      </div>
+    </BentoCard>
+  );
+}
+
 // Dev tools — visible only to super_admin
 // ---------------------------------------------------------------------------
 

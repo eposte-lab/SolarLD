@@ -18,6 +18,7 @@ from ..core.security import CurrentUser, require_tenant
 from ..core.supabase_client import get_service_client
 from ..models.lead import LeadFeedback, LeadListResponse
 from ..services.audit_service import log_action as audit_log
+from ..services.moderation_service import apply_released_filter, assert_lead_visible
 from ..services.savings_compare_service import compute_epc_annual, compute_savings_compare
 from ..services.storage_service import sign_url
 
@@ -136,6 +137,9 @@ async def list_leads(
     sb = get_service_client()
 
     query = sb.table("leads").select("*", count="exact").eq("tenant_id", tenant_id)
+    # Moderation gate: hide un-released leads from a moderated trial tenant
+    # (service-role bypasses the RLS leads_select policy — re-impose it here).
+    query = apply_released_filter(query, sb, tenant_id)
     if status:
         query = query.eq("pipeline_status", status)
     if tier:
@@ -237,6 +241,8 @@ async def list_hot_leads(
         .order("last_portal_event_at", desc=True)
         .limit(limit)
     )
+    # Moderation gate — hide un-released leads from a moderated trial tenant.
+    query = apply_released_filter(query, sb, tenant_id)
     res = query.execute()
     return {
         "data": res.data or [],
@@ -282,6 +288,8 @@ async def export_leads_csv(
         )
         .eq("tenant_id", tenant_id)
     )
+    # Moderation gate — never export un-released leads of a moderated tenant.
+    query = apply_released_filter(query, sb, tenant_id)
     if status:
         query = query.eq("pipeline_status", status)
     if tier:
@@ -318,14 +326,16 @@ async def export_leads_csv(
 async def get_lead(ctx: CurrentUser, lead_id: str) -> dict[str, object]:
     tenant_id = require_tenant(ctx)
     sb = get_service_client()
-    res = (
+    query = (
         sb.table("leads")
         .select("*, subjects(*), roofs(*), campaigns(*)")
         .eq("id", lead_id)
         .eq("tenant_id", tenant_id)
         .limit(1)
-        .execute()
     )
+    # Moderation gate — a hidden lead 404s, indistinguishable from absent.
+    query = apply_released_filter(query, sb, tenant_id)
+    res = query.execute()
     if not res.data:
         raise HTTPException(status_code=404, detail="Lead not found")
     return res.data[0]
@@ -335,6 +345,8 @@ async def get_lead(ctx: CurrentUser, lead_id: str) -> dict[str, object]:
 async def lead_timeline(ctx: CurrentUser, lead_id: str) -> list[dict[str, object]]:
     tenant_id = require_tenant(ctx)
     sb = get_service_client()
+    # Moderation gate — a hidden lead's timeline 404s for a moderated tenant.
+    assert_lead_visible(sb, tenant_id, lead_id)
     res = (
         sb.table("events")
         .select("*")
@@ -359,14 +371,16 @@ async def lead_bolletta(ctx: CurrentUser, lead_id: str) -> dict[str, Any]:
     """
     tenant_id = require_tenant(ctx)
     sb = get_service_client()
-    lead_res = (
+    lead_q = (
         sb.table("leads")
         .select("id, tenant_id, roi_data, subjects(type)")
         .eq("id", lead_id)
         .eq("tenant_id", tenant_id)
         .limit(1)
-        .execute()
     )
+    # Moderation gate — hidden lead 404s for a moderated tenant.
+    lead_q = apply_released_filter(lead_q, sb, tenant_id)
+    lead_res = lead_q.execute()
     if not lead_res.data:
         raise HTTPException(status_code=404, detail="Lead not found")
     lead = lead_res.data[0]
@@ -434,6 +448,8 @@ async def set_feedback(
 ) -> dict[str, object]:
     tenant_id = require_tenant(ctx)
     sb = get_service_client()
+    # Moderation gate — cannot act on a lead hidden from a moderated tenant.
+    assert_lead_visible(sb, tenant_id, lead_id)
     update = {
         "feedback": payload.feedback.value,
         "feedback_notes": payload.notes,
@@ -519,15 +535,17 @@ async def delete_lead(
     tenant_id = require_tenant(ctx)
     sb = get_service_client()
 
-    # Verify ownership before deleting
-    res = (
+    # Verify ownership before deleting (+ moderation gate: a hidden lead
+    # 404s, so a moderated tenant cannot delete what it cannot see).
+    res_q = (
         sb.table("leads")
         .select("id, subjects(owner_first_name, owner_last_name, business_name)")
         .eq("id", lead_id)
         .eq("tenant_id", tenant_id)
         .limit(1)
-        .execute()
     )
+    res_q = apply_released_filter(res_q, sb, tenant_id)
+    res = res_q.execute()
     if not res.data:
         raise HTTPException(status_code=404, detail="Lead not found")
 
@@ -589,14 +607,16 @@ async def regen_rendering(
     """
     tenant_id = require_tenant(ctx)
     sb = get_service_client()
-    res = (
+    res_q = (
         sb.table("leads")
         .select("id, rendering_regen_count")
         .eq("id", lead_id)
         .eq("tenant_id", tenant_id)
         .limit(1)
-        .execute()
     )
+    # Moderation gate — hidden lead 404s for a moderated tenant.
+    res_q = apply_released_filter(res_q, sb, tenant_id)
+    res = res_q.execute()
     if not res.data:
         raise HTTPException(status_code=404, detail="Lead not found")
 
@@ -641,14 +661,16 @@ async def rescore_lead(ctx: CurrentUser, lead_id: str) -> dict[str, object]:
     """
     tenant_id = require_tenant(ctx)
     sb = get_service_client()
-    res = (
+    res_q = (
         sb.table("leads")
         .select("id, roof_id, subject_id")
         .eq("id", lead_id)
         .eq("tenant_id", tenant_id)
         .limit(1)
-        .execute()
     )
+    # Moderation gate — hidden lead 404s for a moderated tenant.
+    res_q = apply_released_filter(res_q, sb, tenant_id)
+    res = res_q.execute()
     if not res.data:
         raise HTTPException(status_code=404, detail="Lead not found")
     lead = res.data[0]
@@ -684,14 +706,10 @@ async def send_outreach(
     """
     tenant_id = require_tenant(ctx)
     sb = get_service_client()
-    res = (
-        sb.table("leads")
-        .select("id")
-        .eq("id", lead_id)
-        .eq("tenant_id", tenant_id)
-        .limit(1)
-        .execute()
-    )
+    res_q = sb.table("leads").select("id").eq("id", lead_id).eq("tenant_id", tenant_id).limit(1)
+    # Moderation gate — hidden lead 404s for a moderated tenant.
+    res_q = apply_released_filter(res_q, sb, tenant_id)
+    res = res_q.execute()
     if not res.data:
         raise HTTPException(status_code=404, detail="Lead not found")
     job = await enqueue(
@@ -764,14 +782,16 @@ async def send_test_outreach(
 
     # Resolve the lead + its real recipient so we can refuse a self-aimed
     # override (i.e. the operator typed the prospect's address).
-    lead_res = (
+    lead_q = (
         sb.table("leads")
         .select("id, subjects(decision_maker_email)")
         .eq("id", lead_id)
         .eq("tenant_id", tenant_id)
         .limit(1)
-        .execute()
     )
+    # Moderation gate — hidden lead 404s for a moderated tenant.
+    lead_q = apply_released_filter(lead_q, sb, tenant_id)
+    lead_res = lead_q.execute()
     if not lead_res.data:
         raise HTTPException(status_code=404, detail="Lead non trovato.")
     real_email = (
@@ -865,7 +885,7 @@ async def draft_followup(
     from ..core.tier import Capability, require_capability
     from ..services.claude_service import complete_json
 
-    lead_res = (
+    lead_q = (
         sb.table("leads")
         .select(
             "id, tenant_id, pipeline_status, score, score_tier, "
@@ -881,8 +901,10 @@ async def draft_followup(
         .eq("id", lead_id)
         .eq("tenant_id", tenant_id)
         .limit(1)
-        .execute()
     )
+    # Moderation gate — hidden lead 404s for a moderated tenant.
+    lead_q = apply_released_filter(lead_q, sb, tenant_id)
+    lead_res = lead_q.execute()
     if not lead_res.data:
         raise HTTPException(status_code=404, detail="Lead not found")
 
@@ -1285,7 +1307,7 @@ async def send_draft(
     sb = get_service_client()
 
     # Auth-scope + tenant fetch
-    lead_res = (
+    lead_q = (
         sb.table("leads")
         .select(
             "id, tenant_id, pipeline_status, outreach_sent_at, outreach_channel, "
@@ -1296,8 +1318,10 @@ async def send_draft(
         .eq("id", lead_id)
         .eq("tenant_id", tenant_id)
         .limit(1)
-        .execute()
     )
+    # Moderation gate — hidden lead 404s for a moderated tenant.
+    lead_q = apply_released_filter(lead_q, sb, tenant_id)
+    lead_res = lead_q.execute()
     if not lead_res.data:
         raise HTTPException(status_code=404, detail="Lead not found")
     lead = lead_res.data[0]

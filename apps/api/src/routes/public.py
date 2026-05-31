@@ -15,7 +15,6 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any, Literal
 
-import httpx
 from fastapi import (
     APIRouter,
     File,
@@ -33,6 +32,11 @@ from ..core.queue import enqueue
 from ..core.redis import get_redis
 from ..core.supabase_client import get_service_client
 from ..models.enums import BlacklistReason, LeadStatus
+from ..services.appointment_service import (
+    fire_appointment_webhook,
+    is_tenant_moderated,
+    notify_tenant_contact_request,
+)
 from ..services.bolletta_ocr_service import (
     OCR_PROVIDER_TAG,
     OcrResult,
@@ -275,120 +279,75 @@ class AppointmentRequest(BaseModel):
     notes: str | None = Field(default=None, max_length=1000)
 
 
-async def _notify_tenant_contact_request(
-    sb: Any,
-    *,
-    tenant_id: str,
-    tenant_data: dict[str, Any],
-    payload: AppointmentRequest,
-    dossier_url: str | None,
-) -> None:
-    """Email the tenant when a lead submits the dossier contact form.
-
-    Sends to ``tenants.contact_email`` from the tenant's active inbox
-    (verified domain → deliverable), with Reply-To set to the prospect's
-    email so the installer can reply to the lead in one click.
-    Fail-open: any error is logged and never blocks the 202 response.
-    """
-    to_email = (tenant_data.get("contact_email") or "").strip()
-    if not to_email:
-        return
-    try:
-        inbox = (
-            sb.table("tenant_inboxes")
-            .select("email")
-            .eq("tenant_id", tenant_id)
-            .eq("active", True)
-            .order("created_at")
-            .limit(1)
-            .execute()
-        )
-        from_addr = (inbox.data or [{}])[0].get("email") if inbox.data else None
-        if not from_addr:
-            log.warning("appointment.email_no_inbox", tenant_id=tenant_id)
-            return
-
-        biz = tenant_data.get("business_name") or "la vostra azienda"
-        name = payload.contact_name or "Un contatto"
-        rows: list[str] = []
-        if payload.contact_name:
-            rows.append(f"<b>Nome:</b> {payload.contact_name}")
-        if payload.phone:
-            rows.append(f'<b>Telefono:</b> <a href="tel:{payload.phone}">{payload.phone}</a>')
-        if payload.email:
-            rows.append(f'<b>Email:</b> <a href="mailto:{payload.email}">{payload.email}</a>')
-        if payload.preferred_time:
-            rows.append(f"<b>Preferenza orario:</b> {payload.preferred_time}")
-        if payload.notes:
-            rows.append(f"<b>Note:</b> {payload.notes}")
-        details = "<br>".join(rows) or "(nessun dettaglio fornito)"
-        link = (
-            f'<p style="margin:16px 0 0 0;"><a href="{dossier_url}" '
-            f'style="color:#16a34a;font-weight:700;">Apri il dossier del lead →</a></p>'
-            if dossier_url
-            else ""
-        )
-        html = (
-            f'<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.6;color:#1f2937;">'
-            f'<p style="margin:0 0 12px 0;font-size:16px;font-weight:700;color:#0f1f3d;">'
-            f"Nuova richiesta di contatto dal dossier</p>"
-            f'<p style="margin:0 0 12px 0;">Un prospect ha lasciato i suoi dati '
-            f"per essere ricontattato da {biz}.</p>"
-            f'<div style="background:#f5f7fa;border-radius:8px;padding:14px 16px;">{details}</div>'
-            f"{link}"
-            f'<p style="margin:16px 0 0 0;font-size:12px;color:#8a9099;">'
-            f"Rispondi a questa email per scrivere direttamente al cliente.</p></div>"
-        )
-        text = (
-            "Nuova richiesta di contatto dal dossier.\n\n"
-            + "\n".join(r.replace("<b>", "").replace("</b>", "") for r in rows)
-            + (f"\n\nDossier: {dossier_url}" if dossier_url else "")
-        )
-        from ..services.resend_service import SendEmailInput, send_email
-
-        await send_email(
-            SendEmailInput(
-                from_address=from_addr,
-                to=[to_email],
-                subject=f"Nuova richiesta di contatto dal dossier — {name}",
-                html=html,
-                text=text,
-                reply_to=(payload.email or None),
-            )
-        )
-        log.info("appointment.email_sent", tenant_id=tenant_id, to=to_email)
-    except Exception as exc:  # noqa: BLE001 — never block the 202
-        log.warning("appointment.email_failed", tenant_id=tenant_id, err=str(exc)[:200])
-
-
 @router.post("/lead/{slug}/appointment", status_code=status.HTTP_202_ACCEPTED)
 async def request_appointment(slug: str, payload: AppointmentRequest) -> dict[str, object]:
     """Lead submits the in-portal appointment form.
 
-    We record an ``events`` row + advance the lead to
-    ``pipeline_status='appointment'``. The dashboard picks it up from
-    there via Supabase Realtime. We don't auto-send anything back to
-    the lead — the installer calls/emails them through their normal
-    channels.
+    **Normal tenant:** record an ``events`` row + advance the lead to
+    ``pipeline_status='appointment'`` (the dashboard picks it up via
+    Supabase Realtime), email the tenant's ``contact_email`` and fire
+    the CRM webhook if configured.
 
-    If the tenant has ``appointment_webhook_url`` configured, we POST
-    the form data to that URL (CRM integration: HubSpot, Pipedrive, n8n,
-    Zapier, …). The payload carries ``source="Solar Lead"`` and the
-    ``dossier_url`` so the contact lands in the client CRM tagged with
-    its origin and a link to the proposal. The call is fail-open: a
-    webhook timeout or HTTP error never blocks the confirmation.
+    **Moderated trial tenant:** touch NONE of the tenant-visible surface.
+    The request is simply held in ``pending_inbound_requests`` and shows up
+    in the operator's super-admin queue (``/admin/trial`` → "Coda inbound").
+    No operator email is sent — the operator reviews the list there. The
+    held side-effects (status bump, event, tenant email, webhook) are
+    replayed by the super-admin approval endpoint in ``routes/admin.py``.
+
+    Fail-open throughout: the 202 is returned even if a side-effect raises.
     """
     sb = get_service_client()
     lead = _load_lead_by_slug(sb, slug)
     if lead is None:
         raise HTTPException(status_code=404, detail="Lead not found")
 
-    # Promote candidate → active lead.
-    # source='cta_click' marks the first real engagement signal and is what
-    # makes this row count in the dashboard "Lead Attivi" counter
-    # (query: WHERE source IS NOT NULL). We also advance pipeline_status to
-    # 'appointment' and set whatsapp_initiated_at as a convenience timestamp
-    # for the installer's view (it was the first explicit contact request).
+    tenant_id = lead["tenant_id"]
+    payload_dict = payload.model_dump()
+
+    # Link al dossier (riusato da webhook + email).
+    from ..core.config import settings as _settings
+
+    _portal_origin = (_settings.next_public_lead_portal_url or "").rstrip("/")
+    dossier_url = f"{_portal_origin}/dossier/{slug}" if _portal_origin else None
+
+    # Tenant config for downstream notifications (CRM webhook + email).
+    tenant_row = (
+        sb.table("tenants")
+        .select("appointment_webhook_url, contact_email, business_name")
+        .eq("id", tenant_id)
+        .limit(1)
+        .maybe_single()
+        .execute()
+    )
+    tenant_data = (tenant_row.data or {}) if tenant_row else {}
+
+    moderated = is_tenant_moderated(sb, tenant_id)
+
+    # ── Moderated trial tenant: HOLD, surface nothing to the tenant ──
+    if moderated:
+        # Just enqueue: the operator reviews the request in the super-admin
+        # "Coda inbound" queue and approves/rejects from there. No operator
+        # email — the queue UI is the single review surface.
+        try:
+            sb.table("pending_inbound_requests").insert(
+                {
+                    "tenant_id": tenant_id,
+                    "lead_id": lead["id"],
+                    "payload": payload_dict,
+                    "dossier_url": dossier_url,
+                    "status": "pending",
+                }
+            ).execute()
+        except Exception as exc:  # noqa: BLE001 — never block the 202
+            log.warning("appointment.queue_insert_failed", tenant_id=tenant_id, err=str(exc)[:200])
+        # No operator email, no status change, no event, no tenant email, no webhook.
+        return {"ok": True, "status": "held"}
+
+    # ── Normal tenant: original behavior ─────────────────────────────
+    # Promote candidate → active lead. source='cta_click' marks the first
+    # real engagement signal (dashboard "Lead Attivi" counter), and we
+    # advance pipeline_status to 'appointment'.
     update_fields: dict[str, object] = {
         "pipeline_status": LeadStatus.APPOINTMENT.value,
     }
@@ -409,67 +368,29 @@ async def request_appointment(slug: str, payload: AppointmentRequest) -> dict[st
     _emit_public_event(
         sb,
         event_type="lead.appointment_requested",
-        tenant_id=lead["tenant_id"],
+        tenant_id=tenant_id,
         lead_id=lead["id"],
         payload=event_payload,
     )
 
-    # Tenant config for downstream notifications (CRM webhook + email).
-    tenant_row = (
-        sb.table("tenants")
-        .select("appointment_webhook_url, contact_email, business_name")
-        .eq("id", lead["tenant_id"])
-        .limit(1)
-        .maybe_single()
-        .execute()
-    )
-    tenant_data = (tenant_row.data or {}) if tenant_row else {}
-
-    # Link al dossier (riusato da webhook + email).
-    from ..core.config import settings as _settings
-
-    _portal_origin = (_settings.next_public_lead_portal_url or "").rstrip("/")
-    dossier_url = f"{_portal_origin}/dossier/{slug}" if _portal_origin else None
-
-    # ── Notifica EMAIL al tenant (fail-open) ─────────────────────────
-    # Il form del dossier recapita la richiesta di contatto direttamente
-    # nella casella del tenant (tenants.contact_email), dall'inbox
-    # verificato, con Reply-To = email del prospect così l'installatore
-    # risponde con un clic al cliente.
-    await _notify_tenant_contact_request(
+    # Notifica email al tenant (contact_email, dall'inbox verificato,
+    # reply-to = email del prospect) + webhook CRM. Entrambi fail-open.
+    await notify_tenant_contact_request(
         sb,
-        tenant_id=lead["tenant_id"],
+        tenant_id=tenant_id,
         tenant_data=tenant_data,
-        payload=payload,
+        payload=payload_dict,
         dossier_url=dossier_url,
     )
 
-    # ── CRM webhook (fail-open, 5s timeout) ──────────────────────────
     webhook_url: str | None = tenant_data.get("appointment_webhook_url")
     if webhook_url:
-        try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                await client.post(
-                    webhook_url,
-                    json={
-                        "lead_id": lead["id"],
-                        "created_at": datetime.now(tz=UTC).isoformat(),
-                        # Tag di provenienza: nel CRM del cliente il
-                        # contatto risulta generato dalla piattaforma
-                        # Solar Lead, con il link alla proposta/dossier.
-                        "source": "Solar Lead",
-                        "dossier_url": dossier_url,
-                        **event_payload,
-                    },
-                )
-        except Exception as exc:  # noqa: BLE001
-            log.warning(
-                "appointment.webhook_failed",
-                tenant_id=lead["tenant_id"],
-                lead_id=lead["id"],
-                webhook_url=webhook_url,
-                err=str(exc),
-            )
+        await fire_appointment_webhook(
+            webhook_url,
+            lead_id=lead["id"],
+            payload=payload_dict,
+            dossier_url=dossier_url,
+        )
 
     return {"ok": True, "status": LeadStatus.APPOINTMENT.value}
 

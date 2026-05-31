@@ -18,6 +18,15 @@ export interface TenantContext {
   role: string;
   user_id: string;
   user_email: string | null;
+  /**
+   * True when this tenant is under super-admin trial moderation
+   * (tenants.settings.feature_flags.trial_moderation). When set, the
+   * dashboard hides the Lead / Contatti / Funnel surfaces — those leads
+   * are curated by the operator and stay hidden until released. The flag
+   * is invisible to the tenant: it only ever changes what is rendered,
+   * never surfaced as a label or disabled state.
+   */
+  is_moderated: boolean;
 }
 
 /**
@@ -55,10 +64,14 @@ export const getCurrentTenantContext = cache(async (): Promise<TenantContext | n
   const tenant = Array.isArray(member.tenants) ? member.tenants[0] : member.tenants;
   if (!tenant) return null;
 
+  const tenantRow = tenant as TenantRow;
+  const isModerated = tenantRow.settings?.feature_flags?.trial_moderation === true;
+
   return {
-    tenant: tenant as TenantRow,
+    tenant: tenantRow,
     role: member.role,
     user_id: user.id,
     user_email: user.email ?? null,
+    is_moderated: isModerated,
   };
 });
