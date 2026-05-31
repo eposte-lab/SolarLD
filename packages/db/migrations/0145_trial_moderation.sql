@@ -268,7 +268,7 @@ AS $$
     ),
     emails_mtd AS (
       SELECT COUNT(*)::bigint AS n
-      FROM campaigns
+      FROM outreach_sends
       WHERE tenant_id = p_tenant_id
         AND channel = 'email'
         AND status = 'sent'
@@ -276,7 +276,7 @@ AS $$
     ),
     postcards_mtd AS (
       SELECT COUNT(*)::bigint AS n
-      FROM campaigns
+      FROM outreach_sends
       WHERE tenant_id = p_tenant_id
         AND channel = 'postal'
         AND status = 'sent'
