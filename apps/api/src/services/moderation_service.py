@@ -27,15 +27,14 @@ from typing import Any
 from fastapi import HTTPException
 
 from ..core.logging import get_logger
-from .appointment_service import get_moderation_config
+from .appointment_service import is_tenant_moderated
 
 log = get_logger(__name__)
 
 
 def is_moderated(sb: Any, tenant_id: str) -> bool:
     """True when the tenant is under trial moderation (fail-open False)."""
-    moderated, _ = get_moderation_config(sb, tenant_id)
-    return moderated
+    return is_tenant_moderated(sb, tenant_id)
 
 
 def apply_released_filter(query: Any, sb: Any, tenant_id: str) -> Any:

@@ -8,12 +8,13 @@ Extracted from ``routes/public.py`` so both the public ingress
   * delivering it to the tenant (``tenants.contact_email``),
   * firing the tenant's CRM webhook.
 
-It also owns the **trial-moderation** helpers. When a tenant is
+It also owns the **trial-moderation** helper. When a tenant is
 moderated, the public route does NOT touch the tenant: it holds the
-request in ``pending_inbound_requests`` and emails the *platform
-operator* instead. On approval, ``routes/admin.py`` replays the held
-side-effects through the very same functions, so the tenant sees the
-exact email/webhook it would have seen unmoderated.
+request in ``pending_inbound_requests``, which the operator reviews in
+the super-admin "Coda inbound" queue (no email is sent). On approval,
+``routes/admin.py`` replays the held side-effects through the very same
+functions, so the tenant sees the exact email/webhook it would have
+seen unmoderated.
 
 Every function is **fail-open**: a failure here must never block the
 prospect's 202 response nor a super-admin action.
@@ -31,20 +32,17 @@ from .resend_service import SendEmailInput, send_email
 
 log = get_logger(__name__)
 
-# Fallback when a moderated tenant has no ``trial_operator_email`` set.
-DEFAULT_OPERATOR_EMAIL = "pianosmart.develop@gmail.com"
-
 
 # ---------------------------------------------------------------------------
 # Moderation config
 # ---------------------------------------------------------------------------
 
 
-def get_moderation_config(sb: Any, tenant_id: str) -> tuple[bool, str]:
-    """Return ``(is_moderated, operator_email)`` for a tenant.
+def is_tenant_moderated(sb: Any, tenant_id: str) -> bool:
+    """Whether a tenant is under trial moderation.
 
-    Reads ``tenants.settings.feature_flags`` via the service client
-    (RLS bypass). Fail-safe: any error → ``(False, default)`` so a
+    Reads ``tenants.settings.feature_flags.trial_moderation`` via the
+    service client (RLS bypass). Fail-safe: any error → ``False`` so a
     config hiccup never silently swallows a real inbound request.
     """
     try:
@@ -58,12 +56,12 @@ def get_moderation_config(sb: Any, tenant_id: str) -> tuple[bool, str]:
         )
         settings_obj = (row.data or {}).get("settings") if row else None
         flags = (settings_obj or {}).get("feature_flags") or {}
-        moderated = bool(flags.get("trial_moderation") is True or flags.get("trial_moderation") == "true")
-        operator_email = (flags.get("trial_operator_email") or DEFAULT_OPERATOR_EMAIL).strip()
-        return moderated, operator_email
+        return bool(
+            flags.get("trial_moderation") is True or flags.get("trial_moderation") == "true"
+        )
     except Exception as exc:  # noqa: BLE001
         log.warning("appointment.moderation_config_failed", tenant_id=tenant_id, err=str(exc)[:200])
-        return False, DEFAULT_OPERATOR_EMAIL
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -89,16 +87,8 @@ def build_contact_request_email(
     payload: dict[str, Any],
     dossier_url: str | None,
     business_name: str | None,
-    *,
-    for_operator: bool = False,
 ) -> tuple[str, str, str]:
-    """Build ``(subject, html, text)`` for a contact-request notification.
-
-    Identical layout to the original tenant email. ``for_operator``
-    only changes the subject prefix + intro line so the platform
-    operator can tell a held (moderation) notification apart from a
-    real tenant-facing one.
-    """
+    """Build ``(subject, html, text)`` for the tenant contact-request email."""
     biz = business_name or "la vostra azienda"
     name = payload.get("contact_name") or "Un contatto"
 
@@ -122,20 +112,9 @@ def build_contact_request_email(
         else ""
     )
 
-    if for_operator:
-        subject = f"[MODERAZIONE] Richiesta di contatto — {name} ({biz})"
-        intro = (
-            f"Un prospect ha lasciato i suoi dati dal dossier di <b>{biz}</b>. "
-            f"La richiesta è <b>in attesa di approvazione</b> nella super-admin: "
-            f"verrà inoltrata al tenant solo dopo la tua conferma."
-        )
-        footer = (
-            "Approva o rifiuta dalla dashboard super-admin (Trial moderation)."
-        )
-    else:
-        subject = f"Nuova richiesta di contatto dal dossier — {name}"
-        intro = f"Un prospect ha lasciato i suoi dati per essere ricontattato da {biz}."
-        footer = "Rispondi a questa email per scrivere direttamente al cliente."
+    subject = f"Nuova richiesta di contatto dal dossier — {name}"
+    intro = f"Un prospect ha lasciato i suoi dati per essere ricontattato da {biz}."
+    footer = "Rispondi a questa email per scrivere direttamente al cliente."
 
     html = (
         f'<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.6;color:#1f2937;">'
@@ -196,45 +175,6 @@ async def notify_tenant_contact_request(
         log.info("appointment.email_sent", tenant_id=tenant_id, to=to_email)
     except Exception as exc:  # noqa: BLE001
         log.warning("appointment.email_failed", tenant_id=tenant_id, err=str(exc)[:200])
-
-
-async def notify_operator_held_request(
-    sb: Any,
-    *,
-    tenant_id: str,
-    operator_email: str,
-    payload: dict[str, Any],
-    dossier_url: str | None,
-    business_name: str | None,
-) -> None:
-    """Email the *platform operator* about a held (moderated) request.
-
-    Sent from the tenant's active verified inbox (deliverable domain).
-    Fail-open — a failure here must not block the prospect's 202.
-    """
-    if not operator_email:
-        return
-    try:
-        from_addr = _active_inbox_from_address(sb, tenant_id)
-        if not from_addr:
-            log.warning("appointment.held_email_no_inbox", tenant_id=tenant_id)
-            return
-        subject, html, text = build_contact_request_email(
-            payload, dossier_url, business_name, for_operator=True
-        )
-        await send_email(
-            SendEmailInput(
-                from_address=from_addr,
-                to=[operator_email],
-                subject=subject,
-                html=html,
-                text=text,
-                reply_to=(payload.get("email") or None),
-            )
-        )
-        log.info("appointment.held_email_sent", tenant_id=tenant_id, to=operator_email)
-    except Exception as exc:  # noqa: BLE001
-        log.warning("appointment.held_email_failed", tenant_id=tenant_id, err=str(exc)[:200])
 
 
 async def fire_appointment_webhook(

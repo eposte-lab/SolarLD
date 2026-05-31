@@ -1185,10 +1185,7 @@ async def trial_pending_inbound(
 
     q = (
         sb.table("pending_inbound_requests")
-        .select(
-            "id, tenant_id, lead_id, status, dossier_url, payload, "
-            "created_at, decided_at"
-        )
+        .select("id, tenant_id, lead_id, status, dossier_url, payload, created_at, decided_at")
         .eq("status", status)
         .order("created_at", desc=True)
         .limit(limit)
@@ -1285,12 +1282,7 @@ async def trial_approve_inbound(ctx: CurrentUser, request_id: str) -> dict[str, 
 
     # Load the lead to honor the "stamp source once" rule.
     lead_res = (
-        sb.table("leads")
-        .select("id, source")
-        .eq("id", lead_id)
-        .limit(1)
-        .maybe_single()
-        .execute()
+        sb.table("leads").select("id, source").eq("id", lead_id).limit(1).maybe_single().execute()
     )
     lead = (lead_res.data if lead_res else None) or {}
 
@@ -1305,8 +1297,9 @@ async def trial_approve_inbound(ctx: CurrentUser, request_id: str) -> dict[str, 
     sb.table("leads").update(update_fields).eq("id", lead_id).execute()
 
     # 2) Emit the tenant-facing event (dashboard realtime + timeline).
-    # Direct insert (NOT _emit_public_event) — the operator already got
-    # their notification at hold-time; we don't want a second operator email.
+    # Direct insert (NOT _emit_public_event): _emit_public_event also fires an
+    # operator notification email, which makes no sense here — the operator is
+    # the one clicking "approve". This event is purely tenant-facing.
     try:
         sb.table("events").insert(
             {

@@ -34,8 +34,7 @@ from ..core.supabase_client import get_service_client
 from ..models.enums import BlacklistReason, LeadStatus
 from ..services.appointment_service import (
     fire_appointment_webhook,
-    get_moderation_config,
-    notify_operator_held_request,
+    is_tenant_moderated,
     notify_tenant_contact_request,
 )
 from ..services.bolletta_ocr_service import (
@@ -290,10 +289,11 @@ async def request_appointment(slug: str, payload: AppointmentRequest) -> dict[st
     the CRM webhook if configured.
 
     **Moderated trial tenant:** touch NONE of the tenant-visible surface.
-    The request is held in ``pending_inbound_requests`` and a
-    ``[MODERAZIONE]`` email goes to the platform operator. The held
-    side-effects (status bump, event, tenant email, webhook) are replayed
-    by the super-admin approval endpoint in ``routes/admin.py``.
+    The request is simply held in ``pending_inbound_requests`` and shows up
+    in the operator's super-admin queue (``/admin/trial`` → "Coda inbound").
+    No operator email is sent — the operator reviews the list there. The
+    held side-effects (status bump, event, tenant email, webhook) are
+    replayed by the super-admin approval endpoint in ``routes/admin.py``.
 
     Fail-open throughout: the 202 is returned even if a side-effect raises.
     """
@@ -322,10 +322,13 @@ async def request_appointment(slug: str, payload: AppointmentRequest) -> dict[st
     )
     tenant_data = (tenant_row.data or {}) if tenant_row else {}
 
-    moderated, operator_email = get_moderation_config(sb, tenant_id)
+    moderated = is_tenant_moderated(sb, tenant_id)
 
     # ── Moderated trial tenant: HOLD, surface nothing to the tenant ──
     if moderated:
+        # Just enqueue: the operator reviews the request in the super-admin
+        # "Coda inbound" queue and approves/rejects from there. No operator
+        # email — the queue UI is the single review surface.
         try:
             sb.table("pending_inbound_requests").insert(
                 {
@@ -338,15 +341,7 @@ async def request_appointment(slug: str, payload: AppointmentRequest) -> dict[st
             ).execute()
         except Exception as exc:  # noqa: BLE001 — never block the 202
             log.warning("appointment.queue_insert_failed", tenant_id=tenant_id, err=str(exc)[:200])
-        await notify_operator_held_request(
-            sb,
-            tenant_id=tenant_id,
-            operator_email=operator_email,
-            payload=payload_dict,
-            dossier_url=dossier_url,
-            business_name=tenant_data.get("business_name"),
-        )
-        # No status change, no event, no tenant email, no webhook.
+        # No operator email, no status change, no event, no tenant email, no webhook.
         return {"ok": True, "status": "held"}
 
     # ── Normal tenant: original behavior ─────────────────────────────

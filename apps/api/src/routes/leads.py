@@ -706,13 +706,7 @@ async def send_outreach(
     """
     tenant_id = require_tenant(ctx)
     sb = get_service_client()
-    res_q = (
-        sb.table("leads")
-        .select("id")
-        .eq("id", lead_id)
-        .eq("tenant_id", tenant_id)
-        .limit(1)
-    )
+    res_q = sb.table("leads").select("id").eq("id", lead_id).eq("tenant_id", tenant_id).limit(1)
     # Moderation gate — hidden lead 404s for a moderated tenant.
     res_q = apply_released_filter(res_q, sb, tenant_id)
     res = res_q.execute()
