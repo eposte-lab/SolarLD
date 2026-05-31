@@ -69,7 +69,7 @@ async def maybe_alert(
     code: AlertCode,
     body: str,
     metadata: dict[str, Any] | None = None,
-    href: str = "/settings/warehouse",
+    href: str = "/territorio",
 ) -> bool:
     """Emit an alert unless we already emitted the same code recently.
 
@@ -220,7 +220,7 @@ async def emit_atoka_failure_alert(
             "configurazione del territorio."
         ),
         metadata={"err": err, "territory_id": territory_id},
-        href="/territories",
+        href="/territorio",
     )
 
 
@@ -239,7 +239,7 @@ async def emit_low_survival_alert(
             "Valuta di raffinare i criteri della Sorgente."
         ),
         metadata={"survival_rate": survival_rate, "target": target},
-        href="/settings/sources",
+        href="/settings/modules/sorgente",
     )
 
 
@@ -258,7 +258,7 @@ async def emit_territory_consumed_alert(
             "geografica o un nuovo segmento ICP."
         ),
         metadata={"territory_id": territory_id, "consumed_pct": consumed_pct},
-        href="/territories",
+        href="/territorio",
     )
 
 
