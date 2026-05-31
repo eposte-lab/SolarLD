@@ -94,7 +94,23 @@ const ACCENT: Record<Toast['type'], string> = {
   default: 'border-l-zinc-500',
 };
 
-export function RealtimeToaster({ tenantId }: { tenantId: string }) {
+export function RealtimeToaster({
+  tenantId,
+  suppressReactions = false,
+}: {
+  tenantId: string;
+  /**
+   * Trial moderation: when true, prospect-reaction toasts
+   * (`engagement` / `conversion` — portal visit, WhatsApp click,
+   * bolletta upload, contact request) are dropped so they never surface
+   * for an un-promoted contatto. Operator-side `outreach` / postal /
+   * system toasts still show. The reaction stays visible on the scheda
+   * only after the operator promotes the lead. Trade-off: a released
+   * lead's later reactions also won't toast (they remain on the scheda)
+   * — acceptable for the trial.
+   */
+  suppressReactions?: boolean;
+}) {
   const [toasts, setToasts] = useState<Toast[]>([]);
 
   useEffect(() => {
@@ -117,6 +133,9 @@ export function RealtimeToaster({ tenantId }: { tenantId: string }) {
             created_at: string;
           };
           const { title, subtitle, type } = classify(row.event_type, row.payload);
+          if (suppressReactions && (type === 'engagement' || type === 'conversion')) {
+            return;
+          }
           const toast: Toast = {
             id: row.id,
             title,
@@ -136,7 +155,7 @@ export function RealtimeToaster({ tenantId }: { tenantId: string }) {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [tenantId]);
+  }, [tenantId, suppressReactions]);
 
   if (toasts.length === 0) return null;
 

@@ -179,7 +179,10 @@ export default async function DashboardLayout({
           </div>
         </main>
       </div>
-      <RealtimeToaster tenantId={ctx.tenant.id} />
+      <RealtimeToaster
+        tenantId={ctx.tenant.id}
+        suppressReactions={ctx.is_moderated}
+      />
       {ctx.tenant.demo_device_limit_enabled ? (
         <IdleLogout
           idleMinutes={ctx.tenant.demo_device_idle_timeout_minutes ?? 30}

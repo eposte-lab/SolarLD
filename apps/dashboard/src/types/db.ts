@@ -388,6 +388,11 @@ export interface LeadDetailRow extends LeadListRow {
   feedback_notes: string | null;
   feedback_at: string | null;
   score_breakdown: Record<string, number>;
+  /** Trial moderation (migration 0145/0147): NULL until the operator
+   *  promotes this contatto to a lead from the super-admin queue. For a
+   *  moderated tenant the scheda freezes every prospect reaction while
+   *  this is NULL — see lib/data/moderation-freeze.ts. */
+  operator_released_at: string | null;
 }
 
 /**
