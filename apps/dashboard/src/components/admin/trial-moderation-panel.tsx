@@ -21,6 +21,8 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import {
   AlertTriangle,
+  ChevronDown,
+  Clock,
   Eye,
   EyeOff,
   Flame,
@@ -84,7 +86,54 @@ interface PendingInboundResponse {
   total: number;
 }
 
+interface ActivityEvent {
+  event_type: string;
+  event_source: string | null;
+  occurred_at: string | null;
+  payload: Record<string, unknown> | null;
+}
+
+interface PortalEvent {
+  event_kind: string;
+  occurred_at: string | null;
+  metadata: Record<string, unknown> | null;
+}
+
+interface LeadActivity {
+  lead_id: string;
+  events: ActivityEvent[];
+  portal_events: PortalEvent[];
+}
+
 type ReviewStatus = 'pending' | 'released' | 'held';
+
+/** Italian labels for the raw event_type / portal event_kind codes. */
+const ACTIVITY_LABELS: Record<string, string> = {
+  'lead.outreach_sent': 'Email inviata',
+  'lead.email_delivered': 'Email consegnata',
+  'lead.email_opened': 'Email aperta',
+  'lead.email_clicked': 'Link cliccato',
+  'lead.portal_visited': 'Ha aperto la pagina personale',
+  'lead.whatsapp_click': 'Click su WhatsApp',
+  'lead.appointment_requested': 'Richiesta di contatto',
+  'lead.bolletta_uploaded': 'Bolletta caricata',
+  'lead.optout_requested': 'Disiscrizione',
+  'lead.rendered': 'Rendering generato',
+  'lead.scored': 'Punteggio calcolato',
+  'portal.view': 'Apertura pagina',
+  'portal.scroll_50': 'Letto a metà',
+  'portal.scroll_90': 'Letto fino in fondo',
+  'portal.roi_viewed': 'Ha visto le stime ROI',
+  'portal.video_play': 'Ha avviato il video',
+  'portal.video_complete': 'Ha guardato tutto il video',
+  'portal.whatsapp_click': 'Click su WhatsApp',
+  'portal.appointment_click': 'Click richiedi sopralluogo',
+  'portal.bolletta_uploaded': 'Bolletta caricata',
+};
+
+function activityLabel(code: string): string {
+  return ACTIVITY_LABELS[code] ?? code.replace(/^(lead|portal)\./, '').replace(/_/g, ' ');
+}
 
 function errMessage(e: unknown): string {
   const err = e as { message?: string; body?: { detail?: string } };
@@ -396,66 +445,182 @@ function LeadGroup({
           </p>
         ) : (
           rows.map((l) => (
-            <div
+            <LeadRow
               key={l.id}
-              className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-surface-container-low px-4 py-3"
-            >
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <p className="truncate text-sm font-semibold text-on-surface">
-                    {l.business_name || '(azienda senza nome)'}
-                  </p>
-                  <StageChip lead={l} />
-                </div>
-                <p className="truncate text-xs text-on-surface-variant">
-                  {[l.address, l.comune, l.provincia].filter(Boolean).join(', ') || '—'}
-                </p>
-                <p className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 font-mono text-[11px] text-on-surface-variant">
-                  <span>
-                    score: <span className="text-on-surface">{l.score ?? '—'}</span>
-                    {l.score_tier ? ` (${l.score_tier})` : ''}
-                  </span>
-                  <span>stato: {l.pipeline_status ?? '—'}</span>
-                  <span>{fmtDate(l.created_at)}</span>
-                </p>
-              </div>
-
-              <div className="flex shrink-0 items-center gap-2">
-                {reviewStatus !== 'released' && (
-                  <button
-                    type="button"
-                    onClick={() => void act(l.id, 'release')}
-                    disabled={busyId === l.id}
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-on-primary transition-opacity hover:opacity-90 disabled:opacity-50"
-                  >
-                    {busyId === l.id ? (
-                      <Loader2 size={12} strokeWidth={2.25} aria-hidden className="animate-spin" />
-                    ) : (
-                      <Eye size={12} strokeWidth={2.25} aria-hidden />
-                    )}
-                    Promuovi a lead
-                  </button>
-                )}
-                {reviewStatus !== 'held' && (
-                  <button
-                    type="button"
-                    onClick={() => void act(l.id, 'hold')}
-                    disabled={busyId === l.id}
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-surface-container px-3 py-1.5 text-xs font-semibold text-on-surface-variant transition-colors hover:text-on-surface disabled:opacity-50"
-                  >
-                    {busyId === l.id ? (
-                      <Loader2 size={12} strokeWidth={2.25} aria-hidden className="animate-spin" />
-                    ) : (
-                      <EyeOff size={12} strokeWidth={2.25} aria-hidden />
-                    )}
-                    Tieni come contatto
-                  </button>
-                )}
-              </div>
-            </div>
+              lead={l}
+              reviewStatus={reviewStatus}
+              busyId={busyId}
+              act={act}
+            />
           ))
         )}
       </div>
+    </div>
+  );
+}
+
+function LeadRow({
+  lead: l,
+  reviewStatus,
+  busyId,
+  act,
+}: {
+  lead: PendingLead;
+  reviewStatus: ReviewStatus;
+  busyId: string | null;
+  act: (leadId: string, action: 'release' | 'hold') => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [activity, setActivity] = useState<LeadActivity | null>(null);
+  const [loadingAct, setLoadingAct] = useState(false);
+  const [actErr, setActErr] = useState<string | null>(null);
+
+  async function toggle() {
+    const next = !expanded;
+    setExpanded(next);
+    if (next && !activity && !loadingAct) {
+      setLoadingAct(true);
+      setActErr(null);
+      try {
+        const res = await api.get<LeadActivity>(
+          `/v1/admin/trial/leads/${l.id}/activity`,
+        );
+        setActivity(res);
+      } catch (e) {
+        setActErr(errMessage(e));
+      } finally {
+        setLoadingAct(false);
+      }
+    }
+  }
+
+  // Merge events + portal events into one descending timeline.
+  const timeline = activity
+    ? [
+        ...activity.events.map((e) => ({
+          code: e.event_type,
+          at: e.occurred_at,
+          src: e.event_source,
+        })),
+        ...activity.portal_events.map((p) => ({
+          code: p.event_kind,
+          at: p.occurred_at,
+          src: 'portale',
+        })),
+      ].sort((a, b) => (b.at ?? '').localeCompare(a.at ?? ''))
+    : [];
+
+  return (
+    <div className="rounded-lg bg-surface-container-low px-4 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <p className="truncate text-sm font-semibold text-on-surface">
+              {l.business_name || '(azienda senza nome)'}
+            </p>
+            <StageChip lead={l} />
+          </div>
+          <p className="truncate text-xs text-on-surface-variant">
+            {[l.address, l.comune, l.provincia].filter(Boolean).join(', ') || '—'}
+          </p>
+          <p className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 font-mono text-[11px] text-on-surface-variant">
+            <span>
+              score: <span className="text-on-surface">{l.score ?? '—'}</span>
+              {l.score_tier ? ` (${l.score_tier})` : ''}
+            </span>
+            <span>stato: {l.pipeline_status ?? '—'}</span>
+            <span>{fmtDate(l.created_at)}</span>
+          </p>
+        </div>
+
+        <div className="flex shrink-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void toggle()}
+            aria-expanded={expanded}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-surface-container px-3 py-1.5 text-xs font-semibold text-on-surface-variant transition-colors hover:text-on-surface"
+          >
+            <ChevronDown
+              size={12}
+              strokeWidth={2.25}
+              aria-hidden
+              className={`transition-transform ${expanded ? 'rotate-180' : ''}`}
+            />
+            Dettaglio
+          </button>
+          {reviewStatus !== 'released' && (
+            <button
+              type="button"
+              onClick={() => void act(l.id, 'release')}
+              disabled={busyId === l.id}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-on-primary transition-opacity hover:opacity-90 disabled:opacity-50"
+            >
+              {busyId === l.id ? (
+                <Loader2 size={12} strokeWidth={2.25} aria-hidden className="animate-spin" />
+              ) : (
+                <Eye size={12} strokeWidth={2.25} aria-hidden />
+              )}
+              Promuovi a lead
+            </button>
+          )}
+          {reviewStatus !== 'held' && (
+            <button
+              type="button"
+              onClick={() => void act(l.id, 'hold')}
+              disabled={busyId === l.id}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-surface-container px-3 py-1.5 text-xs font-semibold text-on-surface-variant transition-colors hover:text-on-surface disabled:opacity-50"
+            >
+              {busyId === l.id ? (
+                <Loader2 size={12} strokeWidth={2.25} aria-hidden className="animate-spin" />
+              ) : (
+                <EyeOff size={12} strokeWidth={2.25} aria-hidden />
+              )}
+              Tieni come contatto
+            </button>
+          )}
+        </div>
+      </div>
+
+      {expanded && (
+        <div className="mt-3 border-t border-outline-variant/30 pt-3">
+          {loadingAct ? (
+            <p className="flex items-center gap-2 text-xs text-on-surface-variant">
+              <Loader2 size={12} strokeWidth={2.25} aria-hidden className="animate-spin" />
+              Carico l&apos;attività…
+            </p>
+          ) : actErr ? (
+            <p className="text-xs text-error">{actErr}</p>
+          ) : timeline.length === 0 ? (
+            <p className="text-xs text-on-surface-variant">
+              Nessuna attività registrata per questo contatto.
+            </p>
+          ) : (
+            <ol className="space-y-1.5">
+              {timeline.map((t, i) => (
+                <li key={i} className="flex items-start gap-2 text-xs">
+                  <Clock
+                    size={12}
+                    strokeWidth={2.25}
+                    aria-hidden
+                    className="mt-0.5 shrink-0 text-on-surface-variant"
+                  />
+                  <span className="w-28 shrink-0 font-mono text-[11px] text-on-surface-variant">
+                    {fmtDate(t.at)}
+                  </span>
+                  <span className="flex-1 text-on-surface">
+                    {activityLabel(t.code)}
+                    {t.src ? (
+                      <span className="ml-1 text-[11px] text-on-surface-variant">
+                        · {t.src}
+                      </span>
+                    ) : null}
+                  </span>
+                </li>
+              ))}
+            </ol>
+          )}
+        </div>
+      )}
     </div>
   );
 }
