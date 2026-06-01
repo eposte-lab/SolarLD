@@ -1142,6 +1142,94 @@ async def trial_pending_leads(
     return TrialPendingLeadsResponse(leads=leads, total=total)
 
 
+class TrialLeadActivityEvent(BaseModel):
+    event_type: str
+    event_source: str | None = None
+    occurred_at: str | None = None
+    payload: dict[str, Any] | None = None
+
+
+class TrialLeadPortalEvent(BaseModel):
+    event_kind: str
+    occurred_at: str | None = None
+    metadata: dict[str, Any] | None = None
+
+
+class TrialLeadActivityResponse(BaseModel):
+    lead_id: str
+    events: list[TrialLeadActivityEvent]
+    portal_events: list[TrialLeadPortalEvent]
+
+
+@router.get("/trial/leads/{lead_id}/activity", response_model=TrialLeadActivityResponse)
+async def trial_lead_activity(ctx: CurrentUser, lead_id: str) -> TrialLeadActivityResponse:
+    """Full activity timeline for one lead, for the operator to triage
+    *before* promoting it. Service-role read (RLS bypass), super-admin only.
+
+    Returns the lead's ``events`` (outreach + reactions: open/click,
+    portal visit, WhatsApp, appointment, bolletta, …) and the granular
+    ``portal_events`` (scroll depth, ROI viewed, video, etc.). The
+    moderated tenant cannot see any of this until the lead is promoted —
+    this endpoint is how the operator decides whether to promote.
+    """
+    _require_super_admin(ctx)
+    sb = get_service_client()
+
+    events: list[TrialLeadActivityEvent] = []
+    try:
+        ev = (
+            sb.table("events")
+            .select("event_type, event_source, occurred_at, payload")
+            .eq("lead_id", lead_id)
+            .order("occurred_at", desc=True)
+            .limit(100)
+            .execute()
+        )
+        for e in ev.data or []:
+            payload = e.get("payload")
+            events.append(
+                TrialLeadActivityEvent(
+                    event_type=e.get("event_type") or "?",
+                    event_source=e.get("event_source"),
+                    occurred_at=e.get("occurred_at"),
+                    payload=payload if isinstance(payload, dict) else None,
+                )
+            )
+    except Exception as exc:  # noqa: BLE001
+        log.warning("admin.trial_lead_activity_events_failed", lead_id=lead_id, err=str(exc)[:200])
+
+    portal: list[TrialLeadPortalEvent] = []
+    try:
+        pe = (
+            sb.table("portal_events")
+            .select("event_kind, occurred_at, metadata")
+            .eq("lead_id", lead_id)
+            .order("occurred_at", desc=True)
+            .limit(100)
+            .execute()
+        )
+        for p in pe.data or []:
+            meta = p.get("metadata")
+            portal.append(
+                TrialLeadPortalEvent(
+                    event_kind=p.get("event_kind") or "?",
+                    occurred_at=p.get("occurred_at"),
+                    metadata=meta if isinstance(meta, dict) else None,
+                )
+            )
+    except Exception as exc:  # noqa: BLE001
+        log.warning("admin.trial_lead_activity_portal_failed", lead_id=lead_id, err=str(exc)[:200])
+
+    log.info(
+        "admin.trial_lead_activity",
+        lead_id=lead_id,
+        events=len(events),
+        portal=len(portal),
+        super_admin=ctx.user_id,
+    )
+    return TrialLeadActivityResponse(lead_id=lead_id, events=events, portal_events=portal)
+
+
 @router.post("/trial/leads/{lead_id}/release")
 async def trial_release_lead(ctx: CurrentUser, lead_id: str) -> dict[str, Any]:
     """Promote a reacted contatto to a *lead* for the moderated tenant.
