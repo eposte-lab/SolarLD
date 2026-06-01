@@ -105,7 +105,7 @@ async def get_public_lead(slug: str) -> dict[str, object]:
     tenant = (
         sb.table("tenants")
         .select(
-            "business_name, brand_logo_url, brand_primary_color, "
+            "business_name, brand_logo_url, brand_primary_color, brand_color_accent, "
             "whatsapp_number, contact_email, "
             "legal_name, vat_number, legal_address, "
             "about_md, about_year_founded, about_team_size, "
