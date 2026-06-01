@@ -365,6 +365,15 @@ export default async function LeadDetailPage({ params }: PageProps) {
     'border border-on-surface/10 px-3 py-1.5 text-xs font-semibold ' +
     'text-on-surface-variant opacity-50';
 
+  // Per un tenant moderato l'operatore gestisce il tracciamento: aprire la
+  // pagina personale dalla dashboard genererebbe eventi portale spuri
+  // (visita, scroll, ROI) che inquinano lo score reale del prospect. Il
+  // bottone resta visibile ma disattivato, con la motivazione nel tooltip.
+  const portalVisitBlocked = ctx.is_moderated;
+  const portalBlockedTitle =
+    'Per non alterare il tracciamento dei movimenti del lead, la visita ' +
+    'alla pagina personale è disattivata da questa dashboard.';
+
   return (
     <div className="space-y-4">
       {/* ─── Header ───────────────────────────────────────────────────── */}
@@ -407,15 +416,26 @@ export default async function LeadDetailPage({ params }: PageProps) {
               <SendOutreachButton leadId={lead.id} alreadySent={alreadySent} />
             )}
             <div className="flex flex-wrap items-center justify-end gap-2">
-              <a
-                href={publicLeadLink}
-                target="_blank"
-                rel="noreferrer"
-                className={actionBtn}
-              >
-                <ExternalLink size={13} strokeWidth={2.25} aria-hidden />
-                Pagina personale
-              </a>
+              {portalVisitBlocked ? (
+                <span
+                  className={actionBtnDisabled}
+                  title={portalBlockedTitle}
+                  aria-disabled="true"
+                >
+                  <ExternalLink size={13} strokeWidth={2.25} aria-hidden />
+                  Pagina personale
+                </span>
+              ) : (
+                <a
+                  href={publicLeadLink}
+                  target="_blank"
+                  rel="noreferrer"
+                  className={actionBtn}
+                >
+                  <ExternalLink size={13} strokeWidth={2.25} aria-hidden />
+                  Pagina personale
+                </a>
+              )}
               {/* "Genera preventivo" entry-point nascosto temporaneamente —
                   la generazione preventivi diventerà una feature a sé e
                   per ora non vogliamo che parta da nessuna superficie
@@ -532,18 +552,28 @@ export default async function LeadDetailPage({ params }: PageProps) {
             leadId={lead.id}
             regenCount={lead.rendering_regen_count ?? 0}
           />
-              {publicLeadLink && (
-                <a
-                  href={publicLeadLink}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 rounded-full bg-primary px-4 py-2 text-xs font-semibold text-on-primary shadow-ambient-sm transition-opacity hover:opacity-90"
-                  title={publicLeadLink}
-                >
-                  <ExternalLink size={12} strokeWidth={2.5} aria-hidden />
-                  Apri pagina personale del lead
-                </a>
-              )}
+              {publicLeadLink &&
+                (portalVisitBlocked ? (
+                  <span
+                    className="inline-flex cursor-not-allowed items-center gap-1.5 rounded-full bg-surface-container px-4 py-2 text-xs font-semibold text-on-surface-variant opacity-50"
+                    title={portalBlockedTitle}
+                    aria-disabled="true"
+                  >
+                    <ExternalLink size={12} strokeWidth={2.5} aria-hidden />
+                    Apri pagina personale del lead
+                  </span>
+                ) : (
+                  <a
+                    href={publicLeadLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 rounded-full bg-primary px-4 py-2 text-xs font-semibold text-on-primary shadow-ambient-sm transition-opacity hover:opacity-90"
+                    title={publicLeadLink}
+                  >
+                    <ExternalLink size={12} strokeWidth={2.5} aria-hidden />
+                    Apri pagina personale del lead
+                  </a>
+                ))}
               {/* Diagnostic chip: visible when only the static after-image
                   made it but the operator clicked Rigenera expecting a
                   video. The reason comes from the CreativeAgent fallback
