@@ -18,11 +18,12 @@ import { SavingsComparePanel } from './SavingsComparePanel';
 type Props = {
   slug: string;
   brandColor: string;
+  accentColor?: string;
   brandName?: string;
   epc?: boolean;
 };
 
-export function BollettaSection({ slug, brandColor, brandName, epc }: Props) {
+export function BollettaSection({ slug, brandColor, accentColor, brandName, epc }: Props) {
   const [refreshKey, setRefreshKey] = useState(0);
 
   return (
@@ -30,6 +31,7 @@ export function BollettaSection({ slug, brandColor, brandName, epc }: Props) {
       <BillUploadCard
         slug={slug}
         brandColor={brandColor}
+        accentColor={accentColor}
         onSaved={() => setRefreshKey((k) => k + 1)}
       />
       <SavingsComparePanel

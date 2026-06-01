@@ -8,15 +8,19 @@ type Status = 'idle' | 'submitting' | 'success' | 'error';
 export function AppointmentForm({
   slug,
   brandColor,
+  accentColor,
   privacyPolicyUrl,
   tenantName,
 }: {
   slug: string;
   brandColor: string;
+  /** Vivid accent for the primary CTA button. Falls back to brandColor. */
+  accentColor?: string;
   privacyPolicyUrl?: string | null;
   /** Titolare del trattamento — nominato nel testo del consenso. */
   tenantName: string;
 }) {
+  const accent = accentColor || brandColor;
   const [status, setStatus] = useState<Status>('idle');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -157,10 +161,10 @@ export function AppointmentForm({
       <button
         type="submit"
         disabled={status === 'submitting'}
-        className="w-full rounded-md px-3 py-2 text-sm font-semibold text-white shadow disabled:opacity-60"
-        style={{ backgroundColor: brandColor }}
+        className="w-full rounded-lg px-4 py-3.5 text-base font-bold uppercase tracking-wide text-white shadow-md transition-transform hover:scale-[1.02] disabled:opacity-60"
+        style={{ backgroundColor: accent }}
       >
-        {status === 'submitting' ? 'Invio in corso…' : 'Richiedi sopralluogo'}
+        {status === 'submitting' ? 'Invio in corso…' : 'Contattaci subito →'}
       </button>
     </form>
   );

@@ -30,6 +30,8 @@ import { API_URL } from '@/lib/api';
 type Props = {
   slug: string;
   brandColor: string;
+  /** Vivid accent for the post-upload contact CTA. Falls back to brandColor. */
+  accentColor?: string;
   /** Called once the user confirms a value (manual or OCR). */
   onSaved?: () => void;
 };
@@ -53,7 +55,8 @@ const ACCEPT_MIME =
   'image/jpeg,image/png,image/webp,application/pdf';
 const MAX_BYTES = 10 * 1024 * 1024;
 
-export function BillUploadCard({ slug, brandColor, onSaved }: Props) {
+export function BillUploadCard({ slug, brandColor, accentColor, onSaved }: Props) {
+  const accent = accentColor || brandColor;
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [status, setStatus] = useState<Status>('idle');
   const [error, setError] = useState<string | null>(null);
@@ -314,10 +317,20 @@ export function BillUploadCard({ slug, brandColor, onSaved }: Props) {
           <p className="font-headline text-base font-semibold text-on-surface">
             Bolletta registrata. Aggiorniamo il confronto qui sotto.
           </p>
+          {/* Post-upload CTA — the moment a prospect shares their bill is
+              peak intent: surface a prominent contact shortcut to the
+              appointment form (#sopralluogo) in the accent color. */}
+          <a
+            href="#sopralluogo"
+            className="mt-3 inline-flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-bold text-white shadow-md transition-transform hover:scale-[1.02]"
+            style={{ backgroundColor: accent }}
+          >
+            Contattaci ora →
+          </a>
           <button
             type="button"
             onClick={reset}
-            className="mt-2 text-xs font-medium text-on-surface-variant underline-offset-2 hover:underline"
+            className="mt-2 block text-xs font-medium text-on-surface-variant underline-offset-2 hover:underline"
           >
             Carica un&apos;altra bolletta
           </button>

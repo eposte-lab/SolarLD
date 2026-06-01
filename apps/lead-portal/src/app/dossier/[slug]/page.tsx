@@ -114,6 +114,9 @@ export default async function LeadPage({ params }: PageProps) {
     {};
   const hero = leadHeroCopy(lead);
   const brandColor = tenant?.brand_primary_color || '#0F766E';
+  // Accent = vivid secondary brand color used to make the contact CTAs
+  // pop (falls back to the primary when the tenant hasn't set one).
+  const brandAccent = tenant?.brand_color_accent || brandColor;
   const tenantName = tenant?.business_name ?? 'SolarLead';
 
   // Pre-compute the technical specs grid — only rendered if at least
@@ -338,6 +341,7 @@ export default async function LeadPage({ params }: PageProps) {
         <BollettaSection
           slug={slug}
           brandColor={brandColor}
+          accentColor={brandAccent}
           brandName={tenantName}
           epc={!!tenant?.epc_enabled}
         />
@@ -399,26 +403,54 @@ export default async function LeadPage({ params }: PageProps) {
         className="mx-auto max-w-6xl scroll-mt-8 px-6 py-8"
         aria-labelledby="cta-heading"
       >
-        <p className="editorial-eyebrow">Prossimo passo</p>
+        <p className="editorial-eyebrow" style={{ color: brandAccent }}>
+          Prossimo passo
+        </p>
         <h2
           id="cta-heading"
-          className="mt-2 font-headline text-2xl font-semibold tracking-tighter text-on-surface md:text-3xl"
+          className="mt-2 font-headline text-3xl font-bold tracking-tighter text-on-surface md:text-4xl"
         >
-          Richiedi un sopralluogo tecnico
+          Contattaci subito per il sopralluogo
         </h2>
-        <div className="mt-6 bento p-6">
-          <p className="text-sm text-on-surface-variant">
+        <div
+          className="mt-6 rounded-2xl border-2 bg-surface-container p-6 shadow-sm"
+          style={{ borderColor: brandAccent }}
+        >
+          <p className="text-base text-on-surface">
             Un tecnico di {tenantName} vi ricontatterà entro 48 ore.
             Nessun impegno, nessun venditore.
           </p>
           <AppointmentForm
             slug={slug}
             brandColor={brandColor}
+            accentColor={brandAccent}
             privacyPolicyUrl={tenant?.privacy_policy_url}
             tenantName={tenantName}
           />
         </div>
       </section>
+
+      {/* ============== Floating "Contattaci subito" CTA ==============
+          Always-visible shortcut to the appointment form. Pure anchor
+          (no JS) → the #sopralluogo section has scroll-mt so it lands
+          cleanly. Accent color so it stays the most prominent element. */}
+      <a
+        href="#sopralluogo"
+        aria-label="Contattaci subito"
+        className="fixed bottom-5 right-5 z-50 inline-flex items-center gap-2 rounded-full px-5 py-3 text-sm font-bold text-white shadow-lg ring-1 ring-black/10 transition-transform hover:scale-105 md:bottom-6 md:right-6 md:text-base"
+        style={{ backgroundColor: brandAccent }}
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+          <path
+            d="M6.5 4h3l1.5 4-2 1.5a11 11 0 0 0 5 5l1.5-2 4 1.5v3a2 2 0 0 1-2 2A16 16 0 0 1 4.5 6a2 2 0 0 1 2-2Z"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+        Contattaci subito
+      </a>
 
       {/* ============== Footer ============== */}
       <footer

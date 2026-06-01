@@ -69,6 +69,10 @@ export type PublicLead = {
     business_name: string;
     brand_logo_url: string | null;
     brand_primary_color: string;
+    /** Secondary brand color (the vivid "accent" — e.g. the "trade" word
+     *  in the Total Trade logo). Used to make the contact CTAs pop. Null
+     *  when the tenant hasn't set one → callers fall back to primary. */
+    brand_color_accent: string | null;
     whatsapp_number: string | null;
     contact_email: string | null;
     /* GDPR footer fields (may be null for tenants pre-Sprint 6.5). */
