@@ -42,6 +42,7 @@ import { BentoCard, BentoGrid } from '@/components/ui/bento-card';
 import { CollapsibleCard } from '@/components/ui/collapsible-card';
 import { GlassPanel } from '@/components/ui/glass-panel';
 import { KpiChipCard } from '@/components/ui/kpi-chip-card';
+import { PortalVisitBlocked } from '@/components/ui/portal-visit-blocked';
 import { EngagementScoreChip } from '@/components/ui/engagement-score-chip';
 import { FollowUpStateChip } from '@/components/ui/follow-up-state-chip';
 import { StatusChip } from '@/components/ui/status-chip';
@@ -401,9 +402,6 @@ export default async function LeadDetailPage({ params }: PageProps) {
   // (visita, scroll, ROI) che inquinano lo score reale del prospect. Il
   // bottone resta visibile ma disattivato, con la motivazione nel tooltip.
   const portalVisitBlocked = ctx.is_moderated;
-  const portalBlockedTitle =
-    'Per non alterare il tracciamento dei movimenti del lead, la visita ' +
-    'alla pagina personale è disattivata da questa dashboard.';
 
   return (
     <div className="space-y-4">
@@ -448,14 +446,13 @@ export default async function LeadDetailPage({ params }: PageProps) {
             )}
             <div className="flex flex-wrap items-center justify-end gap-2">
               {portalVisitBlocked ? (
-                <span
-                  className={actionBtnDisabled}
-                  title={portalBlockedTitle}
-                  aria-disabled="true"
-                >
-                  <ExternalLink size={13} strokeWidth={2.25} aria-hidden />
-                  Pagina personale
-                </span>
+                <PortalVisitBlocked
+                  label="Pagina personale"
+                  buttonClassName={actionBtnDisabled}
+                  iconSize={13}
+                  strokeWidth={2.25}
+                  align="right"
+                />
               ) : (
                 <a
                   href={publicLeadLink}
@@ -585,14 +582,13 @@ export default async function LeadDetailPage({ params }: PageProps) {
           />
               {publicLeadLink &&
                 (portalVisitBlocked ? (
-                  <span
-                    className="inline-flex cursor-not-allowed items-center gap-1.5 rounded-full bg-surface-container px-4 py-2 text-xs font-semibold text-on-surface-variant opacity-50"
-                    title={portalBlockedTitle}
-                    aria-disabled="true"
-                  >
-                    <ExternalLink size={12} strokeWidth={2.5} aria-hidden />
-                    Apri pagina personale del lead
-                  </span>
+                  <PortalVisitBlocked
+                    label="Apri pagina personale del lead"
+                    buttonClassName="inline-flex cursor-not-allowed items-center gap-1.5 rounded-full bg-surface-container px-4 py-2 text-xs font-semibold text-on-surface-variant opacity-50"
+                    iconSize={12}
+                    strokeWidth={2.5}
+                    align="right"
+                  />
                 ) : (
                   <a
                     href={publicLeadLink}
