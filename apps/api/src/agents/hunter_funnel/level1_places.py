@@ -25,6 +25,7 @@ Places every day.
 
 from __future__ import annotations
 
+from collections import defaultdict, deque
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -56,6 +57,13 @@ _FRESHNESS_DAYS = 90
 # On a re-discovery, a zone that yields this few NEW candidates is
 # considered tapped out and flagged `depleted` (skipped from then on).
 _DEPLETED_NEW_THRESHOLD = 2
+
+# Hard cost ceiling per discovery run: stop after this many Places calls
+# even if the candidate target isn't met. Bounds the pathological case
+# (low-yield zones) — for productive search the candidate target is hit
+# first. Scaled to the run's target so it's never the binding limit for a
+# normal scan.
+_MAX_CALLS_PER_RUN_FACTOR = 2
 
 
 def _parse_ts(value: Any) -> datetime:
@@ -136,7 +144,15 @@ async def run_level1_places(ctx: FunnelV3Context) -> dict[str, Any]:
             if isinstance(s, str):
                 target_sectors.add(s)
 
-    # 3) Iterate zones — skip fresh / depleted ones (no Places re-spend).
+    # 3) Balanced, early-stopping discovery across (province × sector)
+    #    buckets. The previous version walked EVERY zone of the territory
+    #    (thousands), which (a) burned the whole task budget on L1 so the
+    #    funnel never reached L2-L6, and (b) produced a skewed pool (one
+    #    sector/province dominating). Now we:
+    #      • split the run target evenly across (province, sector) buckets,
+    #      • round-robin the buckets that are still under their fair share,
+    #      • stop as soon as the pool target is met (or a cost ceiling),
+    #      • auto-redistribute to live buckets when one runs out of zones.
     now = datetime.now(tz=UTC)
     fresh_cutoff = now - timedelta(days=_FRESHNESS_DAYS)
     all_candidates: dict[str, tuple[PlaceCandidate, dict[str, Any]]] = {}
@@ -144,10 +160,12 @@ async def run_level1_places(ctx: FunnelV3Context) -> dict[str, Any]:
     zones_skipped_fresh = 0
     zones_discovered: list[dict[str, Any]] = []
 
+    # Group eligible zones into (province, sector) buckets, preserving the
+    # matching_score order within each bucket (zones came ordered desc).
+    buckets: dict[tuple[str, str], deque[dict[str, Any]]] = defaultdict(deque)
     for z in zones:
         sector = z.get("primary_sector")
-        cfg = sector_configs.get(sector) if sector else None
-        if cfg is None:
+        if not sector or sector not in sector_configs:
             continue
         if z.get("depleted"):
             zones_skipped_fresh += 1
@@ -156,35 +174,55 @@ async def run_level1_places(ctx: FunnelV3Context) -> dict[str, Any]:
         if last_disc and _parse_ts(last_disc) > fresh_cutoff:
             zones_skipped_fresh += 1
             continue
+        buckets[(z.get("province_code") or "?", sector)].append(z)
 
+    target = max(1, int(ctx.max_l1_candidates or 200))
+    bucket_keys = list(buckets.keys())
+    per_bucket: dict[tuple[str, str], int] = dict.fromkeys(bucket_keys, 0)
+    fair_share = max(1, target // len(bucket_keys)) if bucket_keys else target
+    max_calls = target * _MAX_CALLS_PER_RUN_FACTOR
+
+    async def _drain_zone(key: tuple[str, str]) -> None:
+        nonlocal total_calls
+        z = buckets[key].popleft()
+        cfg_z = sector_configs[key[1]]
         try:
             candidates, calls = await discover_for_zone(
                 centroid_lat=float(z["centroid_lat"]),
                 centroid_lng=float(z["centroid_lng"]),
-                sector_config=cfg,
+                sector_config=cfg_z,
             )
         except Exception as exc:  # noqa: BLE001 — Places call is the boundary
-            log.warning(
-                "level1_places.zone_error",
-                zone_id=z.get("id"),
-                err=type(exc).__name__,
-            )
-            continue
+            log.warning("level1_places.zone_error", zone_id=z.get("id"), err=type(exc).__name__)
+            return
         total_calls += calls
         zones_discovered.append(z)
-
         for cand in candidates:
             if cand.place_id in all_candidates:
                 continue
             # Sector classification: prefer the business's real Google
             # `place.types`, fall back to the zone primary sector.
-            type_based = classify_place(cand.types)
-            resolved_sector = type_based or sector
+            resolved_sector = classify_place(cand.types) or key[1]
             if resolved_sector not in target_sectors:
                 continue
             cand.discovered_in_zone_id = str(z["id"])
             cand.discovered_for_sector = resolved_sector
             all_candidates[cand.place_id] = (cand, z)
+            per_bucket[key] += 1
+            if len(all_candidates) >= target:
+                break
+
+    while len(all_candidates) < target and total_calls < max_calls:
+        # Prefer buckets still under their fair share; once everyone is at
+        # quota (or drained), redistribute across whatever still has zones.
+        under = [k for k in bucket_keys if buckets[k] and per_bucket[k] < fair_share]
+        live = under or [k for k in bucket_keys if buckets[k]]
+        if not live:
+            break
+        for k in live:
+            if len(all_candidates) >= target or total_calls >= max_calls:
+                break
+            await _drain_zone(k)
 
     # 4) Cost accounting.
     cost_cents = total_calls * NEARBY_COST_CENTS
