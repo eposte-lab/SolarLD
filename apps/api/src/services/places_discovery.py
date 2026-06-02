@@ -40,9 +40,17 @@ if TYPE_CHECKING:
 log = get_logger(__name__)
 
 
-# Places API (New) — Nearby endpoint.
+# Places API (New) — Nearby + Text endpoints.
 PLACES_NEARBY_URL = "https://places.googleapis.com/v1/places:searchNearby"
+PLACES_TEXT_SEARCH_URL = "https://places.googleapis.com/v1/places:searchText"
 PLACES_DETAILS_URL = "https://places.googleapis.com/v1/places/{place_id}"
+
+# Sectors with no usable Google primary type (heavy/light industry — the
+# Places API New has no `factory`/`warehouse` leaf; `warehouse` is rejected
+# with HTTP 400) fall back to keyword Text Search. Cap the keyword fan-out
+# per zone so cost stays bounded; the L1 candidate cap stops the overall
+# scan early anyway.
+_MAX_KEYWORDS_PER_ZONE = 4
 
 # Field masks — keep them tight to stay in the cheap tier.
 NEARBY_FIELD_MASK = (
@@ -161,6 +169,63 @@ async def _places_nearby_call(
     return list(data.get("places") or [])
 
 
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=1, max=8),
+    reraise=True,
+)
+async def _places_text_call(
+    *,
+    lat: float,
+    lng: float,
+    radius_m: float,
+    keyword: str,
+    max_results: int,
+    client: httpx.AsyncClient,
+    api_key: str,
+) -> list[dict[str, Any]]:
+    """Single Places Text Search call, biased to a circle around the zone.
+
+    For sectors Google's primary-type taxonomy can't express (heavy/light
+    industry), we search by keyword ("carpenteria metallica", "acciaieria",
+    "lavorazione plastica", …) with a ``locationBias`` circle so hits stay
+    near the industrial zone. Returns the raw ``places`` payload list.
+    """
+    payload: dict[str, Any] = {
+        "textQuery": keyword,
+        "maxResultCount": max(1, min(max_results, 20)),
+        "languageCode": "it",
+        "regionCode": "IT",
+        "locationBias": {
+            "circle": {
+                "center": {"latitude": lat, "longitude": lng},
+                "radius": float(radius_m),
+            }
+        },
+    }
+    headers = {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": api_key,
+        "X-Goog-FieldMask": NEARBY_FIELD_MASK,
+    }
+    resp = await client.post(PLACES_TEXT_SEARCH_URL, json=payload, headers=headers)
+    if resp.status_code == 403:
+        log.error("places_discovery.text_forbidden", body=resp.text[:200])
+        return []
+    if resp.status_code >= 400:
+        log.warning(
+            "places_discovery.text_bad_status",
+            status=resp.status_code,
+            body=resp.text[:200],
+        )
+        return []
+    try:
+        data = resp.json()
+    except ValueError:
+        return []
+    return list(data.get("places") or [])
+
+
 def _parse_place(payload: dict[str, Any]) -> PlaceCandidate | None:
     """Project the Places (New) JSON shape into a flat PlaceCandidate."""
     place_id = payload.get("id")
@@ -225,19 +290,21 @@ async def discover_for_zone(
     api_key: str | None = None,
     max_results_per_keyword: int = 20,
 ) -> tuple[list[PlaceCandidate], int]:
-    """Run Places Nearby for one zone, narrowed by sector primary types.
+    """Discover Places candidates for one zone, by sector.
 
-    Replaces the previous keyword-based logic which Google Places (New)
-    silently ignored — the API only accepts a fixed taxonomy of primary
-    types via ``includedPrimaryTypes``. Without that filter the search
-    returned every POI in a 1500m radius (e.g. the famous "Da Gigione
-    Macelleria" tagged industry_heavy because it sat inside an OSM
-    industrial polygon).
+    Two paths, picked by whether the sector has a usable Google primary
+    type (``places_to_sector._SECTOR_TO_INCLUDED_TYPES``):
 
-    Strategy: ONE Nearby call per zone, with ``includedPrimaryTypes``
-    derived from ``sector_config.wizard_group`` via the static map in
-    ``places_to_sector.py``. Returns (candidates, calls_made) so the
-    caller can update the cost accumulator (``NEARBY_COST_CENTS``).
+    * **Types path** (food, retail, healthcare, logistics, …): ONE Nearby
+      call with ``includedPrimaryTypes`` — cheap and precise.
+    * **Keyword path** (heavy/light industry): Google's taxonomy has no
+      ``factory``/``warehouse`` leaf (``warehouse`` is rejected HTTP 400),
+      so we run capped keyword Text Search ("carpenteria metallica",
+      "acciaieria", …) biased to the zone — this is what surfaces the
+      ``manufacturer``-typed B2B companies on the big industrial roofs.
+
+    Returns (candidates, calls_made) so the caller updates the cost
+    accumulator (``NEARBY_COST_CENTS`` per call).
     """
     key = api_key or settings.google_places_api_key
     if not key:
@@ -249,15 +316,15 @@ async def discover_for_zone(
 
     sector = getattr(sector_config, "wizard_group", None)
     included_types = included_types_for_sector(sector or "")
-    if not included_types:
-        # No primary-type mapping for this sector — we'd otherwise fall back
-        # to a wide-net Nearby (the old behaviour), which is exactly the
-        # bug we're fixing. Skip with a loud log so the operator can
-        # extend places_to_sector._SECTOR_TO_INCLUDED_TYPES.
+    keywords = list(getattr(sector_config, "places_keywords", None) or [])
+    if not included_types and not keywords:
+        # No primary-type mapping AND no keywords — we'd otherwise fall back
+        # to a wide-net Nearby (false positives). Skip with a loud log so
+        # the operator can extend the sector palette.
         log.warning(
-            "places_discovery.skip_no_included_types",
+            "places_discovery.skip_no_types_or_keywords",
             sector=sector,
-            note="sector has no Google primary type mapping; refusing to fall back to wide-net Nearby",
+            note="sector has neither a Google primary type nor keywords",
         )
         return [], 0
 
@@ -268,36 +335,64 @@ async def discover_for_zone(
         client = httpx.AsyncClient(timeout=10.0)
 
     try:
-        try:
-            raw = await _places_nearby_call(
-                lat=centroid_lat,
-                lng=centroid_lng,
-                radius_m=radius,
-                included_types=included_types,
-                excluded_types=sector_config.places_excluded_types or None,
-                max_results=max_results_per_keyword,
-                client=client,
-                api_key=key,
-            )
-            calls = 1
-        except (httpx.HTTPError, httpx.TimeoutException) as exc:
-            log.warning(
-                "places_discovery.call_error",
-                sector=sector,
-                err=type(exc).__name__,
-            )
-            return [], 0
-
         deduped: dict[str, PlaceCandidate] = {}
-        for raw_place in raw:
-            cand = _parse_place(raw_place)
-            if cand is None or cand.place_id in deduped:
-                continue
-            # Stamp the included-types we asked for so we can audit which
-            # sector hint produced the hit (also surfaced in the dashboard
-            # /contatti row for triage).
-            cand.discovery_keyword = ",".join(included_types)
-            deduped[cand.place_id] = cand
+        calls = 0
+
+        if included_types:
+            # Valid Google primary types → one cheap, precise Nearby call.
+            try:
+                raw = await _places_nearby_call(
+                    lat=centroid_lat,
+                    lng=centroid_lng,
+                    radius_m=radius,
+                    included_types=included_types,
+                    excluded_types=sector_config.places_excluded_types or None,
+                    max_results=max_results_per_keyword,
+                    client=client,
+                    api_key=key,
+                )
+                calls = 1
+            except (httpx.HTTPError, httpx.TimeoutException) as exc:
+                log.warning("places_discovery.call_error", sector=sector, err=type(exc).__name__)
+                return [], 0
+            hint = ",".join(included_types)
+            for raw_place in raw:
+                cand = _parse_place(raw_place)
+                if cand is None or cand.place_id in deduped:
+                    continue
+                cand.discovery_keyword = hint
+                deduped[cand.place_id] = cand
+        else:
+            # No usable Google primary type (heavy/light industry: Places
+            # has no `factory`/`warehouse` leaf) → keyword Text Search biased
+            # to the zone. Capped fan-out; the L1 candidate cap bounds the
+            # overall scan.
+            for kw in keywords[:_MAX_KEYWORDS_PER_ZONE]:
+                try:
+                    raw = await _places_text_call(
+                        lat=centroid_lat,
+                        lng=centroid_lng,
+                        radius_m=radius,
+                        keyword=kw,
+                        max_results=max_results_per_keyword,
+                        client=client,
+                        api_key=key,
+                    )
+                except (httpx.HTTPError, httpx.TimeoutException) as exc:
+                    log.warning(
+                        "places_discovery.text_call_error",
+                        sector=sector,
+                        keyword=kw,
+                        err=type(exc).__name__,
+                    )
+                    continue
+                calls += 1
+                for raw_place in raw:
+                    cand = _parse_place(raw_place)
+                    if cand is None or cand.place_id in deduped:
+                        continue
+                    cand.discovery_keyword = kw
+                    deduped[cand.place_id] = cand
 
         candidates = list(deduped.values())
         # Server-side excludedTypes covers most cases; this final sweep
@@ -310,7 +405,7 @@ async def discover_for_zone(
         log.info(
             "places_discovery.zone_done",
             sector=sector,
-            included_types=included_types,
+            mode="types" if included_types else "keywords",
             radius_m=radius,
             results=len(candidates),
             calls=calls,

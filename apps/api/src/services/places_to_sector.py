@@ -179,22 +179,17 @@ def classify_place(types: list[str] | None) -> str | None:
 # bring back the same all-POI flood the keyword approach did.
 
 _SECTOR_TO_INCLUDED_TYPES: dict[str, list[str]] = {
-    "industry_heavy": [
-        # Google's primary type taxonomy doesn't have an "industry" leaf,
-        # so we lean on the closest relatives. The L4 Solar gate (>= 60 kW)
-        # plus the explicit excludedTypes in sector config still filter out
-        # non-target hits.
-        "warehouse",
-    ],
-    "industry_light": [
-        # Smaller manufacturing — printing, plastics, light mechanical.
-        # Places doesn't differentiate from heavy industry well; we lean
-        # on "warehouse" as the catch-all and let the L4 gate filter on
-        # roof size (>30 kW for light industry).
-        "warehouse",
-    ],
+    # Heavy/light industry: the Places API (New) has NO valid primary type
+    # for factories — `warehouse` is rejected with HTTP 400 ("Unsupported
+    # types"). Leaving these empty routes discovery through keyword Text
+    # Search (places_keywords: "carpenteria metallica", "acciaieria",
+    # "lavorazione plastica", …) in places_discovery.discover_for_zone,
+    # which actually finds the `manufacturer`-typed B2B companies.
+    "industry_heavy": [],
+    "industry_light": [],
     "logistics": [
-        "warehouse",
+        # `warehouse` removed — invalid Places (New) type that would HTTP 400
+        # the whole request. The remaining two are valid Table A types.
         "moving_company",
         "shipping_and_mailing_service",
     ],
