@@ -1286,7 +1286,14 @@ async def trial_run_daily_send(
         )
         await enqueue(
             "outreach_task",
-            {"tenant_id": tenant_id, "lead_id": lid, "channel": "email"},
+            # force=True: this endpoint is the operator's explicit "send now"
+            # button. It must bypass the Mon-Fri 08-12/14-18 send-window gate
+            # (otherwise a click during the 12-14 lunch break or after hours
+            # silently skips every lead). The tenant is fully onboarded
+            # (legal + business_name present), so the GDPR/branding gates that
+            # force also bypasses are satisfied anyway. Idempotency is safe:
+            # warehouse_pick only dequeues not-yet-sent ready_to_send leads.
+            {"tenant_id": tenant_id, "lead_id": lid, "channel": "email", "force": True},
             job_id=f"outreach:{tenant_id}:{lid}:email",
             defer_until=outreach_at,
         )
