@@ -25,6 +25,7 @@ across all (zone, sector) pairs and persists into ``scan_candidates``.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from math import cos, radians
 from typing import TYPE_CHECKING, Any
 
 import httpx
@@ -51,6 +52,25 @@ PLACES_DETAILS_URL = "https://places.googleapis.com/v1/places/{place_id}"
 # per zone so cost stays bounded; the L1 candidate cap stops the overall
 # scan early anyway.
 _MAX_KEYWORDS_PER_ZONE = 4
+
+# Half-side (metres) of the rectangle the keyword Text Search is *restricted*
+# to. searchText only supports a rectangle for hard ``locationRestriction``
+# (a circle is bias-only = soft), and a soft bias let famous national names
+# leak in (e.g. searching "siderurgica" around Caserta returned Acciaierie
+# Venete in Brescia, 600 km away). 30 km keeps the search inside the local
+# province cluster while still finding genuine SMEs near the zone.
+_KEYWORD_BOX_HALF_M = 30_000
+
+
+def _rect_around(lat: float, lng: float, half_m: float) -> dict[str, Any]:
+    """Lat/lng rectangle (low/high corners) `half_m` metres around a point."""
+    dlat = half_m / 111_000.0
+    dlng = half_m / (111_000.0 * max(0.10, cos(radians(lat))))
+    return {
+        "low": {"latitude": lat - dlat, "longitude": lng - dlng},
+        "high": {"latitude": lat + dlat, "longitude": lng + dlng},
+    }
+
 
 # Field masks — keep them tight to stay in the cheap tier.
 NEARBY_FIELD_MASK = (
@@ -184,24 +204,25 @@ async def _places_text_call(
     client: httpx.AsyncClient,
     api_key: str,
 ) -> list[dict[str, Any]]:
-    """Single Places Text Search call, biased to a circle around the zone.
+    """Single Places Text Search call, RESTRICTED to a box around the zone.
 
     For sectors Google's primary-type taxonomy can't express (heavy/light
     industry), we search by keyword ("carpenteria metallica", "acciaieria",
-    "lavorazione plastica", …) with a ``locationBias`` circle so hits stay
-    near the industrial zone. Returns the raw ``places`` payload list.
+    "lavorazione plastica", …). We use a hard ``locationRestriction``
+    rectangle (NOT a soft ``locationBias``): a generic keyword like
+    "siderurgica" otherwise returns the biggest *national* names regardless
+    of location (Acciaierie Venete in Brescia for a Caserta scan). The box
+    keeps results inside the local province cluster. ``radius_m`` (the zone
+    Solar radius, ~1.5-3 km) is too tight to find companies, so the box uses
+    ``_KEYWORD_BOX_HALF_M``. Returns the raw ``places`` payload list.
     """
+    _ = radius_m  # kept for signature symmetry with the Nearby path
     payload: dict[str, Any] = {
         "textQuery": keyword,
         "maxResultCount": max(1, min(max_results, 20)),
         "languageCode": "it",
         "regionCode": "IT",
-        "locationBias": {
-            "circle": {
-                "center": {"latitude": lat, "longitude": lng},
-                "radius": float(radius_m),
-            }
-        },
+        "locationRestriction": {"rectangle": _rect_around(lat, lng, _KEYWORD_BOX_HALF_M)},
     }
     headers = {
         "Content-Type": "application/json",
