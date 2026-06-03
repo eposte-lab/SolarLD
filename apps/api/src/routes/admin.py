@@ -36,7 +36,7 @@ from ..agents.creative import CreativeAgent, CreativeInput
 from ..agents.outreach import OutreachAgent, OutreachInput
 from ..agents.scoring import ScoringAgent, ScoringInput
 from ..core.logging import get_logger
-from ..core.queue import enqueue  # noqa: F401 — retained for non-test admin paths
+from ..core.queue import enqueue
 from ..core.security import CurrentUser
 from ..core.supabase_client import get_service_client
 from ..models.enums import LeadStatus, OutreachChannel, RoofDataSource, RoofStatus, SubjectType
@@ -1228,6 +1228,57 @@ async def trial_lead_activity(ctx: CurrentUser, lead_id: str) -> TrialLeadActivi
         super_admin=ctx.user_id,
     )
     return TrialLeadActivityResponse(lead_id=lead_id, events=events, portal_events=portal)
+
+
+@router.post("/trial/run-daily-send")
+async def trial_run_daily_send(
+    ctx: CurrentUser,
+    tenant_id: str = Query(description="Tenant whose ready leads to ship now"),
+) -> dict[str, Any]:
+    """Manually trigger today's outreach for a tenant — on demand.
+
+    Picks up to ``daily_send_cap`` ``ready_to_send`` leads (atomic FIFO)
+    and enqueues the creative + outreach pipeline for each, exactly like
+    the daily cron's pick phase. Super-admin only. This is the operator's
+    "Avvia invii ora" lever: it does NOT bypass the send-window or the
+    daily cap (``outreach.py`` still gates on those), it just doesn't wait
+    for the 05:30 cron tick. Refill is intentionally NOT triggered here —
+    this only ships what is already in the warehouse.
+    """
+    _require_super_admin(ctx)
+    sb = get_service_client()
+    row = (
+        sb.table("tenants")
+        .select(
+            "id, status, daily_target_send_cap, daily_send_cap_min, "
+            "daily_send_cap_max, warehouse_buffer_days, lead_expiration_days, "
+            "atoka_survival_target"
+        )
+        .eq("id", tenant_id)
+        .limit(1)
+        .execute()
+    )
+    if not row.data:
+        raise HTTPException(status_code=404, detail="tenant not found")
+
+    from ..services.daily_pipeline_orchestrator import pick_from_warehouse
+    from ..services.warehouse_policy import policy_for
+
+    policy = policy_for(row.data[0])
+    picked = pick_from_warehouse(tenant_id=tenant_id, n=policy.daily_send_cap)
+    for lid in picked:
+        await enqueue(
+            "creative_task",
+            {"tenant_id": tenant_id, "lead_id": lid, "trigger": "manual_send"},
+        )
+    log.info(
+        "admin.trial_run_daily_send",
+        tenant_id=tenant_id,
+        picked=len(picked),
+        cap=policy.daily_send_cap,
+        super_admin=ctx.user_id,
+    )
+    return {"ok": True, "picked": len(picked), "cap": policy.daily_send_cap}
 
 
 @router.post("/trial/leads/{lead_id}/release")
