@@ -33,12 +33,27 @@ def test_resolve_recipient_b2b_verified() -> None:
     assert email == "ceo@example.com"
 
 
-def test_resolve_recipient_b2b_unverified_returns_none() -> None:
+def test_resolve_recipient_b2b_ignores_verified_flag() -> None:
+    # The legacy ``decision_maker_email_verified`` flag is never flipped True
+    # by any funnel stage, so it must NOT gate recipient resolution. A
+    # well-formed B2B email resolves regardless of the flag; deliverability
+    # is enforced separately by the live MX gate in OutreachAgent.run().
     email = _resolve_recipient(
         {
             "type": "b2b",
             "decision_maker_email": "ceo@example.com",
             "decision_maker_email_verified": False,
+        }
+    )
+    assert email == "ceo@example.com"
+
+
+def test_resolve_recipient_b2b_malformed_returns_none() -> None:
+    email = _resolve_recipient(
+        {
+            "type": "b2b",
+            "decision_maker_email": "not-an-email",
+            "decision_maker_email_verified": True,
         }
     )
     assert email is None
