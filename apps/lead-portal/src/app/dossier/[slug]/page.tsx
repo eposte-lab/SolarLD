@@ -114,9 +114,10 @@ export default async function LeadPage({ params }: PageProps) {
     {};
   const hero = leadHeroCopy(lead);
   const brandColor = tenant?.brand_primary_color || '#0F766E';
-  // Accent = vivid secondary brand color used to make the contact CTAs
-  // pop (falls back to the primary when the tenant hasn't set one).
-  const brandAccent = tenant?.brand_color_accent || brandColor;
+  // Dossier CTA accent — decoupled from the email accent
+  // (brand_color_accent). Falls back to the email accent, then primary.
+  const brandAccent =
+    tenant?.dossier_accent || tenant?.brand_color_accent || brandColor;
   const tenantName = tenant?.business_name ?? 'SolarLead';
 
   // Pre-compute the technical specs grid — only rendered if at least
