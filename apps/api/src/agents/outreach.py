@@ -53,6 +53,7 @@ from __future__ import annotations
 import base64
 import io
 import random as _random
+import re
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -536,6 +537,36 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
                 subject=subject,
                 failure_reason="no_verified_email",
             )
+
+        # ------------------------------------------------------------------
+        # 6a) MX deliverability gate (replaces the dead `verified` flag)
+        #     Only applied to REAL resolved recipients — operator test
+        #     overrides bypass it. A scraped address on a domain with no MX
+        #     would hard-bounce and damage the warm-up domain's reputation,
+        #     so we never send to it. Runs the sync dnspython lookup off the
+        #     event loop; `_has_mx_record` swallows all DNS errors → False,
+        #     so we fail closed (skip) when a domain can't be resolved.
+        # ------------------------------------------------------------------
+        if not payload.recipient_override and not tenant_test_recipient:
+            import asyncio as _asyncio
+
+            from ..services.web_scraper import _has_mx_record
+
+            _recipient_domain = recipient.split("@", 1)[1] if "@" in recipient else ""
+            if not await _asyncio.to_thread(_has_mx_record, _recipient_domain):
+                log.info(
+                    "outreach.no_mx_record",
+                    lead_id=payload.lead_id,
+                    tenant_id=payload.tenant_id,
+                    domain=_recipient_domain,
+                )
+                return await self._record_failure(
+                    payload=payload,
+                    lead=lead,
+                    tenant_row=tenant_row,
+                    subject=subject,
+                    failure_reason="no_mx_record",
+                )
 
         # ------------------------------------------------------------------
         # 6b) NeverBounce pre-send validation (B.5)
@@ -2200,19 +2231,29 @@ def _capability_for_channel(channel: OutreachChannel) -> Capability:
     return Capability.EMAIL_OUTREACH
 
 
+_RECIPIENT_EMAIL_RE = re.compile(r"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$")
+
+
 def _resolve_recipient(subject: dict[str, Any]) -> str | None:
     """Return the first eligible recipient email for this subject.
 
-    For B2B: ``decision_maker_email`` with ``decision_maker_email_verified``.
+    For B2B: a well-formed ``decision_maker_email``. Deliverability is
+    enforced separately by a live MX check in ``run()``.
+
+    NOTE: we deliberately do NOT require ``decision_maker_email_verified``
+    here. That flag is written ``False`` by email extraction and is never
+    flipped ``True`` by any funnel stage, so gating on it silently failed
+    every real send with ``no_verified_email``. The MX gate downstream is
+    the real deliverability guard.
+
     For B2C: not supported yet (Sprint 8 will go through postal anyway).
     """
     if subject.get("type") != SubjectType.B2B.value:
         return None
-    email = subject.get("decision_maker_email")
-    verified = bool(subject.get("decision_maker_email_verified"))
-    if not email or not verified:
+    email = (subject.get("decision_maker_email") or "").strip().lower()
+    if not email or not _RECIPIENT_EMAIL_RE.fullmatch(email):
         return None
-    return str(email).strip().lower() or None
+    return email
 
 
 def _greeting_for(subject: dict[str, Any], subject_type: str) -> str:
