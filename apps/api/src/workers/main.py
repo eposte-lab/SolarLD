@@ -673,7 +673,13 @@ class WorkerSettings:
         # tenant-wide è stato rimosso perché ignorava cap, scoping e
         # cursore, consumando il backlog oltre il cap dello scan job.
         cron(scan_jobs_dispatcher_cron, minute=5, run_at_startup=False),
-        cron(daily_pipeline_cron, hour=5, minute=30, run_at_startup=False),
+        # 06:30 UTC = 08:30 Europe/Rome (CEST). Must land INSIDE the
+        # outreach send-window (08:00-12:00 Rome): the orchestrator defers
+        # each send by ~120s+ after pick, so running at the old 05:30 UTC
+        # (07:30 Rome) fired the morning batch before 08:00 and every lead
+        # was skipped with outside_send_window. (DST note: in winter/CET this
+        # is 07:30 Rome — revisit if the trial runs past late October.)
+        cron(daily_pipeline_cron, hour=6, minute=30, run_at_startup=False),
         cron(send_time_rollup_cron, hour=3, minute=45, run_at_startup=False),
         cron(engagement_rollup_cron, hour=4, minute=0, run_at_startup=False),
         # Task 14: sync Smartlead warm-up health scores before the morning
