@@ -29,10 +29,24 @@ _pool: ArqRedis | None = None
 
 
 async def get_pool() -> ArqRedis:
-    """Return (or lazily create) a shared arq Redis pool."""
+    """Return (or lazily create) a shared arq Redis pool.
+
+    Resilience (go-live incident 2026-06-03): arq's default
+    ``conn_timeout`` is 1 second, which is far too aggressive under load —
+    when the worker is busy with heavy creative renders the event loop
+    can't service the Redis socket within 1s and the pool raises
+    ``redis.exceptions.TimeoutError: Timeout connecting to server``,
+    silently dropping enqueues and outreach sends. Bump the connect
+    timeout and add retries so transient slowness self-heals instead of
+    stalling the queue.
+    """
     global _pool
     if _pool is None:
-        _pool = await create_pool(RedisSettings.from_dsn(settings.redis_url))
+        rs = RedisSettings.from_dsn(settings.redis_url)
+        rs.conn_timeout = 15
+        rs.conn_retries = 5
+        rs.conn_retry_delay = 1
+        _pool = await create_pool(rs)
     return _pool
 
 

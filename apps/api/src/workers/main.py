@@ -700,7 +700,15 @@ class WorkerSettings:
         # 10/11 Italian local — practical for the installer to action.
         cron(practice_deadlines_cron, hour=9, minute=0, run_at_startup=False),
     ]
+    # Resilient Redis connection (go-live incident 2026-06-03): arq's
+    # default conn_timeout of 1s is too aggressive under heavy creative
+    # render load — the worker loop can't service the socket in time and
+    # the queue stalls with "Timeout connecting to server". Raise it and
+    # add retries so transient slowness self-heals.
     redis_settings = RedisSettings.from_dsn(settings.redis_url)
+    redis_settings.conn_timeout = 15
+    redis_settings.conn_retries = 5
+    redis_settings.conn_retry_delay = 1
     max_jobs = 10
     job_timeout = 600
     keep_result = 3600
