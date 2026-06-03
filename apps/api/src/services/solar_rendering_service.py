@@ -122,21 +122,32 @@ _MAX_BASE_RADIUS_M = 140
 
 
 def _base_radius_m(insight: RoofInsight) -> int:
-    """Radius (m) for the base-image tile + crop, sized to the roof.
+    """Radius (m) for the base-image tile + crop, sized to the WHOLE roof.
 
-    Computed from the panel cluster's half-diagonal × the adaptive padding
-    factor, so the WHOLE building fits in the frame. Clamped to
-    ``[_MIN_BASE_RADIUS_M, _MAX_BASE_RADIUS_M]``. Falls back to the minimum
-    when Solar gave no panel footprint to measure.
+    Takes the larger of two half-diagonals:
+      * the panel cluster's bounds (captures elongation when panels span the
+        roof), and
+      * an estimate from the Solar ``area_sqm`` of the whole roof —
+        ``sqrt(area/2)`` (the half-diagonal of an equivalent square).
+
+    The area term is what fixes the common industrial case: Google Solar
+    fills only PART of a big roof with panels, so the panel cluster
+    under-measures the building and the capannone gets clipped. ×padding,
+    then clamped to ``[_MIN_BASE_RADIUS_M, _MAX_BASE_RADIUS_M]``.
     """
-    if not insight.panels:
+    cluster_half_diag = 0.0
+    if insight.panels:
+        lats = [p.lat for p in insight.panels]
+        lngs = [p.lng for p in insight.panels]
+        clat = sum(lats) / len(lats)
+        height_m = (max(lats) - min(lats)) * 111_320.0
+        width_m = (max(lngs) - min(lngs)) * 111_320.0 * math.cos(math.radians(clat))
+        cluster_half_diag = math.hypot(width_m, height_m) / 2.0
+
+    area_half_diag = math.sqrt(insight.area_sqm / 2.0) if insight.area_sqm > 0 else 0.0
+    half_diag_m = max(cluster_half_diag, area_half_diag)
+    if half_diag_m <= 0.0:
         return _MIN_BASE_RADIUS_M
-    lats = [p.lat for p in insight.panels]
-    lngs = [p.lng for p in insight.panels]
-    clat = sum(lats) / len(lats)
-    height_m = (max(lats) - min(lats)) * 111_320.0
-    width_m = (max(lngs) - min(lngs)) * 111_320.0 * math.cos(math.radians(clat))
-    half_diag_m = math.hypot(width_m, height_m) / 2.0
     needed = half_diag_m * _adaptive_padding_factor(max(8.0, half_diag_m))
     return max(_MIN_BASE_RADIUS_M, min(_MAX_BASE_RADIUS_M, int(math.ceil(needed))))
 
