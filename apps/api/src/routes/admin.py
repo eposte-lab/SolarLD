@@ -25,7 +25,7 @@ Surface area:
 from __future__ import annotations
 
 import hashlib
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
 import geohash  # type: ignore[import-untyped]
@@ -1261,15 +1261,30 @@ async def trial_run_daily_send(
     if not row.data:
         raise HTTPException(status_code=404, detail="tenant not found")
 
-    from ..services.daily_pipeline_orchestrator import pick_from_warehouse
+    from ..services.daily_pipeline_orchestrator import (
+        _OUTREACH_DEFER_SECONDS,
+        pick_from_warehouse,
+    )
     from ..services.warehouse_policy import policy_for
 
     policy = policy_for(row.data[0])
     picked = pick_from_warehouse(tenant_id=tenant_id, n=policy.daily_send_cap)
+    # Render then send. creative_task does not chain to outreach, so we
+    # enqueue the outreach_task ourselves, deferred so the render lands
+    # first (same as the daily orchestrator). Deterministic job_ids =
+    # idempotent on double-click.
+    outreach_at = datetime.now(UTC) + timedelta(seconds=_OUTREACH_DEFER_SECONDS)
     for lid in picked:
         await enqueue(
             "creative_task",
             {"tenant_id": tenant_id, "lead_id": lid, "trigger": "manual_send"},
+            job_id=f"creative:{tenant_id}:{lid}",
+        )
+        await enqueue(
+            "outreach_task",
+            {"tenant_id": tenant_id, "lead_id": lid, "channel": "email"},
+            job_id=f"outreach:{tenant_id}:{lid}:email",
+            defer_until=outreach_at,
         )
     log.info(
         "admin.trial_run_daily_send",

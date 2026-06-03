@@ -36,7 +36,7 @@ admin alert path (Task 37) consumes the same log events.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from ..core.logging import get_logger
@@ -49,6 +49,10 @@ from .warehouse_alerts_service import (
 from .warehouse_policy import WarehousePolicy, policy_for
 
 log = get_logger(__name__)
+
+# Seconds to hold the outreach_task after the creative_task is queued, so
+# the render (Solar API + image) lands before the email is composed.
+_OUTREACH_DEFER_SECONDS = 120
 
 
 # ----------------------------------------------------------------------
@@ -161,14 +165,24 @@ async def process_tenant_daily_send(tenant: dict[str, Any]) -> dict[str, Any]:
     # Pick up to daily_send_cap leads (atomic FIFO).
     picked_ids = pick_from_warehouse(tenant_id=tenant_id, n=policy.daily_send_cap)
 
-    # Enqueue per-lead creative + outreach. The pick has already moved
-    # the leads to `picked`; on enqueue success they'll progress to
-    # `rendering` → `rendered` → `sent` via the existing CreativeAgent
-    # / OutreachAgent state machine (Task 34 wires the rendering hook).
+    # Enqueue per-lead creative + outreach. The pick has already moved the
+    # leads to `picked`. creative_task renders the assets; it does NOT chain
+    # to outreach, so we enqueue the outreach_task ourselves, deferred by
+    # ``_OUTREACH_DEFER_SECONDS`` so the render lands first (OutreachAgent
+    # still sends a text-only email gracefully if the render isn't ready).
+    # Deterministic job_ids make double-fires idempotent.
+    outreach_at = datetime.now(UTC) + timedelta(seconds=_OUTREACH_DEFER_SECONDS)
     for lid in picked_ids:
         await enqueue(
             "creative_task",
             {"tenant_id": tenant_id, "lead_id": lid, "trigger": "warehouse_pick"},
+            job_id=f"creative:{tenant_id}:{lid}",
+        )
+        await enqueue(
+            "outreach_task",
+            {"tenant_id": tenant_id, "lead_id": lid, "channel": "email"},
+            job_id=f"outreach:{tenant_id}:{lid}:email",
+            defer_until=outreach_at,
         )
 
     return {
