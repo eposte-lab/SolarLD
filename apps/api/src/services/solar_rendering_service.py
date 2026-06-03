@@ -111,6 +111,36 @@ def _adaptive_padding_factor(cluster_half_diag_m: float) -> float:
     return 1.22 + 0.23 * t
 
 
+# Base-image tile radius bounds (metres). The tile was previously a fixed
+# 50 m (a 100 m-wide square): too small for industrial capannoni, which are
+# routinely 150-250 m long, so the building was clipped at the SOURCE before
+# the crop even ran. We now size the tile to the roof; the lower bound keeps
+# small B2C roofs from over-zooming, the upper bound stays within Google
+# Solar dataLayers' practical radius (beyond it we fall back to Mapbox).
+_MIN_BASE_RADIUS_M = 50
+_MAX_BASE_RADIUS_M = 140
+
+
+def _base_radius_m(insight: RoofInsight) -> int:
+    """Radius (m) for the base-image tile + crop, sized to the roof.
+
+    Computed from the panel cluster's half-diagonal × the adaptive padding
+    factor, so the WHOLE building fits in the frame. Clamped to
+    ``[_MIN_BASE_RADIUS_M, _MAX_BASE_RADIUS_M]``. Falls back to the minimum
+    when Solar gave no panel footprint to measure.
+    """
+    if not insight.panels:
+        return _MIN_BASE_RADIUS_M
+    lats = [p.lat for p in insight.panels]
+    lngs = [p.lng for p in insight.panels]
+    clat = sum(lats) / len(lats)
+    height_m = (max(lats) - min(lats)) * 111_320.0
+    width_m = (max(lngs) - min(lngs)) * 111_320.0 * math.cos(math.radians(clat))
+    half_diag_m = math.hypot(width_m, height_m) / 2.0
+    needed = half_diag_m * _adaptive_padding_factor(max(8.0, half_diag_m))
+    return max(_MIN_BASE_RADIUS_M, min(_MAX_BASE_RADIUS_M, int(math.ceil(needed))))
+
+
 # ── Panel visual style ─────────────────────────────────────────────────────
 # Colours are chosen to look like monocrystalline silicon panels seen
 # from above at ~45° solar angle: dark base + subtle blue cell sheen +
@@ -227,7 +257,7 @@ async def render_before_only(
 
     try:
         base_bytes, georef = await _fetch_base_image(
-            clat, clng, radius_m=50, api_key=api_key, client=client
+            clat, clng, radius_m=_base_radius_m(insight), api_key=api_key, client=client
         )
     finally:
         if owns_client:
@@ -235,7 +265,7 @@ async def render_before_only(
 
     try:
         before_img, _transform = _load_and_crop(
-            base_bytes, clat, clng, insight, radius_m=50, georef=georef
+            base_bytes, clat, clng, insight, radius_m=_base_radius_m(insight), georef=georef
         )
     except Exception as exc:
         raise SolarRenderingError(f"image processing failed: {exc}") from exc
@@ -266,7 +296,7 @@ async def render_before_after(
 
     try:
         base_bytes, georef = await _fetch_base_image(
-            clat, clng, radius_m=50, api_key=api_key, client=client
+            clat, clng, radius_m=_base_radius_m(insight), api_key=api_key, client=client
         )
     finally:
         if owns_client:
@@ -275,7 +305,7 @@ async def render_before_after(
     # Parse + crop.
     try:
         before_img, transform = _load_and_crop(
-            base_bytes, clat, clng, insight, radius_m=50, georef=georef
+            base_bytes, clat, clng, insight, radius_m=_base_radius_m(insight), georef=georef
         )
     except Exception as exc:
         raise SolarRenderingError(f"image processing failed: {exc}") from exc
@@ -332,7 +362,7 @@ async def render_before_and_mask(
 
     try:
         base_bytes, georef = await _fetch_base_image(
-            clat, clng, radius_m=50, api_key=api_key, client=client
+            clat, clng, radius_m=_base_radius_m(insight), api_key=api_key, client=client
         )
     finally:
         if owns_client:
@@ -340,7 +370,7 @@ async def render_before_and_mask(
 
     try:
         before_img, transform = _load_and_crop(
-            base_bytes, clat, clng, insight, radius_m=50, georef=georef
+            base_bytes, clat, clng, insight, radius_m=_base_radius_m(insight), georef=georef
         )
     except Exception as exc:
         raise SolarRenderingError(f"image processing failed: {exc}") from exc
