@@ -50,9 +50,18 @@ from .warehouse_policy import WarehousePolicy, policy_for
 
 log = get_logger(__name__)
 
-# Seconds to hold the outreach_task after the creative_task is queued, so
-# the render (Solar API + image) lands before the email is composed.
+# Seconds to hold the FIRST outreach_task after the creative_task is queued,
+# so the render (Solar API + image) lands before the email is composed.
 _OUTREACH_DEFER_SECONDS = 120
+
+# Per-lead spacing for the deferred outreach_task fan-out. CRITICAL: the
+# InboxSelector enforces a 180 s human-delay cooldown per inbox
+# (``MIN_INTER_SEND_SECONDS``). If every picked lead is deferred to the SAME
+# instant, only one send per inbox can claim a slot — the rest hit
+# ``all_inboxes_blocked`` and get skipped to the next day. So we stagger the
+# outreach enqueues by slightly more than the cooldown, giving each inbox time
+# to free up. With N inboxes the fleet still sends ~N per spacing window.
+_OUTREACH_SPACING_SECONDS = 190
 
 
 # ----------------------------------------------------------------------
@@ -171,8 +180,9 @@ async def process_tenant_daily_send(tenant: dict[str, Any]) -> dict[str, Any]:
     # ``_OUTREACH_DEFER_SECONDS`` so the render lands first (OutreachAgent
     # still sends a text-only email gracefully if the render isn't ready).
     # Deterministic job_ids make double-fires idempotent.
-    outreach_at = datetime.now(UTC) + timedelta(seconds=_OUTREACH_DEFER_SECONDS)
-    for lid in picked_ids:
+    base_at = datetime.now(UTC) + timedelta(seconds=_OUTREACH_DEFER_SECONDS)
+    for idx, lid in enumerate(picked_ids):
+        outreach_at = base_at + timedelta(seconds=idx * _OUTREACH_SPACING_SECONDS)
         await enqueue(
             "creative_task",
             {"tenant_id": tenant_id, "lead_id": lid, "trigger": "warehouse_pick"},

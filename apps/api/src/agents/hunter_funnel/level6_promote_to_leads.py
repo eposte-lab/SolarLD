@@ -112,17 +112,30 @@ async def run_level6_promote_to_leads(
     skipped = 0
     failed = 0
 
-    # Resolve the lead cap from the tenant config (daily_target_send_cap).
-    # Falls back to DEFAULT_LEAD_CAP_PER_TENANT when the column is null.
+    # Resolve the lead cap (= the size of the *inventory pool* L6 may build).
+    # This is DECOUPLED from the daily SEND cap: ``daily_target_send_cap``
+    # governs how many leads the daily warehouse pick dispenses per day,
+    # whereas the pool may legitimately hold many more leads waiting to be
+    # sent organically over the warm-up ramp. When ``settings.lead_pool_cap``
+    # is set we use it as the pool ceiling; otherwise we fall back to the
+    # send cap (legacy behaviour), then to DEFAULT_LEAD_CAP_PER_TENANT.
     tenant_res = (
         sb.table("tenants")
-        .select("daily_target_send_cap")
+        .select("daily_target_send_cap, settings")
         .eq("id", ctx.tenant_id)
         .maybe_single()
         .execute()
     )
-    tenant_cap_raw = (tenant_res.data or {}).get("daily_target_send_cap")
-    lead_cap = int(tenant_cap_raw) if tenant_cap_raw else DEFAULT_LEAD_CAP_PER_TENANT
+    _tdata = tenant_res.data or {}
+    _settings = _tdata.get("settings")
+    pool_cap_raw = _settings.get("lead_pool_cap") if isinstance(_settings, dict) else None
+    tenant_cap_raw = _tdata.get("daily_target_send_cap")
+    if pool_cap_raw:
+        lead_cap = int(pool_cap_raw)
+    elif tenant_cap_raw:
+        lead_cap = int(tenant_cap_raw)
+    else:
+        lead_cap = DEFAULT_LEAD_CAP_PER_TENANT
 
     # Quality bar — promote every Solar-accepted candidate that has at
     # least one usable email. Score and sector match are NOT gates; the

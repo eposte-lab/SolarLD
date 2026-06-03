@@ -1263,6 +1263,7 @@ async def trial_run_daily_send(
 
     from ..services.daily_pipeline_orchestrator import (
         _OUTREACH_DEFER_SECONDS,
+        _OUTREACH_SPACING_SECONDS,
         pick_from_warehouse,
     )
     from ..services.warehouse_policy import policy_for
@@ -1272,9 +1273,12 @@ async def trial_run_daily_send(
     # Render then send. creative_task does not chain to outreach, so we
     # enqueue the outreach_task ourselves, deferred so the render lands
     # first (same as the daily orchestrator). Deterministic job_ids =
-    # idempotent on double-click.
-    outreach_at = datetime.now(UTC) + timedelta(seconds=_OUTREACH_DEFER_SECONDS)
-    for lid in picked:
+    # idempotent on double-click. CRITICAL: stagger each lead by
+    # ``_OUTREACH_SPACING_SECONDS`` so the per-inbox 180 s cooldown doesn't
+    # block all-but-one when the whole batch fires at the same instant.
+    base_at = datetime.now(UTC) + timedelta(seconds=_OUTREACH_DEFER_SECONDS)
+    for idx, lid in enumerate(picked):
+        outreach_at = base_at + timedelta(seconds=idx * _OUTREACH_SPACING_SECONDS)
         await enqueue(
             "creative_task",
             {"tenant_id": tenant_id, "lead_id": lid, "trigger": "manual_send"},
