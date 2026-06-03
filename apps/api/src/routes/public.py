@@ -106,6 +106,7 @@ async def get_public_lead(slug: str) -> dict[str, object]:
         sb.table("tenants")
         .select(
             "business_name, brand_logo_url, brand_primary_color, brand_color_accent, "
+            "settings, "
             "whatsapp_number, contact_email, "
             "legal_name, vat_number, legal_address, "
             "about_md, about_year_founded, about_team_size, "
@@ -116,7 +117,18 @@ async def get_public_lead(slug: str) -> dict[str, object]:
         .limit(1)
         .execute()
     )
-    lead["tenant"] = tenant.data[0] if tenant.data else None
+    t = tenant.data[0] if tenant.data else None
+    if t is not None:
+        # The DOSSIER accent is decoupled from ``brand_color_accent`` (which
+        # the OUTREACH EMAIL uses): the operator wanted the dossier CTAs in a
+        # vivid colour without recolouring the emails. Surface only the one
+        # setting and drop the rest of ``settings`` so admin config never
+        # leaks to the public dossier.
+        _settings = t.pop("settings", None)
+        t["dossier_accent"] = (
+            _settings.get("dossier_accent") if isinstance(_settings, dict) else None
+        )
+    lead["tenant"] = t
 
     # "Lavori realizzati" — case study attivi del tenant per la sezione
     # portfolio del dossier. Best-effort: un errore qui non deve far
