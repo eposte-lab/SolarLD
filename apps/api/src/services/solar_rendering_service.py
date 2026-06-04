@@ -94,33 +94,30 @@ def _adaptive_padding_factor(cluster_half_diag_m: float) -> float:
     below keeps the building the clear subject while leaving a margin
     so the roof is never clipped.
 
-    Curve (half-diagonal in metres → padding multiplier):
-      ≤  8 m (≈ <150 m² roof)   → 1.50  — small house, some context
-      ≈ 15 m (≈  ~400 m² roof)  → 1.39
-      ≈ 25 m (≈ 1500 m² roof)   → 1.27
-      ≈ 35 m (industrial)       → 1.22  — biggest "tight" frame
-      ≈ 60 m (>5000 m² roof)    → 1.34  — torna ad allargare
-      ≥ 80 m (>16k m² roof)     → 1.45  — sconfinato, serve aria
+    Curve (half-diagonal in metres → padding multiplier). Raised across the
+    board (operator request) because the B2B target is LARGE manufacturing
+    capannoni — more standoff reads better and never clips:
+      ≤  8 m (≈ <150 m² roof)   → 1.60  — small house, generous context
+      ≈ 20 m (≈ 1000 m² roof)   → 1.52
+      ≈ 35 m (industrial)       → 1.45  — tightest, still airy
+      ≈ 60 m (>5000 m² roof)    → 1.63
+      ≥ 80 m (>16k m² roof)     → 1.75  — sconfinato, massima aria
 
-    Per i tetti molto grandi (industriali da decine di migliaia di m²)
-    la curva non clampa più al basso: la regola "tight ma uncut" valeva
-    quando i pannelli del cluster ≈ l'intero tetto. Su edifici enormi
-    coperti solo in parte (cluster_half_diag misura i pannelli, non
-    l'edificio), 1.22× tagliava il resto del fabbricato. La nuova
-    salita 35→80 m dà aria sufficiente perché l'intero edificio entri
-    in inquadratura.
+    The curve never dips to the old tight ~1.22; even the tightest point is
+    1.45 so the whole building always sits inside the frame with breathing
+    room, and big roofs get the most air.
     """
     if cluster_half_diag_m <= 8.0:
-        return 1.50
+        return 1.60
     if cluster_half_diag_m <= 35.0:
-        # Discesa: 8→35 m mappa 1.50 → 1.22.
+        # Discesa dolce: 8→35 m mappa 1.60 → 1.45 (pavimento alto, più aria).
         t = (cluster_half_diag_m - 8.0) / (35.0 - 8.0)
-        return 1.50 - 0.28 * t
+        return 1.60 - 0.15 * t
     if cluster_half_diag_m >= 80.0:
-        return 1.45
-    # Risalita: 35→80 m mappa 1.22 → 1.45.
+        return 1.75
+    # Risalita: 35→80 m mappa 1.45 → 1.75 — i tetti grandi prendono più aria.
     t = (cluster_half_diag_m - 35.0) / (80.0 - 35.0)
-    return 1.22 + 0.23 * t
+    return 1.45 + 0.30 * t
 
 
 # Base-image tile radius bounds (metres). The tile was previously a fixed
@@ -130,7 +127,10 @@ def _adaptive_padding_factor(cluster_half_diag_m: float) -> float:
 # small B2C roofs from over-zooming, the upper bound stays within Google
 # Solar dataLayers' practical radius (beyond it we fall back to Google Static).
 _MIN_BASE_RADIUS_M = 50
-_MAX_BASE_RADIUS_M = 140
+# Raised 140 → 175 (operator request): large manufacturing capannoni need a
+# wider frame, and beyond Google Solar dataLayers' practical radius the
+# Mapbox fallback (which we size by zoom) covers it cleanly.
+_MAX_BASE_RADIUS_M = 175
 
 # When the panel-cluster half-diagonal exceeds this multiple of the
 # building's own half-diagonal (from Google's measured roof ``area_sqm``),
