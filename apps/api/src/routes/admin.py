@@ -1311,25 +1311,32 @@ async def trial_run_daily_send(
 async def trial_regenerate_failed_renders(
     ctx: CurrentUser,
     tenant_id: str = Query(description="Tenant whose failed-render leads to re-render"),
+    all_leads: bool = Query(
+        False,
+        alias="all",
+        description=(
+            "When true, re-render EVERY lead (drop the failed-only filter) so "
+            "centering/zoom fixes apply to already-rendered leads too — e.g. "
+            "hotels/complexes whose render succeeded but framed the wrong "
+            "building. Costs ~1 Solar call per lead; still no re-send."
+        ),
+    ),
 ) -> dict[str, Any]:
-    """Re-render (creative_task force) every lead whose render previously
-    FAILED — without re-sending. Super-admin only.
+    """Re-render (creative_task force) leads — without re-sending. Super-admin
+    only.
 
-    Targets leads with a non-null ``creative_skipped_reason`` (Solar
-    coverage gap, after_url_missing, …). With the Google Maps Static
-    fallback now in place, the Solar-gap ones render off the satellite
-    tile, so the visual becomes visible on the lead detail. NO
-    ``outreach_task`` is enqueued → no prospect is emailed again.
+    Default targets only leads with a non-null ``creative_skipped_reason``
+    (Solar coverage gap, after_url_missing, …). Pass ``all=true`` to re-render
+    EVERY lead regardless of prior success, so framing/centering changes
+    reach already-rendered leads (hotels/complexes). In neither case is an
+    ``outreach_task`` enqueued → no prospect is emailed again.
     """
     _require_super_admin(ctx)
     sb = get_service_client()
-    res = (
-        sb.table("leads")
-        .select("id")
-        .eq("tenant_id", tenant_id)
-        .not_.is_("creative_skipped_reason", "null")
-        .execute()
-    )
+    query = sb.table("leads").select("id").eq("tenant_id", tenant_id)
+    if not all_leads:
+        query = query.not_.is_("creative_skipped_reason", "null")
+    res = query.execute()
     lead_ids = [r["id"] for r in (res.data or [])]
     # Millisecond timestamp → unique job_id so arq's 1h result cache can't
     # dedup a genuine regeneration.
