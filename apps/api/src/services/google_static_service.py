@@ -98,9 +98,7 @@ async def fetch_google_static_satellite(
     try:
         resp = await http.get(STATIC_ENDPOINT, params=params)
         if resp.status_code >= 400:
-            raise GoogleStaticError(
-                f"maps static status={resp.status_code} body={resp.text[:160]}"
-            )
+            raise GoogleStaticError(f"maps static status={resp.status_code} body={resp.text[:160]}")
         image_bytes = resp.content
     finally:
         if owns_client:
