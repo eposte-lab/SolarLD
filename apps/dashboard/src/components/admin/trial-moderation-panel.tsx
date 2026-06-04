@@ -254,6 +254,7 @@ export function TrialModerationPanel({ initialTenantId }: { initialTenantId: str
       </div>
 
       <SendNowButton tenantId={tenantId} />
+      <RegenRendersButton tenantId={tenantId} />
       <LeadQueue tenantId={tenantId} />
       <InboundQueue tenantId={tenantId} />
     </div>
@@ -314,6 +315,77 @@ function SendNowButton({ tenantId }: { tenantId: string }) {
         Preleva i lead pronti dal magazzino (fino al cap giornaliero), genera i
         render e parte l&apos;outreach — senza attendere il giro automatico delle
         07:30. Rispetta cap e finestre orarie; non forza invii fuori orario.
+      </p>
+      {result && (
+        <div className="mt-3 flex items-start gap-2 rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 text-sm text-on-surface">
+          <MailCheck size={14} strokeWidth={2.25} aria-hidden className="mt-0.5 shrink-0 text-primary" />
+          <span>{result}</span>
+        </div>
+      )}
+      {error && (
+        <div className="mt-3 flex items-start gap-2 rounded-lg border border-error/30 bg-error-container/20 px-3 py-2 text-sm text-error">
+          <AlertTriangle size={14} strokeWidth={2.25} aria-hidden className="mt-0.5 shrink-0" />
+          <span className="whitespace-pre-wrap">{error}</span>
+        </div>
+      )}
+    </BentoCard>
+  );
+}
+
+function RegenRendersButton({ tenantId }: { tenantId: string }) {
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function run() {
+    if (busy) return;
+    setBusy(true);
+    setResult(null);
+    setError(null);
+    try {
+      const res = await api.post<{ ok: boolean; regenerated: number }>(
+        `/v1/admin/trial/regenerate-failed-renders?tenant_id=${encodeURIComponent(tenantId)}`,
+        {},
+      );
+      setResult(
+        res.regenerated > 0
+          ? `${res.regenerated} render rigenerati (con fallback Google Static dove Solar non copre). Il render comparirà nel dettaglio tra ~1-2 min. Nessun invio rifatto.`
+          : `Nessun render fallito da rigenerare.`,
+      );
+    } catch (e) {
+      setError(errMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <BentoCard span="full">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <RefreshCw size={16} strokeWidth={2.25} aria-hidden className="text-primary" />
+          <h2 className="font-headline text-lg font-bold tracking-tight text-on-surface">
+            Rigenera render falliti
+          </h2>
+        </div>
+        <button
+          type="button"
+          onClick={() => void run()}
+          disabled={busy}
+          className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-on-primary transition-opacity hover:opacity-90 disabled:opacity-50"
+        >
+          {busy ? (
+            <Loader2 size={14} strokeWidth={2.25} aria-hidden className="animate-spin" />
+          ) : (
+            <RefreshCw size={14} strokeWidth={2.25} aria-hidden />
+          )}
+          Rigenera render
+        </button>
+      </div>
+      <p className="mt-1 text-xs text-on-surface-variant">
+        Re-renderizza i lead il cui render era fallito (buchi Google Solar o
+        glitch) usando il fallback Google Maps Static — così la foto del tetto
+        diventa visibile nel dettaglio. NON rimanda nessuna email.
       </p>
       {result && (
         <div className="mt-3 flex items-start gap-2 rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 text-sm text-on-surface">

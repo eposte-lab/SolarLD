@@ -1307,6 +1307,48 @@ async def trial_run_daily_send(
     return {"ok": True, "picked": len(picked), "cap": policy.daily_send_cap}
 
 
+@router.post("/trial/regenerate-failed-renders")
+async def trial_regenerate_failed_renders(
+    ctx: CurrentUser,
+    tenant_id: str = Query(description="Tenant whose failed-render leads to re-render"),
+) -> dict[str, Any]:
+    """Re-render (creative_task force) every lead whose render previously
+    FAILED — without re-sending. Super-admin only.
+
+    Targets leads with a non-null ``creative_skipped_reason`` (Solar
+    coverage gap, after_url_missing, …). With the Google Maps Static
+    fallback now in place, the Solar-gap ones render off the satellite
+    tile, so the visual becomes visible on the lead detail. NO
+    ``outreach_task`` is enqueued → no prospect is emailed again.
+    """
+    _require_super_admin(ctx)
+    sb = get_service_client()
+    res = (
+        sb.table("leads")
+        .select("id")
+        .eq("tenant_id", tenant_id)
+        .not_.is_("creative_skipped_reason", "null")
+        .execute()
+    )
+    lead_ids = [r["id"] for r in (res.data or [])]
+    # Millisecond timestamp → unique job_id so arq's 1h result cache can't
+    # dedup a genuine regeneration.
+    job_ms = int(datetime.now(UTC).timestamp() * 1000)
+    for lid in lead_ids:
+        await enqueue(
+            "creative_task",
+            {"tenant_id": tenant_id, "lead_id": lid, "force": True},
+            job_id=f"creative-regen:{tenant_id}:{lid}:{job_ms}",
+        )
+    log.info(
+        "admin.trial_regenerate_failed_renders",
+        tenant_id=tenant_id,
+        count=len(lead_ids),
+        super_admin=ctx.user_id,
+    )
+    return {"ok": True, "regenerated": len(lead_ids)}
+
+
 @router.post("/trial/leads/{lead_id}/release")
 async def trial_release_lead(ctx: CurrentUser, lead_id: str) -> dict[str, Any]:
     """Promote a reacted contatto to a *lead* for the moderated tenant.

@@ -496,23 +496,25 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
 
         # ------------------------------------------------------------------
         # 5d) Render-readiness gate (operator hard rule, 2026-06-04):
-        #     NEVER send a real outreach without the solar visual. If the
-        #     static image OR the GIF isn't ready, skip — the creative_task
-        #     lands the render shortly and the lead is re-picked next cycle,
-        #     so it sends WITH the image instead of going out text-only.
+        #     NEVER send a real outreach without the solar visual. The email
+        #     now ships ONLY the static after-image (lighter = better
+        #     deliverability; the GIF/MP4 live in the portal), so we gate on
+        #     rendering_image_url alone — the send no longer waits for the
+        #     heavy GIF/MP4. If the static image isn't ready, skip; the
+        #     creative_task lands it shortly and the lead is re-picked next
+        #     cycle, so it sends WITH the image instead of going out text-only.
         #     Test/override sends (operator's own inbox) bypass this.
         # ------------------------------------------------------------------
         if (
             payload.channel == OutreachChannel.EMAIL
             and not send_override_active
-            and (not lead.get("rendering_image_url") or not lead.get("rendering_gif_url"))
+            and not lead.get("rendering_image_url")
         ):
             log.info(
                 "outreach.render_not_ready",
                 lead_id=payload.lead_id,
                 tenant_id=payload.tenant_id,
                 has_image=bool(lead.get("rendering_image_url")),
-                has_gif=bool(lead.get("rendering_gif_url")),
             )
             return OutreachOutput(
                 lead_id=payload.lead_id,
@@ -1255,17 +1257,12 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
             ),
             copy_overrides=copy_overrides,
             # Use CDN GIF if available (Sprint 9 Fase A.1) — fall back to
-            # the Supabase signed URL of the GIF, then to the static
-            # after-image (the panel-painted aerial). Email clients that
-            # render the GIF still get it; the rest see the static
-            # image instead of a broken-image icon when video/GIF
-            # rendering was bypassed via CREATIVE_SKIP_REPLICATE or
-            # the Remotion sidecar failed.
-            hero_gif_url=(
-                lead.get("rendering_gif_cdn_url")
-                or lead.get("rendering_gif_url")
-                or lead.get("rendering_image_url")
-            ),
+            # The email intentionally ships ONLY the static after-image: an
+            # animated GIF is heavier and trips spam heuristics more easily,
+            # hurting deliverability. The GIF/MP4 live in the portal (richer
+            # experience on click-through). hero_gif_url=None makes every
+            # template fall back to hero_image_url (the static after-image).
+            hero_gif_url=None,
             video_landing_url=_video_landing_url(
                 lead.get("public_slug"),
                 tracking_host=tracking_host,
@@ -1492,13 +1489,11 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
                     )
                 )
 
-        # 2) Render dell'impianto — GIF animata preferita, statica come
-        #    fallback. L'ordine dei candidati GIF segue lo stesso fallback
-        #    usato dal template (CDN GIF → signed Supabase GIF).
-        _gif_candidates = [
-            lead.get("rendering_gif_cdn_url"),
-            lead.get("rendering_gif_url"),
-        ]
+        # 2) Render dell'impianto — SOLO immagine statica "after". La GIF è
+        #    deliberatamente esclusa dalla mail (più pesante → peggiora la
+        #    deliverability); GIF/MP4 restano nel portale. Lista GIF vuota →
+        #    si embedda direttamente la statica come CID.
+        _gif_candidates: list[str | None] = []
         _static_candidate = lead.get("rendering_image_url")
         _all_render_urls = [u for u in _gif_candidates + [_static_candidate] if u]
 
