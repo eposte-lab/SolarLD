@@ -98,6 +98,11 @@ class Settings(BaseSettings):
     # ---- Geo / Roof ----
     google_solar_api_key: str = ""
     google_places_api_key: str = ""
+    # Maps Static API key for the satellite fallback when Solar dataLayers
+    # has no coverage. Falls back to google_solar_api_key in code, so the
+    # operator can either set a dedicated key or just enable "Maps Static
+    # API" on the existing Solar key's project.
+    google_maps_static_api_key: str = ""
     mapbox_access_token: str = ""
 
     # Set GOOGLE_SOLAR_MOCK_MODE=true to bypass the real Solar API and
