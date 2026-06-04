@@ -113,13 +113,9 @@ async def fetch_google_static_satellite(
                     # The file is ``scale`` times the requested logical size.
                     img_px = size * scale
                     # Ground metres per device pixel (Web Mercator).
-                    m_per_px = (
-                        cos_lat * _EARTH_CIRCUMFERENCE_M / (256 * (2**z)) / float(scale)
-                    )
+                    m_per_px = cos_lat * _EARTH_CIRCUMFERENCE_M / (256 * (2**z)) / float(scale)
                     scale_y = m_per_px / 111_320.0
-                    scale_x = (
-                        m_per_px / (111_320.0 * cos_lat) if cos_lat > 0 else scale_y
-                    )
+                    scale_x = m_per_px / (111_320.0 * cos_lat) if cos_lat > 0 else scale_y
                     if z != zoom or scale != 2:
                         log.info(
                             "google_static.stepdown",
@@ -139,8 +135,7 @@ async def fetch_google_static_satellite(
                 # Google's 403 text tells us whether it's coverage, key
                 # restriction, or quota.
                 last_error = (
-                    f"z={z} scale={scale} status={resp.status_code} "
-                    f"body={resp.text[:240]!r}"
+                    f"z={z} scale={scale} status={resp.status_code} body={resp.text[:240]!r}"
                 )
         raise GoogleStaticError(
             f"maps static failed at all zooms {zoom}..16 (scale 2+1): {last_error}"
