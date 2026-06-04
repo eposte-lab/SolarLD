@@ -337,20 +337,23 @@ function RegenRendersButton({ tenantId }: { tenantId: string }) {
   const [result, setResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function run() {
+  async function run(allLeads: boolean) {
     if (busy) return;
     setBusy(true);
     setResult(null);
     setError(null);
     try {
+      const qs = `tenant_id=${encodeURIComponent(tenantId)}${allLeads ? '&all=true' : ''}`;
       const res = await api.post<{ ok: boolean; regenerated: number }>(
-        `/v1/admin/trial/regenerate-failed-renders?tenant_id=${encodeURIComponent(tenantId)}`,
+        `/v1/admin/trial/regenerate-failed-renders?${qs}`,
         {},
       );
       setResult(
         res.regenerated > 0
-          ? `${res.regenerated} render rigenerati (con fallback Google Static dove Solar non copre). Il render comparirà nel dettaglio tra ~1-2 min. Nessun invio rifatto.`
-          : `Nessun render fallito da rigenerare.`,
+          ? `${res.regenerated} render rigenerati${allLeads ? ' (TUTTI i lead, anche quelli già fatti)' : ' (solo i falliti)'}. Il render comparirà nel dettaglio tra ~1-2 min. Nessun invio rifatto.`
+          : allLeads
+            ? `Nessun lead da rigenerare.`
+            : `Nessun render fallito da rigenerare.`,
       );
     } catch (e) {
       setError(errMessage(e));
@@ -365,27 +368,44 @@ function RegenRendersButton({ tenantId }: { tenantId: string }) {
         <div className="flex items-center gap-2">
           <RefreshCw size={16} strokeWidth={2.25} aria-hidden className="text-primary" />
           <h2 className="font-headline text-lg font-bold tracking-tight text-on-surface">
-            Rigenera render falliti
+            Rigenera render
           </h2>
         </div>
-        <button
-          type="button"
-          onClick={() => void run()}
-          disabled={busy}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-on-primary transition-opacity hover:opacity-90 disabled:opacity-50"
-        >
-          {busy ? (
-            <Loader2 size={14} strokeWidth={2.25} aria-hidden className="animate-spin" />
-          ) : (
-            <RefreshCw size={14} strokeWidth={2.25} aria-hidden />
-          )}
-          Rigenera render
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void run(false)}
+            disabled={busy}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-primary/40 px-4 py-2 text-sm font-semibold text-primary transition-opacity hover:opacity-90 disabled:opacity-50"
+          >
+            {busy ? (
+              <Loader2 size={14} strokeWidth={2.25} aria-hidden className="animate-spin" />
+            ) : (
+              <RefreshCw size={14} strokeWidth={2.25} aria-hidden />
+            )}
+            Solo falliti
+          </button>
+          <button
+            type="button"
+            onClick={() => void run(true)}
+            disabled={busy}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-on-primary transition-opacity hover:opacity-90 disabled:opacity-50"
+          >
+            {busy ? (
+              <Loader2 size={14} strokeWidth={2.25} aria-hidden className="animate-spin" />
+            ) : (
+              <RefreshCw size={14} strokeWidth={2.25} aria-hidden />
+            )}
+            Rigenera TUTTI
+          </button>
+        </div>
       </div>
       <p className="mt-1 text-xs text-on-surface-variant">
-        Re-renderizza i lead il cui render era fallito (buchi Google Solar o
-        glitch) usando il fallback Google Maps Static — così la foto del tetto
-        diventa visibile nel dettaglio. NON rimanda nessuna email.
+        <strong>Solo falliti</strong>: re-renderizza i lead il cui render era
+        fallito (buchi Solar/glitch). <strong>Rigenera TUTTI</strong>: rifà
+        ogni render, anche quelli già riusciti — serve ad applicare le
+        correzioni di centraggio/zoom a hotel e complessi già renderizzati
+        (~1 chiamata Solar per lead). In nessun caso rimanda email.
       </p>
       {result && (
         <div className="mt-3 flex items-start gap-2 rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 text-sm text-on-surface">
