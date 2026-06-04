@@ -25,6 +25,7 @@ from pathlib import Path
 import httpx
 from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageSequence
 
+from ..core.config import settings
 from ..core.logging import get_logger
 from .google_solar_service import (
     RoofInsight,
@@ -40,6 +41,8 @@ from .google_static_service import (
     fetch_google_static_satellite,
     maps_static_key,
 )
+from .mapbox_service import MapboxError
+from .mapbox_service import fetch_static_satellite as fetch_mapbox_satellite
 
 log = get_logger(__name__)
 
@@ -604,23 +607,39 @@ async def _fetch_base_image(
         )
         return tiff_bytes, None
     except (SolarApiNotFound, SolarApiError) as exc:
-        # No Google coverage / quota / GeoTIFF error — fall back to the
-        # Google Maps Static satellite tile (keeps us on one Google account).
-        if not maps_static_key():
-            raise SolarRenderingError(
-                f"no Google Solar imagery at ({lat}, {lng}) and no Maps Static fallback key"
-            ) from exc
+        # No Google Solar coverage / quota / GeoTIFF error — fall back to a
+        # plain satellite tile. We try Mapbox FIRST: its Static Images API
+        # uses a public token that works server-side and has reliable rural
+        # coverage, unlike Google Maps Static (whose key carries an HTTP-
+        # referrer application restriction that 403s server-side calls).
+        solar_exc: Exception = exc
         log.warning("solar_rendering.google_solar_fallback", reason=str(exc)[:160])
 
-    # Fallback — Google Maps Static satellite tile.
-    try:
-        tile = await fetch_google_static_satellite(lat, lng, client=client)
-        log.info("solar_rendering.base_image", source="google_static", lat=lat, lng=lng)
-        return tile.image_bytes, tile.georef
-    except (GoogleStaticError, httpx.HTTPError) as exc:
-        raise SolarRenderingError(
-            f"both Google Solar and Maps Static failed at ({lat}, {lng}): {exc}"
-        ) from exc
+    fallback_errors: list[str] = []
+
+    # Fallback 1 — Mapbox Static satellite (public token, no referrer block).
+    if settings.mapbox_access_token:
+        try:
+            tile = await fetch_mapbox_satellite(lat, lng, client=client)
+            log.info("solar_rendering.base_image", source="mapbox_static", lat=lat, lng=lng)
+            return tile.image_bytes, tile.georef
+        except (MapboxError, httpx.HTTPError) as exc:
+            fallback_errors.append(f"mapbox={exc}")
+            log.warning("solar_rendering.mapbox_fallback_failed", reason=str(exc)[:160])
+
+    # Fallback 2 — Google Maps Static satellite tile.
+    if maps_static_key():
+        try:
+            tile = await fetch_google_static_satellite(lat, lng, client=client)
+            log.info("solar_rendering.base_image", source="google_static", lat=lat, lng=lng)
+            return tile.image_bytes, tile.georef
+        except (GoogleStaticError, httpx.HTTPError) as exc:
+            fallback_errors.append(f"google_static={exc}")
+
+    detail = "; ".join(fallback_errors) or "no satellite fallback configured"
+    raise SolarRenderingError(
+        f"no Google Solar imagery at ({lat}, {lng}); satellite fallbacks failed: {detail}"
+    ) from solar_exc
 
 
 def _load_and_crop(
