@@ -495,6 +495,32 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
             )
 
         # ------------------------------------------------------------------
+        # 5d) Render-readiness gate (operator hard rule, 2026-06-04):
+        #     NEVER send a real outreach without the solar visual. If the
+        #     static image OR the GIF isn't ready, skip — the creative_task
+        #     lands the render shortly and the lead is re-picked next cycle,
+        #     so it sends WITH the image instead of going out text-only.
+        #     Test/override sends (operator's own inbox) bypass this.
+        # ------------------------------------------------------------------
+        if (
+            payload.channel == OutreachChannel.EMAIL
+            and not send_override_active
+            and (not lead.get("rendering_image_url") or not lead.get("rendering_gif_url"))
+        ):
+            log.info(
+                "outreach.render_not_ready",
+                lead_id=payload.lead_id,
+                tenant_id=payload.tenant_id,
+                has_image=bool(lead.get("rendering_image_url")),
+                has_gif=bool(lead.get("rendering_gif_url")),
+            )
+            return OutreachOutput(
+                lead_id=payload.lead_id,
+                skipped=True,
+                reason="render_not_ready",
+            )
+
+        # ------------------------------------------------------------------
         # 6) Recipient resolution (email path)
         #
         # When ``payload.recipient_override`` is set we route the email to

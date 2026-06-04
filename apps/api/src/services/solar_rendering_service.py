@@ -25,7 +25,6 @@ from pathlib import Path
 import httpx
 from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageSequence
 
-from ..core.config import settings
 from ..core.logging import get_logger
 from .google_solar_service import (
     RoofInsight,
@@ -36,7 +35,11 @@ from .google_solar_service import (
     fetch_building_insight,
     fetch_data_layers,
 )
-from .mapbox_service import MapboxError, fetch_static_satellite
+from .google_static_service import (
+    GoogleStaticError,
+    fetch_google_static_satellite,
+    maps_static_key,
+)
 
 log = get_logger(__name__)
 
@@ -116,7 +119,7 @@ def _adaptive_padding_factor(cluster_half_diag_m: float) -> float:
 # routinely 150-250 m long, so the building was clipped at the SOURCE before
 # the crop even ran. We now size the tile to the roof; the lower bound keeps
 # small B2C roofs from over-zooming, the upper bound stays within Google
-# Solar dataLayers' practical radius (beyond it we fall back to Mapbox).
+# Solar dataLayers' practical radius (beyond it we fall back to Google Static).
 _MIN_BASE_RADIUS_M = 50
 _MAX_BASE_RADIUS_M = 140
 
@@ -579,13 +582,13 @@ async def _fetch_base_image(
     """Fetch the aerial base image for a rendering.
 
     Prefers the Google Solar dataLayers GeoTIFF (sharpest, ~10 cm/px and
-    most recent aerial imagery in Italy); falls back to a Mapbox
+    most recent aerial imagery in Italy); falls back to a Google Maps Static
     satellite tile when Google Solar has no coverage at the point, the
     key is exhausted, or the GeoTIFF download fails. Returns
     ``(image_bytes, georef)`` where ``georef`` is ``None`` for the
     GeoTIFF path (its georeference is parsed from the TIFF tags
     downstream), or ``(west_lng, north_lat, scale_x, scale_y)`` for the
-    Mapbox tile.
+    Google Static tile.
     """
     # Primary — Google Solar dataLayers GeoTIFF (highest fidelity in IT).
     try:
@@ -601,21 +604,22 @@ async def _fetch_base_image(
         )
         return tiff_bytes, None
     except (SolarApiNotFound, SolarApiError) as exc:
-        # No Google coverage / quota / GeoTIFF error — try Mapbox if available.
-        if not settings.mapbox_access_token:
+        # No Google coverage / quota / GeoTIFF error — fall back to the
+        # Google Maps Static satellite tile (keeps us on one Google account).
+        if not maps_static_key():
             raise SolarRenderingError(
-                f"no Google Solar imagery at ({lat}, {lng}) and no Mapbox fallback"
+                f"no Google Solar imagery at ({lat}, {lng}) and no Maps Static fallback key"
             ) from exc
         log.warning("solar_rendering.google_solar_fallback", reason=str(exc)[:160])
 
-    # Fallback — Mapbox satellite tile.
+    # Fallback — Google Maps Static satellite tile.
     try:
-        tile = await fetch_static_satellite(lat, lng, client=client)
-        log.info("solar_rendering.base_image", source="mapbox", lat=lat, lng=lng)
+        tile = await fetch_google_static_satellite(lat, lng, client=client)
+        log.info("solar_rendering.base_image", source="google_static", lat=lat, lng=lng)
         return tile.image_bytes, tile.georef
-    except (MapboxError, httpx.HTTPError) as exc:
+    except (GoogleStaticError, httpx.HTTPError) as exc:
         raise SolarRenderingError(
-            f"both Google Solar and Mapbox failed at ({lat}, {lng}): {exc}"
+            f"both Google Solar and Maps Static failed at ({lat}, {lng}): {exc}"
         ) from exc
 
 
@@ -633,7 +637,7 @@ def _load_and_crop(
     Returns ``(cropped_rgb_image, transform)`` where ``transform`` maps
     lat/lng in the *original* image to pixel coordinates in the *crop*.
 
-    When ``georef`` is given (Mapbox tile) it is used directly. Otherwise
+    When ``georef`` is given (Google Static tile) it is used directly. Otherwise
     the image is treated as a Google Solar GeoTIFF: embedded tags first,
     falling back to a transform derived from the dataLayers request
     params when Google's imagery omits those tags.
