@@ -774,20 +774,7 @@ def _load_and_crop(
     # Centre the crop on the panel cluster centroid when possible
     # (more stable than the building centre point Solar API returns,
     # which can land on a parking lot for L-shaped buildings).
-    #
-    # EXCEPTION — fallback satellite tile (``georef`` provided, i.e. the
-    # base image came from Mapbox / Google Static because Google Solar
-    # had no imagery here). In that case the building insight is the
-    # least reliable: Google ``findClosest`` often snaps to a *neighbour*
-    # building, putting the cluster centroid (and thus the whole frame)
-    # on the wrong structure — exactly the Excelsior-Vittoria symptom.
-    # The lead pin (``center_lat/lng``) is the business's mapped location
-    # and the most trustworthy anchor, so we centre on it. The dynamic
-    # tile zoom above guarantees the building fits regardless of size.
-    if georef is not None:
-        cluster_lat = center_lat
-        cluster_lng = center_lng
-    elif insight.panels:
+    if insight.panels:
         cluster_lat = sum(p.lat for p in insight.panels) / len(insight.panels)
         cluster_lng = sum(p.lng for p in insight.panels) / len(insight.panels)
     else:
