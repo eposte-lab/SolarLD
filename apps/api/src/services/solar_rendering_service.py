@@ -158,6 +158,33 @@ def _base_radius_m(insight: RoofInsight) -> int:
     return max(_MIN_BASE_RADIUS_M, min(_MAX_BASE_RADIUS_M, int(math.ceil(needed))))
 
 
+# Equatorial circumference of the Earth (WGS-84) in metres — Web-Mercator
+# ground-resolution math for sizing the fallback satellite tile.
+_EARTH_CIRCUMFERENCE_M = 40_075_016.686
+
+
+def _satellite_zoom_for_radius(lat: float, radius_m: int, *, size: int) -> int:
+    """Web-Mercator zoom so a ``size``-px satellite tile spans the WHOLE
+    building (~2·radius_m + margin), centred on the point.
+
+    The Mapbox / Google-Static fallback was always fetched at the fixed
+    default zoom 19 (~180 m wide tile), so any building needing a radius
+    above ~90 m got clipped and the crop could never frame it. We now
+    size the tile to ``radius_m`` exactly like the Google Solar path:
+    large plants zoom OUT (lower z) so the full footprint is captured,
+    while small roofs stay at the sharp default (19).
+    """
+    cos_lat = max(0.05, math.cos(math.radians(lat)))
+    # 16:9 crop pulls width = height·(16/9); leave 25% margin so the
+    # widened crop still fits inside the tile without clamping.
+    diameter_m = max(1.0, 2.0 * radius_m * 1.25)
+    # Ground width of a `size`-logical-px tile at zoom z is
+    #   size · cos_lat · CIRC / (256 · 2**z).  Solve ≥ diameter_m for z.
+    k = size * cos_lat * _EARTH_CIRCUMFERENCE_M / 256.0
+    z = math.floor(math.log2(k / diameter_m))
+    return max(16, min(19, int(z)))
+
+
 # ── Panel visual style ─────────────────────────────────────────────────────
 # Colours are chosen to look like monocrystalline silicon panels seen
 # from above at ~45° solar angle: dark base + subtle blue cell sheen +
@@ -620,8 +647,16 @@ async def _fetch_base_image(
     # Fallback 1 — Mapbox Static satellite (public token, no referrer block).
     if settings.mapbox_access_token:
         try:
-            tile = await fetch_mapbox_satellite(lat, lng, client=client)
-            log.info("solar_rendering.base_image", source="mapbox_static", lat=lat, lng=lng)
+            mapbox_zoom = _satellite_zoom_for_radius(lat, radius_m, size=800)
+            tile = await fetch_mapbox_satellite(lat, lng, zoom=mapbox_zoom, client=client)
+            log.info(
+                "solar_rendering.base_image",
+                source="mapbox_static",
+                lat=lat,
+                lng=lng,
+                radius_m=radius_m,
+                zoom=mapbox_zoom,
+            )
             return tile.image_bytes, tile.georef
         except (MapboxError, httpx.HTTPError) as exc:
             fallback_errors.append(f"mapbox={exc}")
@@ -630,8 +665,16 @@ async def _fetch_base_image(
     # Fallback 2 — Google Maps Static satellite tile.
     if maps_static_key():
         try:
-            tile = await fetch_google_static_satellite(lat, lng, client=client)
-            log.info("solar_rendering.base_image", source="google_static", lat=lat, lng=lng)
+            gstatic_zoom = _satellite_zoom_for_radius(lat, radius_m, size=640)
+            tile = await fetch_google_static_satellite(lat, lng, zoom=gstatic_zoom, client=client)
+            log.info(
+                "solar_rendering.base_image",
+                source="google_static",
+                lat=lat,
+                lng=lng,
+                radius_m=radius_m,
+                zoom=gstatic_zoom,
+            )
             return tile.image_bytes, tile.georef
         except (GoogleStaticError, httpx.HTTPError) as exc:
             fallback_errors.append(f"google_static={exc}")
@@ -731,7 +774,20 @@ def _load_and_crop(
     # Centre the crop on the panel cluster centroid when possible
     # (more stable than the building centre point Solar API returns,
     # which can land on a parking lot for L-shaped buildings).
-    if insight.panels:
+    #
+    # EXCEPTION — fallback satellite tile (``georef`` provided, i.e. the
+    # base image came from Mapbox / Google Static because Google Solar
+    # had no imagery here). In that case the building insight is the
+    # least reliable: Google ``findClosest`` often snaps to a *neighbour*
+    # building, putting the cluster centroid (and thus the whole frame)
+    # on the wrong structure — exactly the Excelsior-Vittoria symptom.
+    # The lead pin (``center_lat/lng``) is the business's mapped location
+    # and the most trustworthy anchor, so we centre on it. The dynamic
+    # tile zoom above guarantees the building fits regardless of size.
+    if georef is not None:
+        cluster_lat = center_lat
+        cluster_lng = center_lng
+    elif insight.panels:
         cluster_lat = sum(p.lat for p in insight.panels) / len(insight.panels)
         cluster_lng = sum(p.lng for p in insight.panels) / len(insight.panels)
     else:
