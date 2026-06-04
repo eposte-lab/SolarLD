@@ -55,12 +55,18 @@ OUTPUT_W = 1536
 OUTPUT_H = 864  # 1536 * 9 / 16
 OUTPUT_ASPECT = OUTPUT_W / OUTPUT_H  # 16:9
 
-# Vertical focus shift — lift the roof toward the upper part of the
-# frame so the portal's bottom data bar sits on empty ground/context
-# instead of covering the building. Expressed as a fraction of the
-# crop half-height; the actual shift is clamped to the roof's own top
-# margin (``_FOCUS_SAFETY``) so the building is never clipped.
-_VERTICAL_FOCUS_SHIFT = 0.35
+# Default composition — DOWNWARD SCROLL applied to EVERY render: lift the
+# roof so its centre sits at this fraction of the frame HEIGHT (above the
+# geometric middle), leaving the lower band clear for the blue "Risparmio
+# annuo" data strip. 0.50 would be dead-centre; 0.42 lifts it up.
+_ROOF_CENTER_Y = 0.42
+# Minimum crop half-height as a multiple of the roof half-height, so there
+# is always vertical headroom to perform the lift above without clipping a
+# roof that would otherwise fill the frame. Only grows the crop for tall
+# roofs; wide capannoni are already diagonal-sized so it's a no-op.
+_VLIFT_HEADROOM = 1.45
+# Safety margin (fraction of crop half-height) kept between the lifted roof
+# edge and the frame edge so the building is never clipped.
 _FOCUS_SAFETY = 0.05
 
 # Padding around the roof footprint, expressed as a multiplier of the
@@ -777,6 +783,13 @@ def _load_and_crop(
     # risoluzione minima anche su cluster piccoli.
     crop_radius_px = max(OUTPUT_H // 2, int(crop_radius_m * px_per_m))
 
+    # Reserve vertical headroom so the default downward-scroll below can
+    # lift the roof toward the top WITHOUT clipping it. Only grows the crop
+    # for roofs that would otherwise fill the frame; wide capannoni
+    # (diagonal-sized) keep their tighter frame unchanged.
+    if roof_half_h_m is not None:
+        crop_radius_px = max(crop_radius_px, int(roof_half_h_m * px_per_m * _VLIFT_HEADROOM))
+
     # Centre the crop on the panel cluster centroid when possible
     # (more stable than the building centre point Solar API returns,
     # which can land on a parking lot for L-shaped buildings).
@@ -819,18 +832,22 @@ def _load_and_crop(
     half_h = crop_radius_px
     half_w = int(crop_radius_px * OUTPUT_ASPECT)
 
-    # Vertical focus shift: translate the crop DOWN so the roof sits in
-    # the upper part of the frame, leaving empty space below for the
-    # portal's bottom data bar. Bounded by the roof's own top margin
-    # (the padding between the roof edge and the crop edge) so the
-    # building is never clipped — when padding is tight the shift just
-    # shrinks toward zero.
-    focus_shift_px = 0
+    # DEFAULT downward scroll — applied to EVERY render. Translate the crop
+    # DOWN so the roof's centre lands at _ROOF_CENTER_Y of the frame height
+    # (above the geometric middle), leaving the lower band clear for the
+    # blue "Risparmio annuo" strip. Previously this shift was clamped to the
+    # roof's own top margin and collapsed to ~0 whenever the building filled
+    # the frame, so the roof sat dead-centre and half under the strip — the
+    # "dimezzato" look. The headroom reserved above guarantees it now lifts.
+    focus_shift_px = int((0.5 - _ROOF_CENTER_Y) * 2 * half_h)
     if roof_half_h_m is not None:
         roof_half_h_px = roof_half_h_m * px_per_m
-        top_margin_px = half_h - roof_half_h_px
-        desired_shift = _VERTICAL_FOCUS_SHIFT * half_h
-        focus_shift_px = int(max(0.0, min(desired_shift, top_margin_px - _FOCUS_SAFETY * half_h)))
+        max_shift = half_h - roof_half_h_px - _FOCUS_SAFETY * half_h
+        focus_shift_px = int(max(0.0, min(focus_shift_px, max_shift)))
+    else:
+        # No panel geometry to bound the roof — cap the blind lift so an
+        # unknown-size roof can't be clipped.
+        focus_shift_px = int(max(0.0, min(focus_shift_px, 0.10 * half_h)))
 
     # Finestra di crop centrata sul cluster ma SEMPRE contenuta
     # nell'immagine: prima limito la dimensione alla tile, poi faccio
