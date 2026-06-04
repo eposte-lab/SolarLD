@@ -132,12 +132,6 @@ def _adaptive_padding_factor(cluster_half_diag_m: float) -> float:
 _MIN_BASE_RADIUS_M = 50
 _MAX_BASE_RADIUS_M = 140
 
-# Above this distance (m) between the panel-cluster centroid and the lead
-# pin, Google findClosest is assumed to have snapped to a NEIGHBOUR
-# building, so we re-centre the crop on the pin (the verified business
-# location) instead of the drifted cluster. Below it the cluster wins.
-_NEIGHBOUR_DRIFT_M = 35.0
-
 # When the panel-cluster half-diagonal exceeds this multiple of the
 # building's own half-diagonal (from Google's measured roof ``area_sqm``),
 # the panels have SPRAWLED across several adjacent structures (the
@@ -800,10 +794,27 @@ def _load_and_crop(
             effective_half_diag_m = max(8.0, area_half_diag_m)
             roof_half_h_m = area_half_diag_m
         else:
+            # DENSE roof — centre on the PIN and zoom OUT just enough to
+            # contain the whole building FROM the pin (never clip), rather
+            # than hugging the cluster centroid. We measure the building's
+            # reach from the pin and take the 92nd percentile so a single
+            # stray panel can't inflate the frame; the area estimate is a
+            # floor. This errs toward zoom-OUT: an off-centre pin or an
+            # under-measured area still keeps the whole roof in view.
+            cos_lat = math.cos(math.radians(center_lat))
+            reach_from_pin = sorted(
+                math.hypot(
+                    (p.lat - center_lat) * 111_320.0,
+                    (p.lng - center_lng) * 111_320.0 * cos_lat,
+                )
+                for p in insight.panels
+            )
+            vreach_from_pin = sorted(abs(p.lat - center_lat) * 111_320.0 for p in insight.panels)
+            pct_idx = min(len(reach_from_pin) - 1, int(0.92 * len(reach_from_pin)))
             # Floor at 8 m so single-panel residential cases still get a
             # sensible frame instead of a 1m-wide pinhole.
-            effective_half_diag_m = max(8.0, half_diag_m)
-            roof_half_h_m = cluster_height_m / 2.0
+            effective_half_diag_m = max(8.0, area_half_diag_m, reach_from_pin[pct_idx])
+            roof_half_h_m = max(8.0, vreach_from_pin[pct_idx])
         padding = _adaptive_padding_factor(effective_half_diag_m)
         crop_radius_m = effective_half_diag_m * padding
         log.info(
@@ -833,39 +844,15 @@ def _load_and_crop(
     if roof_half_h_m is not None:
         crop_radius_px = max(crop_radius_px, int(roof_half_h_m * px_per_m * _VLIFT_HEADROOM))
 
-    # Centre the crop on the panel cluster centroid when possible
-    # (more stable than the building centre point Solar API returns,
-    # which can land on a parking lot for L-shaped buildings).
-    #
-    # NEIGHBOUR-HOP GUARD — but when that cluster centroid has drifted
-    # far from the lead pin, Google ``findClosest`` has snapped to a
-    # *neighbour* building (the Excelsior-Vittoria symptom: the pin sits
-    # on the hotel, yet panels land on the adjacent flat roof). The pin
-    # is the business's verified location, so beyond the drift threshold
-    # we trust it and centre there instead — keeping the correct building
-    # in frame. Within the threshold the cluster centroid still wins, so
-    # ordinary capannoni (where the pin may fall on a yard) are unchanged.
-    if force_pin_center or not insight.panels:
-        # SPRAWL (or no panels) → the cluster centroid is unreliable; the pin
-        # is the business's verified location.
-        cluster_lat = center_lat
-        cluster_lng = center_lng
-    else:
-        cl_lat = sum(p.lat for p in insight.panels) / len(insight.panels)
-        cl_lng = sum(p.lng for p in insight.panels) / len(insight.panels)
-        cluster_drift_m = math.hypot(
-            (cl_lat - center_lat) * 111_320.0,
-            (cl_lng - center_lng) * 111_320.0 * math.cos(math.radians(center_lat)),
-        )
-        if cluster_drift_m > _NEIGHBOUR_DRIFT_M:
-            log.info(
-                "solar_rendering.cluster_drift_recenter",
-                drift_m=round(cluster_drift_m, 1),
-                threshold_m=_NEIGHBOUR_DRIFT_M,
-            )
-            cluster_lat, cluster_lng = center_lat, center_lng
-        else:
-            cluster_lat, cluster_lng = cl_lat, cl_lng
+    # Centre on the PIN — always. The lead pin is the business's verified
+    # Google Maps location; the zoom above is sized to contain the whole
+    # building FROM the pin (dense) or the measured building (sprawl), so an
+    # off-centre pin or under-measured area still keeps the roof in frame.
+    # We deliberately err toward zoom-OUT and never clip. (This replaces the
+    # old cluster-centroid centring, which followed Google's findClosest onto
+    # neighbour roofs on complexes like Excelsior.)
+    cluster_lat = center_lat
+    cluster_lng = center_lng
 
     # Centre pixel of the roof within the full image.
     center_col = (cluster_lng - west_lng) / scale_x
