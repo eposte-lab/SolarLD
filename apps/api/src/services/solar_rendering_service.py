@@ -138,6 +138,14 @@ _MAX_BASE_RADIUS_M = 140
 # location) instead of the drifted cluster. Below it the cluster wins.
 _NEIGHBOUR_DRIFT_M = 35.0
 
+# When the panel-cluster half-diagonal exceeds this multiple of the
+# building's own half-diagonal (from Google's measured roof ``area_sqm``),
+# the panels have SPRAWLED across several adjacent structures (the
+# Excelsior-Vittoria symptom). The oversized cluster would blow up the zoom
+# AND collapse the vertical lift, so above this ratio we discard it and
+# frame the building (area-based size) centred on the pin instead.
+_SPRAWL_RATIO = 1.2
+
 
 def _base_radius_m(insight: RoofInsight) -> int:
     """Radius (m) for the base-image tile + crop, sized to the WHOLE roof.
@@ -750,26 +758,41 @@ def _load_and_crop(
     # tighter, more accurate frame around what we want the AI model
     # to focus on.
     roof_half_h_m: float | None = None
+    force_pin_center = False
     if insight.panels:
         panel_lats = [p.lat for p in insight.panels]
         panel_lngs = [p.lng for p in insight.panels]
         cluster_height_m = (max(panel_lats) - min(panel_lats)) * 111_320.0
-        roof_half_h_m = cluster_height_m / 2.0
         cluster_width_m = (
             (max(panel_lngs) - min(panel_lngs)) * 111_320.0 * math.cos(math.radians(center_lat))
         )
         # Half-diagonal of the panel cluster — the smallest circle
         # that still contains every panel, centred on the cluster.
         half_diag_m = math.hypot(cluster_width_m, cluster_height_m) / 2.0
-        # Floor at 8 m so single-panel residential cases still get a
-        # sensible frame instead of a 1m-wide pinhole.
-        effective_half_diag_m = max(8.0, half_diag_m)
+        # Building size implied by Google's measured roof area (half-diagonal
+        # of an equivalent square) — our reference for SPRAWL detection.
+        area_half_diag_m = math.sqrt(insight.area_sqm / 2.0) if insight.area_sqm > 0 else 0.0
+        if area_half_diag_m > 0 and half_diag_m > _SPRAWL_RATIO * area_half_diag_m:
+            # SPRAWL: panels span well beyond the measured building →
+            # findClosest hit several adjacent structures. Discard the bogus
+            # oversized cluster: frame the building (area-based) on the pin,
+            # and size the lift to the building so the downward scroll works.
+            force_pin_center = True
+            effective_half_diag_m = max(8.0, area_half_diag_m)
+            roof_half_h_m = area_half_diag_m
+        else:
+            # Floor at 8 m so single-panel residential cases still get a
+            # sensible frame instead of a 1m-wide pinhole.
+            effective_half_diag_m = max(8.0, half_diag_m)
+            roof_half_h_m = cluster_height_m / 2.0
         padding = _adaptive_padding_factor(effective_half_diag_m)
         crop_radius_m = effective_half_diag_m * padding
         log.info(
             "solar_rendering.adaptive_zoom",
             panels=len(insight.panels),
-            cluster_half_diag_m=round(effective_half_diag_m, 1),
+            cluster_half_diag_m=round(half_diag_m, 1),
+            area_half_diag_m=round(area_half_diag_m, 1),
+            sprawl=force_pin_center,
             padding=round(padding, 3),
             crop_radius_m=round(crop_radius_m, 1),
         )
@@ -802,7 +825,12 @@ def _load_and_crop(
     # we trust it and centre there instead — keeping the correct building
     # in frame. Within the threshold the cluster centroid still wins, so
     # ordinary capannoni (where the pin may fall on a yard) are unchanged.
-    if insight.panels:
+    if force_pin_center or not insight.panels:
+        # SPRAWL (or no panels) → the cluster centroid is unreliable; the pin
+        # is the business's verified location.
+        cluster_lat = center_lat
+        cluster_lng = center_lng
+    else:
         cl_lat = sum(p.lat for p in insight.panels) / len(insight.panels)
         cl_lng = sum(p.lng for p in insight.panels) / len(insight.panels)
         cluster_drift_m = math.hypot(
@@ -818,9 +846,6 @@ def _load_and_crop(
             cluster_lat, cluster_lng = center_lat, center_lng
         else:
             cluster_lat, cluster_lng = cl_lat, cl_lng
-    else:
-        cluster_lat = center_lat
-        cluster_lng = center_lng
 
     # Centre pixel of the roof within the full image.
     center_col = (cluster_lng - west_lng) / scale_x
