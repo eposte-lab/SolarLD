@@ -87,42 +87,64 @@ async def fetch_google_static_satellite(
     http = client or httpx.AsyncClient(timeout=30.0)
     last_error = "unknown"
     try:
-        # Zoom step-down: in rural/agricultural areas Google has no satellite
-        # tile at z19/z18 and returns 403 ("...satellite imagery is not
-        # available..."). A lower zoom always has coverage; the downstream
-        # crop reframes the building either way, so we take the first zoom
-        # that returns imagery.
+        # Step-down over BOTH zoom and scale. In rural/agricultural areas
+        # Google often lacks a high-resolution (scale=2) satellite tile and
+        # returns 403 ("...satellite imagery is not available...") for EVERY
+        # zoom — because scale=2 is the constant, not the zoom. So for each
+        # zoom we also try scale=1 (standard-res satellite, far wider
+        # coverage). The downstream crop reframes the building either way, so
+        # we take the first (zoom, scale) combo that returns imagery, ordered
+        # to prefer the sharpest available image.
+        cos_lat = math.cos(math.radians(lat))
         for z in range(zoom, 15, -1):
-            params: dict[str, str | int] = {
-                "center": f"{lat},{lng}",
-                "zoom": z,
-                "size": f"{size}x{size}",
-                "scale": 2,
-                "maptype": "satellite",
-                "format": "png",
-                "key": key,
-            }
-            resp = await http.get(STATIC_ENDPOINT, params=params)
-            if resp.status_code == 200:
-                image_bytes = resp.content
-                # The scale=2 file is twice the requested logical size.
-                img_px = size * 2
-                cos_lat = math.cos(math.radians(lat))
-                # Ground metres per device pixel (Web Mercator, scale=2 halves).
-                m_per_px = cos_lat * _EARTH_CIRCUMFERENCE_M / (256 * (2**z)) / 2.0
-                scale_y = m_per_px / 111_320.0
-                scale_x = m_per_px / (111_320.0 * cos_lat) if cos_lat > 0 else scale_y
-                if z != zoom:
-                    log.info("google_static.zoom_stepdown", lat=lat, lng=lng, used_zoom=z)
-                return StaticSatelliteTile(
-                    image_bytes=image_bytes,
-                    west_lng=lng - scale_x * img_px / 2.0,
-                    north_lat=lat + scale_y * img_px / 2.0,
-                    scale_x=scale_x,
-                    scale_y=scale_y,
+            for scale in (2, 1):
+                params: dict[str, str | int] = {
+                    "center": f"{lat},{lng}",
+                    "zoom": z,
+                    "size": f"{size}x{size}",
+                    "scale": scale,
+                    "maptype": "satellite",
+                    "format": "png",
+                    "key": key,
+                }
+                resp = await http.get(STATIC_ENDPOINT, params=params)
+                if resp.status_code == 200:
+                    image_bytes = resp.content
+                    # The file is ``scale`` times the requested logical size.
+                    img_px = size * scale
+                    # Ground metres per device pixel (Web Mercator).
+                    m_per_px = (
+                        cos_lat * _EARTH_CIRCUMFERENCE_M / (256 * (2**z)) / float(scale)
+                    )
+                    scale_y = m_per_px / 111_320.0
+                    scale_x = (
+                        m_per_px / (111_320.0 * cos_lat) if cos_lat > 0 else scale_y
+                    )
+                    if z != zoom or scale != 2:
+                        log.info(
+                            "google_static.stepdown",
+                            lat=lat,
+                            lng=lng,
+                            used_zoom=z,
+                            used_scale=scale,
+                        )
+                    return StaticSatelliteTile(
+                        image_bytes=image_bytes,
+                        west_lng=lng - scale_x * img_px / 2.0,
+                        north_lat=lat + scale_y * img_px / 2.0,
+                        scale_x=scale_x,
+                        scale_y=scale_y,
+                    )
+                # Keep the FULL-ish body of the last error for diagnosis —
+                # Google's 403 text tells us whether it's coverage, key
+                # restriction, or quota.
+                last_error = (
+                    f"z={z} scale={scale} status={resp.status_code} "
+                    f"body={resp.text[:240]!r}"
                 )
-            last_error = f"status={resp.status_code} body={resp.text[:120]}"
-        raise GoogleStaticError(f"maps static failed at all zooms {zoom}..16: {last_error}")
+        raise GoogleStaticError(
+            f"maps static failed at all zooms {zoom}..16 (scale 2+1): {last_error}"
+        )
     finally:
         if owns_client:
             await http.aclose()
