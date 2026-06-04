@@ -145,6 +145,14 @@ _NEIGHBOUR_DRIFT_M = 35.0
 # AND collapse the vertical lift, so above this ratio we discard it and
 # frame the building (area-based size) centred on the pin instead.
 _SPRAWL_RATIO = 1.2
+# A genuine multi-building sprawl is GAPPY — panels on a tennis court + a
+# flat roof with empty space between, so they cover only a small fraction
+# of their bounding box. A packed single roof (a capannone, even when
+# Google UNDER-measured its area_sqm) covers most of its box. We only treat
+# the oversized cluster as sprawl when its panel coverage is below this
+# density, so a dense real roof is never wrongly tightened/clipped.
+_PANEL_AREA_M2 = 1.65
+_SPRAWL_MAX_DENSITY = 0.35
 
 
 def _base_radius_m(insight: RoofInsight) -> int:
@@ -772,8 +780,19 @@ def _load_and_crop(
         # Building size implied by Google's measured roof area (half-diagonal
         # of an equivalent square) — our reference for SPRAWL detection.
         area_half_diag_m = math.sqrt(insight.area_sqm / 2.0) if insight.area_sqm > 0 else 0.0
-        if area_half_diag_m > 0 and half_diag_m > _SPRAWL_RATIO * area_half_diag_m:
-            # SPRAWL: panels span well beyond the measured building →
+        # Panel coverage of the cluster bounding box. Low ⇒ gappy ⇒ the
+        # cluster spans several structures (true sprawl). High ⇒ a packed
+        # single roof we must NOT tighten even if it dwarfs the (often
+        # under-measured) area_sqm.
+        bbox_area_m2 = max(cluster_width_m, 1.0) * max(cluster_height_m, 1.0)
+        panel_density = (len(insight.panels) * _PANEL_AREA_M2) / bbox_area_m2
+        is_sprawl = (
+            area_half_diag_m > 0
+            and half_diag_m > _SPRAWL_RATIO * area_half_diag_m
+            and panel_density < _SPRAWL_MAX_DENSITY
+        )
+        if is_sprawl:
+            # SPRAWL: panels span well beyond the measured building, gappily →
             # findClosest hit several adjacent structures. Discard the bogus
             # oversized cluster: frame the building (area-based) on the pin,
             # and size the lift to the building so the downward scroll works.
@@ -792,6 +811,7 @@ def _load_and_crop(
             panels=len(insight.panels),
             cluster_half_diag_m=round(half_diag_m, 1),
             area_half_diag_m=round(area_half_diag_m, 1),
+            panel_density=round(panel_density, 3),
             sprawl=force_pin_center,
             padding=round(padding, 3),
             crop_radius_m=round(crop_radius_m, 1),
