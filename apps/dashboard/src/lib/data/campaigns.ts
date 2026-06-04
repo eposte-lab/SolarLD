@@ -19,11 +19,43 @@
 import 'server-only';
 
 import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { getCurrentTenantContext } from '@/lib/data/tenant';
 import type {
   CampaignRow,
   CampaignWithLeadEngagement,
   EventRow,
 } from '@/types/db';
+
+/** True when the current tenant is under super-admin trial moderation. */
+async function isModeratedTenant(): Promise<boolean> {
+  const ctx = await getCurrentTenantContext();
+  return ctx?.is_moderated ?? false;
+}
+
+/**
+ * Freeze a joined lead's prospect REACTIONS (email opens/clicks) for a
+ * moderated tenant when the operator hasn't promoted the contatto yet
+ * (`operator_released_at IS NULL`). Delivery stays visible — it's a
+ * mail-server signal, not a prospect reaction. Mutates in place.
+ *
+ * This mirrors the scheda freeze (lib/data/moderation-freeze.ts) so the
+ * "Invii" section + send detail can't leak engagement Total Trade isn't
+ * supposed to see until the operator releases the contatto.
+ */
+function freezeLeadEngagement(
+  lead:
+    | {
+        operator_released_at?: string | null;
+        outreach_opened_at?: string | null;
+        outreach_clicked_at?: string | null;
+      }
+    | null
+    | undefined,
+): void {
+  if (!lead || lead.operator_released_at) return;
+  lead.outreach_opened_at = null;
+  lead.outreach_clicked_at = null;
+}
 
 export interface CampaignDeliveryStats {
   total: number;
@@ -48,6 +80,7 @@ const CAMPAIGN_COLUMNS = `
 const CAMPAIGN_WITH_LEAD_COLUMNS = `
   ${CAMPAIGN_COLUMNS},
   leads:leads(
+    operator_released_at,
     outreach_delivered_at, outreach_opened_at, outreach_clicked_at,
     subjects:subjects(
       business_name, decision_maker_name,
@@ -71,7 +104,13 @@ export async function listCampaigns(
     .order('created_at', { ascending: false })
     .limit(limit);
   if (error) throw new Error(`listCampaigns: ${error.message}`);
-  return (data ?? []) as unknown as CampaignWithLeadEngagement[];
+  const rows = (data ?? []) as unknown as CampaignWithLeadEngagement[];
+  // Moderation freeze: hide opens/clicks of contatti the operator hasn't
+  // promoted yet (delivery stays visible).
+  if (await isModeratedTenant()) {
+    for (const row of rows) freezeLeadEngagement(row.leads);
+  }
+  return rows;
 }
 
 /**
@@ -88,13 +127,14 @@ export async function listCampaigns(
 export async function getCampaignDeliveryStats(): Promise<CampaignDeliveryStats> {
   const supabase = await createSupabaseServerClient();
 
-  const [campaignsRes, engagementRes] = await Promise.all([
+  const [campaignsRes, engagementRes, moderated] = await Promise.all([
     supabase.from('outreach_sends').select('status, lead_id'),
     // RLS scopes `leads` to the current tenant → we only see our rows.
     supabase
       .from('leads')
-      .select('id, outreach_opened_at, outreach_clicked_at')
+      .select('id, operator_released_at, outreach_opened_at, outreach_clicked_at')
       .or('outreach_opened_at.not.is.null,outreach_clicked_at.not.is.null'),
+    isModeratedTenant(),
   ]);
 
   if (campaignsRes.error) {
@@ -119,6 +159,9 @@ export async function getCampaignDeliveryStats(): Promise<CampaignDeliveryStats>
   let clicked = 0;
   for (const lead of engagedLeads) {
     if (!leadsWithCampaign.has(lead.id)) continue;
+    // Moderation freeze: a contatto's engagement doesn't count toward the
+    // tenant's open/click rate until the operator promotes it.
+    if (moderated && !lead.operator_released_at) continue;
     if (lead.outreach_opened_at) opened += 1;
     if (lead.outreach_clicked_at) clicked += 1;
   }
@@ -222,7 +265,7 @@ const SEND_DETAIL_COLUMNS = `
   rendering_gif_url, rendering_video_url, rendering_image_url,
   inbox_id, experiment_id, experiment_variant,
   leads:leads(
-    id, pipeline_status,
+    id, pipeline_status, operator_released_at,
     outreach_delivered_at, outreach_opened_at, outreach_clicked_at,
     rendering_image_url, rendering_gif_url, rendering_video_url,
     portal_video_slug,
@@ -248,5 +291,9 @@ export async function getOutreachSendDetail(
     .limit(1)
     .maybeSingle();
   if (error) return null;
-  return data as unknown as OutreachSendDetail | null;
+  const send = data as unknown as OutreachSendDetail | null;
+  // Moderation freeze: the send detail must not reveal opens/clicks of a
+  // contatto the operator hasn't promoted yet.
+  if (send && (await isModeratedTenant())) freezeLeadEngagement(send.leads);
+  return send;
 }
