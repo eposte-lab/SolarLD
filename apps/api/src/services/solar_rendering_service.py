@@ -126,6 +126,12 @@ def _adaptive_padding_factor(cluster_half_diag_m: float) -> float:
 _MIN_BASE_RADIUS_M = 50
 _MAX_BASE_RADIUS_M = 140
 
+# Above this distance (m) between the panel-cluster centroid and the lead
+# pin, Google findClosest is assumed to have snapped to a NEIGHBOUR
+# building, so we re-centre the crop on the pin (the verified business
+# location) instead of the drifted cluster. Below it the cluster wins.
+_NEIGHBOUR_DRIFT_M = 35.0
+
 
 def _base_radius_m(insight: RoofInsight) -> int:
     """Radius (m) for the base-image tile + crop, sized to the WHOLE roof.
@@ -774,9 +780,31 @@ def _load_and_crop(
     # Centre the crop on the panel cluster centroid when possible
     # (more stable than the building centre point Solar API returns,
     # which can land on a parking lot for L-shaped buildings).
+    #
+    # NEIGHBOUR-HOP GUARD — but when that cluster centroid has drifted
+    # far from the lead pin, Google ``findClosest`` has snapped to a
+    # *neighbour* building (the Excelsior-Vittoria symptom: the pin sits
+    # on the hotel, yet panels land on the adjacent flat roof). The pin
+    # is the business's verified location, so beyond the drift threshold
+    # we trust it and centre there instead — keeping the correct building
+    # in frame. Within the threshold the cluster centroid still wins, so
+    # ordinary capannoni (where the pin may fall on a yard) are unchanged.
     if insight.panels:
-        cluster_lat = sum(p.lat for p in insight.panels) / len(insight.panels)
-        cluster_lng = sum(p.lng for p in insight.panels) / len(insight.panels)
+        cl_lat = sum(p.lat for p in insight.panels) / len(insight.panels)
+        cl_lng = sum(p.lng for p in insight.panels) / len(insight.panels)
+        cluster_drift_m = math.hypot(
+            (cl_lat - center_lat) * 111_320.0,
+            (cl_lng - center_lng) * 111_320.0 * math.cos(math.radians(center_lat)),
+        )
+        if cluster_drift_m > _NEIGHBOUR_DRIFT_M:
+            log.info(
+                "solar_rendering.cluster_drift_recenter",
+                drift_m=round(cluster_drift_m, 1),
+                threshold_m=_NEIGHBOUR_DRIFT_M,
+            )
+            cluster_lat, cluster_lng = center_lat, center_lng
+        else:
+            cluster_lat, cluster_lng = cl_lat, cl_lng
     else:
         cluster_lat = center_lat
         cluster_lng = center_lng
