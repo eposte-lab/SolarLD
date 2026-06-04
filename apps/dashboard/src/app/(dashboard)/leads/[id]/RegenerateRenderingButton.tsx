@@ -29,8 +29,9 @@ type State =
   | { kind: 'error'; message: string };
 
 /** Tetto di rigenerazioni per lead — deve combaciare con
- *  MAX_RENDERING_REGENERATIONS in apps/api/src/routes/leads.py. */
-const MAX_REGEN = 3;
+ *  MAX_RENDERING_REGENERATIONS in apps/api/src/routes/leads.py.
+ *  Alzato a 100 (di fatto illimitato) per il collaudo go-live. */
+const MAX_REGEN = 100;
 
 interface Props {
   leadId: string;

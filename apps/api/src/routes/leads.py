@@ -27,8 +27,12 @@ log = get_logger(__name__)
 router = APIRouter()
 
 # Tetto di rigenerazioni manuali del rendering per singolo lead. Ogni
-# rigenerazione costa Solar API + panel-paint nano-banana.
-MAX_RENDERING_REGENERATIONS = 3
+# rigenerazione costa Solar API + panel-paint nano-banana. Alzato a 100
+# (di fatto illimitato) per il collaudo go-live: l'operatore deve poter
+# iterare sul centraggio/zoom degli hero lead senza sbattere sul cap.
+# Il tetto resta solo come guardia contro click runaway. Deve combaciare
+# con MAX_REGEN in RegenerateRenderingButton.tsx.
+MAX_RENDERING_REGENERATIONS = 100
 
 # Columns exported to CSV — flat, CRM-friendly shape. Nested
 # subject/roof fields are lifted to the top level with a prefix so
