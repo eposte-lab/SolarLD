@@ -21,9 +21,23 @@ from fastapi.responses import Response
 from ..core.logging import get_logger
 from ..core.security import CurrentUser, require_tenant
 from ..core.supabase_client import get_service_client
+from ..services.appointment_service import is_tenant_moderated
 
 router = APIRouter()
 log = get_logger(__name__)
+
+# Pipeline statuses that exist only because the prospect reacted. On a frozen
+# (un-promoted) contatto of a moderated tenant we roll these back to the
+# sent-time state — mirrors dashboard moderation-freeze.freezePipelineStatus.
+_REACTION_STATUSES = frozenset(
+    {"opened", "clicked", "engaged", "to_call", "whatsapp", "appointment", "closed_won", "closed_lost"}
+)
+
+
+def _freeze_status(status: str, outreach_sent_at: Any) -> str:
+    if status not in _REACTION_STATUSES:
+        return status
+    return "sent" if outreach_sent_at else "new"
 
 _SELECT_FIELDS = (
     "id, lead_id, tenant_id, channel, sequence_step, status, "
@@ -61,7 +75,8 @@ async def list_outreach_sends(
 _EXPORT_EMBED = (
     "channel, sequence_step, status, email_subject, sent_at, scheduled_for, failure_reason, "
     "leads:leads("
-    "pipeline_status, outreach_delivered_at, outreach_opened_at, outreach_clicked_at, "
+    "pipeline_status, operator_released_at, outreach_sent_at, "
+    "outreach_delivered_at, outreach_opened_at, outreach_clicked_at, "
     "subjects:subjects(business_name, decision_maker_name, decision_maker_email, decision_maker_phone), "
     "roofs:roofs(comune, provincia)"
     ")"
@@ -128,6 +143,13 @@ async def export_outreach_sends_csv(ctx: CurrentUser) -> Response:
             break
         page += 1
 
+    # Moderation freeze: for a moderated tenant, a contatto NOT yet promoted by
+    # the operator (operator_released_at IS NULL) must read at its sent-time
+    # state — every prospect REACTION (opened/clicked + reaction pipeline_status)
+    # is withheld, exactly like the dashboard surfaces. Delivery is a send-side
+    # fact and is preserved. Mirrors data/moderation-freeze.freezeModeratedLead.
+    moderated = is_tenant_moderated(sb, str(tenant_id))
+
     def _flag(value: Any) -> str:
         return "Sì" if value else ""
 
@@ -141,6 +163,14 @@ async def export_outreach_sends_csv(ctx: CurrentUser) -> Response:
         lead = _embed_one(r.get("leads"))
         subj = _embed_one(lead.get("subjects"))
         roof = _embed_one(lead.get("roofs"))
+
+        frozen = moderated and not lead.get("operator_released_at")
+        opened = "" if frozen else _flag(lead.get("outreach_opened_at"))
+        clicked = "" if frozen else _flag(lead.get("outreach_clicked_at"))
+        pipeline_status = str(lead.get("pipeline_status") or "")
+        if frozen:
+            pipeline_status = _freeze_status(pipeline_status, lead.get("outreach_sent_at"))
+
         writer.writerow(
             [
                 subj.get("business_name") or "",
@@ -155,9 +185,9 @@ async def export_outreach_sends_csv(ctx: CurrentUser) -> Response:
                 r.get("status") or "",
                 _dt(r.get("sent_at") or r.get("scheduled_for")),
                 _flag(lead.get("outreach_delivered_at")),
-                _flag(lead.get("outreach_opened_at")),
-                _flag(lead.get("outreach_clicked_at")),
-                lead.get("pipeline_status") or "",
+                opened,
+                clicked,
+                pipeline_status,
                 r.get("failure_reason") or "",
             ]
         )
