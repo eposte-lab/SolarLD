@@ -18,6 +18,7 @@
 import 'server-only';
 
 import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { isModeratedTenant } from '@/lib/data/tenant';
 
 // Types + display-value resolvers live in a non-server module so client
 // components (e.g. contatti-table.tsx) can import them safely. We
@@ -401,19 +402,33 @@ export async function getScanFunnel(): Promise<ScanFunnelData> {
     return count ?? 0;
   };
 
-  const countLead = async (col?: string, val?: string): Promise<number> => {
+  // Moderation freeze: on a moderated tenant the ENGAGEMENT rows of the
+  // funnel (Aperti/Cliccati/Engaged/Appuntamento/Firmati) must only count
+  // PROMOTED contatti — otherwise the absolute counts + conversion rates
+  // leak who engaged before promotion. Sent/Delivered stay unfiltered
+  // (operator-driven, no reaction).
+  const moderated = await isModeratedTenant();
+
+  const countLead = async (
+    col?: string,
+    val?: string,
+    freeze = false,
+  ): Promise<number> => {
     let q = sb.from('leads').select('id', { count: 'exact', head: true });
     if (col && val) q = q.eq(col, val);
+    if (moderated && freeze) q = q.not('operator_released_at', 'is', null);
     const { count, error } = await q;
     if (error) return 0;
     return count ?? 0;
   };
 
-  const countLeadNotNull = async (col: string): Promise<number> => {
-    const { count, error } = await sb
+  const countLeadNotNull = async (col: string, freeze = false): Promise<number> => {
+    let q = sb
       .from('leads')
       .select('id', { count: 'exact', head: true })
       .not(col, 'is', null);
+    if (moderated && freeze) q = q.not('operator_released_at', 'is', null);
+    const { count, error } = await q;
     if (error) return 0;
     return count ?? 0;
   };
@@ -459,11 +474,11 @@ export async function getScanFunnel(): Promise<ScanFunnelData> {
     countLead(),
     countLeadNotNull('outreach_sent_at'),
     countLeadNotNull('outreach_delivered_at'),
-    countLeadNotNull('outreach_opened_at'),
-    countLeadNotNull('outreach_clicked_at'),
-    countLead('pipeline_status', 'engaged'),
-    countLead('pipeline_status', 'appointment'),
-    countLead('pipeline_status', 'closed_won'),
+    countLeadNotNull('outreach_opened_at', true),
+    countLeadNotNull('outreach_clicked_at', true),
+    countLead('pipeline_status', 'engaged', true),
+    countLead('pipeline_status', 'appointment', true),
+    countLead('pipeline_status', 'closed_won', true),
     countConversion('won'),
     scanCostCents(),
   ]);
