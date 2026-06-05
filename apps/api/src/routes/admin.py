@@ -1443,36 +1443,77 @@ async def trial_existing_pv_selftest(ctx: CurrentUser) -> dict[str, Any]:
       * stage=parse       → model answered but unparseable (rare)
     """
     _require_super_admin(ctx)
+    from ..core.config import settings
     from ..services import mapbox_service
     from ..services.claude_vision_service import detect_existing_pv
 
     lat, lng = 41.0065873, 14.3214137  # La Reggia Designer Outlet — known PV
+
+    # Stage 1 — build the Mapbox satellite URL (needs MAPBOX_ACCESS_TOKEN).
     try:
         url = mapbox_service.build_static_satellite_url(lat, lng, zoom=19, width=640, height=640)
     except Exception as exc:  # noqa: BLE001
         return {
             "ok": False,
             "stage": "mapbox_url",
-            "error": str(exc)[:200],
-            "hint": "MAPBOX_ACCESS_TOKEN mancante sul servizio API",
+            "error": str(exc)[:300],
+            "hint": "MAPBOX_ACCESS_TOKEN mancante/non valido sul servizio API",
         }
+
+    # Stage 2 — run the vision call. Classify the failure PRECISELY instead of
+    # blaming the key by default: a missing key, an invalid key, and an SDK that
+    # can't fetch the image-by-URL are three different fixes.
     try:
         raw = await detect_existing_pv(url, lat, lng)
     except Exception as exc:  # noqa: BLE001
+        etype = type(exc).__name__
+        msg = str(exc)
+        low = msg.lower()
+        if "anthropic_api_key not configured" in low:
+            hint = "ANTHROPIC_API_KEY NON impostata sul servizio API"
+        elif etype == "AuthenticationError" or "401" in low or "invalid x-api-key" in low:
+            hint = "ANTHROPIC_API_KEY presente ma NON valida (401) sul servizio API"
+        elif "url" in low and ("image" in low or "source" in low or "invalid" in low):
+            hint = (
+                "l'SDK Anthropic sul servizio non accetta l'immagine via URL "
+                "(source.type=url) — serve aggiornare il pacchetto `anthropic`"
+            )
+        elif etype in ("NotFoundError",) or "model" in low:
+            hint = f"modello vision non valido sul servizio (ANTHROPIC_MODEL={settings.anthropic_model})"
+        else:
+            hint = "errore vision (vedi 'error' qui sotto per la causa reale)"
         return {
             "ok": False,
             "stage": "vision",
-            "error": str(exc)[:200],
-            "hint": "ANTHROPIC_API_KEY mancante/non valida sul servizio API",
+            "error_type": etype,
+            "error": msg[:300],
+            "hint": hint,
+            "model": settings.anthropic_model,
         }
+
+    # Stage 3 — the call returned. Separate "pipeline runs" from "detected PV".
     if raw is None:
-        return {"ok": False, "stage": "parse", "hint": "il vision ha risposto ma non parsabile"}
+        # Vision answered but unparseable, OR confidence/has_building gates
+        # nulled it. The ENV is fine; this is a detection/parse issue.
+        return {
+            "ok": False,
+            "stage": "parse",
+            "pipeline_ok": True,
+            "hint": "il vision ha RISPOSTO (env OK) ma la risposta non era parsabile",
+            "model": settings.anthropic_model,
+        }
+
+    detected = bool(raw.get("has_existing_pv"))
     return {
+        # ok = the vision PIPELINE works end-to-end on this deploy (env is fine).
         "ok": True,
+        "pipeline_ok": True,
         "reference": "La Reggia Designer Outlet (impianto noto)",
-        "has_existing_pv": raw.get("has_existing_pv"),
+        "has_existing_pv": detected,
         "confidence": raw.get("confidence"),
-        "working": bool(raw.get("has_existing_pv")),
+        # working kept for back-compat = did it actually DETECT the known PV.
+        "working": detected,
+        "model": settings.anthropic_model,
     }
 
 
