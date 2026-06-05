@@ -185,6 +185,18 @@ async def _gate_one(
     ctx.costs.add_solar(calls=1, cost_cents=SOLAR_COST_PER_CALL_CENTS)
 
     verdict_accepted, reason = _apply_filters(insight, filters)
+
+    # Existing-PV gate — don't pitch solar to a roof that already went solar.
+    # Runs ONLY on technically-accepted candidates (a ~0.5¢ Claude-vision call
+    # on a Mapbox tile) and FAILS OPEN, so a vision hiccup or missing token
+    # never rejects a good lead. The cheap filters above run first so we never
+    # spend a vision call on a roof we'd reject anyway.
+    if verdict_accepted:
+        from ...services.claude_vision_service import building_has_existing_pv
+
+        if await building_has_existing_pv(lat, lng):
+            verdict_accepted, reason = False, "has_existing_pv"
+
     classification = classify_roof(insight)
 
     roof_id, subject_id = _upsert_roof_and_subject(
