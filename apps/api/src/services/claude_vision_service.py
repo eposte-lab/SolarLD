@@ -27,6 +27,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 
 from ..core.config import settings
 from ..core.logging import get_logger
+from . import mapbox_service
 from .google_solar_service import RoofInsight, _azimuth_to_cardinal
 
 log = get_logger(__name__)
@@ -221,3 +222,114 @@ def projection_to_insight(
         locality=None,
         raw={"source": "claude_vision", **(raw or data)},
     )
+
+
+# ---------------------------------------------------------------------------
+# Existing-PV detector — lead-quality gate (don't pitch solar to a roof that
+# already went solar). Cheap (~0.5¢/call, image is fetched by Claude via URL).
+# ---------------------------------------------------------------------------
+
+_EXISTING_PV_SYSTEM = (
+    "You are a remote-sensing specialist inspecting Italian rooftop aerial "
+    "imagery. Judge ONLY whether photovoltaic (solar) panels are ALREADY "
+    "installed on the building's roof. Be conservative: answer true only when "
+    "you clearly see rows of dark rectangular PV modules ON A ROOFTOP."
+)
+
+_EXISTING_PV_PROMPT = """\
+Look at the main building in the central area of this satellite tile
+(latitude {lat}, longitude {lng}).
+
+Does its ROOFTOP already have solar photovoltaic panels installed? PV panels
+appear as neat rows of uniform dark blue/black rectangular modules on the
+roof. Do NOT count: skylights, glass atriums, dark flat membrane roofs, HVAC
+units, ground-mounted solar farms beside the building, greenhouses, pools, or
+parked vehicles.
+
+Respond with EXACTLY this JSON (no prose, no code fences):
+{{"has_existing_pv": boolean, "confidence": number, "notes": string}}
+"""
+
+
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(min=2, max=15), reraise=True)
+async def detect_existing_pv(
+    image_url: str,
+    lat: float,
+    lng: float,
+    *,
+    model: str | None = None,
+) -> dict[str, object] | None:
+    """Claude-vision check: does the central rooftop ALREADY have PV panels?
+
+    Returns ``{"has_existing_pv": bool, "confidence": float}`` or ``None`` on a
+    parse/empty error. Callers must FAIL OPEN (treat None as "no existing PV")
+    so a vision hiccup never silently rejects a good lead.
+    """
+    client = _get_client()
+    msg = await client.messages.create(
+        model=model or settings.anthropic_model,
+        max_tokens=200,
+        temperature=0.0,
+        system=_EXISTING_PV_SYSTEM,
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image", "source": {"type": "url", "url": image_url}},
+                    {"type": "text", "text": _EXISTING_PV_PROMPT.format(lat=lat, lng=lng)},
+                ],
+            }
+        ],
+    )
+    text = ""
+    for block in msg.content:
+        if getattr(block, "type", None) == "text":
+            text = block.text  # type: ignore[attr-defined]
+            break
+    try:
+        start, end = text.find("{"), text.rfind("}")
+        parsed = json.loads(text[start : end + 1]) if start != -1 and end > start else None
+    except (ValueError, json.JSONDecodeError):
+        parsed = None
+    if not isinstance(parsed, dict) or "has_existing_pv" not in parsed:
+        return None
+    return {
+        "has_existing_pv": bool(parsed.get("has_existing_pv", False)),
+        "confidence": float(parsed.get("confidence", 0.0) or 0.0),
+    }
+
+
+# Minimum vision confidence before we ACT on an existing-PV detection. Below
+# this we keep the lead (a false reject costs lead supply; we only drop the
+# clear cases like a roof fully tiled with panels).
+EXISTING_PV_MIN_CONFIDENCE = 0.6
+
+
+async def building_has_existing_pv(lat: float, lng: float) -> bool:
+    """True when the rooftop at ``(lat, lng)`` already has PV, via a Mapbox
+    satellite tile + Claude vision. FAILS OPEN (returns False) on any error —
+    a missing token, a vision timeout or a low-confidence answer never blocks
+    a lead.
+    """
+    try:
+        url = mapbox_service.build_static_satellite_url(lat, lng, zoom=19, width=640, height=640)
+    except Exception as exc:  # noqa: BLE001 — no token / build error → fail open
+        log.warning("existing_pv.url_failed", err=str(exc)[:160])
+        return False
+    try:
+        res = await detect_existing_pv(url, lat, lng)
+    except Exception as exc:  # noqa: BLE001 — vision error → fail open
+        log.warning("existing_pv.vision_failed", lat=lat, lng=lng, err=str(exc)[:160])
+        return False
+    if not res:
+        return False
+    has_pv = bool(res["has_existing_pv"]) and float(res["confidence"]) >= EXISTING_PV_MIN_CONFIDENCE
+    log.info(
+        "existing_pv.checked",
+        lat=lat,
+        lng=lng,
+        has_existing_pv=res["has_existing_pv"],
+        confidence=res["confidence"],
+        acted=has_pv,
+    )
+    return has_pv

@@ -1356,6 +1356,68 @@ async def trial_regenerate_failed_renders(
     return {"ok": True, "regenerated": len(lead_ids)}
 
 
+@router.post("/trial/recheck-existing-pv")
+async def trial_recheck_existing_pv(
+    ctx: CurrentUser,
+    tenant_id: str = Query(description="Tenant whose not-yet-sent leads to vision-check"),
+    limit: int = Query(150, ge=1, le=1000, description="Max leads to check this run"),
+) -> dict[str, Any]:
+    """Vision-recheck NOT-YET-SENT leads for EXISTING rooftop PV and blacklist
+    the ones that already have panels — they are not prospects (the
+    Excelsior/La-Reggia symptom: a great roof that already went solar).
+
+    Super-admin only. ~0.5¢ per lead checked (Claude vision on a Mapbox tile),
+    fails OPEN per lead, idempotent (already-blacklisted/sent leads are
+    excluded, so a re-run only covers what's left). Sends nothing.
+    """
+    _require_super_admin(ctx)
+    import asyncio
+
+    from ..services.claude_vision_service import building_has_existing_pv
+
+    sb = get_service_client()
+    res = (
+        sb.table("leads")
+        .select("id, roof_id, roofs:roofs(lat, lng)")
+        .eq("tenant_id", tenant_id)
+        .is_("outreach_sent_at", "null")
+        .not_.in_("pipeline_status", ["blacklisted", "closed_lost", "closed_won"])
+        .limit(limit)
+        .execute()
+    )
+    rows = res.data or []
+
+    sem = asyncio.Semaphore(10)
+
+    async def _check(row: dict[str, Any]) -> tuple[str, str | None, bool]:
+        roof = row.get("roofs") or {}
+        lat, lng = roof.get("lat"), roof.get("lng")
+        if lat is None or lng is None:
+            return row["id"], row.get("roof_id"), False
+        async with sem:
+            has_pv = await building_has_existing_pv(float(lat), float(lng))
+        return row["id"], row.get("roof_id"), has_pv
+
+    results = await asyncio.gather(*[_check(r) for r in rows], return_exceptions=False)
+    flagged = [(lid, rid) for (lid, rid, has_pv) in results if has_pv]
+
+    for lid, rid in flagged:
+        sb.table("leads").update({"pipeline_status": "blacklisted"}).eq("id", lid).eq(
+            "tenant_id", tenant_id
+        ).execute()
+        if rid:
+            sb.table("roofs").update({"has_existing_pv": True}).eq("id", rid).execute()
+
+    log.info(
+        "admin.trial_recheck_existing_pv",
+        tenant_id=tenant_id,
+        checked=len(rows),
+        blacklisted=len(flagged),
+        super_admin=ctx.user_id,
+    )
+    return {"ok": True, "checked": len(rows), "blacklisted_existing_pv": len(flagged)}
+
+
 @router.post("/trial/leads/{lead_id}/release")
 async def trial_release_lead(ctx: CurrentUser, lead_id: str) -> dict[str, Any]:
     """Promote a reacted contatto to a *lead* for the moderated tenant.

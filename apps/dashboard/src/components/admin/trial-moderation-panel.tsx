@@ -255,6 +255,7 @@ export function TrialModerationPanel({ initialTenantId }: { initialTenantId: str
 
       <SendNowButton tenantId={tenantId} />
       <RegenRendersButton tenantId={tenantId} />
+      <RecheckExistingPvButton tenantId={tenantId} />
       <LeadQueue tenantId={tenantId} />
       <InboundQueue tenantId={tenantId} />
     </div>
@@ -406,6 +407,79 @@ function RegenRendersButton({ tenantId }: { tenantId: string }) {
         ogni render, anche quelli già riusciti — serve ad applicare le
         correzioni di centraggio/zoom a hotel e complessi già renderizzati
         (~1 chiamata Solar per lead). In nessun caso rimanda email.
+      </p>
+      {result && (
+        <div className="mt-3 flex items-start gap-2 rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 text-sm text-on-surface">
+          <MailCheck size={14} strokeWidth={2.25} aria-hidden className="mt-0.5 shrink-0 text-primary" />
+          <span>{result}</span>
+        </div>
+      )}
+      {error && (
+        <div className="mt-3 flex items-start gap-2 rounded-lg border border-error/30 bg-error-container/20 px-3 py-2 text-sm text-error">
+          <AlertTriangle size={14} strokeWidth={2.25} aria-hidden className="mt-0.5 shrink-0" />
+          <span className="whitespace-pre-wrap">{error}</span>
+        </div>
+      )}
+    </BentoCard>
+  );
+}
+
+function RecheckExistingPvButton({ tenantId }: { tenantId: string }) {
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function run() {
+    if (busy) return;
+    setBusy(true);
+    setResult(null);
+    setError(null);
+    try {
+      const res = await api.post<{
+        ok: boolean;
+        checked: number;
+        blacklisted_existing_pv: number;
+      }>(
+        `/v1/admin/trial/recheck-existing-pv?tenant_id=${encodeURIComponent(tenantId)}`,
+        {},
+      );
+      setResult(
+        `${res.checked} lead controllati · ${res.blacklisted_existing_pv} con impianto già sul tetto → blacklistati (non partiranno). Nessun invio.`,
+      );
+    } catch (e) {
+      setError(errMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <BentoCard span="full">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <RefreshCw size={16} strokeWidth={2.25} aria-hidden className="text-primary" />
+          <h2 className="font-headline text-lg font-bold tracking-tight text-on-surface">
+            Ricontrolla impianti esistenti
+          </h2>
+        </div>
+        <button
+          type="button"
+          onClick={() => void run()}
+          disabled={busy}
+          className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-on-primary transition-opacity hover:opacity-90 disabled:opacity-50"
+        >
+          {busy ? (
+            <Loader2 size={14} strokeWidth={2.25} aria-hidden className="animate-spin" />
+          ) : (
+            <RefreshCw size={14} strokeWidth={2.25} aria-hidden />
+          )}
+          Ricontrolla
+        </button>
+      </div>
+      <p className="mt-1 text-xs text-on-surface-variant">
+        Analisi vision (~0,5¢/lead) sui lead <strong>non ancora inviati</strong>:
+        chi ha già i pannelli sul tetto viene messo in blacklist così non parte.
+        Non invia nulla.
       </p>
       {result && (
         <div className="mt-3 flex items-start gap-2 rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 text-sm text-on-surface">
