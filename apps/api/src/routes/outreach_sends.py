@@ -175,6 +175,11 @@ async def export_outreach_sends_csv(ctx: CurrentUser) -> Response:
         roof = _embed_one(lead.get("roofs"))
 
         frozen = moderated and not lead.get("operator_released_at")
+        # Hide follow-up sends (step > 1) for un-promoted contatti — the
+        # moderated tenant's view stays frozen at the first outreach, exactly
+        # like the dashboard Invii list. Released contatti show everything.
+        if frozen and int(r.get("sequence_step") or 1) > 1:
+            continue
         opened = "" if frozen else _flag(lead.get("outreach_opened_at"))
         clicked = "" if frozen else _flag(lead.get("outreach_clicked_at"))
         pipeline_status = str(lead.get("pipeline_status") or "")
