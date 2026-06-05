@@ -104,10 +104,18 @@ export async function listCampaigns(
     .order('created_at', { ascending: false })
     .limit(limit);
   if (error) throw new Error(`listCampaigns: ${error.message}`);
-  const rows = (data ?? []) as unknown as CampaignWithLeadEngagement[];
-  // Moderation freeze: hide opens/clicks of contatti the operator hasn't
-  // promoted yet (delivery stays visible).
+  let rows = (data ?? []) as unknown as CampaignWithLeadEngagement[];
+  // Moderation freeze: an un-promoted contatto's send view stays frozen at the
+  // FIRST outreach. So (1) drop follow-up sends (sequence_step > 1) entirely
+  // for contatti the operator hasn't promoted, and (2) hide opens/clicks on
+  // the surviving first-touch row (delivery stays visible).
   if (await isModeratedTenant()) {
+    rows = rows.filter((row) => {
+      const step = (row as { sequence_step?: number | null }).sequence_step ?? 1;
+      const released = (row.leads as { operator_released_at?: string | null } | null)
+        ?.operator_released_at;
+      return !(step > 1 && !released);
+    });
     for (const row of rows) freezeLeadEngagement(row.leads);
   }
   return rows;
@@ -128,7 +136,9 @@ export async function getCampaignDeliveryStats(): Promise<CampaignDeliveryStats>
   const supabase = await createSupabaseServerClient();
 
   const [campaignsRes, engagementRes, moderated] = await Promise.all([
-    supabase.from('outreach_sends').select('status, lead_id'),
+    supabase
+      .from('outreach_sends')
+      .select('status, lead_id, sequence_step, leads:leads(operator_released_at)'),
     // RLS scopes `leads` to the current tenant → we only see our rows.
     supabase
       .from('leads')
@@ -144,8 +154,20 @@ export async function getCampaignDeliveryStats(): Promise<CampaignDeliveryStats>
     throw new Error(`getCampaignDeliveryStats: ${engagementRes.error.message}`);
   }
 
-  const campaigns = campaignsRes.data ?? [];
+  let campaigns = campaignsRes.data ?? [];
   const engagedLeads = engagementRes.data ?? [];
+
+  // Moderation freeze: an un-promoted contatto's view stays frozen at the first
+  // outreach, so follow-up sends (sequence_step > 1) don't count toward the
+  // tenant's "invii" total until the operator promotes the contatto.
+  if (moderated) {
+    campaigns = campaigns.filter((c) => {
+      const step = (c as { sequence_step?: number | null }).sequence_step ?? 1;
+      const leadRel = (c as { leads?: { operator_released_at?: string | null } | { operator_released_at?: string | null }[] | null }).leads;
+      const lead = Array.isArray(leadRel) ? leadRel[0] : leadRel;
+      return !(step > 1 && !lead?.operator_released_at);
+    });
+  }
 
   const total = campaigns.length;
   const delivered = campaigns.filter((c) => c.status === 'delivered').length;
