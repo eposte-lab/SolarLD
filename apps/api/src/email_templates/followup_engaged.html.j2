@@ -44,15 +44,15 @@
           {%- endif %}
           {%- else %}
           <p style="margin:0 0 18px; font-size:15px; line-height:23px; color:#2b2b2b;">
-            {{ copy_opening_line | default('Sto seguendo da vicino il vostro settore e c&apos;è un dato recente che vorrei commentare con voi.', true) }}
+            {{ copy_opening_line | default('Sto seguendo da vicino il vostro settore e c’è un dato recente che vorrei commentare con voi.', true) }}
           </p>
           <p style="margin:0 0 22px; font-size:14px; line-height:22px; color:#444;">
-            {{ main_copy_1 | default('Le aziende che si stanno muovendo per prime sull&apos;autoproduzione energetica stanno guadagnando un margine concreto rispetto a chi resta esposto al mercato libero.', true) }}
+            {{ main_copy_1 | default('Le aziende che si stanno muovendo per prime sull’autoproduzione energetica stanno guadagnando un margine concreto rispetto a chi resta esposto al mercato libero.', true) }}
           </p>
           {%- endif %}
           {%- if roi and roi.yearly_savings_eur is defined %}
           <div style="background:#f5f2eb; border-left:4px solid {{ brand_color_accent | default('#F4A300', true) }}; padding:14px 18px; border-radius:4px; margin:0 0 22px;">
-            <p style="margin:0 0 2px; font-size:11px; color:#6b6b6b; text-transform:uppercase; letter-spacing:0.6px;">La vostra simulazione</p>
+            <p style="margin:0 0 2px; font-size:11px; color:#6b6b6b; text-transform:uppercase; letter-spacing:0.6px;">Il vostro risparmio stimato</p>
             <p style="margin:0; font-size:24px; line-height:30px; font-weight:700; color:{{ brand_primary_color }};">€{{ roi.yearly_savings_eur | int | format_money }}<span style="font-size:14px; font-weight:400; color:#6b6b6b;">/anno di risparmio</span></p>
           </div>
           {%- endif %}
@@ -64,7 +64,7 @@
               <table role="presentation" border="0" cellpadding="0" cellspacing="0">
                 <tr><td style="background-color:{{ brand_color_accent | default('#F4A300', true) }}; border-radius:6px;">
                   <a href="{{ lead_url }}" target="_blank" style="display:inline-block; padding:14px 28px; font-size:14px; font-weight:700; color:{{ brand_primary_color }}; text-decoration:none;">
-                    {{ cta_primary_label | default('Rivedi l&apos;analisi', true) }} &rarr;
+                    {{ cta_primary_label | default('Rivedi l’analisi', true) }} &rarr;
                   </a>
                 </td></tr>
               </table>

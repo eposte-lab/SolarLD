@@ -12,7 +12,7 @@ Per {{ greeting_name }},
 {{ main_copy_1 | default('Le aziende italiane simili a voi che hanno installato il fotovoltaico nell\'ultimo anno hanno ridotto la spesa energetica tra il 30% e il 60%, con un rientro medio di 5 anni.', true) }}
 {% endif %}
 {% if roi and roi.yearly_savings_eur is defined -%}
-La vostra stima personalizzata: €{{ roi.yearly_savings_eur | int | format_money }}/anno di risparmio{% if roi.payback_years %} (rientro ~{{ roi.payback_years }} anni){% endif %}.
+Il vostro risparmio stimato: €{{ roi.yearly_savings_eur | int | format_money }}/anno{% if epc_enabled %} — senza investimento iniziale (formula EPC){% elif roi.payback_years %} (rientro ~{{ roi.payback_years }} anni){% endif %}.
 
 {% endif -%}
 {{ copy_proposition_line | default('Se preferite scriverci direttamente, basta rispondere a questa email.', true) }}
