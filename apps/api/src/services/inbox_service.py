@@ -86,6 +86,7 @@ async def pick_and_claim(
     tenant_id: str,
     *,
     campaign_inbox_ids: list[str] | None = None,
+    warmup_cap_override: int | None = None,
 ) -> dict[str, Any] | None:
     """Select and atomically claim one send slot from an available inbox.
 
@@ -143,6 +144,16 @@ async def pick_and_claim(
         # No active inboxes → caller uses legacy path.
         return None
 
+    # Optional one-off warm-up override: spread the requested daily total
+    # across the active OUTREACH inboxes as a per-inbox floor (ceil division).
+    warmup_floor: int | None = None
+    if warmup_cap_override and warmup_cap_override > 0:
+        n_outreach = (
+            sum(1 for ib in all_inboxes if (ib.get("email_style") or "") != "visual_preventivo")
+            or 1
+        )
+        warmup_floor = -(-int(warmup_cap_override) // n_outreach)
+
     # ── 2. Python-side filtering: skip paused, at-cap, and too-recent inboxes
     # Also skip inboxes whose parent domain is paused.
     now_dt = datetime.now(UTC)  # used by human-delay check below
@@ -177,7 +188,7 @@ async def pick_and_claim(
         total_sent = int(inbox.get("total_sent_today") or 0)
         # Apply the 21-day per-inbox warm-up curve for outreach inboxes;
         # brand inboxes return their configured daily_cap unchanged.
-        cap = inbox_effective_daily_cap(inbox)
+        cap = inbox_effective_daily_cap(inbox, warmup_floor=warmup_floor)
 
         if sent_date == today and total_sent >= cap:
             continue  # daily cap exhausted for today (warm-up or steady-state)
@@ -197,7 +208,7 @@ async def pick_and_claim(
     for candidate in available:
         inbox_id: str = candidate["id"]
         # Use the warm-up-aware effective cap (Sprint 6.3).
-        cap = inbox_effective_daily_cap(candidate)
+        cap = inbox_effective_daily_cap(candidate, warmup_floor=warmup_floor)
         sent_date = candidate.get("sent_date") or ""
         total_sent = int(candidate.get("total_sent_today") or 0)
         is_new_day = sent_date != today
