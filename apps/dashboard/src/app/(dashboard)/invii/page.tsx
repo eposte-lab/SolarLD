@@ -26,6 +26,7 @@ import { CollapsibleFilters } from '@/components/ui/collapsible-filters';
 import { GradientButton } from '@/components/ui/gradient-button';
 import { KpiChipCard } from '@/components/ui/kpi-chip-card';
 import { InviiTable } from '@/components/invii/invii-table';
+import { ExportCsvButton } from '@/components/invii/export-csv-button';
 import {
   getCampaignDeliveryStats,
   listCampaigns,
@@ -152,7 +153,7 @@ export default async function InviiPage({
   return (
     <div className="space-y-4">
       {/* Header */}
-      <header className="flex items-end justify-between">
+      <header className="flex items-end justify-between gap-4">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
             Outreach · {formatNumber(stats.total)} invii totali
@@ -161,6 +162,7 @@ export default async function InviiPage({
             Invii
           </h1>
         </div>
+        <ExportCsvButton />
       </header>
 
       {/* Tab bar */}
