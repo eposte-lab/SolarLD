@@ -256,6 +256,7 @@ export function TrialModerationPanel({ initialTenantId }: { initialTenantId: str
       <SendNowButton tenantId={tenantId} />
       <RegenRendersButton tenantId={tenantId} />
       <RecheckExistingPvButton tenantId={tenantId} />
+      <VisionSelfTestButton />
       <LeadQueue tenantId={tenantId} />
       <InboundQueue tenantId={tenantId} />
     </div>
@@ -491,6 +492,100 @@ function RecheckExistingPvButton({ tenantId }: { tenantId: string }) {
         <div className="mt-3 flex items-start gap-2 rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 text-sm text-on-surface">
           <MailCheck size={14} strokeWidth={2.25} aria-hidden className="mt-0.5 shrink-0 text-primary" />
           <span>{result}</span>
+        </div>
+      )}
+      {error && (
+        <div className="mt-3 flex items-start gap-2 rounded-lg border border-error/30 bg-error-container/20 px-3 py-2 text-sm text-error">
+          <AlertTriangle size={14} strokeWidth={2.25} aria-hidden className="mt-0.5 shrink-0" />
+          <span className="whitespace-pre-wrap">{error}</span>
+        </div>
+      )}
+    </BentoCard>
+  );
+}
+
+function VisionSelfTestButton() {
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<string | null>(null);
+  const [ok, setOk] = useState<boolean | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function run() {
+    if (busy) return;
+    setBusy(true);
+    setResult(null);
+    setOk(null);
+    setError(null);
+    try {
+      const res = await api.post<{
+        ok: boolean;
+        working?: boolean;
+        has_existing_pv?: boolean;
+        confidence?: number;
+        stage?: string;
+        hint?: string;
+      }>(`/v1/admin/trial/existing-pv-selftest`, {});
+      if (res.ok && res.working) {
+        setOk(true);
+        setResult(
+          `✅ Vision OK — riconosce l'impianto noto (La Reggia): has_existing_pv=true · confidenza ${Math.round((res.confidence ?? 0) * 100)}%. La verifica gira davvero sull'API.`,
+        );
+      } else {
+        setOk(false);
+        setResult(
+          `❌ Vision NON funzionante (stage: ${res.stage ?? '?'}). ${res.hint ?? ''} → finché non è risolto, il recheck e il gate L4 fanno fail-open (lasciano passare).`,
+        );
+      }
+    } catch (e) {
+      setError(errMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <BentoCard span="full">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <RefreshCw size={16} strokeWidth={2.25} aria-hidden className="text-primary" />
+          <h2 className="font-headline text-lg font-bold tracking-tight text-on-surface">
+            Auto-test vision (esistenti-PV)
+          </h2>
+        </div>
+        <button
+          type="button"
+          onClick={() => void run()}
+          disabled={busy}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-primary/40 px-4 py-2 text-sm font-semibold text-primary transition-opacity hover:opacity-90 disabled:opacity-50"
+        >
+          {busy ? (
+            <Loader2 size={14} strokeWidth={2.25} aria-hidden className="animate-spin" />
+          ) : (
+            <RefreshCw size={14} strokeWidth={2.25} aria-hidden />
+          )}
+          Esegui auto-test
+        </button>
+      </div>
+      <p className="mt-1 text-xs text-on-surface-variant">
+        Prova il vision su un edificio che <strong>sappiamo</strong> avere
+        l&apos;impianto (La Reggia). Se risponde &quot;sì&quot;, la verifica
+        funziona davvero sull&apos;ambiente; se no, ti dice quale chiave manca
+        sull&apos;API.
+      </p>
+      {result && (
+        <div
+          className={`mt-3 flex items-start gap-2 rounded-lg border px-3 py-2 text-sm ${
+            ok
+              ? 'border-primary/30 bg-primary/10 text-on-surface'
+              : 'border-error/30 bg-error-container/20 text-error'
+          }`}
+        >
+          {ok ? (
+            <MailCheck size={14} strokeWidth={2.25} aria-hidden className="mt-0.5 shrink-0 text-primary" />
+          ) : (
+            <AlertTriangle size={14} strokeWidth={2.25} aria-hidden className="mt-0.5 shrink-0" />
+          )}
+          <span className="whitespace-pre-wrap">{result}</span>
         </div>
       )}
       {error && (

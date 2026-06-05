@@ -1430,6 +1430,52 @@ async def trial_recheck_existing_pv(
     }
 
 
+@router.post("/trial/existing-pv-selftest")
+async def trial_existing_pv_selftest(ctx: CurrentUser) -> dict[str, Any]:
+    """Run the existing-PV vision check on a KNOWN solar building to PROVE the
+    pipeline works on THIS deploy (super-admin only).
+
+    Reference: La Reggia Designer Outlet (Caserta) — large roof fully tiled
+    with PV. Expected: ``working=true`` with high confidence. A failure tells
+    us exactly which env piece is missing on the API service:
+      * stage=mapbox_url  → MAPBOX_ACCESS_TOKEN missing
+      * stage=vision      → ANTHROPIC_API_KEY missing/invalid
+      * stage=parse       → model answered but unparseable (rare)
+    """
+    _require_super_admin(ctx)
+    from ..services import mapbox_service
+    from ..services.claude_vision_service import detect_existing_pv
+
+    lat, lng = 41.0065873, 14.3214137  # La Reggia Designer Outlet — known PV
+    try:
+        url = mapbox_service.build_static_satellite_url(lat, lng, zoom=19, width=640, height=640)
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "ok": False,
+            "stage": "mapbox_url",
+            "error": str(exc)[:200],
+            "hint": "MAPBOX_ACCESS_TOKEN mancante sul servizio API",
+        }
+    try:
+        raw = await detect_existing_pv(url, lat, lng)
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "ok": False,
+            "stage": "vision",
+            "error": str(exc)[:200],
+            "hint": "ANTHROPIC_API_KEY mancante/non valida sul servizio API",
+        }
+    if raw is None:
+        return {"ok": False, "stage": "parse", "hint": "il vision ha risposto ma non parsabile"}
+    return {
+        "ok": True,
+        "reference": "La Reggia Designer Outlet (impianto noto)",
+        "has_existing_pv": raw.get("has_existing_pv"),
+        "confidence": raw.get("confidence"),
+        "working": bool(raw.get("has_existing_pv")),
+    }
+
+
 @router.post("/trial/leads/{lead_id}/release")
 async def trial_release_lead(ctx: CurrentUser, lead_id: str) -> dict[str, Any]:
     """Promote a reacted contatto to a *lead* for the moderated tenant.
