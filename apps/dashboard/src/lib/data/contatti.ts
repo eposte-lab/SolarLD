@@ -168,14 +168,20 @@ export async function listContatti(opts: {
   if (roofIds.length > 0) {
     const { data: leadRows } = await sb
       .from('leads')
-      .select('id, subjects(raw_data)')
+      .select('id, pipeline_status, subjects(raw_data)')
       .in('roof_id', roofIds);
     type SubjectJoin = { raw_data: Record<string, unknown> | null };
     type LeadJoin = {
       id: string;
+      pipeline_status: string | null;
       subjects: SubjectJoin | SubjectJoin[] | null;
     };
+    // A blacklisted (e.g. existing-PV) or closed lead is no longer a valid
+    // contact — leave its candidate unmapped so it drops out of the default
+    // promoted view, consistent with the "Convalidati" KPI.
+    const excluded = new Set(['blacklisted', 'closed_lost', 'closed_won']);
     for (const l of (leadRows ?? []) as unknown as LeadJoin[]) {
+      if (excluded.has(String(l.pipeline_status ?? ''))) continue;
       // PostgREST embeds a to-one relation as an object, but the
       // generated types widen it to an array — handle both.
       const subj = Array.isArray(l.subjects) ? l.subjects[0] : l.subjects;
@@ -260,11 +266,23 @@ export async function getContattiSummary(): Promise<ContattiSummary> {
       contact_extraction: Record<string, unknown> | null;
     }>
   > => {
+    // Exclude leads that are no longer valid contacts: blacklisted (e.g.
+    // existing-PV detected on the roof) or closed. Counting them would keep
+    // "Convalidati" inflated after we drop a lead — exactly what the operator
+    // flagged ("KPI still 186 after blacklisting"). A valid contact is one
+    // whose lead is still live.
+    const EXCLUDED_STATUSES = new Set(['blacklisted', 'closed_lost', 'closed_won']);
     const { data: leadRoofs } = await sb
       .from('leads')
-      .select('roof_id')
+      .select('roof_id, pipeline_status')
       .not('roof_id', 'is', null);
     const promotedRoofIds = (leadRoofs ?? [])
+      .filter(
+        (l) =>
+          !EXCLUDED_STATUSES.has(
+            String((l as { pipeline_status: string | null }).pipeline_status ?? ''),
+          ),
+      )
       .map((l) => (l as { roof_id: string | null }).roof_id)
       .filter((v): v is string => typeof v === 'string');
     if (promotedRoofIds.length === 0) return [];
