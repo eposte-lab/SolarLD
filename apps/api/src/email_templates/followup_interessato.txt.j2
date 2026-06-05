@@ -2,12 +2,12 @@
 
 Per {{ greeting_name }},
 
-{{ copy_opening_line | default('Vi rispondo con un\'idea pratica: blocchiamo 15 minuti in agenda per rivedere insieme i numeri della vostra simulazione e capire se ha senso passare alla fase di sopralluogo.', true) }}
+{{ copy_opening_line | default('Bastano 15 minuti: rivediamo insieme i numeri della vostra simulazione e valutiamo se ha senso un sopralluogo gratuito, senza impegno.', true) }}
 
 {{ main_copy_1 | default('Le aziende del vostro settore che scelgono il fotovoltaico riducono in modo concreto la bolletta e si proteggono dai rincari dell\'energia.', true) }}
 
 {% if roi and roi.yearly_savings_eur is defined -%}
-La vostra stima: €{{ roi.yearly_savings_eur | int | format_money }}/anno{% if roi.payback_years %}, rientro ~{{ roi.payback_years }} anni{% endif %}.
+Il vostro risparmio stimato: €{{ roi.yearly_savings_eur | int | format_money }}/anno{% if epc_enabled %} — senza investimento iniziale (formula EPC){% elif roi.payback_years %}, rientro ~{{ roi.payback_years }} anni{% endif %}.
 
 {% endif -%}
 {{ copy_proposition_line | default('Se preferite, basta rispondere con due o tre orari comodi e organizziamo noi.', true) }}

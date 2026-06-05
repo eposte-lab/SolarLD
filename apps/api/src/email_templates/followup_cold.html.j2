@@ -36,10 +36,10 @@
               {{ headline | default('Un dato che vale la pena rivedere', true) }}
             </h1>
             <p style="margin:0 0 16px; font-size:15px; line-height:23px; color:#2b2b2b;">
-              {{ copy_opening_line | default('Vi scrivo perché un&apos;analisi solare per la vostra sede potrebbe meritare un secondo sguardo.', true) }}
+              {{ copy_opening_line | default('Vi scrivo perché un’analisi solare per la vostra sede potrebbe meritare un secondo sguardo.', true) }}
             </p>
             <p style="margin:0 0 20px; font-size:15px; line-height:23px; color:#2b2b2b;">
-              {{ main_copy_1 | default('Negli ultimi mesi il costo dell&apos;energia per le aziende italiane è rimasto sopra la media UE. Un impianto fotovoltaico ben dimensionato copre tipicamente il 40-70% del fabbisogno e si ripaga in 4-7 anni — anche senza incentivi straordinari.', true) }}
+              {{ main_copy_1 | default('Negli ultimi mesi il costo dell’energia per le aziende italiane è rimasto sopra la media UE. Un impianto fotovoltaico ben dimensionato copre tipicamente il 40-70% del fabbisogno e si ripaga in 4-7 anni — anche senza incentivi straordinari.', true) }}
             </p>
             {%- if roi and roi.yearly_savings_eur is defined %}
             <div style="background:#f5f2eb; border-left:4px solid {{ brand_color_accent | default('#F4A300', true) }}; padding:14px 18px; border-radius:4px; margin:0 0 22px;">
@@ -52,7 +52,7 @@
                 <table role="presentation" border="0" cellpadding="0" cellspacing="0">
                   <tr><td style="background-color:{{ brand_color_accent | default('#F4A300', true) }}; border-radius:6px;">
                     <a href="{{ lead_url }}" target="_blank" style="display:inline-block; padding:14px 28px; font-size:14px; font-weight:700; color:{{ brand_primary_color }}; text-decoration:none;">
-                      {{ cta_primary_label | default('Apri l&apos;analisi (2 minuti)', true) }} &rarr;
+                      {{ cta_primary_label | default('Apri l’analisi (2 minuti)', true) }} &rarr;
                     </a>
                   </td></tr>
                 </table>

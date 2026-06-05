@@ -658,6 +658,9 @@ def render_followup_email(
         "copy_opening_line": ctx.copy_opening_line,
         "copy_proposition_line": ctx.copy_proposition_line,
         "cta_primary_label": ctx.cta_primary_label,
+        # EPC (zero-upfront) tenants frame ROI as savings with no investment;
+        # CAPEX tenants keep the payback-years line.
+        "epc_enabled": ctx.epc_enabled,
         # Scenario-specific extras
         "scenario": scenario,
         "sector_news_headline": (sector_news or {}).get("headline"),

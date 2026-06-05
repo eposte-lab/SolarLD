@@ -42,17 +42,18 @@
           </p>
           {%- else %}
           <p style="margin:0 0 16px; font-size:15px; line-height:23px; color:#2b2b2b;">
-            {{ copy_opening_line | default('Vi scrivo per condividere tre dati semplici sull&apos;autoconsumo energetico.', true) }}
+            {{ copy_opening_line | default('Vi scrivo per condividere tre dati semplici sull’autoconsumo energetico.', true) }}
           </p>
           <p style="margin:0 0 20px; font-size:14px; line-height:22px; color:#444;">
-            {{ main_copy_1 | default('Le aziende italiane simili a voi che hanno installato il fotovoltaico nell&apos;ultimo anno hanno ridotto la spesa energetica tra il 30% e il 60%, con un rientro medio di 5 anni.', true) }}
+            {{ main_copy_1 | default('Le aziende italiane simili a voi che hanno installato il fotovoltaico nell’ultimo anno hanno ridotto la spesa energetica tra il 30% e il 60%, con un rientro medio di 5 anni.', true) }}
           </p>
           {%- endif %}
           {%- if roi and roi.yearly_savings_eur is defined %}
           <div style="background:#f5f2eb; border-left:4px solid {{ brand_color_accent | default('#F4A300', true) }}; padding:14px 18px; border-radius:4px; margin:0 0 22px;">
-            <p style="margin:0 0 2px; font-size:11px; color:#6b6b6b; text-transform:uppercase; letter-spacing:0.6px;">La vostra stima personalizzata</p>
+            <p style="margin:0 0 2px; font-size:11px; color:#6b6b6b; text-transform:uppercase; letter-spacing:0.6px;">Il vostro risparmio stimato</p>
             <p style="margin:0; font-size:26px; line-height:32px; font-weight:700; color:{{ brand_primary_color }};">€{{ roi.yearly_savings_eur | int | format_money }}<span style="font-size:14px; font-weight:400; color:#6b6b6b;">/anno</span></p>
-            {%- if roi.payback_years %}<p style="margin:4px 0 0; font-size:12px; color:#6b6b6b;">Rientro stimato: ~{{ roi.payback_years }} anni</p>{%- endif %}
+            {%- if epc_enabled %}<p style="margin:4px 0 0; font-size:12px; color:#6b6b6b;">Senza investimento iniziale · formula EPC</p>
+            {%- elif roi.payback_years %}<p style="margin:4px 0 0; font-size:12px; color:#6b6b6b;">Rientro stimato: ~{{ roi.payback_years }} anni</p>{%- endif %}
           </div>
           {%- endif %}
           <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="margin:0 0 18px;">
