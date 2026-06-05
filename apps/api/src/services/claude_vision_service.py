@@ -7,7 +7,9 @@ newly-built areas).
 Flow:
   1. Hunter agent detects a 404 from Solar.
   2. Builds a Mapbox Static satellite URL at zoom=19 (~0.3m/px).
-  3. Calls `estimate_roof_from_image(url, lat, lng)` here.
+  3. Calls `estimate_roof_from_image(url, lat, lng)` here, which downloads the
+     tile itself and sends Claude the bytes as base64 (NOT the URL — Anthropic's
+     URL fetcher honours Mapbox's robots.txt and would be rejected with 400).
   4. Claude returns a JSON object with `{has_building, area_sqm, exposure,
      pitch_degrees, shading_score}` which we project into a `RoofInsight`.
 
@@ -101,6 +103,7 @@ async def estimate_roof_from_image(
     (caller should then treat the point as empty).
     """
     client = _get_client()
+    image_block = await mapbox_service.fetch_image_base64_block(image_url)
     msg = await client.messages.create(
         model=model or settings.anthropic_model,
         max_tokens=512,
@@ -110,10 +113,7 @@ async def estimate_roof_from_image(
             {
                 "role": "user",
                 "content": [
-                    {
-                        "type": "image",
-                        "source": {"type": "url", "url": image_url},
-                    },
+                    image_block,
                     {
                         "type": "text",
                         "text": USER_PROMPT_TEMPLATE.format(lat=lat, lng=lng),
@@ -266,6 +266,7 @@ async def detect_existing_pv(
     so a vision hiccup never silently rejects a good lead.
     """
     client = _get_client()
+    image_block = await mapbox_service.fetch_image_base64_block(image_url)
     msg = await client.messages.create(
         model=model or settings.anthropic_model,
         max_tokens=200,
@@ -275,7 +276,7 @@ async def detect_existing_pv(
             {
                 "role": "user",
                 "content": [
-                    {"type": "image", "source": {"type": "url", "url": image_url}},
+                    image_block,
                     {"type": "text", "text": _EXISTING_PV_PROMPT.format(lat=lat, lng=lng)},
                 ],
             }

@@ -287,13 +287,16 @@ async def identify_company_building_in_zone(
         except mapbox_service.MapboxError as exc:
             log.warning("vision.mapbox_url_build_failed", err=str(exc))
             return None
+        # Download the tile ourselves and send Claude base64 — a URL image
+        # source is rejected with HTTP 400 because Anthropic's fetcher honours
+        # Mapbox's robots.txt. See mapbox_service.fetch_image_base64_block.
+        try:
+            block = await mapbox_service.fetch_image_base64_block(url)
+        except mapbox_service.MapboxError as exc:
+            log.warning("vision.tile_fetch_failed", err=str(exc))
+            return None
         candidate_urls.append(url)
-        image_blocks.append(
-            {
-                "type": "image",
-                "source": {"type": "url", "url": url},
-            }
-        )
+        image_blocks.append(block)
 
     prompt = _build_user_prompt(
         legal_name=legal_name,

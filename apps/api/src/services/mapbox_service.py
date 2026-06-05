@@ -15,8 +15,10 @@ provides the primitive HTTP wrappers.
 
 from __future__ import annotations
 
+import base64
 import math
 from dataclasses import dataclass
+from typing import Any
 
 import httpx
 from tenacity import retry, stop_after_attempt, wait_exponential
@@ -25,6 +27,9 @@ from ..core.config import settings
 from ..core.logging import get_logger
 
 log = get_logger(__name__)
+
+# Media types Anthropic accepts for a base64 image block.
+_ALLOWED_IMAGE_MEDIA = {"image/jpeg", "image/png", "image/gif", "image/webp"}
 
 GEOCODE_ENDPOINT = "https://api.mapbox.com/geocoding/v5/mapbox.places/{lng},{lat}.json"
 # Forward-geocode uses the same REST family but with the address as the
@@ -320,3 +325,45 @@ async def fetch_static_satellite(
         scale_x=scale_x,
         scale_y=scale_y,
     )
+
+
+async def fetch_image_base64_block(
+    url: str,
+    *,
+    client: httpx.AsyncClient | None = None,
+) -> dict[str, Any]:
+    """Download an image and return an Anthropic **base64** image content block.
+
+    Vision callers must NOT hand Claude a Mapbox URL directly: Anthropic's
+    URL-image fetcher honours the target's ``robots.txt``, and Mapbox disallows
+    it — the request fails with HTTP 400 "This URL is disallowed by the
+    website's robots.txt file." We are an *authorised* client (the access token
+    is in the URL), so we fetch the bytes ourselves and pass base64; Anthropic
+    never fetches anything, so robots.txt never applies.
+
+    Raises ``MapboxError`` on any HTTP/transport failure so callers can treat it
+    like the other Mapbox primitives.
+    """
+    owns_client = client is None
+    http = client or httpx.AsyncClient(timeout=30.0)
+    try:
+        resp = await http.get(url)
+        if resp.status_code >= 400:
+            raise MapboxError(f"image fetch status={resp.status_code}")
+        raw = resp.content
+        ctype = (resp.headers.get("content-type") or "").split(";")[0].strip().lower()
+    except httpx.HTTPError as exc:  # network / timeout / DNS
+        raise MapboxError(f"image fetch failed: {exc}") from exc
+    finally:
+        if owns_client:
+            await http.aclose()
+
+    media_type = ctype if ctype in _ALLOWED_IMAGE_MEDIA else "image/png"
+    return {
+        "type": "image",
+        "source": {
+            "type": "base64",
+            "media_type": media_type,
+            "data": base64.standard_b64encode(raw).decode("ascii"),
+        },
+    }
