@@ -77,7 +77,30 @@ async function getDeferredToday(): Promise<DeferredItem[]> {
     .gte('occurred_at', midnightUtc.toISOString())
     .order('occurred_at', { ascending: false })
     .limit(500);
-  return (data ?? []) as DeferredItem[];
+  const events = (data ?? []) as DeferredItem[];
+
+  // A deferred event is historical: a lead rate-limited earlier today may have
+  // since been blacklisted (e.g. existing-PV detected) or already sent. Those
+  // must NOT keep showing as "scheduled for tomorrow" — the daily send won't
+  // pick them (warehouse_pick only takes ready_to_send; outreach hard-stops on
+  // blacklisted). Drop only the leads we POSITIVELY know are out, so an
+  // RLS-hidden row is never silently removed.
+  const leadIds = [...new Set(events.map((e) => e.lead_id).filter((id): id is string => !!id))];
+  if (leadIds.length === 0) return events;
+  const { data: leadRows } = await sb
+    .from('leads')
+    .select('id, pipeline_status, outreach_sent_at')
+    .in('id', leadIds);
+  const excluded = new Set(
+    (leadRows ?? [])
+      .filter(
+        (l) =>
+          l.outreach_sent_at != null ||
+          ['blacklisted', 'closed_lost', 'closed_won'].includes(String(l.pipeline_status)),
+      )
+      .map((l) => l.id as string),
+  );
+  return events.filter((e) => !e.lead_id || !excluded.has(e.lead_id));
 }
 
 export default async function InviiPage({
