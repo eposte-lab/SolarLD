@@ -1389,17 +1389,21 @@ async def trial_recheck_existing_pv(
 
     sem = asyncio.Semaphore(10)
 
-    async def _check(row: dict[str, Any]) -> tuple[str, str | None, bool]:
+    async def _check(row: dict[str, Any]) -> tuple[str, str | None, bool | None]:
         roof = row.get("roofs") or {}
         lat, lng = roof.get("lat"), roof.get("lng")
         if lat is None or lng is None:
-            return row["id"], row.get("roof_id"), False
+            return row["id"], row.get("roof_id"), None  # no coords → not verifiable
         async with sem:
-            has_pv = await building_has_existing_pv(float(lat), float(lng))
-        return row["id"], row.get("roof_id"), has_pv
+            verdict = await building_has_existing_pv(float(lat), float(lng))
+        return row["id"], row.get("roof_id"), verdict
 
     results = await asyncio.gather(*[_check(r) for r in rows], return_exceptions=False)
-    flagged = [(lid, rid) for (lid, rid, has_pv) in results if has_pv]
+    flagged = [(lid, rid) for (lid, rid, v) in results if v is True]
+    # ``None`` = the vision check could NOT run (missing MAPBOX/ANTHROPIC key,
+    # no coords, timeout). Surfacing it tells "checked, no PV" apart from
+    # "never actually checked" — otherwise a silent fail-open reads as 0 found.
+    not_verifiable = sum(1 for (_lid, _rid, v) in results if v is None)
 
     for lid, rid in flagged:
         sb.table("leads").update({"pipeline_status": "blacklisted"}).eq("id", lid).eq(
@@ -1412,10 +1416,18 @@ async def trial_recheck_existing_pv(
         "admin.trial_recheck_existing_pv",
         tenant_id=tenant_id,
         checked=len(rows),
+        verified_ok=len(rows) - not_verifiable,
+        not_verifiable=not_verifiable,
         blacklisted=len(flagged),
         super_admin=ctx.user_id,
     )
-    return {"ok": True, "checked": len(rows), "blacklisted_existing_pv": len(flagged)}
+    return {
+        "ok": True,
+        "checked": len(rows),
+        "verified_ok": len(rows) - not_verifiable,
+        "not_verifiable": not_verifiable,
+        "blacklisted_existing_pv": len(flagged),
+    }
 
 
 @router.post("/trial/leads/{lead_id}/release")

@@ -438,13 +438,19 @@ function RecheckExistingPvButton({ tenantId }: { tenantId: string }) {
       const res = await api.post<{
         ok: boolean;
         checked: number;
+        verified_ok: number;
+        not_verifiable: number;
         blacklisted_existing_pv: number;
       }>(
         `/v1/admin/trial/recheck-existing-pv?tenant_id=${encodeURIComponent(tenantId)}`,
         {},
       );
+      const warn =
+        res.not_verifiable > 0
+          ? ` · ⚠️ ${res.not_verifiable} NON verificati (token MAPBOX/ANTHROPIC sull'API?)`
+          : '';
       setResult(
-        `${res.checked} lead controllati · ${res.blacklisted_existing_pv} con impianto già sul tetto → blacklistati (non partiranno). Nessun invio.`,
+        `${res.verified_ok}/${res.checked} verificati col vision · ${res.blacklisted_existing_pv} con impianto già sul tetto → blacklistati${warn}. Nessun invio.`,
       );
     } catch (e) {
       setError(errMessage(e));

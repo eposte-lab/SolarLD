@@ -305,24 +305,28 @@ async def detect_existing_pv(
 EXISTING_PV_MIN_CONFIDENCE = 0.6
 
 
-async def building_has_existing_pv(lat: float, lng: float) -> bool:
-    """True when the rooftop at ``(lat, lng)`` already has PV, via a Mapbox
-    satellite tile + Claude vision. FAILS OPEN (returns False) on any error —
-    a missing token, a vision timeout or a low-confidence answer never blocks
-    a lead.
+async def building_has_existing_pv(lat: float, lng: float) -> bool | None:
+    """Whether the rooftop at ``(lat, lng)`` already has PV, via a Mapbox
+    satellite tile + Claude vision.
+
+    Returns ``True`` / ``False`` for a real verdict, or ``None`` when the check
+    could NOT run (no Mapbox token, vision timeout, unparseable answer). Callers
+    that gate leads must FAIL OPEN — treat None and False alike as "don't
+    reject" — but a batch tool can count the Nones to tell "checked, no PV"
+    apart from "couldn't check at all".
     """
     try:
         url = mapbox_service.build_static_satellite_url(lat, lng, zoom=19, width=640, height=640)
-    except Exception as exc:  # noqa: BLE001 — no token / build error → fail open
+    except Exception as exc:  # noqa: BLE001 — no token / build error
         log.warning("existing_pv.url_failed", err=str(exc)[:160])
-        return False
+        return None
     try:
         res = await detect_existing_pv(url, lat, lng)
-    except Exception as exc:  # noqa: BLE001 — vision error → fail open
+    except Exception as exc:  # noqa: BLE001 — vision error
         log.warning("existing_pv.vision_failed", lat=lat, lng=lng, err=str(exc)[:160])
-        return False
+        return None
     if not res:
-        return False
+        return None
     has_pv = bool(res["has_existing_pv"]) and float(res["confidence"]) >= EXISTING_PV_MIN_CONFIDENCE
     log.info(
         "existing_pv.checked",
