@@ -1,0 +1,19 @@
+-- 0149 — Add the missing `to_call` value to the lead_status enum.
+--
+-- The Python `LeadStatus` enum (and the follow-up engine) reference
+-- `to_call` — the state a lead moves to after MAX_FOLLOWUPS when it is handed
+-- to the operator for a phone call. But the Postgres `lead_status` enum was
+-- never given that value (migration 0072 added the warehouse states but not
+-- to_call). So every query that filters on it — notably the engagement
+-- follow-up evaluation:
+--
+--   leads?...&pipeline_status=not.in.(closed_won,closed_lost,blacklisted,to_call)
+--
+-- was rejected by PostgREST with HTTP 400 ("invalid input value for enum
+-- lead_status: to_call"). That query is the FIRST thing engagement_followup_*
+-- runs, so the whole follow-up cadence (cron AND the manual trigger) failed
+-- on every call — no follow-up email was ever sent for any tenant.
+--
+-- Adding the value aligns the DB with the code; no code change is needed and
+-- the escalation-to-call path also starts working. Idempotent + additive.
+ALTER TYPE public.lead_status ADD VALUE IF NOT EXISTS 'to_call';
