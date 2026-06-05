@@ -900,6 +900,21 @@ _SCENARIO_TO_STEP: dict[str, int] = {
 # tick to enqueue thousands of jobs in a single transaction.
 ENGAGEMENT_FOLLOWUP_BATCH = 500
 
+
+def _followup_defer_until(
+    lead: dict[str, Any], tenant_row: dict[str, Any] | None, now: datetime
+) -> datetime:
+    """When to actually fire a follow-up: the lead's peak send-hour (the mode of
+    its opens, ``leads.best_send_hour``), 2 minutes early so the email lands in
+    the inbox right as the prospect's active window opens. Falls back to the
+    tenant default → 09:00 UTC when the lead has no learned hour. Reuses
+    send_time_service so it matches the first-touch send-time optimisation.
+    """
+    from ..services.send_time_service import pick_next_send_time
+
+    return pick_next_send_time(lead_row=lead, tenant_row=tenant_row, now=now) - timedelta(minutes=2)
+
+
 # Pipeline states a lead must be in to be escalated to `to_call`: it was
 # contacted + followed up but has not turned into a live conversation.
 _ESCALATABLE_STATUSES = {
@@ -999,6 +1014,11 @@ async def engagement_followup_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
     )
     disabled_tenant_ids = {str(r["id"]) for r in (disabled_tenants_res.data or [])}
 
+    # Per-tenant settings — the send-time fallback hour when a lead has no
+    # learned best_send_hour. Keyed by tenant id.
+    tenants_res = sb.table("tenants").select("id, settings").execute()
+    tenant_settings = {str(r["id"]): r for r in (tenants_res.data or [])}
+
     # Pull leads worth evaluating: have an initial outreach, not in
     # terminal states, and either currently engaged (score > 0) OR
     # cold-but-aged-out (eligible for cold scenario).
@@ -1016,7 +1036,7 @@ async def engagement_followup_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
             "id, tenant_id, pipeline_status, outreach_sent_at, "
             "outreach_replied_at, engagement_score, engagement_peak_score, "
             "last_portal_event_at, last_followup_scenario, "
-            "last_followup_sent_at, hot_lead_alerted_at"
+            "last_followup_sent_at, hot_lead_alerted_at, best_send_hour"
         )
         .not_.is_("outreach_sent_at", "null")
         .not_.in_("pipeline_status", terminal)
@@ -1103,8 +1123,10 @@ async def engagement_followup_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
             notified_hot += 1
             continue
 
-        # Email scenario — enqueue an outreach_task. The OutreachAgent
-        # branches on engagement_scenario and renders followup_{X}.j2.
+        # Email scenario — enqueue an outreach_task, DEFERRED to the lead's
+        # peak send-hour (send_time_service) so the follow-up lands when the
+        # prospect is typically active. The OutreachAgent branches on
+        # engagement_scenario and renders followup_{X}.j2.
         scenario = decision.scenario or "cold"
         step = _SCENARIO_TO_STEP.get(scenario, 5)
         await enqueue(
@@ -1120,6 +1142,9 @@ async def engagement_followup_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
             job_id=(
                 f"engagement_followup:{snap.tenant_id}:{snap.lead_id}:"
                 f"{scenario}:{now.strftime('%Y%m%d')}"
+            ),
+            defer_until=_followup_defer_until(
+                lead, tenant_settings.get(str(lead["tenant_id"])), now
             ),
         )
         queued += 1
@@ -1151,6 +1176,13 @@ async def engagement_followup_for_tenant(tenant_id: str) -> dict[str, Any]:
     sb = get_service_client()
     now = datetime.now(UTC)
     cold_cutoff = (now - timedelta(days=STEP_4_DELAY_DAYS + 1)).isoformat()
+
+    # Tenant settings — send-time fallback hour for leads with no learned hour.
+    tenant_res = (
+        sb.table("tenants").select("id, settings").eq("id", tenant_id).maybe_single().execute()
+    )
+    tenant_row = tenant_res.data if tenant_res else None
+
     terminal = [
         LeadStatus.CLOSED_WON.value,
         LeadStatus.CLOSED_LOST.value,
@@ -1164,7 +1196,7 @@ async def engagement_followup_for_tenant(tenant_id: str) -> dict[str, Any]:
             "id, tenant_id, pipeline_status, outreach_sent_at, "
             "outreach_replied_at, engagement_score, engagement_peak_score, "
             "last_portal_event_at, last_followup_scenario, "
-            "last_followup_sent_at, hot_lead_alerted_at"
+            "last_followup_sent_at, hot_lead_alerted_at, best_send_hour"
         )
         .eq("tenant_id", tenant_id)
         .not_.is_("outreach_sent_at", "null")
@@ -1249,6 +1281,8 @@ async def engagement_followup_for_tenant(tenant_id: str) -> dict[str, Any]:
                 f"engagement_followup:{snap.tenant_id}:{snap.lead_id}:"
                 f"{scenario}:{now.strftime('%Y%m%d')}"
             ),
+            # Deferred to the lead's peak send-hour (send_time_service).
+            defer_until=_followup_defer_until(lead, tenant_row, now),
         )
         queued += 1
 
