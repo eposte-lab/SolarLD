@@ -568,8 +568,9 @@ function VisionSelfTestButton() {
       </div>
       <p className="mt-1 text-xs text-on-surface-variant">
         Prova il vision su un edificio che <strong>sappiamo</strong> avere
-        l'impianto (La Reggia). Se risponde "sì", la verifica funziona davvero
-        sull'ambiente; se no, ti dice quale chiave manca sull'API.
+        l&apos;impianto (La Reggia). Se risponde &quot;sì&quot;, la verifica
+        funziona davvero sull&apos;ambiente; se no, ti dice quale chiave manca
+        sull&apos;API.
       </p>
       {result && (
         <div
