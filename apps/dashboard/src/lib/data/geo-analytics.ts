@@ -15,6 +15,8 @@
 import 'server-only';
 
 import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { freezePipelineStatus } from '@/lib/data/moderation-freeze';
+import { isModeratedTenant } from '@/lib/data/tenant';
 import type { LeadScoreTier, LeadStatus } from '@/types/db';
 
 // ── shared types ──────────────────────────────────────────────────────────────
@@ -109,7 +111,8 @@ export async function getGeoLeads(): Promise<{
     .from('leads')
     .select(
       `id, pipeline_status, score_tier, score,
-       outreach_opened_at, outreach_clicked_at, created_at,
+       outreach_opened_at, outreach_clicked_at, outreach_sent_at,
+       operator_released_at, created_at,
        roofs:roofs(lat, lng, provincia, comune),
        subjects:subjects(business_name)`,
     )
@@ -126,6 +129,8 @@ export async function getGeoLeads(): Promise<{
     score: number;
     outreach_opened_at: string | null;
     outreach_clicked_at: string | null;
+    outreach_sent_at: string | null;
+    operator_released_at: string | null;
     created_at: string;
     roofs: {
       lat: number | null;
@@ -137,23 +142,33 @@ export async function getGeoLeads(): Promise<{
   };
 
   const rows = (data ?? []) as unknown as RawRow[];
+  // Moderation freeze: for an un-promoted contatto (operator_released_at
+  // IS NULL) on a moderated tenant, withhold every engagement-derived
+  // signal — opens/clicks, the reaction pipeline status, and the 'hot'
+  // tier — so the map + province hot-zone counts can't leak who engaged.
+  const moderated = await isModeratedTenant();
 
   const pins: GeoLeadPin[] = rows
     .filter((r) => r.roofs?.lat != null && r.roofs?.lng != null)
-    .map((r) => ({
-      id: r.id,
-      provincia: (r.roofs?.provincia ?? '').toUpperCase().trim(),
-      comune: r.roofs?.comune ?? null,
-      lat: r.roofs!.lat!,
-      lng: r.roofs!.lng!,
-      business_name: r.subjects?.business_name ?? null,
-      pipeline_status: r.pipeline_status,
-      score_tier: r.score_tier,
-      score: r.score,
-      outreach_opened_at: r.outreach_opened_at,
-      outreach_clicked_at: r.outreach_clicked_at,
-      created_at: r.created_at,
-    }));
+    .map((r) => {
+      const frozen = moderated && !r.operator_released_at;
+      return {
+        id: r.id,
+        provincia: (r.roofs?.provincia ?? '').toUpperCase().trim(),
+        comune: r.roofs?.comune ?? null,
+        lat: r.roofs!.lat!,
+        lng: r.roofs!.lng!,
+        business_name: r.subjects?.business_name ?? null,
+        pipeline_status: frozen
+          ? freezePipelineStatus(r.pipeline_status, r.outreach_sent_at)
+          : r.pipeline_status,
+        score_tier: frozen ? ('cold' as LeadScoreTier) : r.score_tier,
+        score: frozen ? 0 : r.score,
+        outreach_opened_at: frozen ? null : r.outreach_opened_at,
+        outreach_clicked_at: frozen ? null : r.outreach_clicked_at,
+        created_at: r.created_at,
+      };
+    });
 
   // Province-level aggregation
   const aggMap = new Map<string, ProvinceAggregate>();
@@ -193,15 +208,23 @@ export interface SmartTimeData {
 export async function getSendTimeHeatmap(days = 90): Promise<SmartTimeData> {
   const supabase = await createSupabaseServerClient();
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+  // Moderation freeze: the OPENS basis reveals engagement, so on a
+  // moderated tenant only count opens from PROMOTED contatti. The SENT
+  // basis is operator-driven (no reaction) and stays unfiltered.
+  const moderated = await isModeratedTenant();
 
   async function loadStamps(
     col: 'outreach_opened_at' | 'outreach_sent_at',
   ): Promise<string[]> {
-    const { data, error } = await supabase
+    let q = supabase
       .from('leads')
       .select(col)
       .not(col, 'is', null)
       .gte(col, since);
+    if (moderated && col === 'outreach_opened_at') {
+      q = q.not('operator_released_at', 'is', null);
+    }
+    const { data, error } = await q;
     if (error) throw new Error(`getSendTimeHeatmap(${col}): ${error.message}`);
     return (data ?? [])
       .map((r) => (r as Record<string, string | null>)[col])
@@ -257,10 +280,15 @@ export async function getPipelineRevenue(): Promise<PipelineStageRevenue[]> {
   const supabase = await createSupabaseServerClient();
   const { data, error } = await supabase
     .from('leads')
-    .select('pipeline_status, roi_data')
+    .select('pipeline_status, roi_data, outreach_sent_at, operator_released_at')
     .not('pipeline_status', 'in', '("blacklisted","closed_lost")');
 
   if (error) throw new Error(`getPipelineRevenue: ${error.message}`);
+
+  // Moderation freeze: an un-promoted contatto must not show in the
+  // engaged/advanced revenue stages — roll its status back to sent so it
+  // counts only under "Inviati".
+  const moderated = await isModeratedTenant();
 
   type Bucket = {
     label: string;
@@ -298,7 +326,16 @@ export async function getPipelineRevenue(): Promise<PipelineStageRevenue[]> {
   for (const k of Object.keys(BUCKETS)) totals.set(k, { count: 0, kwp: 0 });
 
   for (const row of data ?? []) {
-    const status = row.pipeline_status as string;
+    const rawStatus = row.pipeline_status as LeadStatus;
+    const frozen = moderated && !(row as { operator_released_at?: string | null }).operator_released_at;
+    const status = (
+      frozen
+        ? freezePipelineStatus(
+            rawStatus,
+            (row as { outreach_sent_at?: string | null }).outreach_sent_at ?? null,
+          )
+        : rawStatus
+    ) as string;
     const kwp = ((row.roi_data as { estimated_kwp?: number } | null)?.estimated_kwp) ?? 8;
     for (const [key, bucket] of Object.entries(BUCKETS)) {
       if (bucket.statuses.includes(status)) {
@@ -351,6 +388,26 @@ export async function getAiInsights(): Promise<AiInsight[]> {
     'blacklisted',
   ];
 
+  // Moderation freeze: the engagement-derived insights (stale-hot, fresh
+  // opens) must ignore un-promoted contatti so they can't leak who engaged.
+  const moderated = await isModeratedTenant();
+
+  let staleHotQ = supabase
+    .from('leads')
+    .select('id', { count: 'exact', head: true })
+    .gte('engagement_score', 60)
+    .lte('last_portal_event_at', h48)
+    .not('pipeline_status', 'in', `(${HANDLED_STATUSES.join(',')})`);
+  let freshOpensQ = supabase
+    .from('leads')
+    .select('id', { count: 'exact', head: true })
+    .in('pipeline_status', ['opened', 'clicked'])
+    .gte('outreach_opened_at', h24);
+  if (moderated) {
+    staleHotQ = staleHotQ.not('operator_released_at', 'is', null);
+    freshOpensQ = freshOpensQ.not('operator_released_at', 'is', null);
+  }
+
   const [
     staleHotRes,
     freshOpensRes,
@@ -364,19 +421,10 @@ export async function getAiInsights(): Promise<AiInsight[]> {
     // rather than pipeline_status='opened' — that single status
     // excluded leads that progressed to clicked/engaged, which are
     // exactly the ones the operator is letting go cold.
-    supabase
-      .from('leads')
-      .select('id', { count: 'exact', head: true })
-      .gte('engagement_score', 60)
-      .lte('last_portal_event_at', h48)
-      .not('pipeline_status', 'in', `(${HANDLED_STATUSES.join(',')})`),
+    staleHotQ,
 
     // Leads that opened in the last 24h (fresh opportunity)
-    supabase
-      .from('leads')
-      .select('id', { count: 'exact', head: true })
-      .in('pipeline_status', ['opened', 'clicked'])
-      .gte('outreach_opened_at', h24),
+    freshOpensQ,
 
     // Active appointments
     supabase

@@ -85,3 +85,13 @@ export const getCurrentTenantContext = cache(async (): Promise<TenantContext | n
     is_moderated: isModerated,
   };
 });
+
+/**
+ * True when the current tenant is under super-admin trial moderation.
+ * Shared by every aggregate/analytics data function that must freeze
+ * engagement of un-promoted contatti (operator_released_at IS NULL).
+ */
+export async function isModeratedTenant(): Promise<boolean> {
+  const ctx = await getCurrentTenantContext();
+  return ctx?.is_moderated ?? false;
+}
