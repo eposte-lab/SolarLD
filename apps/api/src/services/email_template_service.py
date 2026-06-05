@@ -668,6 +668,20 @@ def render_followup_email(
     if ctx.copy_overrides:
         context.update(ctx.copy_overrides)
 
+    # Follow-up CTA drives to the FAST contact form, NOT back to the dossier
+    # the lead already saw on the first touch. The portal serves a minimal
+    # "request a callback" page at /dossier/{slug}/contatto (the lead URL with
+    # a /contatto suffix) which posts to the appointment endpoint → for a
+    # moderated tenant it lands in the operator's inbound queue and, on
+    # approval, emails the tenant. We force both the destination and the label,
+    # overriding any A/B variant copy, so the whole follow-up cohort converges
+    # on the single high-intent action. (Applied AFTER copy_overrides so it
+    # always wins.)
+    _cta_base = (ctx.lead_url or "").rstrip("/")
+    if _cta_base:
+        context["lead_url"] = f"{_cta_base}/contatto"
+    context["cta_primary_label"] = "Fatti ricontattare ora"
+
     html_raw = env.get_template(f"{template_stem}.html.j2").render(**context)
     text_raw = env.get_template(f"{template_stem}.txt.j2").render(**context)
 
