@@ -179,7 +179,11 @@ export default async function DashboardOverview() {
 
       {/* ── Row 5b: Smart Time Heatmap (full width) ──────────────────────── */}
       <BentoCard span="full">
-        <SmartTimeHeatmap cells={heatmapCells.cells} basis={heatmapCells.basis} />
+        <SmartTimeHeatmap
+          cells={heatmapCells.cells}
+          basis={heatmapCells.basis}
+          frozen={heatmapCells.frozen}
+        />
       </BentoCard>
 
       {/* ── Row 6: Lead Temperature Board (full width) ─────────────────────

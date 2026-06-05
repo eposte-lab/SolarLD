@@ -20,6 +20,8 @@ interface SmartTimeHeatmapProps {
   cells: HeatmapCell[];
   /** 'opens' = aperture email; 'sent' = fallback su orari d'invio. */
   basis?: 'opens' | 'sent';
+  /** Moderated tenant: empty = opens frozen until promotion (not "no data"). */
+  frozen?: boolean;
   className?: string;
 }
 
@@ -36,7 +38,12 @@ function cellStyle(normalized: number): React.CSSProperties {
   };
 }
 
-export function SmartTimeHeatmap({ cells, basis = 'opens', className }: SmartTimeHeatmapProps) {
+export function SmartTimeHeatmap({
+  cells,
+  basis = 'opens',
+  frozen = false,
+  className,
+}: SmartTimeHeatmapProps) {
   // Flat map keyed by dow * 24 + hour — avoids noUncheckedIndexedAccess issues
   const normMap = new Map<number, number>();
   let totalOpens = 0;
@@ -59,25 +66,9 @@ export function SmartTimeHeatmap({ cells, basis = 'opens', className }: SmartTim
   const subtitle =
     basis === 'opens' ? 'Orari migliori · Aperture email' : 'Orari · Invii email';
 
-  // Empty state reale: nessun dato in entrambe le basi (né aperture né invii).
-  if (cells.length === 0 || totalOpens === 0) {
-    return (
-      <div className={className}>
-        <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
-          {subtitle}
-        </p>
-        <h2 className="font-headline text-2xl font-bold tracking-tighter">
-          Smart Time
-        </h2>
-        <div className="mt-6 flex items-center justify-center rounded-xl bg-surface-container-low py-10">
-          <p className="text-sm text-on-surface-variant">
-            Nessun invio o apertura registrati ancora.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
+  // No early-return on empty: the grid stays OPEN (all cells transparent)
+  // and we show an explanatory caption instead of hiding the widget — a
+  // moderated tenant's opens are frozen until promotion, not "missing".
   return (
     <div className={className}>
       {/* Header */}
@@ -89,6 +80,13 @@ export function SmartTimeHeatmap({ cells, basis = 'opens', className }: SmartTim
           <h2 className="font-headline text-2xl font-bold tracking-tighter">
             Smart Time
           </h2>
+          {totalOpens === 0 && (
+            <p className="mt-1 max-w-xs text-xs text-on-surface-variant">
+              {frozen
+                ? 'Le aperture compariranno qui dopo aver promosso i contatti che hanno reagito.'
+                : 'Nessuna apertura registrata ancora — il grafico si popola man mano.'}
+            </p>
+          )}
         </div>
         {totalOpens > 0 && (
           <div className="text-right">
