@@ -164,7 +164,7 @@ export default async function DashboardLayout({
           user_email={ctx.user_email}
         />
         <main className="flex-1 px-6 py-8 md:px-10">
-          <div className="mx-auto max-w-[1400px]">
+          <div className="mx-auto max-w-[1800px]">
             <div className="mb-6 flex items-center gap-3">
               <BackButton />
               <div className="ml-auto">
