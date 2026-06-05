@@ -162,8 +162,12 @@ export async function getGeoLeads(): Promise<{
         pipeline_status: frozen
           ? freezePipelineStatus(r.pipeline_status, r.outreach_sent_at)
           : r.pipeline_status,
-        score_tier: frozen ? ('cold' as LeadScoreTier) : r.score_tier,
-        score: frozen ? 0 : r.score,
+        // score / score_tier = lead DISCOVERY quality (scan/ICP scoring),
+        // NOT engagement activity — the tenant may always see it, so it is
+        // never frozen (the 'hot zone' counts reflect lead quality, not who
+        // reacted). Only the activity signals below are withheld.
+        score_tier: r.score_tier,
+        score: r.score,
         outreach_opened_at: frozen ? null : r.outreach_opened_at,
         outreach_clicked_at: frozen ? null : r.outreach_clicked_at,
         created_at: r.created_at,
@@ -233,7 +237,13 @@ export async function getSendTimeHeatmap(days = 90): Promise<SmartTimeData> {
 
   let basis: 'opens' | 'sent' = 'opens';
   let stamps = await loadStamps('outreach_opened_at');
-  if (stamps.length === 0) {
+  // Keep the chart's MEANING ("orari di apertura"). The send-time fallback
+  // exists only so a brand-new tenant isn't shown an empty grid before any
+  // opens exist. On a MODERATED tenant we must NOT flip to send-times just
+  // because the promoted-only opens are still empty — that would change the
+  // graph from "when opened" to "when sent". Freeze stays at lead level: the
+  // opens grid simply fills in as contatti get promoted.
+  if (stamps.length === 0 && !moderated) {
     basis = 'sent';
     stamps = await loadStamps('outreach_sent_at');
   }
