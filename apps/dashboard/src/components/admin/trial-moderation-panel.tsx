@@ -519,13 +519,17 @@ function FollowupTriggerButton({ tenantId }: { tenantId: string }) {
     try {
       const res = await api.post<{
         ok: boolean;
-        queued: number;
-        skipped: number;
-        candidates: number;
-        escalated: number;
+        status?: string;
+        message?: string;
+        queued?: number;
+        skipped?: number;
+        candidates?: number;
       }>(`/v1/admin/trial/trigger-followup?tenant_id=${encodeURIComponent(tenantId)}`, {});
+      // New fire-and-forget endpoint returns 202 + message (the heavy work runs
+      // in the background); keep the legacy shape as a fallback.
       setResult(
-        `${res.queued} follow-up messi in coda · ${res.skipped} non idonei ora (cooldown/sequenza) · ${res.candidates} candidati valutati.`,
+        res.message ??
+          `${res.queued ?? 0} follow-up messi in coda · ${res.skipped ?? 0} non idonei ora.`,
       );
     } catch (e) {
       setError(errMessage(e));
