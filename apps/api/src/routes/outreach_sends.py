@@ -30,7 +30,16 @@ log = get_logger(__name__)
 # (un-promoted) contatto of a moderated tenant we roll these back to the
 # sent-time state — mirrors dashboard moderation-freeze.freezePipelineStatus.
 _REACTION_STATUSES = frozenset(
-    {"opened", "clicked", "engaged", "to_call", "whatsapp", "appointment", "closed_won", "closed_lost"}
+    {
+        "opened",
+        "clicked",
+        "engaged",
+        "to_call",
+        "whatsapp",
+        "appointment",
+        "closed_won",
+        "closed_lost",
+    }
 )
 
 
@@ -38,6 +47,7 @@ def _freeze_status(status: str, outreach_sent_at: Any) -> str:
     if status not in _REACTION_STATUSES:
         return status
     return "sent" if outreach_sent_at else "new"
+
 
 _SELECT_FIELDS = (
     "id, lead_id, tenant_id, channel, sequence_step, status, "
