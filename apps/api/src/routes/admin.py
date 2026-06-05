@@ -1535,6 +1535,51 @@ async def trial_existing_pv_selftest(ctx: CurrentUser) -> dict[str, Any]:
     }
 
 
+@router.post("/trial/trigger-followup")
+async def trial_trigger_followup(
+    ctx: CurrentUser,
+    tenant_id: str = Query(description="Tenant whose engaged leads to follow up now"),
+) -> dict[str, Any]:
+    """Run the engagement follow-up evaluation for a moderated tenant NOW
+    (super-admin), instead of waiting for the 08:15 UTC cron.
+
+    Why this exists: the daily cron can be missed if the worker is mid-deploy
+    at 08:15 (cron jobs use ``run_at_startup=False`` and do not catch up), and
+    a freshly-engaged lead only becomes eligible at the first cron AFTER it
+    engaged. This lets the operator fire the pending engaged follow-ups on
+    demand. Follow-ups (sequence_step >= 2) bypass the commercial daily cap —
+    only the domain/inbox warm-up rate-limit applies — so the highest-value
+    leads still go out while first-touch volume is throttled. Sends nothing
+    itself; it enqueues outreach_task jobs (idempotent per scenario/day).
+    """
+    _require_super_admin(ctx)
+    from ..workers.cron import engagement_followup_for_tenant
+
+    result = await engagement_followup_for_tenant(tenant_id)
+    queued = int(result.get("queued") or 0)
+    skipped_raw = result.get("skipped") or {}
+    skipped = (
+        sum(int(v) for v in skipped_raw.values())
+        if isinstance(skipped_raw, dict)
+        else int(skipped_raw or 0)
+    )
+    log.info(
+        "admin.trial_trigger_followup",
+        tenant_id=tenant_id,
+        queued=queued,
+        skipped=skipped,
+        candidates=result.get("candidates"),
+        super_admin=ctx.user_id,
+    )
+    return {
+        "ok": True,
+        "queued": queued,
+        "skipped": skipped,
+        "candidates": int(result.get("candidates") or 0),
+        "escalated": int(result.get("escalated") or 0),
+    }
+
+
 @router.post("/trial/leads/{lead_id}/release")
 async def trial_release_lead(ctx: CurrentUser, lead_id: str) -> dict[str, Any]:
     """Promote a reacted contatto to a *lead* for the moderated tenant.
