@@ -793,10 +793,20 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
                     engagement_scenario=payload.engagement_scenario,
                     inbox_id=str(_followup_inbox),
                 )
+        # Optional operator one-off warm-up cap override (tenants.settings).
+        _wu_settings = tenant_row.get("settings") or {}
+        _wu_override: int | None = None
+        if isinstance(_wu_settings, dict):
+            try:
+                _raw_override = _wu_settings.get("outreach_warmup_cap_override")
+                _wu_override = int(_raw_override) if _raw_override else None
+            except (TypeError, ValueError):
+                _wu_override = None
         selected_inbox: dict[str, Any] | None = await inbox_service.pick_and_claim(
             sb,
             payload.tenant_id,
             campaign_inbox_ids=pinned_inbox_ids,
+            warmup_cap_override=_wu_override,
         )
 
         # Detect "inboxes exist but all blocked" vs "no inboxes at all".

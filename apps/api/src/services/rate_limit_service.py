@@ -309,8 +309,14 @@ def _warmup_day_index(
 # ---------------------------------------------------------------------------
 
 
-def inbox_effective_daily_cap(inbox: dict[str, Any]) -> int:
+def inbox_effective_daily_cap(inbox: dict[str, Any], *, warmup_floor: int | None = None) -> int:
     """Return the effective daily send cap for this inbox.
+
+    ``warmup_floor`` (optional) RAISES the warm-up curve cap to at least this
+    value — an operator-set per-inbox override (e.g. to push a tenant a few
+    sends above the steady ramp for one day). Still bounded by ``daily_cap``
+    so it can't blow past the inbox's hard ceiling. Ignored once past warm-up
+    (the curve no longer applies) and for brand inboxes.
 
     Applies the 21-day per-inbox outreach warm-up curve when:
       1. ``warmup_started_at`` is set (first send has happened), AND
@@ -366,6 +372,9 @@ def inbox_effective_daily_cap(inbox: dict[str, Any]) -> int:
 
     idx = max(1, min(WARMUP_OUTREACH_DAYS, day_delta)) - 1
     curve_cap = WARMUP_DAILY_CAPS_OUTREACH[idx]
+    # Optional operator override RAISES the curve cap (one-off ramp bump).
+    if warmup_floor and warmup_floor > curve_cap:
+        curve_cap = warmup_floor
     # Never exceed the configured daily_cap — in case ops set it lower.
     return min(curve_cap, daily_cap)
 
