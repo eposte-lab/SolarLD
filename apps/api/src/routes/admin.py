@@ -1378,7 +1378,7 @@ async def trial_recheck_existing_pv(
     sb = get_service_client()
     res = (
         sb.table("leads")
-        .select("id, roof_id, roofs:roofs(lat, lng)")
+        .select("id, roof_id, roofs:roofs(lat, lng, has_existing_pv)")
         .eq("tenant_id", tenant_id)
         .is_("outreach_sent_at", "null")
         .not_.in_("pipeline_status", ["blacklisted", "closed_lost", "closed_won"])
@@ -1387,23 +1387,37 @@ async def trial_recheck_existing_pv(
     )
     rows = res.data or []
 
-    sem = asyncio.Semaphore(10)
+    # Concurrency 5 (not 10): a burst of image calls trips Anthropic's
+    # rate-limit and the excess fails OPEN, which reads as "not verifiable".
+    # Gentler fan-out + reusing prior verdicts (below) makes a re-run converge.
+    sem = asyncio.Semaphore(5)
 
-    async def _check(row: dict[str, Any]) -> tuple[str, str | None, bool | None]:
+    async def _check(row: dict[str, Any]) -> tuple[str, str | None, bool | None, bool]:
+        """Return ``(lead_id, roof_id, verdict, from_cache)``.
+
+        ``verdict``: True=has PV, False=clean, None=could-not-check.
+        ``from_cache``: the roof already had a stored verdict, so we reused it
+        instead of spending another vision call (lets re-runs skip settled
+        roofs and only retry the ones that genuinely failed last time).
+        """
         roof = row.get("roofs") or {}
         lat, lng = roof.get("lat"), roof.get("lng")
+        cached = roof.get("has_existing_pv")
+        if cached is not None:
+            return row["id"], row.get("roof_id"), bool(cached), True
         if lat is None or lng is None:
-            return row["id"], row.get("roof_id"), None  # no coords → not verifiable
+            return row["id"], row.get("roof_id"), None, False  # no coords → not verifiable
         async with sem:
             verdict = await building_has_existing_pv(float(lat), float(lng))
-        return row["id"], row.get("roof_id"), verdict
+        return row["id"], row.get("roof_id"), verdict, False
 
     results = await asyncio.gather(*[_check(r) for r in rows], return_exceptions=False)
-    flagged = [(lid, rid) for (lid, rid, v) in results if v is True]
-    # ``None`` = the vision check could NOT run (missing MAPBOX/ANTHROPIC key,
-    # no coords, timeout). Surfacing it tells "checked, no PV" apart from
-    # "never actually checked" — otherwise a silent fail-open reads as 0 found.
-    not_verifiable = sum(1 for (_lid, _rid, v) in results if v is None)
+    flagged = [(lid, rid) for (lid, rid, v, _c) in results if v is True]
+    clean_fresh = [(lid, rid) for (lid, rid, v, c) in results if v is False and not c]
+    # ``None`` = the vision check could NOT run (rate-limit, timeout, no coords).
+    # Surfacing it tells "checked, no PV" apart from "never actually checked".
+    not_verifiable = sum(1 for (_lid, _rid, v, _c) in results if v is None)
+    from_cache = sum(1 for (_lid, _rid, _v, c) in results if c)
 
     for lid, rid in flagged:
         sb.table("leads").update({"pipeline_status": "blacklisted"}).eq("id", lid).eq(
@@ -1412,12 +1426,20 @@ async def trial_recheck_existing_pv(
         if rid:
             sb.table("roofs").update({"has_existing_pv": True}).eq("id", rid).execute()
 
+    # Persist freshly-verified CLEAN roofs as has_existing_pv=False so a re-run
+    # skips them (scoring treats False == None: no penalty). This is what lets
+    # repeated clicks mop up only the rate-limited stragglers, cheaply.
+    for _lid, rid in clean_fresh:
+        if rid:
+            sb.table("roofs").update({"has_existing_pv": False}).eq("id", rid).execute()
+
     log.info(
         "admin.trial_recheck_existing_pv",
         tenant_id=tenant_id,
         checked=len(rows),
         verified_ok=len(rows) - not_verifiable,
         not_verifiable=not_verifiable,
+        from_cache=from_cache,
         blacklisted=len(flagged),
         super_admin=ctx.user_id,
     )
@@ -1426,6 +1448,7 @@ async def trial_recheck_existing_pv(
         "checked": len(rows),
         "verified_ok": len(rows) - not_verifiable,
         "not_verifiable": not_verifiable,
+        "from_cache": from_cache,
         "blacklisted_existing_pv": len(flagged),
     }
 
