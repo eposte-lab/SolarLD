@@ -197,6 +197,9 @@ export interface SmartTimeData {
   cells: HeatmapCell[];
   /** Whether the heatmap is built from email opens or (fallback) send times. */
   basis: 'opens' | 'sent';
+  /** Moderated tenant: an empty grid means opens are frozen until the
+   *  operator promotes the reacted contatti (not "no data"). */
+  frozen: boolean;
 }
 
 /**
@@ -271,7 +274,7 @@ export async function getSendTimeHeatmap(days = 90): Promise<SmartTimeData> {
       });
     }
   }
-  return { cells, basis };
+  return { cells, basis, frozen: moderated };
 }
 
 // ── pipeline revenue ──────────────────────────────────────────────────────────
