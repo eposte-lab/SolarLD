@@ -451,10 +451,8 @@ function RecheckExistingPvButton({ tenantId }: { tenantId: string }) {
         res.not_verifiable > 0
           ? ` · ⚠️ ${res.not_verifiable} rimasti fuori (rate-limit transitorio — riclicca per recuperarli)`
           : ' · ✅ nessuno rimasto fuori';
-      const cached =
-        res.from_cache && res.from_cache > 0 ? ` · ${res.from_cache} già noti (saltati)` : '';
       setResult(
-        `${res.verified_ok}/${res.checked} verificati col vision${cached} · ${res.blacklisted_existing_pv} con impianto già sul tetto → blacklistati${warn}. Nessun invio.`,
+        `${res.verified_ok}/${res.checked} verificati col vision · ${res.blacklisted_existing_pv} con impianto già sul tetto → blacklistati${warn}. Nessun invio.`,
       );
     } catch (e) {
       setError(errMessage(e));
