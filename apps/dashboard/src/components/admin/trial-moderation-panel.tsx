@@ -520,20 +520,42 @@ function VisionSelfTestButton() {
       const res = await api.post<{
         ok: boolean;
         working?: boolean;
+        pipeline_ok?: boolean;
         has_existing_pv?: boolean;
         confidence?: number;
         stage?: string;
         hint?: string;
+        error?: string;
+        error_type?: string;
+        model?: string;
       }>(`/v1/admin/trial/existing-pv-selftest`, {});
       if (res.ok && res.working) {
+        // Vision ran AND detected the known PV → env + detection both good.
         setOk(true);
         setResult(
-          `✅ Vision OK — riconosce l'impianto noto (La Reggia): has_existing_pv=true · confidenza ${Math.round((res.confidence ?? 0) * 100)}%. La verifica gira davvero sull'API.`,
+          `✅ Vision OK — riconosce l'impianto noto (La Reggia): has_existing_pv=true · confidenza ${Math.round(
+            (res.confidence ?? 0) * 100,
+          )}%. La verifica gira davvero sull'API (modello ${res.model ?? '?'}).`,
         );
-      } else {
+      } else if (res.pipeline_ok) {
+        // Vision RAN (env is fine) but did NOT flag the panels → detection/prompt
+        // issue, NOT an env issue. Very different fix.
         setOk(false);
         setResult(
-          `❌ Vision NON funzionante (stage: ${res.stage ?? '?'}). ${res.hint ?? ''} → finché non è risolto, il recheck e il gate L4 fanno fail-open (lasciano passare).`,
+          `⚠️ Il vision GIRA sull'API (env a posto, modello ${res.model ?? '?'}), ma su La Reggia NON ha rilevato i pannelli (stage: ${
+            res.stage ?? 'no_pv'
+          }). Non è un problema di chiavi: è la detection/prompt/qualità tile da tarare.`,
+        );
+      } else {
+        // Pipeline did not run — show the REAL error, not a guess.
+        setOk(false);
+        const real = res.error
+          ? `\n↳ errore reale${res.error_type ? ` (${res.error_type})` : ''}: ${res.error}`
+          : '';
+        setResult(
+          `❌ Vision NON parte (stage: ${res.stage ?? '?'}). ${
+            res.hint ?? ''
+          }${real}\n→ finché non è risolto, recheck e gate L4 fanno fail-open (lasciano passare).`,
         );
       }
     } catch (e) {
