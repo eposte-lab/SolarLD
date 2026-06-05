@@ -312,6 +312,22 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
                 )
 
         # ------------------------------------------------------------------
+        # 2b) Status hard-stop — a lead the operator (or the existing-PV
+        # gate) marked BLACKLISTED must never send, even when a deferred
+        # outreach_task was already queued before the blacklist (e.g. a
+        # 'picked' lead scheduled for tomorrow). The pii_hash gate below only
+        # covers GDPR opt-outs; this covers status-level exclusions and is a
+        # hard stop regardless of ``force``.
+        # ------------------------------------------------------------------
+        if lead.get("pipeline_status") == LeadStatus.BLACKLISTED.value:
+            return await self._record_skip(
+                payload=payload,
+                lead=lead,
+                reason="lead_blacklisted",
+                pipeline_status=LeadStatus.BLACKLISTED.value,
+            )
+
+        # ------------------------------------------------------------------
         # 3) Compliance gate — blacklist check
         # ------------------------------------------------------------------
         pii_hash = subject.get("pii_hash")
