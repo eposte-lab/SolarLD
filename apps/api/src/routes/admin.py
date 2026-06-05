@@ -29,7 +29,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
 import geohash  # type: ignore[import-untyped]
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from ..agents.creative import CreativeAgent, CreativeInput
@@ -1535,48 +1535,66 @@ async def trial_existing_pv_selftest(ctx: CurrentUser) -> dict[str, Any]:
     }
 
 
-@router.post("/trial/trigger-followup")
-async def trial_trigger_followup(
-    ctx: CurrentUser,
-    tenant_id: str = Query(description="Tenant whose engaged leads to follow up now"),
-) -> dict[str, Any]:
-    """Run the engagement follow-up evaluation for a moderated tenant NOW
-    (super-admin), instead of waiting for the 08:15 UTC cron.
+async def _run_engagement_followup_bg(tenant_id: str, actor: str | None) -> None:
+    """Background worker for the on-demand follow-up trigger.
 
-    Why this exists: the daily cron can be missed if the worker is mid-deploy
-    at 08:15 (cron jobs use ``run_at_startup=False`` and do not catch up), and
-    a freshly-engaged lead only becomes eligible at the first cron AFTER it
-    engaged. This lets the operator fire the pending engaged follow-ups on
-    demand. Follow-ups (sequence_step >= 2) bypass the commercial daily cap —
-    only the domain/inbox warm-up rate-limit applies — so the highest-value
-    leads still go out while first-touch volume is throttled. Sends nothing
-    itself; it enqueues outreach_task jobs (idempotent per scenario/day).
+    Runs the (slow / enqueue-bound) engagement evaluation AFTER the HTTP
+    response is sent, so the request never hangs the gateway. Any error is
+    logged, never surfaced — the 08:15 cron is the durable fallback.
     """
-    _require_super_admin(ctx)
     from ..workers.cron import engagement_followup_for_tenant
 
-    result = await engagement_followup_for_tenant(tenant_id)
-    queued = int(result.get("queued") or 0)
-    skipped_raw = result.get("skipped") or {}
-    skipped = (
-        sum(int(v) for v in skipped_raw.values())
-        if isinstance(skipped_raw, dict)
-        else int(skipped_raw or 0)
-    )
+    try:
+        result = await engagement_followup_for_tenant(tenant_id)
+        log.info(
+            "admin.trial_trigger_followup.done",
+            tenant_id=tenant_id,
+            queued=result.get("queued"),
+            skipped=result.get("skipped"),
+            candidates=result.get("candidates"),
+            super_admin=actor,
+        )
+    except Exception as exc:  # noqa: BLE001 — fire-and-forget; cron is fallback
+        log.warning(
+            "admin.trial_trigger_followup.failed",
+            tenant_id=tenant_id,
+            err=str(exc)[:300],
+            super_admin=actor,
+        )
+
+
+@router.post("/trial/trigger-followup", status_code=status.HTTP_202_ACCEPTED)
+async def trial_trigger_followup(
+    ctx: CurrentUser,
+    background: BackgroundTasks,
+    tenant_id: str = Query(description="Tenant whose engaged leads to follow up now"),
+) -> dict[str, Any]:
+    """Schedule the engagement follow-up evaluation for a moderated tenant NOW
+    (super-admin), instead of waiting for the 08:15 UTC cron.
+
+    Fire-and-forget: the heavy evaluation (per-lead history + arq enqueues) runs
+    in a BACKGROUND task so the request returns immediately. Running it inline
+    made the request hang or raise long enough that Railway's gateway returned a
+    timeout/500 WITHOUT CORS headers — which the browser misreported as a CORS
+    error ("No 'Access-Control-Allow-Origin'"). The 202 below is a normal
+    FastAPI response and carries CORS headers, so the dashboard call always
+    succeeds; the daily cron remains the durable fallback if the background run
+    fails. Follow-ups (sequence_step >= 2) bypass the commercial daily cap.
+    """
+    _require_super_admin(ctx)
+    background.add_task(_run_engagement_followup_bg, tenant_id, ctx.user_id)
     log.info(
-        "admin.trial_trigger_followup",
+        "admin.trial_trigger_followup.scheduled",
         tenant_id=tenant_id,
-        queued=queued,
-        skipped=skipped,
-        candidates=result.get("candidates"),
         super_admin=ctx.user_id,
     )
     return {
         "ok": True,
-        "queued": queued,
-        "skipped": skipped,
-        "candidates": int(result.get("candidates") or 0),
-        "escalated": int(result.get("escalated") or 0),
+        "status": "scheduled",
+        "message": (
+            "Valutazione follow-up avviata. I lead engaged idonei vengono "
+            "accodati a breve — controlla la timeline tra circa un minuto."
+        ),
     }
 
 
