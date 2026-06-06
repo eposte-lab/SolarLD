@@ -194,7 +194,7 @@ async def _gate_one(
     if verdict_accepted:
         from ...services.claude_vision_service import building_has_existing_pv
 
-        if await building_has_existing_pv(lat, lng):
+        if await building_has_existing_pv(lat, lng, area_sqm=insight.area_sqm):
             verdict_accepted, reason = False, "has_existing_pv"
 
     classification = classify_roof(insight)

@@ -230,21 +230,28 @@ def projection_to_insight(
 # ---------------------------------------------------------------------------
 
 _EXISTING_PV_SYSTEM = (
-    "You are a remote-sensing specialist inspecting Italian rooftop aerial "
-    "imagery. Judge ONLY whether photovoltaic (solar) panels are ALREADY "
-    "installed on the building's roof. Be conservative: answer true only when "
-    "you clearly see rows of dark rectangular PV modules ON A ROOFTOP."
+    "You are a remote-sensing specialist inspecting Italian aerial imagery of a "
+    "company's site. Judge whether photovoltaic (solar) panels are ALREADY "
+    "installed ANYWHERE on the property — on the building's roof, on "
+    "carport/parking canopies, or ground-mounted within the site. A property "
+    "that already went solar is not a prospect. Be conservative: answer true "
+    "only when you clearly see rows of dark rectangular PV modules."
 )
 
 _EXISTING_PV_PROMPT = """\
-Look at the main building in the central area of this satellite tile
-(latitude {lat}, longitude {lng}).
+Look at the main property in the central area of this satellite tile (latitude
+{lat}, longitude {lng}) — the building together with its yard and car park.
 
-Does its ROOFTOP already have solar photovoltaic panels installed? PV panels
-appear as neat rows of uniform dark blue/black rectangular modules on the
-roof. Do NOT count: skylights, glass atriums, dark flat membrane roofs, HVAC
-units, ground-mounted solar farms beside the building, greenhouses, pools, or
-parked vehicles.
+Does this property ALREADY have solar photovoltaic panels installed anywhere on
+site? Count PV regardless of where it sits:
+  - on the building ROOFTOP (look across the WHOLE roof — large warehouse roofs
+    may carry panels only on one section);
+  - on CARPORT / parking canopies;
+  - GROUND-MOUNTED within the property (in the yard or car park).
+PV appears as neat rows of uniform dark blue/black rectangular modules. Do NOT
+count: skylights, glass atriums, dark flat membrane roofs, HVAC units,
+greenhouses, pools, parked vehicles, or a large off-site solar farm clearly
+unrelated to this property.
 
 Respond with EXACTLY this JSON (no prose, no code fences):
 {{"has_existing_pv": boolean, "confidence": number, "notes": string}}
@@ -306,18 +313,39 @@ async def detect_existing_pv(
 EXISTING_PV_MIN_CONFIDENCE = 0.6
 
 
-async def building_has_existing_pv(lat: float, lng: float) -> bool | None:
-    """Whether the rooftop at ``(lat, lng)`` already has PV, via a Mapbox
-    satellite tile + Claude vision.
+def _pv_zoom_for_area(area_sqm: float | None) -> int:
+    """Pick the satellite zoom so the WHOLE property fits the tile.
 
-    Returns ``True`` / ``False`` for a real verdict, or ``None`` when the check
-    could NOT run (no Mapbox token, vision timeout, unparseable answer). Callers
-    that gate leads must FAIL OPEN — treat None and False alike as "don't
-    reject" — but a batch tool can count the Nones to tell "checked, no PV"
-    apart from "couldn't check at all".
+    A fixed zoom-19 frame (~150 m) clips big ``capannoni`` and their car-park /
+    ground PV arrays — the exact reason a 3000+ m² site with panels can read as
+    "no PV". Zoom out for larger footprints so the roof AND the surrounding yard
+    are visible.
     """
+    if not area_sqm or area_sqm <= 0:
+        return 19
+    if area_sqm >= 6000:
+        return 17  # ~600 m frame — sprawling sites + ground arrays
+    if area_sqm >= 1500:
+        return 18  # ~300 m frame — large warehouses + parking
+    return 19
+
+
+async def building_has_existing_pv(
+    lat: float, lng: float, *, area_sqm: float | None = None
+) -> bool | None:
+    """Whether the property at ``(lat, lng)`` already has PV (roof, carport, or
+    on-site ground array), via a Mapbox satellite tile + Claude vision.
+
+    ``area_sqm`` (the roof footprint) widens the tile for large sites so panels
+    aren't clipped. Returns ``True`` / ``False`` for a real verdict, or ``None``
+    when the check could NOT run (no Mapbox token, vision timeout, unparseable
+    answer). Callers that gate leads must FAIL OPEN — treat None and False alike
+    as "don't reject" — but a batch tool can count the Nones to tell "checked,
+    no PV" apart from "couldn't check at all".
+    """
+    zoom = _pv_zoom_for_area(area_sqm)
     try:
-        url = mapbox_service.build_static_satellite_url(lat, lng, zoom=19, width=640, height=640)
+        url = mapbox_service.build_static_satellite_url(lat, lng, zoom=zoom, width=640, height=640)
     except Exception as exc:  # noqa: BLE001 — no token / build error
         log.warning("existing_pv.url_failed", err=str(exc)[:160])
         return None
@@ -333,6 +361,8 @@ async def building_has_existing_pv(lat: float, lng: float) -> bool | None:
         "existing_pv.checked",
         lat=lat,
         lng=lng,
+        zoom=zoom,
+        area_sqm=area_sqm,
         has_existing_pv=res["has_existing_pv"],
         confidence=res["confidence"],
         acted=has_pv,
