@@ -1356,21 +1356,15 @@ async def trial_regenerate_failed_renders(
     return {"ok": True, "regenerated": len(lead_ids)}
 
 
-@router.post("/trial/recheck-existing-pv")
-async def trial_recheck_existing_pv(
-    ctx: CurrentUser,
-    tenant_id: str = Query(description="Tenant whose not-yet-sent leads to vision-check"),
-    limit: int = Query(150, ge=1, le=1000, description="Max leads to check this run"),
-) -> dict[str, Any]:
-    """Vision-recheck NOT-YET-SENT leads for EXISTING rooftop PV and blacklist
-    the ones that already have panels — they are not prospects (the
-    Excelsior/La-Reggia symptom: a great roof that already went solar).
+async def _run_recheck_existing_pv_bg(tenant_id: str, limit: int, actor: str | None) -> None:
+    """Background worker for the existing-PV recheck.
 
-    Super-admin only. ~0.5¢ per lead checked (Claude vision on a Mapbox tile),
-    fails OPEN per lead, idempotent (already-blacklisted/sent leads are
-    excluded, so a re-run only covers what's left). Sends nothing.
+    Runs AFTER the HTTP response so a large pool (many ~1-2s vision calls, with
+    retries) never exceeds the gateway timeout — which returned a CORS-less 502
+    the browser misreported as a failed/CORS fetch, leaving the operator unsure
+    whether the run finished. Result is logged; the operator reads the updated
+    counts from the dashboard. Fails OPEN per lead; sends nothing.
     """
-    _require_super_admin(ctx)
     import asyncio
 
     from ..services.claude_vision_service import building_has_existing_pv
@@ -1394,15 +1388,10 @@ async def trial_recheck_existing_pv(
     async def _check(row: dict[str, Any]) -> tuple[str, str | None, bool | None, bool]:
         """Return ``(lead_id, roof_id, verdict, from_cache)``.
 
-        ``verdict``: True=has PV, False=clean, None=could-not-check.
-
-        We ONLY trust a stored ``has_existing_pv = True`` (a real prior
-        detection) and reuse it to re-blacklist a straggler without a new call.
-        We do NOT trust a stored ``False``: that column DEFAULTS to false, so
-        false is ambiguous ("verified clean" vs "never actually checked") —
-        treating it as verified would let a re-run skip roofs the vision never
-        really inspected and report a false all-clear. So every non-True roof
-        is vision-checked afresh.
+        ``verdict``: True=has PV, False=clean, None=could-not-check. We ONLY
+        trust a stored ``has_existing_pv = True`` (a real prior detection) and
+        reuse it to re-blacklist a straggler without a new call; a stored False
+        is ambiguous (defaults to false) so every non-True roof is re-checked.
         """
         roof = row.get("roofs") or {}
         lat, lng = roof.get("lat"), roof.get("lng")
@@ -1416,12 +1405,16 @@ async def trial_recheck_existing_pv(
             )
         return row["id"], row.get("roof_id"), verdict, False
 
-    results = await asyncio.gather(*[_check(r) for r in rows], return_exceptions=False)
+    try:
+        results = await asyncio.gather(*[_check(r) for r in rows], return_exceptions=False)
+    except Exception as exc:  # noqa: BLE001 — bg job; log and stop
+        log.warning(
+            "admin.trial_recheck_existing_pv.failed", tenant_id=tenant_id, err=str(exc)[:300]
+        )
+        return
+
     flagged = [(lid, rid) for (lid, rid, v, _c) in results if v is True]
-    # ``None`` = the vision check could NOT run (rate-limit, timeout, no coords).
-    # Surfacing it tells "checked, no PV" apart from "never actually checked".
     not_verifiable = sum(1 for (_lid, _rid, v, _c) in results if v is None)
-    from_cache = sum(1 for (_lid, _rid, _v, c) in results if c)
 
     for lid, rid in flagged:
         sb.table("leads").update({"pipeline_status": "blacklisted"}).eq("id", lid).eq(
@@ -1431,22 +1424,42 @@ async def trial_recheck_existing_pv(
             sb.table("roofs").update({"has_existing_pv": True}).eq("id", rid).execute()
 
     log.info(
-        "admin.trial_recheck_existing_pv",
+        "admin.trial_recheck_existing_pv.done",
         tenant_id=tenant_id,
         checked=len(rows),
-        verified_ok=len(rows) - not_verifiable,
         not_verifiable=not_verifiable,
-        from_cache=from_cache,
         blacklisted=len(flagged),
-        super_admin=ctx.user_id,
+        super_admin=actor,
+    )
+
+
+@router.post("/trial/recheck-existing-pv", status_code=status.HTTP_202_ACCEPTED)
+async def trial_recheck_existing_pv(
+    ctx: CurrentUser,
+    background: BackgroundTasks,
+    tenant_id: str = Query(description="Tenant whose not-yet-sent leads to vision-check"),
+    limit: int = Query(300, ge=1, le=1000, description="Max leads to check this run"),
+) -> dict[str, Any]:
+    """Vision-recheck NOT-YET-SENT leads for EXISTING PV (roof/carport/ground)
+    and blacklist the ones that already went solar — they are not prospects.
+
+    Super-admin only. Fire-and-forget: the heavy vision pass (many ~1-2s calls)
+    runs in a BACKGROUND task and the request returns immediately, so a big pool
+    no longer times out the gateway (the old "Failed to fetch"). ~0.5¢ per lead,
+    fails OPEN per lead, idempotent, sends nothing.
+    """
+    _require_super_admin(ctx)
+    background.add_task(_run_recheck_existing_pv_bg, tenant_id, limit, ctx.user_id)
+    log.info(
+        "admin.trial_recheck_existing_pv.scheduled", tenant_id=tenant_id, super_admin=ctx.user_id
     )
     return {
         "ok": True,
-        "checked": len(rows),
-        "verified_ok": len(rows) - not_verifiable,
-        "not_verifiable": not_verifiable,
-        "from_cache": from_cache,
-        "blacklisted_existing_pv": len(flagged),
+        "status": "scheduled",
+        "message": (
+            "Ricontrollo avviato: analizzo i lead non inviati e blacklisto chi ha "
+            "già i pannelli. Tra 1-2 minuti i contatori sono aggiornati (ricarica)."
+        ),
     }
 
 
