@@ -1378,7 +1378,7 @@ async def trial_recheck_existing_pv(
     sb = get_service_client()
     res = (
         sb.table("leads")
-        .select("id, roof_id, roofs:roofs(lat, lng, has_existing_pv)")
+        .select("id, roof_id, roofs:roofs(lat, lng, area_sqm, has_existing_pv)")
         .eq("tenant_id", tenant_id)
         .is_("outreach_sent_at", "null")
         .not_.in_("pipeline_status", ["blacklisted", "closed_lost", "closed_won"])
@@ -1411,7 +1411,9 @@ async def trial_recheck_existing_pv(
         if lat is None or lng is None:
             return row["id"], row.get("roof_id"), None, False  # no coords → not verifiable
         async with sem:
-            verdict = await building_has_existing_pv(float(lat), float(lng))
+            verdict = await building_has_existing_pv(
+                float(lat), float(lng), area_sqm=roof.get("area_sqm")
+            )
         return row["id"], row.get("roof_id"), verdict, False
 
     results = await asyncio.gather(*[_check(r) for r in rows], return_exceptions=False)
