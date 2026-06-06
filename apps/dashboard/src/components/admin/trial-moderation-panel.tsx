@@ -439,22 +439,30 @@ function RecheckExistingPvButton({ tenantId }: { tenantId: string }) {
     try {
       const res = await api.post<{
         ok: boolean;
-        checked: number;
-        verified_ok: number;
-        not_verifiable: number;
-        from_cache?: number;
-        blacklisted_existing_pv: number;
+        status?: string;
+        message?: string;
+        checked?: number;
+        verified_ok?: number;
+        not_verifiable?: number;
+        blacklisted_existing_pv?: number;
       }>(
         `/v1/admin/trial/recheck-existing-pv?tenant_id=${encodeURIComponent(tenantId)}`,
         {},
       );
-      const warn =
-        res.not_verifiable > 0
-          ? ` · ⚠️ ${res.not_verifiable} rimasti fuori (rate-limit transitorio — riclicca per recuperarli)`
-          : ' · ✅ nessuno rimasto fuori';
-      setResult(
-        `${res.verified_ok}/${res.checked} verificati col vision · ${res.blacklisted_existing_pv} con impianto già sul tetto → blacklistati${warn}. Nessun invio.`,
-      );
+      // New fire-and-forget endpoint returns 202 + message (the heavy vision
+      // pass runs in the background, so a big pool no longer times out). Keep
+      // the legacy synchronous shape as a fallback.
+      if (res.message) {
+        setResult(res.message);
+      } else {
+        const warn =
+          (res.not_verifiable ?? 0) > 0
+            ? ` · ⚠️ ${res.not_verifiable} rimasti fuori (riclicca)`
+            : ' · ✅ nessuno rimasto fuori';
+        setResult(
+          `${res.verified_ok ?? 0}/${res.checked ?? 0} verificati · ${res.blacklisted_existing_pv ?? 0} con impianto → blacklistati${warn}. Nessun invio.`,
+        );
+      }
     } catch (e) {
       setError(errMessage(e));
     } finally {
