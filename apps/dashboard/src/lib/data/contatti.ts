@@ -146,13 +146,18 @@ export async function listContatti(opts: {
     q = q.eq('solar_verdict', 'accepted');
   }
 
-  const { data, error, count } = await q
-    .order('created_at', { ascending: false })
-    .range(from, to);
+  q = q.order('created_at', { ascending: false });
 
-  if (error) throw new Error(`listContatti: ${error.message}`);
-
-  let rows = (data ?? []) as unknown as ContattoRow[];
+  // ``include_unpromoted`` shows every candidate (no promoted post-filter), so
+  // the SQL count is exact and we page directly in the DB. The default
+  // promoted-only view filters in JS (candidate→live-lead mapping), so SQL
+  // range/count can't paginate it — it would report the page's *filtered*
+  // length as the grand total (→ a single page, the rest unreachable). For
+  // that path we fetch the full accepted set and paginate in JS.
+  const includeUnpromoted = !!opts.filter?.include_unpromoted;
+  const fetched = includeUnpromoted ? await q.range(from, to) : await q.limit(5000);
+  if (fetched.error) throw new Error(`listContatti: ${fetched.error.message}`);
+  const rows = (fetched.data ?? []) as unknown as ContattoRow[];
 
   // Resolve lead_id per contact by the *candidate identity*, NOT by
   // roof_id. A roof can host more than one business, but `subjects` is
@@ -161,9 +166,9 @@ export async function listContatti(opts: {
   // one contact would open another. L6 stamps the originating
   // candidate id on the subject (`raw_data.scan_candidate_id`); we map
   // each contact through that to its own lead.
-  const roofIds = rows
-    .map((r) => r.roof_id)
-    .filter((v): v is string => typeof v === 'string');
+  const roofIds = [
+    ...new Set(rows.map((r) => r.roof_id).filter((v): v is string => typeof v === 'string')),
+  ];
   const candToLead = new Map<string, string>();
   if (roofIds.length > 0) {
     const { data: leadRows } = await sb
@@ -190,24 +195,23 @@ export async function listContatti(opts: {
     }
   }
   for (const r of rows) {
-    (r as ContattoRow & { lead_id?: string | null }).lead_id =
-      candToLead.get(r.id) ?? null;
+    (r as ContattoRow & { lead_id?: string | null }).lead_id = candToLead.get(r.id) ?? null;
   }
 
-  // Default view: only rows that have been promoted to a lead are shown
-  // (perfect contacts). Scartati pre-L6 stay invisible unless the operator
-  // flips include_unpromoted.
-  if (!opts.filter?.include_unpromoted) {
-    rows = rows.filter(
-      (r) =>
-        (r as ContattoRow & { lead_id?: string | null }).lead_id != null,
-    );
+  if (includeUnpromoted) {
+    // SQL already paged; the count is the exact grand total.
+    return { rows, total: fetched.count ?? rows.length };
   }
 
-  // The header `count` is the SQL row count *before* the lead-id post-filter,
-  // so we override with the post-filter length to keep the page chip consistent.
-  const totalShown = opts.filter?.include_unpromoted ? (count ?? 0) : rows.length;
-  return { rows, total: totalShown };
+  // Default view: only promoted-to-a-live-lead rows. Compute the grand total
+  // over the full filtered set (drives pagination), then slice the page.
+  const promoted = rows.filter(
+    (r) => (r as ContattoRow & { lead_id?: string | null }).lead_id != null,
+  );
+  return {
+    rows: promoted.slice(from, from + CONTATTI_PAGE_SIZE),
+    total: promoted.length,
+  };
 }
 
 /** Stage counts + v3 quality aggregates for the header summary strip.
