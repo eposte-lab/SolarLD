@@ -177,7 +177,23 @@ async def run_level1_places(ctx: FunnelV3Context) -> dict[str, Any]:
         buckets[(z.get("province_code") or "?", sector)].append(z)
 
     target = max(1, int(ctx.max_l1_candidates or 200))
-    bucket_keys = list(buckets.keys())
+    # Province-interleaved bucket order. `buckets` was filled in
+    # matching_score-desc zone order, so a naive list() front-loads the
+    # densest / highest-score province (e.g. CE, NA) — which then consumes
+    # the whole run `target` before lower-priority provinces (e.g. SA) are
+    # ever drained, starving them for the scan's entire life (observed: SA
+    # got 1 zone scanned out of 942 while CE got 644). Round-robin across
+    # provinces so every province contributes before `target` is hit, while
+    # preserving matching_score order *within* each province.
+    by_province: dict[str, deque[tuple[str, str]]] = defaultdict(deque)
+    for k in buckets:
+        by_province[k[0]].append(k)
+    prov_queues = list(by_province.values())
+    bucket_keys: list[tuple[str, str]] = []
+    while any(prov_queues):
+        for pq in prov_queues:
+            if pq:
+                bucket_keys.append(pq.popleft())
     per_bucket: dict[tuple[str, str], int] = dict.fromkeys(bucket_keys, 0)
     fair_share = max(1, target // len(bucket_keys)) if bucket_keys else target
     max_calls = target * _MAX_CALLS_PER_RUN_FACTOR

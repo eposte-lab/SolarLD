@@ -50,16 +50,22 @@ PLACES_DETAILS_URL = "https://places.googleapis.com/v1/places/{place_id}"
 # Places API New has no `factory`/`warehouse` leaf; `warehouse` is rejected
 # with HTTP 400) fall back to keyword Text Search. Cap the keyword fan-out
 # per zone so cost stays bounded; the L1 candidate cap stops the overall
-# scan early anyway.
-_MAX_KEYWORDS_PER_ZONE = 4
+# scan early anyway. 6 keywords surfaces more distinct company types per
+# zone (different trades match different keywords) without runaway cost.
+_MAX_KEYWORDS_PER_ZONE = 6
 
 # Half-side (metres) of the rectangle the keyword Text Search is *restricted*
 # to. searchText only supports a rectangle for hard ``locationRestriction``
 # (a circle is bias-only = soft), and a soft bias let famous national names
 # leak in (e.g. searching "siderurgica" around Caserta returned Acciaierie
-# Venete in Brescia, 600 km away). 30 km keeps the search inside the local
-# province cluster while still finding genuine SMEs near the zone.
-_KEYWORD_BOX_HALF_M = 30_000
+# Venete in Brescia, 600 km away). A hard rectangle of ANY size blocks that
+# leak, so we keep it tight: 10 km. A wide 30 km box made adjacent zones
+# (hundreds within range) return the SAME top-20 Places results → after a
+# few zones everything deduped to nothing and the scan looked "exhausted"
+# with most zones untouched. A 10 km box samples the LOCAL long tail, so
+# neighbouring zones surface genuinely different SMEs — more distinct
+# discovery, no false exhaustion.
+_KEYWORD_BOX_HALF_M = 10_000
 
 
 def _rect_around(lat: float, lng: float, half_m: float) -> dict[str, Any]:
