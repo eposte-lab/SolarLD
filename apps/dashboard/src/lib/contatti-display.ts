@@ -100,33 +100,55 @@ export function displayName(c: ContattoRow): string {
   );
 }
 
-export function displayCity(c: ContattoRow): string | null {
-  // v3: parse the formatted_address Google Places returns. Italian
-  // addresses look like "Via Foo 12, 20100 Milano MI, Italy" — we
-  // want "Milano" out of the second-to-last comma segment.
-  const fa = c.enrichment?.places?.formatted_address ?? null;
-  if (fa) {
-    const parts = fa.split(',').map((s) => s.trim());
-    const cityCap = parts.length >= 2 ? parts[parts.length - 2] : null;
-    if (cityCap) {
-      const m = cityCap.match(/^\d{5}\s+(.+?)(?:\s+[A-Z]{2})?$/);
-      if (m && m[1]) return m[1];
-    }
+/**
+ * Parse an Italian Google Places `formatted_address` into { city, province }.
+ *
+ * Google returns the city segment in different positions depending on how
+ * complete the place is, and — crucially — often WITHOUT a trailing ", Italy":
+ *   "Via Foo 12, 20100 Milano MI, Italy"                → city is parts[-2]
+ *   "Via Marandoli, 2, 82030 San Salvatore Telesino BN" → city is parts[-1]
+ *   "Viale dell'Artigianato, 71036 Lucera FG"           → city is parts[-1]
+ *   "81050 Pastorano CE"                                → single segment
+ * The city always lives in the segment shaped "<CAP> <City…> [PROV]". We scan
+ * segments from the end (most specific first) for that pattern, so the parse is
+ * position-independent and tolerates the ", Italy" suffix being present OR not.
+ *
+ * The previous code hard-coded `parts[-2]`; on the suffix-less shapes the v3
+ * discovery actually produces it grabbed the street number ("2") instead of
+ * the city — leaving the Comune column blank. hq_city/hq_province are NULL on
+ * v3 candidates (legacy v2/Atoka columns), so there was no fallback either.
+ */
+function parseItalianPlaces(fa: string | null): {
+  city: string | null;
+  province: string | null;
+} {
+  if (!fa) return { city: null, province: null };
+  const parts = fa
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const m = parts[i]?.match(/^\d{5}\s+(.+?)(?:\s+([A-Z]{2}))?$/);
+    if (m && m[1]) return { city: m[1].trim(), province: m[2] ?? null };
   }
-  return c.hq_city ?? null;
+  return { city: null, province: null };
+}
+
+export function displayCity(c: ContattoRow): string | null {
+  return (
+    parseItalianPlaces(c.enrichment?.places?.formatted_address ?? null).city ??
+    c.hq_city ??
+    null
+  );
 }
 
 export function displayProvince(c: ContattoRow): string | null {
-  const fa = c.enrichment?.places?.formatted_address ?? null;
-  if (fa) {
-    const parts = fa.split(',').map((s) => s.trim());
-    const cityCap = parts.length >= 2 ? parts[parts.length - 2] : null;
-    if (cityCap) {
-      const m = cityCap.match(/\s([A-Z]{2})$/);
-      if (m && m[1]) return m[1];
-    }
-  }
-  return c.hq_province ?? null;
+  return (
+    parseItalianPlaces(c.enrichment?.places?.formatted_address ?? null)
+      .province ??
+    c.hq_province ??
+    null
+  );
 }
 
 // Defense-in-depth filter: reject obvious placeholders/example addresses
