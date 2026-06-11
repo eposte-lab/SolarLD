@@ -390,6 +390,50 @@ async def run_level4_solar_qualify(
             )
             continue
 
+        # 3.5) Existing-PV gate — reject roofs that ALREADY went solar
+        # (rooftop, carport, or ground-mounted on-site). The v3 funnel replaced
+        # the v2 level4_solar_gate but DROPPED this check, so capannoni that
+        # already have panels were being accepted and pitched solar. Runs only
+        # on threshold-accepted candidates (so the ~0.5c vision call is spent
+        # only on roofs we'd otherwise keep) and FAILS OPEN inside
+        # building_has_existing_pv (None/error → keep), so a vision hiccup
+        # never drops a good lead. Mirrors level4_solar_gate._gate_one.
+        from ...services.claude_vision_service import building_has_existing_pv
+
+        if await building_has_existing_pv(rec.lat, rec.lng, area_sqm=insight.area_sqm):
+            out.append(
+                SolarQualified(
+                    record=qc.record,
+                    scraped=qc.scraped,
+                    contact=qc.contact,
+                    building_quality_score=qc.building_quality_score,
+                    roof_id=None,
+                    solar_verdict="rejected_tech",
+                    solar_area_m2=insight.area_sqm,
+                    solar_kw_installable=insight.estimated_kwp,
+                    solar_panels_count=insight.max_panel_count,
+                    solar_sunshine_hours=sunshine,
+                )
+            )
+            _mark_verdict(
+                sb,
+                rec.candidate_id,
+                "rejected_tech",
+                tenant_id=ctx.tenant_id,
+                scan_id=ctx.scan_id,
+                solar_area_m2=insight.area_sqm,
+                solar_kw_installable=insight.estimated_kwp,
+                solar_panels_count=insight.max_panel_count,
+                solar_sunshine_hours=sunshine,
+            )
+            log.info(
+                "level4_solar.existing_pv_rejected",
+                tenant_id=ctx.tenant_id,
+                place_id=place_id,
+                area_sqm=insight.area_sqm,
+            )
+            continue
+
         # 4) Accept — persist roof + link + solar columns on scan_candidates
         roof_id = await _persist_roof_and_link(
             sb,

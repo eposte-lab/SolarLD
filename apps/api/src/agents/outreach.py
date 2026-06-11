@@ -328,6 +328,22 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
             )
 
         # ------------------------------------------------------------------
+        # 2b) Existing-PV hard stop — a roof that already has solar installed
+        # must NEVER be pitched solar, even if a render slipped through and an
+        # outreach_task was already queued. The v3 L4 gate now rejects these at
+        # discovery (level4_solar_qualify), but this is defense-in-depth for
+        # leads already in the warehouse that predate the gate (flagged by the
+        # /trial/recheck-existing-pv job) — so a panelled roof is never emailed.
+        # ------------------------------------------------------------------
+        if roof.get("has_existing_pv"):
+            return await self._record_skip(
+                payload=payload,
+                lead=lead,
+                reason="has_existing_pv",
+                pipeline_status=LeadStatus.BLACKLISTED.value,
+            )
+
+        # ------------------------------------------------------------------
         # 3) Compliance gate — blacklist check
         # ------------------------------------------------------------------
         pii_hash = subject.get("pii_hash")
