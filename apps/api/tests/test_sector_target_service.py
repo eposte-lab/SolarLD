@@ -149,6 +149,26 @@ async def test_get_sector_config_unknown_returns_none(fake_sb):
 
 
 @pytest.mark.asyncio
+async def test_empty_seed_table_does_not_poison_cache(fake_sb):
+    """Regression: an empty ``ateco_google_types`` read must NOT latch the
+    warm flag. Otherwise the worker process stays stuck with an empty palette
+    forever — every discovery zone then fails the ``sector not in
+    sector_configs`` filter, so L1 silently drains ZERO zones until the worker
+    is restarted (this stalled prod discovery for ~5 days)."""
+    empty_sb = _FakeSupabase([])
+    # First warm races an empty table: no mapping, and the cache must stay cold.
+    cold = await sts.get_sector_config_by_wizard_group(empty_sb, wizard_group="industry_heavy")
+    assert cold is None
+    assert sts._CACHE_WARM is False
+    assert not sts._PALETTE_CACHE
+    # A later warm against a healthy table must succeed — proves no poisoning.
+    mapping = await sts.get_sector_config_by_wizard_group(fake_sb, wizard_group="industry_heavy")
+    assert mapping is not None
+    assert mapping.wizard_group == "industry_heavy"
+    assert sts._CACHE_WARM is True
+
+
+@pytest.mark.asyncio
 async def test_osm_hints_parsed(fake_sb):
     mapping = await sts.get_sector_config_by_wizard_group(fake_sb, wizard_group="logistics")
     assert mapping is not None

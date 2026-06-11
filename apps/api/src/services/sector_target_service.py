@@ -132,6 +132,19 @@ async def _warm_cache(supabase: Any) -> None:
     for wg, entries in grouped.items():
         _PALETTE_CACHE[wg] = _build_mapping_from_rows(wg, entries)
 
+    if not _PALETTE_CACHE:
+        # The seed table came back empty — almost always a transient read
+        # error or a warm that raced a migration / re-seed of
+        # `ateco_google_types`. Do NOT latch `_CACHE_WARM`: leaving it False
+        # makes the next call retry instead of poisoning the whole worker
+        # process with an empty palette. An empty palette is catastrophic and
+        # silent — every discovery zone then fails the
+        # `sector not in sector_configs` filter, so L1 drains ZERO zones and
+        # the scan discovers nothing until the worker is restarted (this is
+        # exactly what stalled discovery for ~5 days).
+        log.error("sector_target.cache_warm_empty_retry", ateco_rows=len(rows))
+        return
+
     _CACHE_WARM = True
     log.info(
         "sector_target.cache_warmed",
