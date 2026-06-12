@@ -67,6 +67,7 @@ import {
 
 import { LeadFeedbackPicker } from './LeadFeedbackPicker';
 import { RegenerateRenderingButton } from './RegenerateRenderingButton';
+import { ResendToAddressForm } from './ResendToAddressForm';
 import { SendOutreachButton } from './SendOutreachButton';
 import { SendTestOutreachForm } from './SendTestOutreachForm';
 import { SolarApiInspector } from './SolarApiInspector';
@@ -495,6 +496,15 @@ export default async function LeadDetailPage({ params }: PageProps) {
           leadId={lead.id}
           defaultEmail={ctx.user_email ?? null}
         />
+      )}
+
+      {/* Production: resend the official outreach to an alternate address the
+          decision-maker requested (address change / additional contact). Sends
+          the identical official email; a reason is mandatory and every send is
+          written to audit_log (POST /leads/{id}/resend-to-address). Demo
+          tenants use the test form above instead. */}
+      {!isBlacklisted && !ctx.tenant.outreach_blocked && (
+        <ResendToAddressForm leadId={lead.id} />
       )}
 
       {/* ─── Hero: video simulazione (Solar) — oppure info campagna custom ──
