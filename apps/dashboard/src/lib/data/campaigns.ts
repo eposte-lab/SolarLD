@@ -170,7 +170,16 @@ export async function getCampaignDeliveryStats(): Promise<CampaignDeliveryStats>
   }
 
   const total = campaigns.length;
-  const delivered = campaigns.filter((c) => c.status === 'delivered').length;
+  // `delivered` here means "successfully handed off to the email provider".
+  // This system writes a send as status='sent' and would only upgrade it to
+  // 'delivered' if a provider delivery webhook fired — which is NOT wired
+  // (opens/clicks are tracked portal-side via route.public, not Resend). A
+  // strict status==='delivered' filter was therefore ALWAYS 0, which zeroed
+  // every rate (open_rate = opened/delivered = opened/0 = 0) and made the whole
+  // KPI strip read "no data". Count 'sent' as delivered so the rates are real.
+  const delivered = campaigns.filter(
+    (c) => c.status === 'sent' || c.status === 'delivered',
+  ).length;
   const failed = campaigns.filter((c) => c.status === 'failed').length;
 
   // Restrict the lead-level engagement to leads that actually have a
