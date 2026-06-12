@@ -840,6 +840,107 @@ async def send_test_outreach(
     return {"ok": True, "lead_id": lead_id, "recipient_override": override, **job}
 
 
+class ResendToAddressRequest(BaseModel):
+    recipient_override: str
+    reason: str = Field(min_length=3, max_length=500)
+
+
+@router.post("/{lead_id}/resend-to-address")
+async def resend_outreach_to_address(
+    ctx: CurrentUser,
+    lead_id: str,
+    body: ResendToAddressRequest,
+) -> dict[str, object]:
+    """Production: resend a lead's EXACT official outreach to an alternate address.
+
+    Use case: the decision-maker asked for the same offer at a different email
+    (address change, additional contact). Sends the identical official
+    template + plant data + rendering — the same machinery as the daily
+    outreach, just a recipient override.
+
+    Unlike ``send-test-outreach`` (demo tenants only) this works for production
+    tenants, but it is NOT silent: a ``reason`` is mandatory and every call
+    writes an ``audit_log`` row (operator, lead, address, reason). An
+    alternate-recipient send is therefore always traceable — the lead's
+    engagement can never be quietly redirected/inflated without a trail.
+    """
+    tenant_id = require_tenant(ctx)
+    sb = get_service_client()
+
+    override = (body.recipient_override or "").strip().lower()
+    if not _EMAIL_RX.match(override):
+        raise HTTPException(status_code=400, detail="Email non valida.")
+    reason = body.reason.strip()
+    if len(reason) < 3:
+        raise HTTPException(status_code=400, detail="Motivo obbligatorio (per l'audit).")
+
+    # Resolve the lead + its real recipient (moderation gate). Refuse a
+    # self-aimed override — typing the prospect's own address is just a normal
+    # resend, for which the standard 'Invia email' button exists.
+    lead_q = (
+        sb.table("leads")
+        .select("id, subjects(decision_maker_email)")
+        .eq("id", lead_id)
+        .eq("tenant_id", tenant_id)
+        .limit(1)
+    )
+    lead_q = apply_released_filter(lead_q, sb, tenant_id)
+    lead_res = lead_q.execute()
+    if not lead_res.data:
+        raise HTTPException(status_code=404, detail="Lead non trovato.")
+    real_email = (
+        ((lead_res.data[0].get("subjects") or {}).get("decision_maker_email") or "").strip().lower()
+    )
+    if real_email and real_email == override:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "L'indirizzo coincide con l'email reale del lead — usa il "
+                "bottone 'Invia email' standard per inviare al prospect."
+            ),
+        )
+
+    # Audit FIRST — append-only trail (operator, lead, address, reason).
+    # Best-effort: log_action never raises.
+    await audit_log(
+        tenant_id,
+        "lead.outreach_resent_alt_address",
+        actor_user_id=ctx.sub,
+        target_table="leads",
+        target_id=lead_id,
+        diff={"recipient_override": override, "reason": reason},
+    )
+
+    # Same machinery as the daily outreach (identical template/data/rendering),
+    # just a recipient override. Unique job_id per click so ARQ never dedupes a
+    # fresh resend against a previous one. force=True bypasses the send-window
+    # (deliberate operator action); the blacklist / existing-PV / GDPR gates in
+    # OutreachAgent still apply.
+    import hashlib
+
+    override_tag = hashlib.sha256(override.encode()).hexdigest()[:10]
+    ts = int(datetime.now(tz=UTC).timestamp())
+    job = await enqueue(
+        "outreach_task",
+        {
+            "tenant_id": tenant_id,
+            "lead_id": lead_id,
+            "channel": "email",
+            "force": True,
+            "recipient_override": override,
+        },
+        job_id=f"outreach_resend:{tenant_id}:{lead_id}:{override_tag}:{ts}",
+    )
+    log.info(
+        "leads.resend_to_address.queued",
+        tenant_id=tenant_id,
+        lead_id=lead_id,
+        override_domain=override.split("@", 1)[1],
+        reason=reason,
+    )
+    return {"ok": True, "lead_id": lead_id, "recipient_override": override, **job}
+
+
 # ---------------------------------------------------------------------------
 # Follow-up drafter — Part B.9
 # ---------------------------------------------------------------------------
