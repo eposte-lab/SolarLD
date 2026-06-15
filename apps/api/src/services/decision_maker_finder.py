@@ -127,11 +127,18 @@ _NOT_AN_UPGRADE_LOCAL_PARTS = frozenset(
         "pec",
         "noreply",
         "no-reply",
-        # purely functional — never a commercial / management contact
+        # SALES dept — the wrong target for an energy-BUYER outreach (the
+        # contact-enrichment spec excludes these on purpose; this also reverts
+        # PR #328 which had briefly accepted commerciale@ as a "good generic").
+        "commerciale",
+        "vendite",
+        "sales",
+        # purely functional — never a commercial / management / buying contact.
+        # NB: "acquisti" (purchasing) is NOT here — it IS a good energy-buyer
+        # target (role ladder), so a Hunter-returned acquisti@ is accepted.
         "fatture",
         "fatturazione",
         "ordini",
-        "acquisti",
         "preventivi",
         "assistenza",
         "supporto",
@@ -222,9 +229,8 @@ async def _attempt_upgrade(
     # still surface. The department filter alone dropped most Italian SMEs to
     # zero results; we re-prioritise in-process instead.
     try:
-        candidates = await domain_search(
-            domain, seniority=None, department=None, limit=10, client=client
-        )
+        _ds = await domain_search(domain, seniority=None, department=None, limit=10, client=client)
+        candidates = _ds.emails
     except Exception as exc:  # noqa: BLE001 — fail open, keep the website email
         # ``detail`` carries the HTTP status/body from HunterIoError → an
         # invalid/unauthorised key shows as status=401/403 here.
