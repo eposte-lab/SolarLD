@@ -170,10 +170,15 @@ class ContactExtraction:
 
     best_email: str | None = None
     best_email_confidence: str | None = None  # "alta" | "media" | None
-    best_email_type: str | None = None  # "named_role" | "generic"
+    best_email_type: str | None = None  # "named_role" | "generic" | "named_decision_maker"
     best_phone: str | None = None
     pec: str | None = None
     decision_maker_name: str | None = None
+    # Premium finder (Hunter + NeverBounce) enrichment. Populated only when a
+    # weak email was upgraded to a named decision-maker.
+    decision_maker_role: str | None = None
+    email_source: str = "website_scrape"  # "website_scrape" | "premium_finder"
+    fallback_email: str | None = None  # original website email kept as backup
 
     def to_jsonb(self) -> dict[str, Any]:
         return {
@@ -183,6 +188,9 @@ class ContactExtraction:
             "best_phone": self.best_phone,
             "pec": self.pec,
             "decision_maker_name": self.decision_maker_name,
+            "decision_maker_role": self.decision_maker_role,
+            "email_source": self.email_source,
+            "fallback_email": self.fallback_email,
         }
 
 
