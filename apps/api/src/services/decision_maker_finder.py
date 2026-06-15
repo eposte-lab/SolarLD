@@ -77,6 +77,25 @@ _ROLE_LOCAL_PARTS = frozenset(
         "no-reply",
         "mail",
         "posta",
+        # functional inboxes — never a person; kept out of the alias fallback
+        "fatture",
+        "fatturazione",
+        "ordini",
+        "acquisti",
+        "preventivi",
+        "assistenza",
+        "supporto",
+        "support",
+        "help",
+        "staff",
+        "hr",
+        "pec",
+        "prenotazioni",
+        "booking",
+        "reception",
+        "logistica",
+        "spedizioni",
+        "magazzino",
     }
 )
 
@@ -154,9 +173,14 @@ async def _attempt_upgrade(
         log.warning("premium_finder.budget_check_failed", err=type(exc).__name__)
         return None, "budget_check_failed"
 
-    # Hunter domain-search for executives / management.
+    # Hunter domain-search — BROAD: no seniority/department filter (same 1-credit
+    # cost) so SME contacts that aren't classified into a department/seniority
+    # still surface. The department filter alone dropped most Italian SMEs to
+    # zero results; we re-prioritise in-process instead.
     try:
-        candidates = await domain_search(domain, client=client)
+        candidates = await domain_search(
+            domain, seniority=None, department=None, limit=10, client=client
+        )
     except Exception as exc:  # noqa: BLE001 — fail open, keep the website email
         # ``detail`` carries the HTTP status/body from HunterIoError → an
         # invalid/unauthorised key shows as status=401/403 here.
@@ -168,18 +192,28 @@ async def _attempt_upgrade(
         )
         return None, "hunter_error"
 
-    # Pick the best NAMED person: real first+last name, on the company domain,
-    # not a role alias. candidates are already sorted by confidence desc.
+    # Prefer the best NAMED person (real first+last), on the company domain, not
+    # a generic role inbox. If Hunter has no named person, fall back to the best
+    # non-generic TARGETED mailbox (e.g. a person/role-specific alias like the
+    # Hilton case) — still better than info@. Generic role inboxes (info@,
+    # commerciale@, fatture@, …) are excluded from BOTH. candidates are already
+    # sorted by confidence desc.
     best = None
+    best_alias = None
     for c in candidates:
-        if not c.email or not c.first_name or not c.last_name:
+        if not c.email or "@" not in c.email:
             continue
-        if c.email.split("@", 1)[-1].lower() != domain:
+        local, dom = c.email.split("@", 1)
+        if dom.lower() != domain:
             continue
-        if c.email.split("@", 1)[0].lower() in _ROLE_LOCAL_PARTS:
+        if local.lower() in _ROLE_LOCAL_PARTS:
             continue
-        best = c
-        break
+        if c.first_name and c.last_name:
+            if best is None:
+                best = c
+        elif best_alias is None:
+            best_alias = c
+    best = best or best_alias
     if best is None or not best.email:
         log.info(
             "premium_finder.no_named_candidate",

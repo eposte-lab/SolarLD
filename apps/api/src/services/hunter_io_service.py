@@ -116,8 +116,8 @@ async def find_email(
 async def domain_search(
     domain: str,
     *,
-    seniority: str = "executive,senior",
-    department: str = "executive,management,sales",
+    seniority: str | None = "executive,senior",
+    department: str | None = "executive,management,sales",
     limit: int = 5,
     client: httpx.AsyncClient | None = None,
     api_key: str | None = None,
@@ -125,7 +125,10 @@ async def domain_search(
     """Broad `/domain-search` fallback when we don't have a person name.
 
     Ranks returned emails by `confidence_score` desc; caller picks the top
-    result (typically the CEO / owner for Italian SMEs).
+    result (typically the CEO / owner for Italian SMEs). ``seniority`` /
+    ``department`` are OPTIONAL filters — pass ``None`` to drop them and fetch
+    every email Hunter has for the domain (same 1-credit cost, broader coverage
+    for SMEs whose contacts aren't classified into a department/seniority).
     """
     key = api_key or settings.hunter_api_key
     if not key:
@@ -134,10 +137,12 @@ async def domain_search(
     params = {
         "api_key": key,
         "domain": domain,
-        "seniority": seniority,
-        "department": department,
         "limit": str(limit),
     }
+    if seniority:
+        params["seniority"] = seniority
+    if department:
+        params["department"] = department
 
     owns_client = client is None
     if client is None:
