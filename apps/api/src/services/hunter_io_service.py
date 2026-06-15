@@ -179,8 +179,12 @@ async def domain_search(
 
 
 # Hunter verifier statuses we treat as deliverable (ok to send). 'accept_all' is
-# a catch-all domain — sendable, same as NeverBounce CATCHALL.
-_DELIVERABLE_STATUSES = frozenset({"valid", "accept_all", "webmail"})
+# a catch-all domain (sendable, like NeverBounce CATCHALL); 'unknown' means
+# Hunter couldn't probe the server (common for Italian SMEs whose mail hosts
+# block SMTP checks) — we accept it rather than over-exclude, since the send
+# path runs a live MX check and a bounce is tolerable. Only 'invalid' /
+# 'disposable' are rejected.
+_DELIVERABLE_STATUSES = frozenset({"valid", "accept_all", "webmail", "unknown"})
 
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=10), reraise=True)
