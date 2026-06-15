@@ -285,11 +285,67 @@ type PremiumStatus = {
  * count, sends nothing. "Reinvia" re-sends the official outreach to the upgraded
  * addresses (behind a confirm). Shows credits used vs the capped budget.
  */
+type DryReport = {
+  measured: number;
+  verified_contact_done: number;
+  done_pct: number;
+  phone_queue: number;
+  needs_manual: number;
+  hunter_credits_spent: number;
+  examples?: {
+    email?: string | null;
+    name?: string | null;
+    role?: string | null;
+    reason?: string | null;
+  }[];
+};
+
 function FindBetterContactsCard({ tenantId }: { tenantId: string }) {
-  const [busy, setBusy] = useState<null | 'dry' | 'send' | 'backlog'>(null);
+  const [busy, setBusy] = useState<null | 'dry' | 'send' | 'backlog' | 'report'>(null);
   const [result, setResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<PremiumStatus | null>(null);
+  const [dryReport, setDryReport] = useState<DryReport | null>(null);
+
+  async function runDryReport() {
+    if (busy) return;
+    setBusy('report');
+    setResult(null);
+    setError(null);
+    setDryReport(null);
+    try {
+      const trig = await api.post<{ job_id?: string; message?: string }>(
+        `/v1/admin/trial/contact-waterfall-dryrun?tenant_id=${encodeURIComponent(tenantId)}&sample=50`,
+        {},
+      );
+      const jobId = trig.job_id;
+      if (!jobId) {
+        setError('Job non avviato.');
+        return;
+      }
+      setResult('Dry-run avviato (~1-2 min, spende crediti Hunter ma non invia). Attendo il report…');
+      for (let i = 0; i < 48; i++) {
+        await new Promise((r) => setTimeout(r, 5000));
+        const r = await api.get<{ status: string; report?: DryReport | null }>(
+          `/v1/admin/trial/contact-waterfall-dryrun/result?job_id=${encodeURIComponent(jobId)}`,
+        );
+        if (r.status === 'done' && r.report) {
+          setDryReport(r.report);
+          setResult(null);
+          return;
+        }
+        if (r.status === 'error') {
+          setError('Dry-run fallito sul worker.');
+          return;
+        }
+      }
+      setError('Timeout in attesa del report (riprova a leggere tra poco).');
+    } catch (e) {
+      setError(errMessage(e));
+    } finally {
+      setBusy(null);
+    }
+  }
 
   const loadStatus = useCallback(async () => {
     try {
@@ -378,6 +434,19 @@ function FindBetterContactsCard({ tenantId }: { tenantId: string }) {
           </button>
           <button
             type="button"
+            onClick={() => void runDryReport()}
+            disabled={busy !== null}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-outline-variant px-4 py-2 text-sm font-semibold text-on-surface transition-colors hover:border-primary disabled:opacity-50"
+          >
+            {busy === 'report' ? (
+              <Loader2 size={14} strokeWidth={2.25} aria-hidden className="animate-spin" />
+            ) : (
+              <Users size={14} strokeWidth={2.25} aria-hidden />
+            )}
+            Report efficienza (dry-run)
+          </button>
+          <button
+            type="button"
             onClick={() => void run('send')}
             disabled={busy !== null}
             className="inline-flex items-center gap-1.5 rounded-lg border border-outline-variant px-4 py-2 text-sm font-semibold text-on-surface transition-colors hover:border-primary disabled:opacity-50"
@@ -441,6 +510,46 @@ function FindBetterContactsCard({ tenantId }: { tenantId: string }) {
         <div className="mt-3 flex items-start gap-2 rounded-lg border border-error/30 bg-error-container/20 px-3 py-2 text-sm text-error">
           <AlertTriangle size={14} strokeWidth={2.25} aria-hidden className="mt-0.5 shrink-0" />
           <span className="whitespace-pre-wrap">{error}</span>
+        </div>
+      )}
+      {dryReport && (
+        <div className="mt-3 rounded-lg border border-outline-variant/40 bg-surface-container-lowest p-3 text-sm">
+          <p className="font-semibold text-on-surface">
+            Report efficienza waterfall (dry-run · {dryReport.measured} lead)
+          </p>
+          <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-on-surface-variant sm:grid-cols-3">
+            <span>
+              Contatto verificato:{' '}
+              <strong className="tabular-nums text-on-surface">
+                {dryReport.verified_contact_done} ({dryReport.done_pct}%)
+              </strong>
+            </span>
+            <span>
+              Da chiamare:{' '}
+              <strong className="tabular-nums text-on-surface">{dryReport.phone_queue}</strong>
+            </span>
+            <span>
+              Manuale:{' '}
+              <strong className="tabular-nums text-on-surface">{dryReport.needs_manual}</strong>
+            </span>
+            <span>
+              Crediti Hunter:{' '}
+              <strong className="tabular-nums text-on-surface">
+                {dryReport.hunter_credits_spent}
+              </strong>
+            </span>
+          </div>
+          {dryReport.examples && dryReport.examples.length > 0 && (
+            <ul className="mt-2 space-y-0.5 text-xs text-on-surface-variant">
+              {dryReport.examples.slice(0, 8).map((ex, i) => (
+                <li key={i}>
+                  ✓ {ex.email}
+                  {ex.name ? ` — ${ex.name}` : ''}
+                  {ex.role ? ` (${ex.role})` : ''}
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
     </BentoCard>
