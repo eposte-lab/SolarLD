@@ -57,6 +57,7 @@ from .decision_maker_name import (
     render_pattern,
 )
 from .hunter_io_service import find_email, verify_email_hunter
+from .national_chains import is_national_chain
 from .neverbounce_service import NeverBounceError, verify_email
 from .web_scraper import _has_mx_record, is_non_business_domain
 
@@ -847,6 +848,8 @@ def _select_dryrun_targets(sb: Any, tenant_id: str, sample: int) -> list[str]:
             continue
         if is_non_business_domain(domain) or not is_weak_email(email):
             continue
+        if is_national_chain(domain=domain):
+            continue  # chains skew the measure (HQ contact, not the local buyer)
         targets.append(sid_to_lead[s["id"]])
         if len(targets) >= sample:
             break

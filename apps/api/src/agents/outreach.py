@@ -87,6 +87,7 @@ from ..services.inbox_service import (
     get_domain_purpose,
     get_tracking_host,
 )
+from ..services.national_chains import is_national_chain
 from ..services.pixart_service import (
     LetterCampaignRequest,
     build_copy_overrides,
@@ -348,6 +349,23 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
                 payload=payload,
                 lead=lead,
                 reason="has_existing_pv",
+                pipeline_status=LeadStatus.BLACKLISTED.value,
+            )
+
+        # ------------------------------------------------------------------
+        # 2c) National-chain hard stop — a chain domain (Conad, Eurospin, …)
+        # resolves to a corporate HQ mailbox, not the local store's solar
+        # buyer, and many store-leads collapse onto the SAME address. Never
+        # email it. Defense-in-depth for leads created before the L6 chain gate.
+        # ------------------------------------------------------------------
+        if is_national_chain(
+            business_name=subject.get("business_name"),
+            domain=subject.get("decision_maker_email"),
+        ):
+            return await self._record_skip(
+                payload=payload,
+                lead=lead,
+                reason="national_chain_excluded",
                 pipeline_status=LeadStatus.BLACKLISTED.value,
             )
 
