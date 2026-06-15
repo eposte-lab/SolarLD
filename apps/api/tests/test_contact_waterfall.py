@@ -150,6 +150,22 @@ async def test_no_mx_needs_manual(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_national_chain_not_enriched(monkeypatch):
+    # a chain lead keeps its (per-store) email — the waterfall must not run.
+    sb = _FakeSb(lead=_lead(), subject=_subject(email="info@conad.it"))
+    _wire(monkeypatch, sb)
+
+    async def _au(**_k):
+        raise AssertionError("a national chain must not be enriched")
+
+    monkeypatch.setattr(cw, "_attempt_upgrade", _au)
+
+    out = await cw.resolve_best_contact(tenant_id="t", lead_id="L1")
+    assert out.status == "needs_manual"
+    assert out.reason == "national_chain"
+
+
+@pytest.mark.asyncio
 async def test_pec_domain_needs_manual(monkeypatch):
     sb = _FakeSb(lead=_lead(), subject=_subject(email="azienda@pec.it"))
     _wire(monkeypatch, sb)

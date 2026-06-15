@@ -188,6 +188,23 @@ async def contact_waterfall_dryrun_task(
     )
 
 
+async def contact_waterfall_backfill_task(
+    _ctx: dict[str, Any], payload: dict[str, Any]
+) -> dict[str, Any]:
+    """ARQ task: REAL waterfall enrichment over the existing backlog (default
+    ready_to_send). Writes the premium contact so the qualified-contact send gate
+    has a contact to send to. Triggered by
+    `POST /v1/admin/trial/contact-waterfall-backfill`; runs on the worker (Hunter
+    key). The report is logged ('contact_waterfall.backfill_report') and returned."""
+    from ..services.contact_waterfall import contact_waterfall_backfill
+
+    return await contact_waterfall_backfill(
+        tenant_id=payload["tenant_id"],
+        target=str(payload.get("target", "ready_to_send")),
+        limit=int(payload.get("limit", 200)),
+    )
+
+
 async def tracking_task(_ctx: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
     out = await TrackingAgent().run(TrackingInput(**payload))
     return out.model_dump()
@@ -703,6 +720,7 @@ class WorkerSettings:
         batch_reenrich_contacts_task,
         contact_enrichment_task,
         contact_waterfall_dryrun_task,
+        contact_waterfall_backfill_task,
     ]
     # Scheduled jobs (UTC):
     #   :00 every hour   → deliverability_hourly_cron   (bounce/complaint spike check)

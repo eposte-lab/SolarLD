@@ -91,3 +91,19 @@ async def test_task_runs_waterfall_when_flag_on(monkeypatch):
 
     out = await wmain.contact_enrichment_task({}, {"tenant_id": "t", "lead_id": "L1"})
     assert out == {"lead_id": "L1", "status": "done", "reason": "step1_hunter"}
+
+
+# --------------------------------------------------------------------------- #
+# Offer-completeness gate (always-on)
+# --------------------------------------------------------------------------- #
+def test_offer_is_complete():
+    from src.agents.outreach import _offer_is_complete
+
+    assert _offer_is_complete({"estimated_kwp": 50, "yearly_savings_eur": 8000}) is True
+    assert _offer_is_complete({"system_kwp": 30, "annual_savings_eur": 5000}) is True  # legacy
+    assert _offer_is_complete({"estimated_kwp": 50, "realistic_yearly_savings_eur": 6000}) is True
+    assert _offer_is_complete({"estimated_kwp": 50}) is False  # no savings
+    assert _offer_is_complete({"yearly_savings_eur": 8000}) is False  # no kwp
+    assert _offer_is_complete({"estimated_kwp": 0, "yearly_savings_eur": 0}) is False
+    assert _offer_is_complete({}) is False
+    assert _offer_is_complete(None) is False

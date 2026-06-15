@@ -37,6 +37,7 @@ from typing import TYPE_CHECKING, Any
 from ...core.logging import get_logger
 from ...core.queue import enqueue
 from ...core.supabase_client import get_service_client
+from ...services.national_chains import is_generic_localpart, is_national_chain
 from ...services.tenant_module_service import is_premium_contact_apply_to_send
 
 if TYPE_CHECKING:
@@ -151,7 +152,25 @@ async def run_level6_promote_to_leads(
             return False
         # L'email deve essere presente E ben formata: senza un indirizzo
         # valido il lead non è contattabile.
-        return bool(c.contact) and _is_valid_email(c.contact.best_email)
+        if not (bool(c.contact) and _is_valid_email(c.contact.best_email)):
+            return False
+        # National-chain GENERIC mailbox (info@conad.it, info@supersigma.com) =
+        # the corporate HQ catch-all, not the local store's buyer → never
+        # promote. But a per-store / named address on a chain domain
+        # (deco5620@clienti-multicedi.com) is the SPECIFIC location's contact —
+        # keep it. And a normal SME's info@ is fine (not a chain). So we exclude
+        # only chain AND generic.
+        on_chain = is_national_chain(
+            business_name=c.record.display_name, domain=c.contact.best_email
+        ) or is_national_chain(domain=c.record.website)
+        if on_chain and is_generic_localpart(c.contact.best_email):
+            log.info(
+                "level6_promote.skip_chain_generic",
+                tenant_id=ctx.tenant_id,
+                business=c.record.display_name,
+            )
+            return False
+        return True
 
     recommended = [s for s in scored if _is_perfect(s)]
     if not recommended:

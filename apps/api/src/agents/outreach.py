@@ -87,6 +87,7 @@ from ..services.inbox_service import (
     get_domain_purpose,
     get_tracking_host,
 )
+from ..services.national_chains import is_generic_localpart, is_national_chain
 from ..services.pixart_service import (
     LetterCampaignRequest,
     build_copy_overrides,
@@ -352,6 +353,24 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
             )
 
         # ------------------------------------------------------------------
+        # 2c) National-chain GENERIC mailbox hard stop — info@conad.it /
+        # info@supersigma.com is the corporate HQ catch-all (futile + duplicate
+        # across stores). A per-store / named address on a chain domain
+        # (deco5620@clienti-multicedi.com) reaches the SPECIFIC location → keep
+        # it. A normal SME's info@ is fine. So we stop ONLY chain AND generic.
+        # ------------------------------------------------------------------
+        _dm_email = subject.get("decision_maker_email")
+        if is_national_chain(
+            business_name=subject.get("business_name"), domain=_dm_email
+        ) and is_generic_localpart(_dm_email):
+            return await self._record_skip(
+                payload=payload,
+                lead=lead,
+                reason="national_chain_generic",
+                pipeline_status=LeadStatus.BLACKLISTED.value,
+            )
+
+        # ------------------------------------------------------------------
         # 3) Compliance gate — blacklist check
         # ------------------------------------------------------------------
         pii_hash = subject.get("pii_hash")
@@ -560,6 +579,29 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
                 lead_id=payload.lead_id,
                 skipped=True,
                 reason="render_not_ready",
+            )
+
+        # ------------------------------------------------------------------
+        # 5e) Offer-completeness gate — NEVER email an empty offer. The email
+        #     leads with the kWp + annual-savings numbers; without them it is a
+        #     hollow pitch. Skip (not fail) so the lead re-sends once the ROI
+        #     derivations land. Test/override sends bypass it.
+        # ------------------------------------------------------------------
+        _roi_for_gate = (roof.get("derivations") if roof else None) or lead.get("roi_data")
+        if (
+            payload.channel == OutreachChannel.EMAIL
+            and not send_override_active
+            and not _offer_is_complete(_roi_for_gate)
+        ):
+            log.info(
+                "outreach.offer_incomplete",
+                lead_id=payload.lead_id,
+                tenant_id=payload.tenant_id,
+            )
+            return OutreachOutput(
+                lead_id=payload.lead_id,
+                skipped=True,
+                reason="offer_incomplete",
             )
 
         # ------------------------------------------------------------------
@@ -2310,6 +2352,24 @@ def _capability_for_channel(channel: OutreachChannel) -> Capability:
 
 
 _RECIPIENT_EMAIL_RE = re.compile(r"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$")
+
+
+def _offer_is_complete(roi: dict[str, Any] | None) -> bool:
+    """True when the offer has the headline numbers the email is built around —
+    a positive kWp AND a positive annual saving. Accepts both the canonical and
+    legacy ROI key shapes (see ``email_template_service._normalize_roi``)."""
+    if not roi:
+        return False
+    kwp = roi.get("estimated_kwp") or roi.get("system_kwp")
+    savings = (
+        roi.get("yearly_savings_eur")
+        or roi.get("annual_savings_eur")
+        or roi.get("realistic_yearly_savings_eur")
+    )
+    try:
+        return float(kwp or 0) > 0 and float(savings or 0) > 0
+    except (TypeError, ValueError):
+        return False
 
 
 def _resolve_recipient(subject: dict[str, Any]) -> str | None:

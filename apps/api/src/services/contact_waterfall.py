@@ -57,6 +57,7 @@ from .decision_maker_name import (
     render_pattern,
 )
 from .hunter_io_service import find_email, verify_email_hunter
+from .national_chains import is_national_chain
 from .neverbounce_service import NeverBounceError, verify_email
 from .web_scraper import _has_mx_record, is_non_business_domain
 
@@ -616,7 +617,7 @@ async def _resolve_best_contact(
         )
     local, domain = current_email.split("@", 1)
 
-    # --- STEP 0 guards: PEC / non-business / MX ------------------------------
+    # --- STEP 0 guards: PEC / non-business / chain / MX ----------------------
     if (
         local in {"pec", "postacertificata"}
         or domain.endswith("pec.it")
@@ -627,6 +628,17 @@ async def _resolve_best_contact(
             lead_id=lead_id,
             tenant_id=tenant_id,
             outcome=ContactOutcome(status="needs_manual", reason="non_business_or_pec"),
+            best_email=current_email,
+        )
+    # National chains: do NOT enrich. The decision-maker flow would only surface a
+    # far-away HQ contact; the per-store/targeted address already on the lead is
+    # the right one — keep it untouched. (chain+generic is excluded at send.)
+    if is_national_chain(domain=domain):
+        return _finish(
+            sb,
+            lead_id=lead_id,
+            tenant_id=tenant_id,
+            outcome=ContactOutcome(status="needs_manual", reason="national_chain"),
             best_email=current_email,
         )
     if not await asyncio.to_thread(_has_mx_record, domain):
@@ -808,15 +820,17 @@ async def _resolve_best_contact(
 _ACTIVE_STATUSES = ("sent", "ready_to_send", "engaged", "picked")
 
 
-def _select_dryrun_targets(sb: Any, tenant_id: str, sample: int) -> list[str]:
-    """Pick up to ``sample`` active B2B lead ids whose current contact is a weak
-    generic email on a real business domain — the pool the waterfall could
-    actually upgrade (skips PEC / free webmail / already-named)."""
+def _select_dryrun_targets(
+    sb: Any, tenant_id: str, sample: int, statuses: tuple[str, ...] = _ACTIVE_STATUSES
+) -> list[str]:
+    """Pick up to ``sample`` B2B lead ids (in ``statuses``) whose current contact
+    is a weak generic email on a real business domain — the pool the waterfall
+    could actually upgrade (skips PEC / free webmail / chains / already-named)."""
     leads = (
         sb.table("leads")
         .select("id, subject_id, created_at")
         .eq("tenant_id", tenant_id)
-        .in_("pipeline_status", list(_ACTIVE_STATUSES))
+        .in_("pipeline_status", list(statuses))
         .order("created_at", desc=True)
         .limit(sample * 4)
         .execute()
@@ -847,6 +861,8 @@ def _select_dryrun_targets(sb: Any, tenant_id: str, sample: int) -> list[str]:
             continue
         if is_non_business_domain(domain) or not is_weak_email(email):
             continue
+        if is_national_chain(domain=domain):
+            continue  # chains skew the measure (HQ contact, not the local buyer)
         targets.append(sid_to_lead[s["id"]])
         if len(targets) >= sample:
             break
@@ -906,4 +922,47 @@ async def contact_waterfall_dryrun(
         "contact_waterfall.dryrun_report",
         **{k: v for k, v in report.items() if k != "examples"},
     )
+    return report
+
+
+async def contact_waterfall_backfill(
+    *,
+    tenant_id: str,
+    target: str = "ready_to_send",
+    limit: int = 200,
+    concurrency: int = 5,
+) -> dict[str, Any]:
+    """REAL waterfall enrichment over the existing ``target`` backlog (non-chain,
+    weak-email leads): resolves + WRITES the premium contact (mirror into
+    subjects, contact_outcome) so the qualified-contact send gate has something
+    to send to. Unlike the dry-run this mutates. Returns the same report shape."""
+    sb = get_service_client()
+    targets = _select_dryrun_targets(sb, tenant_id, limit, statuses=(target,))
+    if not targets:
+        return {"tenant_id": tenant_id, "target": target, "enriched": 0, "note": "no targets"}
+
+    sem = asyncio.Semaphore(max(1, concurrency))
+
+    async def _one(lead_id: str) -> ContactOutcome | None:
+        async with sem:
+            try:
+                return await resolve_best_contact(tenant_id=tenant_id, lead_id=lead_id, force=True)
+            except Exception as exc:  # noqa: BLE001 — one bad lead must not abort
+                log.warning("backfill.lead_failed", lead_id=lead_id, err=type(exc).__name__)
+                return None
+
+    outcomes = [o for o in await asyncio.gather(*(_one(t) for t in targets)) if o is not None]
+    by_status = Counter(o.status for o in outcomes)
+    wins = [o for o in outcomes if o.status == "done"]
+    report: dict[str, Any] = {
+        "tenant_id": tenant_id,
+        "target": target,
+        "processed": len(outcomes),
+        "by_status": dict(by_status),
+        "qualified_done": len(wins),
+        "phone_queue": by_status.get("phone_queue", 0),
+        "needs_manual": by_status.get("needs_manual", 0),
+        "hunter_credits_spent": sum(o.cost_cents for o in outcomes),
+    }
+    log.info("contact_waterfall.backfill_report", **report)
     return report

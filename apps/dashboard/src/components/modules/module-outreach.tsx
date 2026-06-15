@@ -93,8 +93,8 @@ export function ModuleOutreach({ value, onChange }: ModuleOutreachProps) {
         hint="Di default scriviamo all'indirizzo email trovato pubblicamente sul sito dell'azienda."
       >
         <Toggle
-          label="Usa il contatto decision-maker quando disponibile"
-          hint="Se attivo, gli invii (e i follow-up) usano il contatto del responsabile/titolare individuato e verificato, con fallback automatico all'email del sito. Lascia disattivo per inviare sempre all'indirizzo pubblico."
+          label="Cerca il contatto decision-maker (upgrade quando disponibile)"
+          hint="Se attivo, prima dell'invio si cerca il referente/titolare e, se trovato e verificato, si usa quello; altrimenti si invia all'email valida dell'attività (anche info@ per le PMI). I grandi brand con sola casella generica restano esclusi a prescindere."
           value={value.premium_contact_apply_to_send ?? false}
           onChange={(v) =>
             onChange({ ...value, premium_contact_apply_to_send: v })
