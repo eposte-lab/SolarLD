@@ -126,6 +126,22 @@ async def find_better_contact_task(_ctx: dict[str, Any], payload: dict[str, Any]
     return await reenrich_lead_contact(tenant_id=payload["tenant_id"], lead_id=payload["lead_id"])
 
 
+async def contact_enrichment_task(_ctx: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
+    """ARQ task: §waterfall — resolve the best deliverable contact for ONE
+    qualified lead (Hunter-first → role ladder, catch-all gated). Enqueued by L6
+    at promotion. Fail-open: a miss keeps the website email."""
+    from ..services.contact_waterfall import resolve_best_contact
+
+    out = await resolve_best_contact(
+        tenant_id=payload["tenant_id"],
+        lead_id=payload["lead_id"],
+        name_hint=payload.get("name_hint"),
+        sector=payload.get("sector"),
+        force=bool(payload.get("force", False)),
+    )
+    return {"lead_id": payload["lead_id"], "status": out.status, "reason": out.reason}
+
+
 async def batch_reenrich_contacts_task(
     _ctx: dict[str, Any], payload: dict[str, Any]
 ) -> dict[str, Any]:
@@ -658,6 +674,7 @@ class WorkerSettings:
         launch_outreach_for_list_task,
         find_better_contact_task,
         batch_reenrich_contacts_task,
+        contact_enrichment_task,
     ]
     # Scheduled jobs (UTC):
     #   :00 every hour   → deliverability_hourly_cron   (bounce/complaint spike check)
