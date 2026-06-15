@@ -220,6 +220,9 @@ async def _attempt_upgrade(
             tenant_id=tenant_id,
             domain=domain,
             returned=len(candidates),
+            # what Hunter actually returned → distinguishes "no data" from "only
+            # generics we excluded" from "we over-rejected a usable contact".
+            emails=[c.email for c in candidates if c.email][:6],
         )
         return None, "no_named_candidate"
 
@@ -252,6 +255,7 @@ async def _attempt_upgrade(
                 "premium_finder.hunter_validation_failed",
                 tenant_id=tenant_id,
                 domain=domain,
+                email=best.email,
                 status=vstatus,
                 confidence=best.confidence_score,
             )
