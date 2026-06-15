@@ -286,7 +286,7 @@ type PremiumStatus = {
  * addresses (behind a confirm). Shows credits used vs the capped budget.
  */
 function FindBetterContactsCard({ tenantId }: { tenantId: string }) {
-  const [busy, setBusy] = useState<null | 'dry' | 'send'>(null);
+  const [busy, setBusy] = useState<null | 'dry' | 'send' | 'backlog'>(null);
   const [result, setResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<PremiumStatus | null>(null);
@@ -306,24 +306,27 @@ function FindBetterContactsCard({ tenantId }: { tenantId: string }) {
     void loadStatus();
   }, [loadStatus]);
 
-  async function run(dryRun: boolean) {
+  async function run(kind: 'dry' | 'send' | 'backlog') {
     if (busy) return;
     if (
-      !dryRun &&
+      kind === 'send' &&
       !window.confirm(
         "Reinviare l'outreach UFFICIALE ai contatti migliorati? Verranno inviate email reali (spalmate sui giorni, rispettando il cap).",
       )
     ) {
       return;
     }
-    setBusy(dryRun ? 'dry' : 'send');
+    // 'dry' + 'backlog' never send; 'backlog' enriches the not-yet-sent queue.
+    const dryRun = kind !== 'send';
+    const target = kind === 'backlog' ? 'ready_to_send' : 'sent';
+    setBusy(kind);
     setResult(null);
     setError(null);
     try {
       const res = await api.post<{ ok: boolean; message?: string }>(
         `/v1/admin/trial/batch-reenrich-contacts?tenant_id=${encodeURIComponent(
           tenantId,
-        )}&limit=50&dry_run=${dryRun}`,
+        )}&limit=50&dry_run=${dryRun}&target=${target}`,
         {},
       );
       setResult(res.message ?? 'Avviato.');
@@ -346,23 +349,36 @@ function FindBetterContactsCard({ tenantId }: { tenantId: string }) {
             Contatti premium (decision-maker)
           </h2>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
-            onClick={() => void run(true)}
+            onClick={() => void run('backlog')}
             disabled={busy !== null}
             className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-on-primary transition-opacity hover:opacity-90 disabled:opacity-50"
+          >
+            {busy === 'backlog' ? (
+              <Loader2 size={14} strokeWidth={2.25} aria-hidden className="animate-spin" />
+            ) : (
+              <Users size={14} strokeWidth={2.25} aria-hidden />
+            )}
+            Arricchisci da inviare (50)
+          </button>
+          <button
+            type="button"
+            onClick={() => void run('dry')}
+            disabled={busy !== null}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-outline-variant px-4 py-2 text-sm font-semibold text-on-surface transition-colors hover:border-primary disabled:opacity-50"
           >
             {busy === 'dry' ? (
               <Loader2 size={14} strokeWidth={2.25} aria-hidden className="animate-spin" />
             ) : (
               <Users size={14} strokeWidth={2.25} aria-hidden />
             )}
-            Cerca i migliori (50)
+            Cerca sui già inviati (50)
           </button>
           <button
             type="button"
-            onClick={() => void run(false)}
+            onClick={() => void run('send')}
             disabled={busy !== null}
             className="inline-flex items-center gap-1.5 rounded-lg border border-outline-variant px-4 py-2 text-sm font-semibold text-on-surface transition-colors hover:border-primary disabled:opacity-50"
           >
@@ -376,9 +392,11 @@ function FindBetterContactsCard({ tenantId }: { tenantId: string }) {
         </div>
       </div>
       <p className="mt-1 text-xs text-on-surface-variant">
-        <strong>Cerca</strong>: cerca il referente migliore sui 50 lead già inviati
-        più forti (score + recente), salva e mostra il conteggio — <strong>non invia</strong>.{' '}
-        <strong>Reinvia</strong>: manda l’outreach ufficiale ai contatti migliorati.
+        <strong>Arricchisci da inviare</strong>: cerca il referente migliore sui lead{' '}
+        <strong>ancora da inviare</strong> (i 50 migliori) così partono col contatto giusto —
+        non invia.{' '}
+        <strong>Cerca sui già inviati</strong>: idem sui 50 già inviati più forti (dry-run).{' '}
+        <strong>Reinvia</strong>: manda l’outreach ufficiale ai già-inviati migliorati.
       </p>
 
       {status && (

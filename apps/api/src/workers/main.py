@@ -140,6 +140,7 @@ async def batch_reenrich_contacts_task(
         spread_days=int(payload.get("spread_days", 5)),
         per_day_cap=int(payload.get("per_day_cap", 30)),
         dry_run=bool(payload.get("dry_run", True)),
+        target=str(payload.get("target", "sent")),
         actor=payload.get("actor"),
     )
 

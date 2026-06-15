@@ -378,9 +378,16 @@ async def batch_reenrich_and_resend(
     spread_days: int = 5,  # noqa: ARG001 — kept for caller symmetry; pacing is per_day_cap
     per_day_cap: int = 30,
     dry_run: bool = True,
+    target: str = "sent",
     actor: str | None = None,
 ) -> dict[str, Any]:
-    """§D — batch re-enrich already-SENT leads and (optionally) re-send.
+    """§D — batch re-enrich leads and (optionally, target='sent' only) re-send.
+
+    ``target='ready_to_send'`` instead enriches the NOT-yet-sent warehouse
+    backlog (the leads about to go out) so they get a premium decision-maker
+    contact BEFORE the daily cron sends them — it never sends here (the normal
+    send path does), regardless of ``dry_run``. The alt-address / follow-up
+    exclusions apply only to the already-sent target.
 
     Selects SENT, non-terminal leads that have NOT already received a follow-up,
     EXCLUDING the leads handled manually via the alt-address resend (Hilton /
@@ -400,61 +407,69 @@ async def batch_reenrich_and_resend(
     """
     sb = get_service_client()
     capped_limit = max(1, min(limit, 500))
+    is_sent = target != "ready_to_send"
 
-    # 1) Exclude leads already handled by the operator via the alt-address
-    #    resend (Hilton / Sigma) — reached by phone / alternate email already.
+    # 1) Already-SENT target only: exclude leads handled manually via the
+    #    alt-address resend (Hilton / Sigma) — already reached by phone/alt email.
     excluded_ids: set[str] = set()
-    try:
-        alt = (
-            sb.table("audit_log")
-            .select("target_id")
-            .eq("tenant_id", tenant_id)
-            .eq("action", "lead.outreach_resent_alt_address")
-            .eq("target_table", "leads")
-            .execute()
-        )
-        for r in alt.data or []:
-            tid = r.get("target_id")
-            if tid:
-                excluded_ids.add(str(tid))
-    except Exception as exc:  # noqa: BLE001 — exclusion is best-effort
-        log.warning("batch_reenrich.audit_lookup_failed", err=type(exc).__name__)
-
-    # 2) Candidate SENT leads: not terminal, not already (manually) followed-up.
-    #    Best first — highest L5 score, then most recently sent (recent render) —
-    #    so the capped budget is spent on the strongest already-sent leads.
-    res = (
-        sb.table("leads")
-        .select("id")
-        .eq("tenant_id", tenant_id)
-        .not_.is_("outreach_sent_at", "null")
-        .is_("last_followup_sent_at", "null")
-        .not_.in_("pipeline_status", _TERMINAL_LEAD_STATES)
-        .order("score", desc=True)
-        .order("outreach_sent_at", desc=True)
-        .limit(capped_limit * 2)  # over-fetch; exclusions trim to capped_limit
-        .execute()
-    )
-    rows = [r for r in (res.data or []) if r.get("id")]
-
-    # 3) Exclude cron follow-ups (outreach_sends.sequence_step >= 2).
-    cand_ids = [str(r["id"]) for r in rows if str(r["id"]) not in excluded_ids]
-    followed_up: set[str] = set()
-    if cand_ids:
+    if is_sent:
         try:
-            fu = (
-                sb.table("outreach_sends")
-                .select("lead_id, sequence_step")
-                .in_("lead_id", cand_ids)
-                .gte("sequence_step", 2)
+            alt = (
+                sb.table("audit_log")
+                .select("target_id")
+                .eq("tenant_id", tenant_id)
+                .eq("action", "lead.outreach_resent_alt_address")
+                .eq("target_table", "leads")
                 .execute()
             )
-            for r in fu.data or []:
-                lid = r.get("lead_id")
-                if lid:
-                    followed_up.add(str(lid))
+            for r in alt.data or []:
+                tid = r.get("target_id")
+                if tid:
+                    excluded_ids.add(str(tid))
         except Exception as exc:  # noqa: BLE001 — exclusion is best-effort
-            log.warning("batch_reenrich.followup_lookup_failed", err=type(exc).__name__)
+            log.warning("batch_reenrich.audit_lookup_failed", err=type(exc).__name__)
+
+    # 2) Candidate leads — best first (highest L5 score). target='sent' takes
+    #    already-sent, non-terminal, not-yet-followed-up leads (re-engagement);
+    #    target='ready_to_send' takes the NOT-yet-sent warehouse backlog so the
+    #    leads about to go out get a premium contact before tomorrow's send.
+    q = sb.table("leads").select("id").eq("tenant_id", tenant_id)
+    if is_sent:
+        q = (
+            q.not_.is_("outreach_sent_at", "null")
+            .is_("last_followup_sent_at", "null")
+            .not_.in_("pipeline_status", _TERMINAL_LEAD_STATES)
+            .order("score", desc=True)
+            .order("outreach_sent_at", desc=True)
+        )
+    else:
+        q = (
+            q.eq("pipeline_status", "ready_to_send")
+            .is_("outreach_sent_at", "null")
+            .order("score", desc=True)
+        )
+    res = q.limit(capped_limit * 2).execute()  # over-fetch; exclusions trim below
+    rows = [r for r in (res.data or []) if r.get("id")]
+
+    # 3) Already-SENT target only: exclude cron follow-ups (sequence_step >= 2).
+    followed_up: set[str] = set()
+    if is_sent:
+        cand_ids = [str(r["id"]) for r in rows if str(r["id"]) not in excluded_ids]
+        if cand_ids:
+            try:
+                fu = (
+                    sb.table("outreach_sends")
+                    .select("lead_id, sequence_step")
+                    .in_("lead_id", cand_ids)
+                    .gte("sequence_step", 2)
+                    .execute()
+                )
+                for r in fu.data or []:
+                    lid = r.get("lead_id")
+                    if lid:
+                        followed_up.add(str(lid))
+            except Exception as exc:  # noqa: BLE001 — exclusion is best-effort
+                log.warning("batch_reenrich.followup_lookup_failed", err=type(exc).__name__)
 
     eligible = [
         str(r["id"])
@@ -480,8 +495,11 @@ async def batch_reenrich_and_resend(
     await asyncio.gather(*[_one(lid) for lid in eligible])
 
     # 5) Optionally re-send the OFFICIAL outreach to the upgraded address.
+    #    ONLY for the already-sent target — ready_to_send leads must go out via
+    #    the normal daily cron (with the premium contact now in place), never
+    #    force-sent here.
     queued = 0
-    if not dry_run and upgraded_ids:
+    if is_sent and not dry_run and upgraded_ids:
         now = datetime.now(tz=UTC)
         for idx, lead_id in enumerate(upgraded_ids):
             defer = _spread_defer(now, idx, per_day_cap)
@@ -521,6 +539,7 @@ async def batch_reenrich_and_resend(
     result: dict[str, Any] = {
         "ok": True,
         "tenant_id": tenant_id,
+        "target": target,
         "dry_run": dry_run,
         "eligible": len(eligible),
         "upgraded": len(upgraded_ids),

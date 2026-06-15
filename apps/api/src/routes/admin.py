@@ -1481,6 +1481,13 @@ async def trial_batch_reenrich_contacts(
         description="When true (default) ONLY finds + saves better contacts and reports "
         "counts — sends nothing. Set false to also re-send the official outreach.",
     ),
+    target: str = Query(
+        "sent",
+        pattern="^(sent|ready_to_send)$",
+        description="'sent' (default) = re-engage already-sent leads. 'ready_to_send' = "
+        "enrich the NOT-yet-sent backlog so it gets premium contacts before the daily "
+        "send (never sends here — the cron does).",
+    ),
 ) -> dict[str, Any]:
     """§D — batch-upgrade the decision-maker email of already-SENT leads via the
     premium finder, and (when ``dry_run=false``) re-send the official outreach to
@@ -1502,9 +1509,10 @@ async def trial_batch_reenrich_contacts(
             "spread_days": spread_days,
             "per_day_cap": per_day_cap,
             "dry_run": dry_run,
+            "target": target,
             "actor": ctx.user_id,
         },
-        job_id=f"batch_reenrich:{tenant_id}:{int(datetime.now(tz=UTC).timestamp())}",
+        job_id=f"batch_reenrich:{tenant_id}:{target}:{int(datetime.now(tz=UTC).timestamp())}",
     )
     log.info(
         "admin.trial_batch_reenrich_contacts.scheduled",
