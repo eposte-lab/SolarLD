@@ -1608,6 +1608,43 @@ async def trial_contact_waterfall_dryrun_result(
     return {"status": "error", "report": None, "error": str(info.result)}
 
 
+@router.get("/trial/contact-waterfall-dryrun/latest")
+async def trial_contact_waterfall_dryrun_latest(
+    ctx: CurrentUser,
+    tenant_id: str = Query(description="Tenant whose latest dry-run report to fetch"),
+) -> dict[str, Any]:
+    """Return the most recent dry-run report for the tenant (arq keeps results
+    1h), so the dashboard survives a page reload without re-spending credits.
+    Scans the kept job results and picks the newest by its timestamp suffix."""
+    _require_super_admin(ctx)
+    from arq.jobs import Job
+
+    from ..core.queue import get_pool
+
+    prefix = "arq:result:"
+    try:
+        pool = await get_pool()
+        best_key: str | None = None
+        best_ts = -1
+        async for raw in pool.scan_iter(match=f"{prefix}waterfall_dryrun:{tenant_id}:*"):
+            key = raw.decode() if isinstance(raw, bytes) else str(raw)
+            try:
+                ts = int(key.rsplit(":", 1)[1])
+            except (ValueError, IndexError):
+                continue
+            if ts > best_ts:
+                best_ts, best_key = ts, key
+        if best_key is None:
+            return {"status": "none", "report": None}
+        info = await Job(best_key[len(prefix) :], redis=pool).result_info()
+    except Exception as exc:  # noqa: BLE001 — best-effort recovery
+        log.warning("admin.dryrun_latest.failed", tenant_id=tenant_id, err=type(exc).__name__)
+        return {"status": "none", "report": None}
+    if info is None or not info.success:
+        return {"status": "none", "report": None}
+    return {"status": "done", "report": info.result, "ran_at": best_ts}
+
+
 @router.get("/trial/premium-status")
 async def trial_premium_status(
     ctx: CurrentUser,
