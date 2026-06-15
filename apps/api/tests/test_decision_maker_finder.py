@@ -218,6 +218,53 @@ async def test_attempt_upgrade_prefers_named_over_alias(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_attempt_upgrade_accepts_good_generic_over_info(monkeypatch):
+    # info@ (current) → a more-targeted generic (commerciale@) IS a valid upgrade;
+    # the baseline info@ and the useless magazzino@ are both skipped.
+    monkeypatch.setattr(dmf.settings, "neverbounce_api_key", "")
+    monkeypatch.setattr(dmf, "get_service_client", lambda: _FakeSb(budget_ok=True))
+
+    async def _ds(domain, *, client=None, **_k):
+        return [
+            _hunter("magazzino@azienda.it", first=None, last=None, pos=None, conf=99),
+            _hunter("info@azienda.it", first=None, last=None, pos=None, conf=95),
+            _hunter("commerciale@azienda.it", first=None, last=None, pos=None, conf=80),
+        ]
+
+    monkeypatch.setattr(dmf, "domain_search", _ds)
+
+    async def _vh(email, *, client=None):
+        return True, "valid"
+
+    monkeypatch.setattr(dmf, "verify_email_hunter", _vh)
+
+    out, reason = await dmf._attempt_upgrade(
+        company_domain="azienda.it", current_email="info@azienda.it", tenant_id="t"
+    )
+    assert reason == "ok"
+    assert out is not None
+    assert out.email == "commerciale@azienda.it"
+
+
+@pytest.mark.asyncio
+async def test_attempt_upgrade_rejects_useless_generic(monkeypatch):
+    # Only a useless functional inbox (magazzino@) on the domain → no upgrade.
+    monkeypatch.setattr(dmf.settings, "neverbounce_api_key", "")
+    monkeypatch.setattr(dmf, "get_service_client", lambda: _FakeSb(budget_ok=True))
+
+    async def _ds(domain, *, client=None, **_k):
+        return [_hunter("magazzino@azienda.it", first=None, last=None, pos=None)]
+
+    monkeypatch.setattr(dmf, "domain_search", _ds)
+
+    out, reason = await dmf._attempt_upgrade(
+        company_domain="azienda.it", current_email="info@azienda.it", tenant_id="t"
+    )
+    assert out is None
+    assert reason == "no_named_candidate"
+
+
+@pytest.mark.asyncio
 async def test_weak_email_upgraded(monkeypatch):
     # NeverBounce configured → the authoritative-validation path.
     monkeypatch.setattr(dmf.settings, "neverbounce_api_key", "nb-test-key")
