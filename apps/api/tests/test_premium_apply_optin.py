@@ -94,43 +94,8 @@ async def test_task_runs_waterfall_when_flag_on(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# Quality send gate: premium_contact_required_to_send + offer completeness
+# Offer-completeness gate (always-on)
 # --------------------------------------------------------------------------- #
-def test_outreach_config_required_flag():
-    assert OutreachConfig().premium_contact_required_to_send is False
-    assert (
-        OutreachConfig(premium_contact_required_to_send=True).premium_contact_required_to_send
-        is True
-    )
-
-
-@pytest.mark.asyncio
-async def test_required_flag_default_false(monkeypatch):
-    async def _gm(tid, key):
-        return SimpleNamespace(config={})
-
-    monkeypatch.setattr(tms, "get_module", _gm)
-    assert await tms.is_premium_contact_required_to_send("t") is False
-
-
-@pytest.mark.asyncio
-async def test_required_flag_true_when_set(monkeypatch):
-    async def _gm(tid, key):
-        return SimpleNamespace(config={"premium_contact_required_to_send": True})
-
-    monkeypatch.setattr(tms, "get_module", _gm)
-    assert await tms.is_premium_contact_required_to_send("t") is True
-
-
-@pytest.mark.asyncio
-async def test_required_flag_fail_closed(monkeypatch):
-    async def _gm(tid, key):
-        raise RuntimeError("db down")
-
-    monkeypatch.setattr(tms, "get_module", _gm)
-    assert await tms.is_premium_contact_required_to_send("t") is False
-
-
 def test_offer_is_complete():
     from src.agents.outreach import _offer_is_complete
 

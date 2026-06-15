@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from src.services.national_chains import is_national_chain
+from src.services.national_chains import is_generic_localpart, is_national_chain
 
 
 @pytest.mark.parametrize(
@@ -60,3 +60,41 @@ def test_business_name_ambiguous_not_flagged():
 def test_domain_wins_even_with_clean_name():
     # the email domain is the reliable signal even if the display name is generic
     assert is_national_chain(business_name="Supermercato di Mario", domain="conad.it") is True
+
+
+# --------------------------------------------------------------------------- #
+# is_generic_localpart — the second half of the chain-AND-generic exclusion
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize(
+    "email",
+    ["info@supersigma.com", "contatti@x.it", "INFO@conad.it", "info", "segreteria@y.it"],
+)
+def test_generic_localparts_flagged(email):
+    assert is_generic_localpart(email) is True
+
+
+@pytest.mark.parametrize(
+    "email",
+    [
+        "deco5620@clienti-multicedi.com",  # per-store code → keep
+        "filiale51@medistor.it",  # per-branch → keep
+        "amministrazione@maraca.it",  # role → keep (not "generic")
+        "mario.rossi@x.it",  # named → keep
+        "deco188merola@gmail.com",  # franchisee personal → keep
+        "",
+        None,
+    ],
+)
+def test_targeted_localparts_not_flagged(email):
+    assert is_generic_localpart(email) is False
+
+
+def test_chain_generic_combination():
+    # the operative exclusion rule = chain AND generic
+    assert is_national_chain(domain="supersigma.com") is True
+    assert is_generic_localpart("info@supersigma.com") is True
+    # per-store on a chain domain → chain True but generic False → KEPT
+    assert is_national_chain(domain="clienti-multicedi.com") is True
+    assert is_generic_localpart("deco5620@clienti-multicedi.com") is False
+    # normal SME info@ → not a chain → KEPT
+    assert is_national_chain(domain="tecnotesta.it") is False

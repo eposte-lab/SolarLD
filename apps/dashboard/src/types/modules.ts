@@ -103,12 +103,6 @@ export interface OutreachConfig {
    * keep the publicly-found website email.
    */
   premium_contact_apply_to_send?: boolean;
-  /**
-   * Quality gate: when true the email is sent ONLY to a verified
-   * decision-maker / relevant role contact (never info@); a lead without
-   * one is routed to the phone queue instead of emailed. Default false.
-   */
-  premium_contact_required_to_send?: boolean;
 }
 
 export interface CRMConfig {
@@ -219,7 +213,6 @@ export const DEFAULT_OUTREACH: OutreachConfig = {
   tone_of_voice: 'professionale-diretto',
   cta_primary: 'Prenota un sopralluogo gratuito',
   premium_contact_apply_to_send: false,
-  premium_contact_required_to_send: false,
 };
 
 export const DEFAULT_CRM: CRMConfig = {

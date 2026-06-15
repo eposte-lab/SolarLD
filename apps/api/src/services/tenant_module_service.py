@@ -283,12 +283,6 @@ class OutreachConfig(BaseModel):
     # run automatically and never overrides the send recipient. Flip True only
     # at the business owner's go-ahead. Manual operator tools are unaffected.
     premium_contact_apply_to_send: bool = False
-    # Quality gate: when True, the email is sent ONLY to a waterfall-resolved
-    # premium contact (decision-maker or verified relevant role inbox, never
-    # info@). A lead without a qualified+valid contact is NOT emailed — it is
-    # routed to the phone queue instead. Default False (current fail-open send).
-    # Implies premium_contact_apply_to_send (the gate needs the waterfall to run).
-    premium_contact_required_to_send: bool = False
 
 
 class CRMConfig(BaseModel):
@@ -461,19 +455,6 @@ async def is_premium_contact_apply_to_send(tenant_id: UUID | str) -> bool:
         return bool(mod.config.get("premium_contact_apply_to_send", False))
     except Exception as exc:  # noqa: BLE001 — config read is best-effort, fail-closed
         log.warning("premium_apply_flag.read_failed", err=type(exc).__name__)
-        return False
-
-
-async def is_premium_contact_required_to_send(tenant_id: UUID | str) -> bool:
-    """Whether the tenant requires a QUALIFIED+VALID premium contact to send
-    (quality gate). Default False (current fail-open send). Read live from the
-    ``outreach`` module. Fail-closed → False (never blocks a send on a read
-    error; the send keeps its existing behaviour)."""
-    try:
-        mod = await get_module(tenant_id, "outreach")
-        return bool(mod.config.get("premium_contact_required_to_send", False))
-    except Exception as exc:  # noqa: BLE001 — config read is best-effort, fail-closed
-        log.warning("premium_required_flag.read_failed", err=type(exc).__name__)
         return False
 
 

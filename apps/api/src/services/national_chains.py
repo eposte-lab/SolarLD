@@ -117,6 +117,44 @@ def _norm_domain(domain: str | None) -> str:
     return d
 
 
+# Truly GENERIC mailbox local-parts. A chain lead is only excluded when its
+# contact is one of these (HQ catch-all); a per-store / named / role address on a
+# chain domain (``deco5620@…``, ``filiale51@…``, ``amministrazione@…``) is kept —
+# it reaches the specific location, not the HQ. Roles (amministrazione/direzione)
+# are deliberately NOT here.
+_GENERIC_LOCALPARTS: frozenset[str] = frozenset(
+    {
+        "info",
+        "contatti",
+        "contatto",
+        "contact",
+        "contacts",
+        "mail",
+        "email",
+        "posta",
+        "segreteria",
+        "azienda",
+        "ufficio",
+        "staff",
+        "hello",
+        "ciao",
+        "welcome",
+        "noreply",
+        "no-reply",
+    }
+)
+
+
+def is_generic_localpart(email_or_localpart: str | None) -> bool:
+    """True when the address is a generic catch-all mailbox (info@/contatti@/…).
+    Tolerates a full email. Per-store codes / names / roles return False."""
+    if not email_or_localpart:
+        return False
+    lp = _ascii_lower(email_or_localpart).strip()
+    lp = lp.split("@", 1)[0].strip()
+    return lp in _GENERIC_LOCALPARTS
+
+
 def is_national_chain(business_name: str | None = None, domain: str | None = None) -> bool:
     """True when the business/domain is a national chain (HQ contact, wrong
     target for a per-store solar pitch). Precision-first — see module docstring."""

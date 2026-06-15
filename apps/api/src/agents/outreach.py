@@ -87,7 +87,7 @@ from ..services.inbox_service import (
     get_domain_purpose,
     get_tracking_host,
 )
-from ..services.national_chains import is_national_chain
+from ..services.national_chains import is_generic_localpart, is_national_chain
 from ..services.pixart_service import (
     LetterCampaignRequest,
     build_copy_overrides,
@@ -103,7 +103,6 @@ from ..services.resend_service import (
 )
 from ..services.runtime_preflight import check_preflight
 from ..services.send_window_service import is_within_send_window
-from ..services.tenant_module_service import is_premium_contact_required_to_send
 from .base import AgentBase
 
 log = get_logger(__name__)
@@ -354,19 +353,20 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
             )
 
         # ------------------------------------------------------------------
-        # 2c) National-chain hard stop — a chain domain (Conad, Eurospin, …)
-        # resolves to a corporate HQ mailbox, not the local store's solar
-        # buyer, and many store-leads collapse onto the SAME address. Never
-        # email it. Defense-in-depth for leads created before the L6 chain gate.
+        # 2c) National-chain GENERIC mailbox hard stop — info@conad.it /
+        # info@supersigma.com is the corporate HQ catch-all (futile + duplicate
+        # across stores). A per-store / named address on a chain domain
+        # (deco5620@clienti-multicedi.com) reaches the SPECIFIC location → keep
+        # it. A normal SME's info@ is fine. So we stop ONLY chain AND generic.
         # ------------------------------------------------------------------
+        _dm_email = subject.get("decision_maker_email")
         if is_national_chain(
-            business_name=subject.get("business_name"),
-            domain=subject.get("decision_maker_email"),
-        ):
+            business_name=subject.get("business_name"), domain=_dm_email
+        ) and is_generic_localpart(_dm_email):
             return await self._record_skip(
                 payload=payload,
                 lead=lead,
-                reason="national_chain_excluded",
+                reason="national_chain_generic",
                 pipeline_status=LeadStatus.BLACKLISTED.value,
             )
 
@@ -646,34 +646,6 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
                 tenant_row=tenant_row,
                 subject=subject,
                 failure_reason="no_verified_email",
-            )
-
-        # ------------------------------------------------------------------
-        # 6-quality) Qualified-contact gate (per-tenant, opt-in).
-        #     When the tenant requires it, the email goes ONLY to a
-        #     waterfall-resolved premium contact (decision-maker or verified
-        #     relevant role inbox — source='premium_finder', never info@). A
-        #     lead whose only address is the scraped generic is NOT emailed; it
-        #     is routed to the phone queue (to_call) for a human call instead.
-        #     Operator test/override sends bypass this.
-        # ------------------------------------------------------------------
-        if (
-            not payload.recipient_override
-            and not tenant_test_recipient
-            and subject.get("decision_maker_email_source") != "premium_finder"
-            and await is_premium_contact_required_to_send(payload.tenant_id)
-        ):
-            log.info(
-                "outreach.unqualified_contact",
-                lead_id=payload.lead_id,
-                tenant_id=payload.tenant_id,
-                source=subject.get("decision_maker_email_source"),
-            )
-            return await self._record_skip(
-                payload=payload,
-                lead=lead,
-                reason="unqualified_contact",
-                pipeline_status=LeadStatus.TO_CALL.value,
             )
 
         # ------------------------------------------------------------------

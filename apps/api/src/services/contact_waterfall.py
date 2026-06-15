@@ -617,7 +617,7 @@ async def _resolve_best_contact(
         )
     local, domain = current_email.split("@", 1)
 
-    # --- STEP 0 guards: PEC / non-business / MX ------------------------------
+    # --- STEP 0 guards: PEC / non-business / chain / MX ----------------------
     if (
         local in {"pec", "postacertificata"}
         or domain.endswith("pec.it")
@@ -628,6 +628,17 @@ async def _resolve_best_contact(
             lead_id=lead_id,
             tenant_id=tenant_id,
             outcome=ContactOutcome(status="needs_manual", reason="non_business_or_pec"),
+            best_email=current_email,
+        )
+    # National chains: do NOT enrich. The decision-maker flow would only surface a
+    # far-away HQ contact; the per-store/targeted address already on the lead is
+    # the right one — keep it untouched. (chain+generic is excluded at send.)
+    if is_national_chain(domain=domain):
+        return _finish(
+            sb,
+            lead_id=lead_id,
+            tenant_id=tenant_id,
+            outcome=ContactOutcome(status="needs_manual", reason="national_chain"),
             best_email=current_email,
         )
     if not await asyncio.to_thread(_has_mx_record, domain):
