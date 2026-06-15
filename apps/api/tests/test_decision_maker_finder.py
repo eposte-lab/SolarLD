@@ -30,10 +30,19 @@ class _FakeSb:
 
     def __init__(self, budget_ok: bool = True) -> None:
         self._budget_ok = budget_ok
+        self.rpc_called = False
 
     def rpc(self, name: str, params: dict):  # noqa: ANN201 - test stub
         assert name == "reserve_premium_budget"
+        self.rpc_called = True
         return _FakeRpc(self._budget_ok)
+
+
+@pytest.fixture(autouse=True)
+def _hunter_key_present(monkeypatch):
+    """Default: a Hunter key IS configured, so the finder reaches the lookup.
+    Tests that exercise the no-key path override this in-body."""
+    monkeypatch.setattr(dmf.settings, "hunter_api_key", "hunter-test-key")
 
 
 def _hunter(
@@ -85,6 +94,30 @@ async def test_already_personal_email_skips_lookup(monkeypatch):
     )
     assert out is None
     assert called["hunter"] is False  # never spent budget on an already-named contact
+
+
+@pytest.mark.asyncio
+async def test_no_hunter_key_skips_without_budget_charge(monkeypatch):
+    # No Hunter key → no-op that NEVER reserves budget or calls Hunter, so the
+    # spend/lookups counters stay clean until the key is configured.
+    monkeypatch.setattr(dmf.settings, "hunter_api_key", "")
+    sb = _FakeSb(budget_ok=True)
+    monkeypatch.setattr(dmf, "get_service_client", lambda: sb)
+
+    called = {"hunter": False}
+
+    async def _ds(*_a, **_k):
+        called["hunter"] = True
+        return []
+
+    monkeypatch.setattr(dmf, "domain_search", _ds)
+
+    out = await dmf.upgrade_to_decision_maker(
+        company_domain="azienda.it", current_email="info@azienda.it", tenant_id="t"
+    )
+    assert out is None
+    assert called["hunter"] is False
+    assert sb.rpc_called is False  # budget counter untouched
 
 
 @pytest.mark.asyncio

@@ -123,6 +123,12 @@ async def upgrade_to_decision_maker(
     if not domain or "." not in domain or is_non_business_domain(domain):
         return None
 
+    # No premium provider configured → no-op WITHOUT charging the budget
+    # counter, so spend/lookups stay clean (and the budget isn't burned on
+    # failed no-op calls) until the key is set on the worker.
+    if not settings.hunter_api_key:
+        return None
+
     sb = get_service_client()
 
     # Atomically reserve the Hunter cost; skip if the budget is exhausted.
