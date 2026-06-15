@@ -47,6 +47,18 @@ class HunterEmailResult:
     raw: dict[str, Any]
 
 
+@dataclass(slots=True)
+class DomainSearchResult:
+    """A /domain-search response: the emails PLUS the domain-level signals
+    (``pattern``, ``accept_all``) that live on ``data`` — not per-email — and
+    are otherwise lost. The waterfall caches these in ``domain_intel`` so a
+    domain is probed only once."""
+
+    emails: list[HunterEmailResult]
+    pattern: str | None  # e.g. "{first}.{last}"
+    accept_all: bool | None  # domain is catch-all
+
+
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=10), reraise=True)
 async def find_email(
     *,
@@ -121,14 +133,16 @@ async def domain_search(
     limit: int = 5,
     client: httpx.AsyncClient | None = None,
     api_key: str | None = None,
-) -> list[HunterEmailResult]:
-    """Broad `/domain-search` fallback when we don't have a person name.
+) -> DomainSearchResult:
+    """Broad `/domain-search`: returns emails (ranked by confidence desc) PLUS
+    the domain-level ``pattern`` and ``accept_all`` signals.
 
-    Ranks returned emails by `confidence_score` desc; caller picks the top
-    result (typically the CEO / owner for Italian SMEs). ``seniority`` /
-    ``department`` are OPTIONAL filters — pass ``None`` to drop them and fetch
-    every email Hunter has for the domain (same 1-credit cost, broader coverage
-    for SMEs whose contacts aren't classified into a department/seniority).
+    ``seniority`` / ``department`` are OPTIONAL filters — pass ``None`` to drop
+    them and fetch every email Hunter has for the domain (same 1-credit cost,
+    broader coverage for SMEs whose contacts aren't classified). The domain-
+    level ``pattern``/``accept_all`` are returned even when ``emails`` is empty,
+    so the waterfall can cache catch-all status for a domain Hunter has no data
+    on.
     """
     key = api_key or settings.hunter_api_key
     if not key:
@@ -157,7 +171,8 @@ async def domain_search(
         raise HunterIoError(f"status={resp.status_code} body={resp.text[:200]}")
 
     body = resp.json()
-    emails = (body.get("data") or {}).get("emails") or []
+    data = body.get("data") or {}
+    emails = data.get("emails") or []
     results: list[HunterEmailResult] = []
     for e in emails:
         results.append(
@@ -175,7 +190,12 @@ async def domain_search(
         )
     # Sort descending by confidence
     results.sort(key=lambda r: r.confidence_score, reverse=True)
-    return results
+    accept_all = data.get("accept_all")
+    return DomainSearchResult(
+        emails=results,
+        pattern=data.get("pattern"),
+        accept_all=bool(accept_all) if accept_all is not None else None,
+    )
 
 
 # Hunter verifier statuses we treat as deliverable (ok to send). 'accept_all' is

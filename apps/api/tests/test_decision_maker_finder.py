@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 
 from src.services import decision_maker_finder as dmf
-from src.services.hunter_io_service import HunterEmailResult, HunterIoError
+from src.services.hunter_io_service import DomainSearchResult, HunterEmailResult, HunterIoError
 from src.services.neverbounce_service import EmailVerification, VerificationResult
 
 
@@ -36,6 +36,16 @@ class _FakeSb:
         assert name == "reserve_premium_budget"
         self.rpc_called = True
         return _FakeRpc(self._budget_ok)
+
+
+def _patch_ds(monkeypatch, ds):
+    """Patch domain_search with a list-returning fake, wrapped into a
+    DomainSearchResult (emails + None pattern/accept_all)."""
+
+    async def _wrapped(*a, **k):  # noqa: ANN002, ANN003 - test stub
+        return DomainSearchResult(emails=await ds(*a, **k), pattern=None, accept_all=None)
+
+    monkeypatch.setattr(dmf, "domain_search", _wrapped)
 
 
 @pytest.fixture(autouse=True)
@@ -86,7 +96,7 @@ async def test_already_personal_email_skips_lookup(monkeypatch):
         called["hunter"] = True
         return []
 
-    monkeypatch.setattr(dmf, "domain_search", _ds)
+    _patch_ds(monkeypatch, _ds)
     monkeypatch.setattr(dmf, "get_service_client", lambda: _FakeSb())
 
     out = await dmf.upgrade_to_decision_maker(
@@ -110,7 +120,7 @@ async def test_no_hunter_key_skips_without_budget_charge(monkeypatch):
         called["hunter"] = True
         return []
 
-    monkeypatch.setattr(dmf, "domain_search", _ds)
+    _patch_ds(monkeypatch, _ds)
 
     out = await dmf.upgrade_to_decision_maker(
         company_domain="azienda.it", current_email="info@azienda.it", tenant_id="t"
@@ -129,7 +139,7 @@ async def test_attempt_upgrade_reason_hunter_error(monkeypatch):
     async def _ds(*_a, **_k):
         raise HunterIoError("status=401 body=unauthorized")
 
-    monkeypatch.setattr(dmf, "domain_search", _ds)
+    _patch_ds(monkeypatch, _ds)
 
     out, reason = await dmf._attempt_upgrade(
         company_domain="samocar.it", current_email="info@samocar.it", tenant_id="t"
@@ -147,7 +157,7 @@ async def test_attempt_upgrade_reason_no_named_candidate(monkeypatch):
     async def _ds(domain, *, client=None, **_k):
         return [_hunter("info@samocar.it", first=None, last=None, pos=None)]
 
-    monkeypatch.setattr(dmf, "domain_search", _ds)
+    _patch_ds(monkeypatch, _ds)
 
     out, reason = await dmf._attempt_upgrade(
         company_domain="samocar.it", current_email="info@samocar.it", tenant_id="t"
@@ -171,7 +181,7 @@ async def test_attempt_upgrade_accepts_targeted_alias(monkeypatch):
             ),
         ]
 
-    monkeypatch.setattr(dmf, "domain_search", _ds)
+    _patch_ds(monkeypatch, _ds)
 
     async def _vh(email, *, client=None):
         return True, "valid"
@@ -201,7 +211,7 @@ async def test_attempt_upgrade_prefers_named_over_alias(monkeypatch):
             _hunter("mario.rossi@azienda.it", first="Mario", last="Rossi", verified=True, conf=80),
         ]
 
-    monkeypatch.setattr(dmf, "domain_search", _ds)
+    _patch_ds(monkeypatch, _ds)
 
     async def _vh(email, *, client=None):
         return True, "valid"
@@ -218,20 +228,23 @@ async def test_attempt_upgrade_prefers_named_over_alias(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_attempt_upgrade_accepts_good_generic_over_info(monkeypatch):
-    # info@ (current) → a more-targeted generic (commerciale@) IS a valid upgrade;
-    # the baseline info@ and the useless magazzino@ are both skipped.
+async def test_attempt_upgrade_accepts_buyer_generic_not_sales(monkeypatch):
+    # info@ (current) → a more-targeted BUYER generic (acquisti@ = purchasing) IS
+    # a valid upgrade; commerciale@ (sales dept, wrong target — contact-enrichment
+    # spec excludes it, reverting PR #328), baseline info@ and useless magazzino@
+    # are all skipped.
     monkeypatch.setattr(dmf.settings, "neverbounce_api_key", "")
     monkeypatch.setattr(dmf, "get_service_client", lambda: _FakeSb(budget_ok=True))
 
     async def _ds(domain, *, client=None, **_k):
         return [
             _hunter("magazzino@azienda.it", first=None, last=None, pos=None, conf=99),
+            _hunter("commerciale@azienda.it", first=None, last=None, pos=None, conf=97),
             _hunter("info@azienda.it", first=None, last=None, pos=None, conf=95),
-            _hunter("commerciale@azienda.it", first=None, last=None, pos=None, conf=80),
+            _hunter("acquisti@azienda.it", first=None, last=None, pos=None, conf=80),
         ]
 
-    monkeypatch.setattr(dmf, "domain_search", _ds)
+    _patch_ds(monkeypatch, _ds)
 
     async def _vh(email, *, client=None):
         return True, "valid"
@@ -243,7 +256,7 @@ async def test_attempt_upgrade_accepts_good_generic_over_info(monkeypatch):
     )
     assert reason == "ok"
     assert out is not None
-    assert out.email == "commerciale@azienda.it"
+    assert out.email == "acquisti@azienda.it"  # not commerciale@ / magazzino@ / info@
 
 
 @pytest.mark.asyncio
@@ -255,7 +268,7 @@ async def test_attempt_upgrade_rejects_useless_generic(monkeypatch):
     async def _ds(domain, *, client=None, **_k):
         return [_hunter("magazzino@azienda.it", first=None, last=None, pos=None)]
 
-    monkeypatch.setattr(dmf, "domain_search", _ds)
+    _patch_ds(monkeypatch, _ds)
 
     out, reason = await dmf._attempt_upgrade(
         company_domain="azienda.it", current_email="info@azienda.it", tenant_id="t"
@@ -273,7 +286,7 @@ async def test_weak_email_upgraded(monkeypatch):
     async def _ds(domain, *, client=None, **_k):
         return [_hunter("mario.rossi@azienda.it")]
 
-    monkeypatch.setattr(dmf, "domain_search", _ds)
+    _patch_ds(monkeypatch, _ds)
 
     async def _verify(email, *, client=None):
         return _nb(email)
@@ -298,7 +311,7 @@ async def test_budget_exhausted_skips_without_calling_hunter(monkeypatch):
         called["hunter"] = True
         return []
 
-    monkeypatch.setattr(dmf, "domain_search", _ds)
+    _patch_ds(monkeypatch, _ds)
     monkeypatch.setattr(dmf, "get_service_client", lambda: _FakeSb(budget_ok=False))
 
     out = await dmf.upgrade_to_decision_maker(
@@ -316,7 +329,7 @@ async def test_neverbounce_invalid_not_promoted(monkeypatch):
     async def _ds(domain, *, client=None, **_k):
         return [_hunter("mario.rossi@azienda.it")]
 
-    monkeypatch.setattr(dmf, "domain_search", _ds)
+    _patch_ds(monkeypatch, _ds)
 
     async def _verify(email, *, client=None):
         return _nb(email, result=VerificationResult.INVALID)
@@ -339,7 +352,7 @@ async def test_hunter_fallback_upgrades_without_neverbounce(monkeypatch):
     async def _ds(domain, *, client=None, **_k):
         return [_hunter("mario.rossi@azienda.it", verified=False, conf=60)]
 
-    monkeypatch.setattr(dmf, "domain_search", _ds)
+    _patch_ds(monkeypatch, _ds)
 
     async def _verify(email, *, client=None):
         raise AssertionError("NeverBounce must not be called when its key is unset")
@@ -368,7 +381,7 @@ async def test_hunter_fallback_undeliverable_not_promoted(monkeypatch):
     async def _ds(domain, *, client=None, **_k):
         return [_hunter("mario.rossi@azienda.it", verified=False, conf=90)]
 
-    monkeypatch.setattr(dmf, "domain_search", _ds)
+    _patch_ds(monkeypatch, _ds)
 
     async def _vh(email, *, client=None):
         return False, "invalid"
@@ -554,7 +567,7 @@ async def test_role_only_results_no_upgrade(monkeypatch):
         # Hunter returns only a role inbox with no person name → not a decision maker.
         return [_hunter("info@azienda.it", first=None, last=None, pos=None)]
 
-    monkeypatch.setattr(dmf, "domain_search", _ds)
+    _patch_ds(monkeypatch, _ds)
 
     async def _verify(email, *, client=None):
         return _nb(email)

@@ -124,6 +124,12 @@ class Settings(BaseSettings):
     atoka_api_key: str = ""
     hunter_api_key: str = ""
     neverbounce_api_key: str = ""
+    # ---- Contact-enrichment waterfall (0152) ----
+    hunter_confidence_min: int = 80
+    max_verifications_per_lead: int = 6
+    domain_intel_ttl_days: int = 60
+    per_run_budget_eur: float = 25.0
+    contact_enrichment_concurrency: int = 3
     # OpenAPI.it (https://console.openapi.com) — pay-as-you-go REST
     # access to the Italian company registry. Used by the prospector
     # for sectors where Google Places returns the wrong category
