@@ -176,3 +176,41 @@ async def domain_search(
     # Sort descending by confidence
     results.sort(key=lambda r: r.confidence_score, reverse=True)
     return results
+
+
+# Hunter verifier statuses we treat as deliverable (ok to send). 'accept_all' is
+# a catch-all domain — sendable, same as NeverBounce CATCHALL.
+_DELIVERABLE_STATUSES = frozenset({"valid", "accept_all", "webmail"})
+
+
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(min=1, max=10), reraise=True)
+async def verify_email_hunter(
+    email: str,
+    *,
+    client: httpx.AsyncClient | None = None,
+    api_key: str | None = None,
+) -> tuple[bool, str]:
+    """Hunter `/email-verifier` — authoritative deliverability check, included in
+    the plan (~1 credit). Returns ``(deliverable, status)``: deliverable is True
+    for ``valid`` / ``accept_all`` / ``webmail`` (catch-all is sendable, like
+    NeverBounce CATCHALL); False for invalid / disposable / unknown."""
+    key = api_key or settings.hunter_api_key
+    if not key:
+        raise HunterIoError("HUNTER_API_KEY not configured")
+
+    params = {"api_key": key, "email": email}
+    owns_client = client is None
+    if client is None:
+        client = httpx.AsyncClient(timeout=15.0)
+    try:
+        resp = await client.get(f"{HUNTER_BASE_URL}/email-verifier", params=params)
+    finally:
+        if owns_client:
+            await client.aclose()
+
+    if resp.status_code >= 400:
+        raise HunterIoError(f"status={resp.status_code} body={resp.text[:200]}")
+
+    data = resp.json().get("data") or {}
+    status = str(data.get("status") or "unknown").lower()
+    return status in _DELIVERABLE_STATUSES, status
