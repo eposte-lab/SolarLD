@@ -1530,6 +1530,47 @@ async def trial_batch_reenrich_contacts(
     }
 
 
+@router.get("/trial/premium-status")
+async def trial_premium_status(
+    ctx: CurrentUser,
+    tenant_id: str = Query(description="Tenant whose premium-finder usage to read"),
+) -> dict[str, Any]:
+    """Premium decision-maker finder usage for the operator panel: credits used
+    vs the capped budget (1 credit = 1 lookup) + the last batch run's counts
+    (eligible / upgraded / re-sends), read from the audit trail. Super-admin only.
+    """
+    _require_super_admin(ctx)
+    sb = get_service_client()
+
+    usage = (
+        sb.table("premium_contact_usage")
+        .select("budget_cents, spend_cents, lookups")
+        .eq("tenant_id", tenant_id)
+        .limit(1)
+        .execute()
+    )
+    u = (usage.data or [{}])[0]
+
+    last = (
+        sb.table("audit_log")
+        .select("diff, at")
+        .eq("tenant_id", tenant_id)
+        .eq("action", "batch.reenrich_and_resend")
+        .order("at", desc=True)
+        .limit(1)
+        .execute()
+    )
+    last_row = (last.data or [None])[0]
+
+    return {
+        "credits_used": int(u.get("spend_cents") or 0),
+        "credits_budget": int(u.get("budget_cents") or 0),
+        "lookups": int(u.get("lookups") or 0),
+        "last_batch": (last_row or {}).get("diff"),
+        "last_batch_at": (last_row or {}).get("at"),
+    }
+
+
 @router.post("/trial/existing-pv-selftest")
 async def trial_existing_pv_selftest(ctx: CurrentUser) -> dict[str, Any]:
     """Run the existing-PV vision check on a KNOWN solar building to PROVE the
