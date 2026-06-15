@@ -37,6 +37,7 @@ from typing import TYPE_CHECKING, Any
 from ...core.logging import get_logger
 from ...core.queue import enqueue
 from ...core.supabase_client import get_service_client
+from ...services.tenant_module_service import is_premium_contact_apply_to_send
 
 if TYPE_CHECKING:
     from .types_v3 import FunnelV3Context, ScoredV3Candidate
@@ -196,6 +197,10 @@ async def run_level6_promote_to_leads(
     # Sort by overall_score DESC so the cap keeps the *best* candidates,
     # not whichever ones the orchestrator happened to pass first.
     recommended.sort(key=lambda c: int(c.overall_score), reverse=True)
+
+    # Opt-in: only auto-enqueue the contact-enrichment waterfall when the tenant
+    # has enabled it (default off → keep the website email). Read once per run.
+    apply_premium = await is_premium_contact_apply_to_send(ctx.tenant_id)
 
     for cand in recommended:
         if existing + inserted >= lead_cap:
@@ -374,12 +379,14 @@ async def run_level6_promote_to_leads(
             lead_ins = sb.table("leads").insert(lead_payload).execute()
             inserted += 1
 
-            # Contact-enrichment waterfall — ASYNC, fail-open. Resolves the best
-            # deliverable decision-maker/role contact (Hunter-first → role
-            # ladder, catch-all gated) and updates the subject in place. Never
-            # blocks promotion; a miss keeps the website email.
+            # Contact-enrichment waterfall — ASYNC, fail-open, OPT-IN. Resolves
+            # the best deliverable decision-maker/role contact (Hunter-first →
+            # role ladder, catch-all gated) and updates the subject in place.
+            # Never blocks promotion; a miss keeps the website email. Only
+            # enqueued when the tenant opted in (else outreach stays on the
+            # website email — the worker task also re-checks the flag).
             new_lead_id = (lead_ins.data or [{}])[0].get("id")
-            if new_lead_id:
+            if new_lead_id and apply_premium:
                 try:
                     await enqueue(
                         "contact_enrichment_task",
