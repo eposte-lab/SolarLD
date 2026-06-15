@@ -103,6 +103,7 @@ from ..services.resend_service import (
 )
 from ..services.runtime_preflight import check_preflight
 from ..services.send_window_service import is_within_send_window
+from ..services.tenant_module_service import is_premium_contact_required_to_send
 from .base import AgentBase
 
 log = get_logger(__name__)
@@ -581,6 +582,29 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
             )
 
         # ------------------------------------------------------------------
+        # 5e) Offer-completeness gate — NEVER email an empty offer. The email
+        #     leads with the kWp + annual-savings numbers; without them it is a
+        #     hollow pitch. Skip (not fail) so the lead re-sends once the ROI
+        #     derivations land. Test/override sends bypass it.
+        # ------------------------------------------------------------------
+        _roi_for_gate = (roof.get("derivations") if roof else None) or lead.get("roi_data")
+        if (
+            payload.channel == OutreachChannel.EMAIL
+            and not send_override_active
+            and not _offer_is_complete(_roi_for_gate)
+        ):
+            log.info(
+                "outreach.offer_incomplete",
+                lead_id=payload.lead_id,
+                tenant_id=payload.tenant_id,
+            )
+            return OutreachOutput(
+                lead_id=payload.lead_id,
+                skipped=True,
+                reason="offer_incomplete",
+            )
+
+        # ------------------------------------------------------------------
         # 6) Recipient resolution (email path)
         #
         # When ``payload.recipient_override`` is set we route the email to
@@ -622,6 +646,34 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
                 tenant_row=tenant_row,
                 subject=subject,
                 failure_reason="no_verified_email",
+            )
+
+        # ------------------------------------------------------------------
+        # 6-quality) Qualified-contact gate (per-tenant, opt-in).
+        #     When the tenant requires it, the email goes ONLY to a
+        #     waterfall-resolved premium contact (decision-maker or verified
+        #     relevant role inbox — source='premium_finder', never info@). A
+        #     lead whose only address is the scraped generic is NOT emailed; it
+        #     is routed to the phone queue (to_call) for a human call instead.
+        #     Operator test/override sends bypass this.
+        # ------------------------------------------------------------------
+        if (
+            not payload.recipient_override
+            and not tenant_test_recipient
+            and subject.get("decision_maker_email_source") != "premium_finder"
+            and await is_premium_contact_required_to_send(payload.tenant_id)
+        ):
+            log.info(
+                "outreach.unqualified_contact",
+                lead_id=payload.lead_id,
+                tenant_id=payload.tenant_id,
+                source=subject.get("decision_maker_email_source"),
+            )
+            return await self._record_skip(
+                payload=payload,
+                lead=lead,
+                reason="unqualified_contact",
+                pipeline_status=LeadStatus.TO_CALL.value,
             )
 
         # ------------------------------------------------------------------
@@ -2328,6 +2380,24 @@ def _capability_for_channel(channel: OutreachChannel) -> Capability:
 
 
 _RECIPIENT_EMAIL_RE = re.compile(r"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$")
+
+
+def _offer_is_complete(roi: dict[str, Any] | None) -> bool:
+    """True when the offer has the headline numbers the email is built around —
+    a positive kWp AND a positive annual saving. Accepts both the canonical and
+    legacy ROI key shapes (see ``email_template_service._normalize_roi``)."""
+    if not roi:
+        return False
+    kwp = roi.get("estimated_kwp") or roi.get("system_kwp")
+    savings = (
+        roi.get("yearly_savings_eur")
+        or roi.get("annual_savings_eur")
+        or roi.get("realistic_yearly_savings_eur")
+    )
+    try:
+        return float(kwp or 0) > 0 and float(savings or 0) > 0
+    except (TypeError, ValueError):
+        return False
 
 
 def _resolve_recipient(subject: dict[str, Any]) -> str | None:
