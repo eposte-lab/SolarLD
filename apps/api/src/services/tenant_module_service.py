@@ -278,6 +278,11 @@ class OutreachConfig(BaseModel):
         default="Prenota un sopralluogo gratuito",
         max_length=80,
     )
+    # Opt-in: when False (default) outreach keeps the publicly-found website
+    # email; the contact-enrichment waterfall (Hunter / name-discovery) does NOT
+    # run automatically and never overrides the send recipient. Flip True only
+    # at the business owner's go-ahead. Manual operator tools are unaffected.
+    premium_contact_apply_to_send: bool = False
 
 
 class CRMConfig(BaseModel):
@@ -438,6 +443,19 @@ async def get_module(tenant_id: UUID | str, key: ModuleKey) -> TenantModule:
     if not row:
         return _synth_module(tid, key)
     return _row_to_module(row)
+
+
+async def is_premium_contact_apply_to_send(tenant_id: UUID | str) -> bool:
+    """Whether the operator opted in to applying the contact-enrichment waterfall
+    to outreach sends. Default False (keep the website email). Read live from the
+    tenant's ``outreach`` module — flippable without a redeploy. Fail-closed:
+    any read error returns False (keep the safe website-email behaviour)."""
+    try:
+        mod = await get_module(tenant_id, "outreach")
+        return bool(mod.config.get("premium_contact_apply_to_send", False))
+    except Exception as exc:  # noqa: BLE001 — config read is best-effort, fail-closed
+        log.warning("premium_apply_flag.read_failed", err=type(exc).__name__)
+        return False
 
 
 async def list_modules(tenant_id: UUID | str) -> list[TenantModule]:

@@ -129,8 +129,17 @@ async def find_better_contact_task(_ctx: dict[str, Any], payload: dict[str, Any]
 async def contact_enrichment_task(_ctx: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
     """ARQ task: §waterfall — resolve the best deliverable contact for ONE
     qualified lead (Hunter-first → role ladder, catch-all gated). Enqueued by L6
-    at promotion. Fail-open: a miss keeps the website email."""
+    at promotion. Fail-open: a miss keeps the website email.
+
+    Opt-in gate: the waterfall only runs when the tenant has enabled
+    ``premium_contact_apply_to_send`` (default off → outreach keeps the website
+    email). Enforced here too — not just at the L6 enqueue — so no enqueue path
+    can override the send recipient before the owner's go-ahead."""
     from ..services.contact_waterfall import resolve_best_contact
+    from ..services.tenant_module_service import is_premium_contact_apply_to_send
+
+    if not await is_premium_contact_apply_to_send(payload["tenant_id"]):
+        return {"lead_id": payload["lead_id"], "status": "skipped", "reason": "apply_to_send_off"}
 
     out = await resolve_best_contact(
         tenant_id=payload["tenant_id"],
