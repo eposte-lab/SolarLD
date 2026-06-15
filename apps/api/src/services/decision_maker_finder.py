@@ -413,9 +413,9 @@ async def batch_reenrich_and_resend(
                 )
                 # Revert the stamp so a failed-to-queue lead stays retryable.
                 try:
-                    sb.table("leads").update({"last_followup_sent_at": None}).eq(
-                        "id", lead_id
-                    ).eq("tenant_id", tenant_id).execute()
+                    sb.table("leads").update({"last_followup_sent_at": None}).eq("id", lead_id).eq(
+                        "tenant_id", tenant_id
+                    ).execute()
                 except Exception:  # noqa: BLE001 — best-effort revert
                     pass
 
