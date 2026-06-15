@@ -178,6 +178,37 @@ def is_weak_email(email: str | None) -> bool:
     return not _is_personal_email(email)
 
 
+def cache_domain_intel(
+    sb: Any,
+    domain: str,
+    *,
+    pattern: str | None = None,
+    accept_all: bool | None = None,
+    catch_all: bool | None = None,
+    mx_valid: bool | None = None,
+) -> None:
+    """Best-effort upsert of per-domain intelligence (migration 0152) so a domain
+    is probed once and reused across leads/tenants. Never raises."""
+    payload: dict[str, Any] = {
+        "domain": domain,
+        "last_checked_at": datetime.now(tz=UTC).isoformat(),
+    }
+    if pattern is not None:
+        payload["email_pattern"] = pattern
+    if accept_all is not None:
+        payload["accept_all"] = accept_all
+        if catch_all is None:  # Hunter's accept_all IS our catch-all signal
+            payload["catch_all"] = accept_all
+    if catch_all is not None:
+        payload["catch_all"] = catch_all
+    if mx_valid is not None:
+        payload["mx_valid"] = mx_valid
+    try:
+        sb.table("domain_intel").upsert(payload, on_conflict="domain").execute()
+    except Exception as exc:  # noqa: BLE001 — cache is best-effort, never blocks
+        log.debug("domain_intel.cache_failed", domain=domain, err=type(exc).__name__)
+
+
 async def _attempt_upgrade(
     *,
     company_domain: str | None,
@@ -231,6 +262,9 @@ async def _attempt_upgrade(
     try:
         _ds = await domain_search(domain, seniority=None, department=None, limit=10, client=client)
         candidates = _ds.emails
+        # Cache the domain-level signals so the waterfall (and the next lead on
+        # this domain) reuse the pattern + catch-all without re-paying Hunter.
+        cache_domain_intel(sb, domain, pattern=_ds.pattern, accept_all=_ds.accept_all)
     except Exception as exc:  # noqa: BLE001 — fail open, keep the website email
         # ``detail`` carries the HTTP status/body from HunterIoError → an
         # invalid/unauthorised key shows as status=401/403 here.
