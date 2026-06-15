@@ -170,6 +170,24 @@ async def batch_reenrich_contacts_task(
     )
 
 
+async def contact_waterfall_dryrun_task(
+    _ctx: dict[str, Any], payload: dict[str, Any]
+) -> dict[str, Any]:
+    """ARQ task: DRY-RUN the contact-enrichment waterfall over a sample of
+    upgradeable leads to measure efficiency. Spends real Hunter credits but
+    writes NOTHING that changes outreach (no subject mirror, no contact_outcome).
+    The efficiency report is logged (grep 'contact_waterfall.dryrun_report') and
+    returned. Triggered by `POST /v1/admin/trial/contact-waterfall-dryrun`; runs
+    on the worker because that's where the Hunter key is configured."""
+    from ..services.contact_waterfall import contact_waterfall_dryrun
+
+    return await contact_waterfall_dryrun(
+        tenant_id=payload["tenant_id"],
+        sample=int(payload.get("sample", 50)),
+        concurrency=int(payload.get("concurrency", 8)),
+    )
+
+
 async def tracking_task(_ctx: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
     out = await TrackingAgent().run(TrackingInput(**payload))
     return out.model_dump()
@@ -684,6 +702,7 @@ class WorkerSettings:
         find_better_contact_task,
         batch_reenrich_contacts_task,
         contact_enrichment_task,
+        contact_waterfall_dryrun_task,
     ]
     # Scheduled jobs (UTC):
     #   :00 every hour   → deliverability_hourly_cron   (bounce/complaint spike check)

@@ -511,3 +511,71 @@ async def test_catch_all_undecided_is_probed_only_once(monkeypatch):
     assert out.reason == "catch_all_unknown"
     # find_email reserve (1) + exactly ONE catch-all probe (1); no STEP-3 re-probe
     assert sb.rpc_calls == 2
+
+
+# --------------------------------------------------------------------------- #
+# dry-run measurement
+# --------------------------------------------------------------------------- #
+@pytest.mark.asyncio
+async def test_dry_run_writes_nothing_on_a_win(monkeypatch):
+    sb = _FakeSb(lead=_lead(), subject=_subject())
+    _wire(monkeypatch, sb)
+
+    async def _au(**_k):
+        return (
+            DecisionMakerUpgrade(
+                email="mario.rossi@azienda.it",
+                name="Mario Rossi",
+                role="Direttore",
+                confidence="alta",
+                fallback_email="info@azienda.it",
+            ),
+            "ok",
+        )
+
+    monkeypatch.setattr(cw, "_attempt_upgrade", _au)
+
+    out = await cw.resolve_best_contact(tenant_id="t", lead_id="L1", dry_run=True)
+    assert out.status == "done"
+    assert out.email == "mario.rossi@azienda.it"
+    # no subject mirror and no leads.contact_outcome write under a dry run
+    assert sb.updates == []
+
+
+@pytest.mark.asyncio
+async def test_dryrun_harness_aggregates(monkeypatch):
+    monkeypatch.setattr(cw, "get_service_client", lambda: object())
+    monkeypatch.setattr(
+        cw, "_select_dryrun_targets", lambda sb, tid, sample: ["L1", "L2", "L3", "L4"]
+    )
+
+    outcomes = {
+        "L1": cw.ContactOutcome(
+            status="done",
+            email="a@x.it",
+            kind="decision_maker",
+            reason="step2_pattern_guess",
+            cost_cents=2,
+        ),
+        "L2": cw.ContactOutcome(status="phone_queue", reason="catch_all", cost_cents=1),
+        "L3": cw.ContactOutcome(status="needs_manual", reason="no_mx", cost_cents=0),
+        "L4": cw.ContactOutcome(
+            status="done", email="b@y.it", kind="role", reason="step3_acquisti", cost_cents=3
+        ),
+    }
+
+    async def _resolve(*, tenant_id, lead_id, force=False, dry_run=False):
+        assert dry_run is True
+        assert force is True
+        return outcomes[lead_id]
+
+    monkeypatch.setattr(cw, "resolve_best_contact", _resolve)
+
+    rep = await cw.contact_waterfall_dryrun(tenant_id="t", sample=4, concurrency=2)
+    assert rep["measured"] == 4
+    assert rep["verified_contact_done"] == 2
+    assert rep["done_pct"] == 50.0
+    assert rep["phone_queue"] == 1
+    assert rep["needs_manual"] == 1
+    assert rep["hunter_credits_spent"] == 6
+    assert rep["by_status"]["done"] == 2

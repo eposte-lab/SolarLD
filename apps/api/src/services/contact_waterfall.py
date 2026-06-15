@@ -32,7 +32,9 @@ Design:
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import secrets
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Literal
@@ -46,6 +48,7 @@ from .decision_maker_finder import (
     _HUNTER_CREDITS_PER_LOOKUP,
     _attempt_upgrade,
     cache_domain_intel,
+    is_weak_email,
 )
 from .decision_maker_name import (
     PersonName,
@@ -58,6 +61,17 @@ from .neverbounce_service import NeverBounceError, verify_email
 from .web_scraper import _has_mx_record, is_non_business_domain
 
 log = get_logger(__name__)
+
+# Ambient, async-safe DRY-RUN flag. When set, the waterfall runs STEP 0/1/2/3
+# for real (Hunter searches + verifications still happen + cost budget) but
+# performs NO mutations that would change outreach: it does not mirror the
+# winner into ``subjects`` (no recipient change) and does not write
+# ``leads.contact_outcome`` (so a later REAL run isn't skipped as
+# already_resolved). Used by the dry-run measurement harness. Each asyncio task
+# gets its own context copy, so concurrent dry/real runs never interfere.
+_dry_run: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "contact_waterfall_dry_run", default=False
+)
 
 # Energy-BUYER role ladder (best-first). 'commerciale'/'vendite' are excluded by
 # design (sales dept, not who buys energy); 'info' is the last resort. Each is
@@ -177,7 +191,9 @@ def _mirror_to_subject(
 ) -> None:
     """Write the winning contact into subjects.* so the send layer + premium
     ordering + badge use it. source='premium_finder' (the value warehouse_pick
-    orders on)."""
+    orders on). No-op under a dry run — never change the outreach recipient."""
+    if _dry_run.get():
+        return
     sb.table("subjects").update(
         {
             "decision_maker_email": email,
@@ -199,18 +215,20 @@ def _finish(
     best_email: str | None,
 ) -> ContactOutcome:
     """Always-write tail: persist the terminal outcome on the lead. Never raises
-    on the audit write (the outcome is still returned)."""
-    try:
-        sb.table("leads").update(
-            {
-                "best_contact_email": best_email,
-                "contact_outcome": outcome.status,
-                "contact_enrichment_cost_cents": outcome.cost_cents,
-                "contact_enriched_at": datetime.now(tz=UTC).isoformat(),
-            }
-        ).eq("id", lead_id).eq("tenant_id", tenant_id).execute()
-    except Exception as exc:  # noqa: BLE001 — audit write is best-effort
-        log.warning("waterfall.finish_write_failed", lead_id=lead_id, err=type(exc).__name__)
+    on the audit write (the outcome is still returned). Skips the write under a
+    dry run so a later REAL run isn't short-circuited as already_resolved."""
+    if not _dry_run.get():
+        try:
+            sb.table("leads").update(
+                {
+                    "best_contact_email": best_email,
+                    "contact_outcome": outcome.status,
+                    "contact_enrichment_cost_cents": outcome.cost_cents,
+                    "contact_enriched_at": datetime.now(tz=UTC).isoformat(),
+                }
+            ).eq("id", lead_id).eq("tenant_id", tenant_id).execute()
+        except Exception as exc:  # noqa: BLE001 — audit write is best-effort
+            log.warning("waterfall.finish_write_failed", lead_id=lead_id, err=type(exc).__name__)
     log.info(
         "waterfall.done",
         tenant_id=tenant_id,
@@ -520,9 +538,37 @@ async def resolve_best_contact(
     name_hint: tuple[str, str] | None = None,
     sector: str | None = None,  # noqa: ARG001 — reserved for Hunter dept filtering
     force: bool = False,
+    dry_run: bool = False,
     client: httpx.AsyncClient | None = None,
 ) -> ContactOutcome:
-    """Resolve the best deliverable contact for one qualified lead (STEP 0/1/2/3)."""
+    """Resolve the best deliverable contact for one qualified lead (STEP 0/1/2/3).
+
+    ``dry_run=True`` runs every step for real (Hunter searches + verifications,
+    budget IS charged because the credits are genuinely spent) but writes NOTHING
+    that changes outreach — no subject mirror, no ``leads.contact_outcome`` — so
+    it measures what the waterfall WOULD do without touching live sends.
+    """
+    token = _dry_run.set(dry_run)
+    try:
+        return await _resolve_best_contact(
+            tenant_id=tenant_id,
+            lead_id=lead_id,
+            name_hint=name_hint,
+            force=force,
+            client=client,
+        )
+    finally:
+        _dry_run.reset(token)
+
+
+async def _resolve_best_contact(
+    *,
+    tenant_id: str,
+    lead_id: str,
+    name_hint: tuple[str, str] | None,
+    force: bool,
+    client: httpx.AsyncClient | None,
+) -> ContactOutcome:
     sb = get_service_client()
 
     # --- load lead + subject -------------------------------------------------
@@ -754,3 +800,110 @@ async def resolve_best_contact(
         ),
         best_email=current_email,
     )
+
+
+# --------------------------------------------------------------------------- #
+# Dry-run measurement harness — efficiency report over a sample (no mutations)
+# --------------------------------------------------------------------------- #
+_ACTIVE_STATUSES = ("sent", "ready_to_send", "engaged", "picked")
+
+
+def _select_dryrun_targets(sb: Any, tenant_id: str, sample: int) -> list[str]:
+    """Pick up to ``sample`` active B2B lead ids whose current contact is a weak
+    generic email on a real business domain — the pool the waterfall could
+    actually upgrade (skips PEC / free webmail / already-named)."""
+    leads = (
+        sb.table("leads")
+        .select("id, subject_id, created_at")
+        .eq("tenant_id", tenant_id)
+        .in_("pipeline_status", list(_ACTIVE_STATUSES))
+        .order("created_at", desc=True)
+        .limit(sample * 4)
+        .execute()
+    )
+    rows = leads.data or []
+    sid_to_lead: dict[str, str] = {}
+    for r in rows:
+        sid = r.get("subject_id")
+        if sid and sid not in sid_to_lead:
+            sid_to_lead[sid] = r["id"]
+    if not sid_to_lead:
+        return []
+    subs = (
+        sb.table("subjects")
+        .select("id, decision_maker_email, type")
+        .in_("id", list(sid_to_lead))
+        .execute()
+    )
+    targets: list[str] = []
+    for s in subs.data or []:
+        if s.get("type") != "b2b":
+            continue
+        email = (s.get("decision_maker_email") or "").strip().lower()
+        if "@" not in email:
+            continue
+        local, domain = email.split("@", 1)
+        if local in {"pec", "postacertificata"} or domain.endswith("pec.it"):
+            continue
+        if is_non_business_domain(domain) or not is_weak_email(email):
+            continue
+        targets.append(sid_to_lead[s["id"]])
+        if len(targets) >= sample:
+            break
+    return targets
+
+
+async def contact_waterfall_dryrun(
+    *,
+    tenant_id: str,
+    sample: int = 50,
+    concurrency: int = 8,
+) -> dict[str, Any]:
+    """Run the FULL waterfall (Hunter + verify, real credits) in DRY-RUN over a
+    sample of upgradeable leads and return an efficiency report — no subject
+    mirror, no ``leads`` write, so live outreach is untouched. Returns the
+    distribution of terminal outcomes, the verified-contact rate, and the Hunter
+    credits spent. MUST run where the Hunter key is configured (the worker)."""
+    sb = get_service_client()
+    targets = _select_dryrun_targets(sb, tenant_id, sample)
+    if not targets:
+        return {"tenant_id": tenant_id, "measured": 0, "note": "no upgradeable leads found"}
+
+    sem = asyncio.Semaphore(max(1, concurrency))
+
+    async def _one(lead_id: str) -> ContactOutcome | None:
+        async with sem:
+            try:
+                return await resolve_best_contact(
+                    tenant_id=tenant_id, lead_id=lead_id, force=True, dry_run=True
+                )
+            except Exception as exc:  # noqa: BLE001 — one bad lead must not abort the run
+                log.warning("dryrun.lead_failed", lead_id=lead_id, err=type(exc).__name__)
+                return None
+
+    outcomes = [o for o in await asyncio.gather(*(_one(t) for t in targets)) if o is not None]
+    measured = len(outcomes)
+    by_status = Counter(o.status for o in outcomes)
+    wins = [o for o in outcomes if o.status == "done"]
+    report: dict[str, Any] = {
+        "tenant_id": tenant_id,
+        "sample_requested": sample,
+        "measured": measured,
+        "by_status": dict(by_status),
+        "by_reason": dict(Counter(o.reason for o in outcomes)),
+        "by_kind": dict(Counter(o.kind for o in outcomes if o.kind)),
+        "verified_contact_done": len(wins),
+        "done_pct": round(100 * len(wins) / measured, 1) if measured else 0.0,
+        "phone_queue": by_status.get("phone_queue", 0),
+        "needs_manual": by_status.get("needs_manual", 0),
+        "hunter_credits_spent": sum(o.cost_cents for o in outcomes),
+        "examples": [
+            {"email": o.email, "name": o.name, "role": o.role, "reason": o.reason}
+            for o in wins[:15]
+        ],
+    }
+    log.info(
+        "contact_waterfall.dryrun_report",
+        **{k: v for k, v in report.items() if k != "examples"},
+    )
+    return report

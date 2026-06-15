@@ -1538,6 +1538,50 @@ async def trial_batch_reenrich_contacts(
     }
 
 
+@router.post("/trial/contact-waterfall-dryrun", status_code=status.HTTP_202_ACCEPTED)
+async def trial_contact_waterfall_dryrun(
+    ctx: CurrentUser,
+    tenant_id: str = Query(description="Tenant whose upgradeable leads to measure"),
+    sample: int = Query(
+        50,
+        ge=1,
+        le=200,
+        description="How many upgradeable leads (active, weak generic email) to "
+        "dry-run through the full waterfall. Spends real Hunter credits (~1-3 per "
+        "lead) but writes NOTHING — measures only.",
+    ),
+) -> dict[str, Any]:
+    """Measure the contact-enrichment waterfall's efficiency on a sample WITHOUT
+    touching live outreach: runs STEP 1/2/3 for real (Hunter search + name
+    discovery + verification, real credits) but mirrors nothing and writes no
+    ``contact_outcome``. Super-admin only; enqueues a worker job (the worker holds
+    the Hunter key). Read the result in the worker logs — structured line
+    ``contact_waterfall.dryrun_report`` with by_status / verified_contact_done /
+    done_pct / hunter_credits_spent.
+    """
+    _require_super_admin(ctx)
+    job = await enqueue(
+        "contact_waterfall_dryrun_task",
+        {"tenant_id": tenant_id, "sample": sample, "actor": ctx.user_id},
+        job_id=f"waterfall_dryrun:{tenant_id}:{int(datetime.now(tz=UTC).timestamp())}",
+    )
+    log.info(
+        "admin.contact_waterfall_dryrun.scheduled",
+        tenant_id=tenant_id,
+        sample=sample,
+        super_admin=ctx.user_id,
+    )
+    return {
+        "ok": True,
+        "status": "scheduled",
+        "message": (
+            f"Dry-run avviato su {sample} lead. NESSUN invio o modifica: misura soltanto. "
+            "Leggi il report nei log del worker (riga 'contact_waterfall.dryrun_report')."
+        ),
+        **job,
+    }
+
+
 @router.get("/trial/premium-status")
 async def trial_premium_status(
     ctx: CurrentUser,
