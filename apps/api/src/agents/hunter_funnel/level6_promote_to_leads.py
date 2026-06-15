@@ -21,7 +21,10 @@ Downstream: the existing creative + outreach agents (FLUSSO 3) pick up
 ``leads`` rows with ``pipeline_status='ready_to_send'`` automatically —
 no further wiring needed inside the v3 funnel.
 
-Cost: zero (no external API calls, only DB writes).
+Cost: near-zero. The only external call is the OPTIONAL premium
+decision-maker lookup (§B) attempted once per NEW subject — capped by the
+per-tenant premium budget and fail-open, so a miss/exhausted-budget keeps
+the website email and never blocks promotion.
 """
 
 from __future__ import annotations
@@ -33,6 +36,7 @@ from typing import TYPE_CHECKING, Any
 
 from ...core.logging import get_logger
 from ...core.supabase_client import get_service_client
+from ...services.decision_maker_finder import upgrade_to_decision_maker
 
 if TYPE_CHECKING:
     from .types_v3 import FunnelV3Context, ScoredV3Candidate
@@ -262,14 +266,50 @@ async def run_level6_promote_to_leads(
                 ateco_codes = sc.get("predicted_ateco_codes") or []
                 primary_ateco = ateco_codes[0] if ateco_codes else None
 
+                # §B — Premium decision-maker enrichment (Hunter + validation).
+                # Runs ONLY here, on accepted Solar candidates being promoted to
+                # a NEW subject, so the (capped) lookup cost is paid solely on
+                # companies that actually become leads. Fails OPEN: any miss,
+                # budget-exhausted, or API error keeps the website email and
+                # never blocks promotion.
+                website_email = contact.get("best_email") or scraped.get("best_email") or ""
+                dm_email: str | None = website_email or None
+                dm_name: str | None = None
+                dm_role: str | None = None
+                dm_source = "website_scrape"
+                dm_fallback: str | None = None
+                dm_verified = False
+                if website_email and "@" in website_email:
+                    try:
+                        upgrade = await upgrade_to_decision_maker(
+                            company_domain=website_email.split("@", 1)[1],
+                            current_email=website_email,
+                            tenant_id=ctx.tenant_id,
+                            candidate_id=str(cand.record.candidate_id),
+                        )
+                    except Exception as exc:  # noqa: BLE001 — fail open, keep website email
+                        upgrade = None
+                        log.debug("level6_promote.premium_finder_error", err=type(exc).__name__)
+                    if upgrade is not None:
+                        dm_email = upgrade.email
+                        dm_name = upgrade.name
+                        dm_role = upgrade.role
+                        dm_source = "premium_finder"
+                        dm_fallback = upgrade.fallback_email
+                        dm_verified = True
+
                 subject_payload: dict[str, Any] = {
                     "tenant_id": ctx.tenant_id,
                     "roof_id": roof_id,
                     "type": "b2b",
                     "business_name": business_name,
                     "ateco_code": primary_ateco,
-                    "decision_maker_email": contact.get("best_email") or scraped.get("best_email"),
-                    "decision_maker_email_verified": False,
+                    "decision_maker_email": dm_email,
+                    "decision_maker_name": dm_name,
+                    "decision_maker_role": dm_role,
+                    "decision_maker_email_verified": dm_verified,
+                    "decision_maker_email_source": dm_source,
+                    "decision_maker_email_fallback": dm_fallback,
                     "decision_maker_phone": contact.get("phone")
                     or scraped.get("phone")
                     or place_blob.get("phone"),

@@ -1463,6 +1463,67 @@ async def trial_recheck_existing_pv(
     }
 
 
+@router.post("/trial/batch-reenrich-contacts", status_code=status.HTTP_202_ACCEPTED)
+async def trial_batch_reenrich_contacts(
+    ctx: CurrentUser,
+    tenant_id: str = Query(description="Tenant whose already-sent leads to re-enrich"),
+    limit: int = Query(150, ge=1, le=500, description="Max already-sent leads to process"),
+    spread_days: int = Query(5, ge=1, le=30, description="Spread any re-sends over N days"),
+    per_day_cap: int = Query(30, ge=1, le=200, description="Max re-sends scheduled per day"),
+    dry_run: bool = Query(
+        True,
+        description="When true (default) ONLY finds + saves better contacts and reports "
+        "counts — sends nothing. Set false to also re-send the official outreach.",
+    ),
+) -> dict[str, Any]:
+    """§D — batch-upgrade the decision-maker email of already-SENT leads via the
+    premium finder, and (when ``dry_run=false``) re-send the official outreach to
+    the upgraded address.
+
+    Super-admin only. Enqueues an arq job on the worker (which holds the premium
+    API key); the request returns 202 immediately. Excludes leads already
+    followed-up and the leads handled manually via the alt-address resend
+    (Hilton / Sigma). Budget-capped + idempotent; ``dry_run`` defaults to True so
+    the first run never sends. Read the worker logs / refresh /contatti for the
+    badge and counts.
+    """
+    _require_super_admin(ctx)
+    job = await enqueue(
+        "batch_reenrich_contacts_task",
+        {
+            "tenant_id": tenant_id,
+            "limit": limit,
+            "spread_days": spread_days,
+            "per_day_cap": per_day_cap,
+            "dry_run": dry_run,
+            "actor": ctx.user_id,
+        },
+        job_id=f"batch_reenrich:{tenant_id}:{int(datetime.now(tz=UTC).timestamp())}",
+    )
+    log.info(
+        "admin.trial_batch_reenrich_contacts.scheduled",
+        tenant_id=tenant_id,
+        dry_run=dry_run,
+        limit=limit,
+        super_admin=ctx.user_id,
+    )
+    return {
+        "ok": True,
+        "status": "scheduled",
+        "dry_run": dry_run,
+        "message": (
+            "Re-arricchimento avviato"
+            + (
+                " (DRY-RUN: nessun invio, solo ricerca contatti migliori)."
+                if dry_run
+                else " + reinvio dell'outreach ufficiale ai contatti migliorati."
+            )
+            + " Controlla i log del worker e ricarica /contatti."
+        ),
+        **job,
+    }
+
+
 @router.post("/trial/existing-pv-selftest")
 async def trial_existing_pv_selftest(ctx: CurrentUser) -> dict[str, Any]:
     """Run the existing-PV vision check on a KNOWN solar building to PROVE the
