@@ -33,11 +33,19 @@ from ..core.logging import get_logger
 from ..core.queue import enqueue
 from ..core.supabase_client import get_service_client
 from .audit_service import log_action
-from .hunter_io_service import HUNTER_COST_PER_CALL_CENTS, domain_search
+from .hunter_io_service import domain_search
 from .neverbounce_service import NeverBounceError, verify_email
 from .web_scraper import is_non_business_domain
 
 log = get_logger(__name__)
+
+# One Hunter domain-search costs ~1 credit. The Starter plan bills a FLAT bucket
+# of 2000 credits for ~€50 (≈ €0.025/credit), so we account the budget in
+# CREDITS, not euro-cents: 1 lookup = 1 credit. The premium_contact_usage.*_cents
+# columns therefore hold CREDITS for this feature (the "_cents" name is legacy).
+# Hunter itself hard-stops at the plan's credit ceiling, so €50 can never be
+# exceeded regardless of this counter.
+_HUNTER_CREDITS_PER_LOOKUP = 1
 
 # Fallback validation bar when NeverBounce is NOT configured: trust Hunter's
 # own bundled verification (included in the Hunter plan). Accept a candidate
@@ -135,7 +143,7 @@ async def upgrade_to_decision_maker(
     try:
         reserved = sb.rpc(
             "reserve_premium_budget",
-            {"p_tenant_id": tenant_id, "p_cost_cents": HUNTER_COST_PER_CALL_CENTS},
+            {"p_tenant_id": tenant_id, "p_cost_cents": _HUNTER_CREDITS_PER_LOOKUP},
         ).execute()
         if not bool(reserved.data):
             log.info("premium_finder.budget_exhausted", tenant_id=tenant_id)
