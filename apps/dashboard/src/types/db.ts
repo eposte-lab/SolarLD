@@ -236,6 +236,9 @@ export interface SubjectSummary {
   owner_last_name: string | null;
   decision_maker_email: string | null;
   decision_maker_email_verified: boolean;
+  /** Provenance of the email: 'premium_finder' marks a researched
+   *  decision-maker contact (drives the luminous premium treatment). */
+  decision_maker_email_source: string | null;
   /**
    * Decision-maker phone (E.164-ish "+39…" form). NULL when neither Atoka
    * nor the website scraper could find one — the lead is still actionable
@@ -453,6 +456,7 @@ export interface OutreachSendWithEngagement extends OutreachSendRow {
       decision_maker_name: string | null;
       decision_maker_phone: string | null;
       decision_maker_email: string | null;
+      decision_maker_email_source: string | null;
     } | null;
   } | null;
 }

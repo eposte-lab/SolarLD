@@ -9,6 +9,7 @@
 import { ArrowUpRight, Check } from 'lucide-react';
 import Link from 'next/link';
 
+import { PremiumBadge, isPremiumSource } from '@/components/premium-email-field';
 import { SortableTh } from '@/components/ui/sortable-th';
 import { useSortableData } from '@/hooks/use-sortable-data';
 import { cn, relativeTime } from '@/lib/utils';
@@ -153,8 +154,13 @@ export function InviiTable({ rows }: { rows: CampaignWithLeadEngagement[] }) {
                           {phone}
                         </a>
                       ) : email ? (
-                        <span className="max-w-[180px] truncate text-on-surface-variant">
-                          {email}
+                        <span className="inline-flex max-w-[200px] items-center gap-1">
+                          <span className="truncate text-on-surface-variant">
+                            {email}
+                          </span>
+                          {isPremiumSource(s?.decision_maker_email_source) ? (
+                            <PremiumBadge />
+                          ) : null}
                         </span>
                       ) : null}
                     </div>
