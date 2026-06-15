@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 
 from src.services import decision_maker_finder as dmf
-from src.services.hunter_io_service import HunterEmailResult
+from src.services.hunter_io_service import HunterEmailResult, HunterIoError
 from src.services.neverbounce_service import EmailVerification, VerificationResult
 
 
@@ -118,6 +118,42 @@ async def test_no_hunter_key_skips_without_budget_charge(monkeypatch):
     assert out is None
     assert called["hunter"] is False
     assert sb.rpc_called is False  # budget counter untouched
+
+
+@pytest.mark.asyncio
+async def test_attempt_upgrade_reason_hunter_error(monkeypatch):
+    # Hunter API rejects the call (e.g. bad key → 401) → diagnostic reason
+    # "hunter_error", surfaced so the operator knows it's not "no contact found".
+    monkeypatch.setattr(dmf, "get_service_client", lambda: _FakeSb(budget_ok=True))
+
+    async def _ds(*_a, **_k):
+        raise HunterIoError("status=401 body=unauthorized")
+
+    monkeypatch.setattr(dmf, "domain_search", _ds)
+
+    out, reason = await dmf._attempt_upgrade(
+        company_domain="samocar.it", current_email="info@samocar.it", tenant_id="t"
+    )
+    assert out is None
+    assert reason == "hunter_error"
+
+
+@pytest.mark.asyncio
+async def test_attempt_upgrade_reason_no_named_candidate(monkeypatch):
+    # Hunter responds OK but returns no named person for the domain → reason
+    # "no_named_candidate" (a real credit was spent; the company just has none).
+    monkeypatch.setattr(dmf, "get_service_client", lambda: _FakeSb(budget_ok=True))
+
+    async def _ds(domain, *, client=None):
+        return [_hunter("info@samocar.it", first=None, last=None, pos=None)]
+
+    monkeypatch.setattr(dmf, "domain_search", _ds)
+
+    out, reason = await dmf._attempt_upgrade(
+        company_domain="samocar.it", current_email="info@samocar.it", tenant_id="t"
+    )
+    assert out is None
+    assert reason == "no_named_candidate"
 
 
 @pytest.mark.asyncio

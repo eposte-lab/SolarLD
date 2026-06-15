@@ -108,7 +108,7 @@ def is_weak_email(email: str | None) -> bool:
     return not _is_personal_email(email)
 
 
-async def upgrade_to_decision_maker(
+async def _attempt_upgrade(
     *,
     company_domain: str | None,
     current_email: str | None,
@@ -116,26 +116,28 @@ async def upgrade_to_decision_maker(
     client: httpx.AsyncClient | None = None,
     lead_id: str | None = None,
     candidate_id: str | None = None,
-) -> DecisionMakerUpgrade | None:
-    """Find a NAMED, validated decision-maker email for ``company_domain``.
+) -> tuple[DecisionMakerUpgrade | None, str]:
+    """Core premium lookup. Returns ``(upgrade_or_None, reason)`` — the reason is
+    a short diagnostic tag surfaced in the on-demand/batch result so an operator
+    can tell WHY a lead wasn't upgraded:
 
-    Returns ``None`` (caller keeps the current email) when the current email is
-    already personal, there is no usable business domain, the budget is
-    exhausted, or no validated named person is found.
+      already_personal · non_business_domain · no_api_key · budget_exhausted ·
+      budget_check_failed · hunter_error · no_named_candidate · validation_failed
+      · ok
     """
     if not is_weak_email(current_email):
-        return None
+        return None, "already_personal"
     domain = (company_domain or "").strip().lower()
     if domain.startswith("www."):
         domain = domain[4:]
     if not domain or "." not in domain or is_non_business_domain(domain):
-        return None
+        return None, "non_business_domain"
 
-    # No premium provider configured → no-op WITHOUT charging the budget
-    # counter, so spend/lookups stay clean (and the budget isn't burned on
-    # failed no-op calls) until the key is set on the worker.
+    # No premium provider configured → no-op WITHOUT charging the budget counter
+    # (so spend/lookups stay clean) until the key is set on the worker.
     if not settings.hunter_api_key:
-        return None
+        log.warning("premium_finder.no_api_key", tenant_id=tenant_id)
+        return None, "no_api_key"
 
     sb = get_service_client()
 
@@ -147,17 +149,24 @@ async def upgrade_to_decision_maker(
         ).execute()
         if not bool(reserved.data):
             log.info("premium_finder.budget_exhausted", tenant_id=tenant_id)
-            return None
+            return None, "budget_exhausted"
     except Exception as exc:  # noqa: BLE001 — budget RPC is a hard dependency boundary
         log.warning("premium_finder.budget_check_failed", err=type(exc).__name__)
-        return None
+        return None, "budget_check_failed"
 
     # Hunter domain-search for executives / management.
     try:
         candidates = await domain_search(domain, client=client)
     except Exception as exc:  # noqa: BLE001 — fail open, keep the website email
-        log.warning("premium_finder.lookup_failed", domain=domain, err=type(exc).__name__)
-        return None
+        # ``detail`` carries the HTTP status/body from HunterIoError → an
+        # invalid/unauthorised key shows as status=401/403 here.
+        log.warning(
+            "premium_finder.lookup_failed",
+            domain=domain,
+            err=type(exc).__name__,
+            detail=str(exc)[:200],
+        )
+        return None, "hunter_error"
 
     # Pick the best NAMED person: real first+last name, on the company domain,
     # not a role alias. candidates are already sorted by confidence desc.
@@ -172,7 +181,13 @@ async def upgrade_to_decision_maker(
         best = c
         break
     if best is None or not best.email:
-        return None
+        log.info(
+            "premium_finder.no_named_candidate",
+            tenant_id=tenant_id,
+            domain=domain,
+            returned=len(candidates),
+        )
+        return None, "no_named_candidate"
 
     # Validate the named guess — fail CLOSED: never promote an unverified
     # personal guess. Prefer NeverBounce when its key is configured (most
@@ -183,9 +198,9 @@ async def upgrade_to_decision_maker(
         try:
             verification = await verify_email(best.email, client=client)
         except NeverBounceError:
-            return None
+            return None, "validation_failed"
         if not verification.result.sendable or verification.role_address:
-            return None
+            return None, "validation_failed"
     elif not (best.verified or best.confidence_score >= _MIN_HUNTER_CONFIDENCE):
         log.info(
             "premium_finder.hunter_validation_failed",
@@ -194,7 +209,7 @@ async def upgrade_to_decision_maker(
             confidence=best.confidence_score,
             verified=best.verified,
         )
-        return None
+        return None, "validation_failed"
 
     name = " ".join(p for p in (best.first_name, best.last_name) if p) or None
     log.info(
@@ -205,13 +220,43 @@ async def upgrade_to_decision_maker(
         domain=domain,
         confidence=best.confidence_score,
     )
-    return DecisionMakerUpgrade(
-        email=best.email.strip().lower(),
-        name=name,
-        role=best.position,
-        confidence="alta",
-        fallback_email=current_email,
+    return (
+        DecisionMakerUpgrade(
+            email=best.email.strip().lower(),
+            name=name,
+            role=best.position,
+            confidence="alta",
+            fallback_email=current_email,
+        ),
+        "ok",
     )
+
+
+async def upgrade_to_decision_maker(
+    *,
+    company_domain: str | None,
+    current_email: str | None,
+    tenant_id: str,
+    client: httpx.AsyncClient | None = None,
+    lead_id: str | None = None,
+    candidate_id: str | None = None,
+) -> DecisionMakerUpgrade | None:
+    """Find a NAMED, validated decision-maker email for ``company_domain``.
+
+    Thin wrapper over :func:`_attempt_upgrade` that drops the diagnostic reason
+    — used by L6 / batch, which only need the upgrade-or-None. Returns ``None``
+    when the current email is already personal, there is no usable business
+    domain, the budget is exhausted, or no validated named person is found.
+    """
+    upgrade, _reason = await _attempt_upgrade(
+        company_domain=company_domain,
+        current_email=current_email,
+        tenant_id=tenant_id,
+        client=client,
+        lead_id=lead_id,
+        candidate_id=candidate_id,
+    )
+    return upgrade
 
 
 async def reenrich_lead_contact(*, tenant_id: str, lead_id: str) -> dict[str, Any]:
@@ -255,14 +300,14 @@ async def reenrich_lead_contact(*, tenant_id: str, lead_id: str) -> dict[str, An
         return {"ok": True, "upgraded": False, "reason": "no_domain"}
     domain = current_email.split("@", 1)[1]
 
-    upgrade = await upgrade_to_decision_maker(
+    upgrade, reason = await _attempt_upgrade(
         company_domain=domain,
         current_email=current_email,
         tenant_id=tenant_id,
         lead_id=lead_id,
     )
     if upgrade is None:
-        return {"ok": True, "upgraded": False, "reason": "no_better_contact"}
+        return {"ok": True, "upgraded": False, "reason": reason}
 
     sb.table("subjects").update(
         {
