@@ -26,6 +26,7 @@ from typing import Any
 
 import httpx
 
+from ..core.config import settings
 from ..core.logging import get_logger
 from ..core.supabase_client import get_service_client
 from .hunter_io_service import HUNTER_COST_PER_CALL_CENTS, domain_search
@@ -33,6 +34,12 @@ from .neverbounce_service import NeverBounceError, verify_email
 from .web_scraper import is_non_business_domain
 
 log = get_logger(__name__)
+
+# Fallback validation bar when NeverBounce is NOT configured: trust Hunter's
+# own bundled verification (included in the Hunter plan). Accept a candidate
+# only if Hunter marked it "valid" OR returns a high deliverability confidence.
+# Role inboxes are already excluded before this gate.
+_MIN_HUNTER_CONFIDENCE = 85
 
 # Local-parts that are a shared ROLE inbox, not a person. A best_email whose
 # local part is one of these (or that has no person-shaped local part) is
@@ -149,12 +156,26 @@ async def upgrade_to_decision_maker(
     if best is None or not best.email:
         return None
 
-    # Validate — fail CLOSED: never promote an unverified personal guess.
-    try:
-        verification = await verify_email(best.email, client=client)
-    except NeverBounceError:
-        return None
-    if not verification.result.sendable or verification.role_address:
+    # Validate the named guess — fail CLOSED: never promote an unverified
+    # personal guess. Prefer NeverBounce when its key is configured (most
+    # authoritative); otherwise fall back to Hunter's own bundled verification
+    # (included in the Hunter plan) gated on an explicit "valid" status OR a
+    # high deliverability confidence.
+    if settings.neverbounce_api_key:
+        try:
+            verification = await verify_email(best.email, client=client)
+        except NeverBounceError:
+            return None
+        if not verification.result.sendable or verification.role_address:
+            return None
+    elif not (best.verified or best.confidence_score >= _MIN_HUNTER_CONFIDENCE):
+        log.info(
+            "premium_finder.hunter_validation_failed",
+            tenant_id=tenant_id,
+            domain=domain,
+            confidence=best.confidence_score,
+            verified=best.verified,
+        )
         return None
 
     name = " ".join(p for p in (best.first_name, best.last_name) if p) or None
