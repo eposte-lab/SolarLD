@@ -360,9 +360,11 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
         # it. A normal SME's info@ is fine. So we stop ONLY chain AND generic.
         # ------------------------------------------------------------------
         _dm_email = subject.get("decision_maker_email")
-        if is_national_chain(
-            business_name=subject.get("business_name"), domain=_dm_email
-        ) and is_generic_localpart(_dm_email):
+        if (
+            not lead.get("chain_exception")
+            and is_national_chain(business_name=subject.get("business_name"), domain=_dm_email)
+            and is_generic_localpart(_dm_email)
+        ):
             return await self._record_skip(
                 payload=payload,
                 lead=lead,
