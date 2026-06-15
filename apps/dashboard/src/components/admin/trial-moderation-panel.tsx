@@ -301,7 +301,9 @@ type DryReport = {
 };
 
 function FindBetterContactsCard({ tenantId }: { tenantId: string }) {
-  const [busy, setBusy] = useState<null | 'dry' | 'send' | 'backlog' | 'report'>(null);
+  const [busy, setBusy] = useState<null | 'dry' | 'send' | 'backlog' | 'report' | 'backfill'>(
+    null,
+  );
   const [result, setResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<PremiumStatus | null>(null);
@@ -340,6 +342,62 @@ function FindBetterContactsCard({ tenantId }: { tenantId: string }) {
         }
       }
       setError('Timeout in attesa del report (riprova a leggere tra poco).');
+    } catch (e) {
+      setError(errMessage(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function runBackfill() {
+    if (busy) return;
+    if (
+      !window.confirm(
+        "Avviare l'arricchimento REALE dei lead da inviare? Scrive il contatto premium dove lo trova (cambia il destinatario) e spende crediti Hunter/NeverBounce.",
+      )
+    ) {
+      return;
+    }
+    setBusy('backfill');
+    setResult(null);
+    setError(null);
+    try {
+      const trig = await api.post<{ job_id?: string }>(
+        `/v1/admin/trial/contact-waterfall-backfill?tenant_id=${encodeURIComponent(tenantId)}&target=ready_to_send&limit=200`,
+        {},
+      );
+      const jobId = trig.job_id;
+      if (!jobId) {
+        setError('Job non avviato.');
+        return;
+      }
+      setResult('Backfill avviato (~1-3 min, spende crediti). Attendo l’esito…');
+      for (let i = 0; i < 60; i++) {
+        await new Promise((r) => setTimeout(r, 5000));
+        const r = await api.get<{
+          status: string;
+          report?: {
+            processed?: number;
+            qualified_done?: number;
+            phone_queue?: number;
+            hunter_credits_spent?: number;
+          } | null;
+        }>(`/v1/admin/trial/contact-waterfall-dryrun/result?job_id=${encodeURIComponent(jobId)}`);
+        if (r.status === 'done' && r.report) {
+          const rep = r.report;
+          setResult(
+            `Backfill completato: ${rep.qualified_done ?? 0} qualificati su ${rep.processed ?? 0} · ` +
+              `${rep.phone_queue ?? 0} da chiamare · ${rep.hunter_credits_spent ?? 0} crediti.`,
+          );
+          void loadStatus();
+          return;
+        }
+        if (r.status === 'error') {
+          setError('Backfill fallito sul worker.');
+          return;
+        }
+      }
+      setError('Timeout in attesa dell’esito backfill.');
     } catch (e) {
       setError(errMessage(e));
     } finally {
@@ -456,6 +514,19 @@ function FindBetterContactsCard({ tenantId }: { tenantId: string }) {
               <Users size={14} strokeWidth={2.25} aria-hidden />
             )}
             Report efficienza (dry-run)
+          </button>
+          <button
+            type="button"
+            onClick={() => void runBackfill()}
+            disabled={busy !== null}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-outline-variant px-4 py-2 text-sm font-semibold text-on-surface transition-colors hover:border-primary disabled:opacity-50"
+          >
+            {busy === 'backfill' ? (
+              <Loader2 size={14} strokeWidth={2.25} aria-hidden className="animate-spin" />
+            ) : (
+              <Users size={14} strokeWidth={2.25} aria-hidden />
+            )}
+            Arricchisci ora (reale)
           </button>
           <button
             type="button"

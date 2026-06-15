@@ -100,6 +100,14 @@ export function ModuleOutreach({ value, onChange }: ModuleOutreachProps) {
             onChange({ ...value, premium_contact_apply_to_send: v })
           }
         />
+        <Toggle
+          label="Invia SOLO con un contatto qualificato (modalità qualità)"
+          hint="Se attivo, l'email parte solo verso un decisore o una casella di ruolo verificata (mai info@). I lead senza un contatto qualificato non vengono inviati: finiscono in coda 'da chiamare'. Richiede l'opzione qui sopra attiva."
+          value={value.premium_contact_required_to_send ?? false}
+          onChange={(v) =>
+            onChange({ ...value, premium_contact_required_to_send: v })
+          }
+        />
       </FieldCard>
 
       {/* Sprint 9: quick link to email template & cluster A/B management */}

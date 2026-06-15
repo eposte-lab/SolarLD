@@ -1582,6 +1582,50 @@ async def trial_contact_waterfall_dryrun(
     }
 
 
+@router.post("/trial/contact-waterfall-backfill", status_code=status.HTTP_202_ACCEPTED)
+async def trial_contact_waterfall_backfill(
+    ctx: CurrentUser,
+    tenant_id: str = Query(description="Tenant whose backlog to enrich"),
+    target: str = Query(
+        "ready_to_send",
+        pattern="^(ready_to_send|sent)$",
+        description="Which backlog to enrich. 'ready_to_send' (default) so the not-"
+        "yet-sent leads get a premium contact before the gated daily send.",
+    ),
+    limit: int = Query(200, ge=1, le=1000, description="Max leads to enrich"),
+) -> dict[str, Any]:
+    """REAL waterfall enrichment over the backlog: resolves + WRITES the premium
+    contact (subjects mirror + contact_outcome) so the qualified-contact send gate
+    has a contact to send to. Spends real Hunter/NeverBounce credits. Super-admin
+    only; enqueues a worker job (the worker holds the keys). Read the result via
+    ``/trial/contact-waterfall-dryrun/result?job_id=`` (same job-result store) or
+    the worker log ``contact_waterfall.backfill_report``.
+    """
+    _require_super_admin(ctx)
+    job = await enqueue(
+        "contact_waterfall_backfill_task",
+        {"tenant_id": tenant_id, "target": target, "limit": limit, "actor": ctx.user_id},
+        job_id=f"waterfall_backfill:{tenant_id}:{int(datetime.now(tz=UTC).timestamp())}",
+    )
+    log.info(
+        "admin.contact_waterfall_backfill.scheduled",
+        tenant_id=tenant_id,
+        target=target,
+        limit=limit,
+        super_admin=ctx.user_id,
+    )
+    return {
+        "ok": True,
+        "status": "scheduled",
+        "message": (
+            f"Backfill REALE avviato su '{target}' (max {limit}). Scrive il contatto "
+            "premium dove lo trova. Leggi il report nei log del worker "
+            "('contact_waterfall.backfill_report')."
+        ),
+        **job,
+    }
+
+
 @router.get("/trial/contact-waterfall-dryrun/result")
 async def trial_contact_waterfall_dryrun_result(
     ctx: CurrentUser,
