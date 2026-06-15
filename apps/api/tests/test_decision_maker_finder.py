@@ -173,6 +173,11 @@ async def test_attempt_upgrade_accepts_targeted_alias(monkeypatch):
 
     monkeypatch.setattr(dmf, "domain_search", _ds)
 
+    async def _vh(email, *, client=None):
+        return True, "valid"
+
+    monkeypatch.setattr(dmf, "verify_email_hunter", _vh)
+
     out, reason = await dmf._attempt_upgrade(
         company_domain="azienda.it", current_email="info@azienda.it", tenant_id="t"
     )
@@ -197,6 +202,11 @@ async def test_attempt_upgrade_prefers_named_over_alias(monkeypatch):
         ]
 
     monkeypatch.setattr(dmf, "domain_search", _ds)
+
+    async def _vh(email, *, client=None):
+        return True, "valid"
+
+    monkeypatch.setattr(dmf, "verify_email_hunter", _vh)
 
     out, reason = await dmf._attempt_upgrade(
         company_domain="azienda.it", current_email="info@azienda.it", tenant_id="t"
@@ -274,14 +284,13 @@ async def test_neverbounce_invalid_not_promoted(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_hunter_fallback_upgrades_without_neverbounce(monkeypatch):
-    # No NeverBounce key → fall back to Hunter's own verification. A
-    # high-confidence (or Hunter-"valid") named result is promoted, and
-    # NeverBounce is never called.
+    # No NeverBounce key → validate with Hunter's own email-verifier. A
+    # deliverable result is promoted; NeverBounce is never called.
     monkeypatch.setattr(dmf.settings, "neverbounce_api_key", "")
     monkeypatch.setattr(dmf, "get_service_client", lambda: _FakeSb(budget_ok=True))
 
     async def _ds(domain, *, client=None, **_k):
-        return [_hunter("mario.rossi@azienda.it", verified=False, conf=90)]
+        return [_hunter("mario.rossi@azienda.it", verified=False, conf=60)]
 
     monkeypatch.setattr(dmf, "domain_search", _ds)
 
@@ -289,6 +298,11 @@ async def test_hunter_fallback_upgrades_without_neverbounce(monkeypatch):
         raise AssertionError("NeverBounce must not be called when its key is unset")
 
     monkeypatch.setattr(dmf, "verify_email", _verify)
+
+    async def _vh(email, *, client=None):
+        return True, "valid"
+
+    monkeypatch.setattr(dmf, "verify_email_hunter", _vh)
 
     out = await dmf.upgrade_to_decision_maker(
         company_domain="azienda.it", current_email="info@azienda.it", tenant_id="t"
@@ -298,16 +312,21 @@ async def test_hunter_fallback_upgrades_without_neverbounce(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_hunter_fallback_weak_signal_not_promoted(monkeypatch):
-    # No NeverBounce key, Hunter neither "valid" nor high-confidence → skip
-    # (fail closed). Keeps the website email.
+async def test_hunter_fallback_undeliverable_not_promoted(monkeypatch):
+    # No NeverBounce key, Hunter verifier says undeliverable → skip (fail closed),
+    # even on a high-confidence domain-search result. Keeps the website email.
     monkeypatch.setattr(dmf.settings, "neverbounce_api_key", "")
     monkeypatch.setattr(dmf, "get_service_client", lambda: _FakeSb(budget_ok=True))
 
     async def _ds(domain, *, client=None, **_k):
-        return [_hunter("mario.rossi@azienda.it", verified=False, conf=40)]
+        return [_hunter("mario.rossi@azienda.it", verified=False, conf=90)]
 
     monkeypatch.setattr(dmf, "domain_search", _ds)
+
+    async def _vh(email, *, client=None):
+        return False, "invalid"
+
+    monkeypatch.setattr(dmf, "verify_email_hunter", _vh)
 
     out = await dmf.upgrade_to_decision_maker(
         company_domain="azienda.it", current_email="info@azienda.it", tenant_id="t"

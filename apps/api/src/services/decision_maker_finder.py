@@ -33,7 +33,7 @@ from ..core.logging import get_logger
 from ..core.queue import enqueue
 from ..core.supabase_client import get_service_client
 from .audit_service import log_action
-from .hunter_io_service import domain_search
+from .hunter_io_service import domain_search, verify_email_hunter
 from .neverbounce_service import NeverBounceError, verify_email
 from .web_scraper import is_non_business_domain
 
@@ -235,15 +235,27 @@ async def _attempt_upgrade(
             return None, "validation_failed"
         if not verification.result.sendable or verification.role_address:
             return None, "validation_failed"
-    elif not (best.verified or best.confidence_score >= _MIN_HUNTER_CONFIDENCE):
-        log.info(
-            "premium_finder.hunter_validation_failed",
-            tenant_id=tenant_id,
-            domain=domain,
-            confidence=best.confidence_score,
-            verified=best.verified,
-        )
-        return None, "validation_failed"
+    else:
+        # No NeverBounce → use Hunter's own email-verifier (included in the plan)
+        # as the last-layer deliverability check, instead of a confidence
+        # heuristic that rejected real moderate-confidence emails. Fall back to
+        # the domain-search signal ONLY if the verifier call itself errors, so a
+        # transient hiccup doesn't drop a good candidate.
+        try:
+            deliverable, vstatus = await verify_email_hunter(best.email, client=client)
+        except Exception as exc:  # noqa: BLE001 — verifier hiccup → soft fallback
+            log.warning("premium_finder.verify_failed", err=type(exc).__name__)
+            deliverable = best.verified or best.confidence_score >= _MIN_HUNTER_CONFIDENCE
+            vstatus = "verifier_error"
+        if not deliverable:
+            log.info(
+                "premium_finder.hunter_validation_failed",
+                tenant_id=tenant_id,
+                domain=domain,
+                status=vstatus,
+                confidence=best.confidence_score,
+            )
+            return None, "validation_failed"
 
     name = " ".join(p for p in (best.first_name, best.last_name) if p) or None
     log.info(
