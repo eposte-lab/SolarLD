@@ -229,6 +229,59 @@
   100% { transform: scale(2.5); opacity: 0; }
 }
 
+/* ── Premium contact field — a luminous line travelling the perimeter ──── */
+/* Used by PremiumEmailField to mark a decision-maker email obtained via the
+   premium contact-research process (not a generic info@ inbox). */
+@property --premium-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+@keyframes premium-rotate {
+  to { --premium-angle: 360deg; }
+}
+@keyframes premium-pulse {
+  0%, 100% { box-shadow: 0 0 0 1px hsl(142 71% 45% / 0.22), 0 0 10px hsl(142 71% 50% / 0.15); }
+  50%      { box-shadow: 0 0 0 1px hsl(142 71% 45% / 0.42), 0 0 18px hsl(142 71% 55% / 0.30); }
+}
+.premium-glow {
+  position: relative;
+  border-radius: 0.625rem;
+  isolation: isolate;
+  animation: premium-pulse 3.2s ease-in-out infinite;
+}
+.premium-glow::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1.5px; /* ring thickness */
+  background: conic-gradient(
+    from var(--premium-angle),
+    transparent 0deg,
+    hsl(142 71% 55% / 0.04) 70deg,
+    hsl(142 80% 62%) 112deg,
+    #e0fff0 130deg,
+    hsl(142 80% 62%) 148deg,
+    hsl(142 71% 55% / 0.04) 190deg,
+    transparent 360deg
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+          mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+          mask-composite: exclude;
+  animation: premium-rotate 4s linear infinite;
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .premium-glow { animation: none; box-shadow: 0 0 0 1px hsl(142 71% 45% / 0.4); }
+  .premium-glow::before { animation: none; }
+}
+
 /* ── Mapbox GL popup override — Liquid Glass dark theme ──────────────── */
 .geo-popup .mapboxgl-popup-content {
   background: rgba(16, 22, 26, 0.85);

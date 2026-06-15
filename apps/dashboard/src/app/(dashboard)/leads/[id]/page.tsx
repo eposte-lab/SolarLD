@@ -67,6 +67,10 @@ import {
 
 import { LeadFeedbackPicker } from './LeadFeedbackPicker';
 import { RegenerateRenderingButton } from './RegenerateRenderingButton';
+import {
+  PremiumEmailField,
+  isPremiumSource,
+} from '@/components/premium-email-field';
 import { FindBetterContactButton } from './FindBetterContactButton';
 import { ResendToAddressForm } from './ResendToAddressForm';
 import { SendOutreachButton } from './SendOutreachButton';
@@ -308,6 +312,11 @@ export default async function LeadDetailPage({ params }: PageProps) {
     lead.subjects?.business_name ?? v3Signal?.display_name ?? null;
   const dispEmail =
     lead.subjects?.decision_maker_email ?? v3Signal?.best_email ?? null;
+  // Premium: the decision-maker email came from the premium contact-research
+  // process (not a generic info@). Drives the luminous email treatment below.
+  const isPremiumContact =
+    isPremiumSource(lead.subjects?.decision_maker_email_source) &&
+    dispEmail === lead.subjects?.decision_maker_email;
   const dispPhone =
     lead.subjects?.decision_maker_phone ?? v3Signal?.best_phone ?? null;
   // ATECO: subjects has both code + description; v3 only has codes
@@ -840,12 +849,7 @@ export default async function LeadDetailPage({ params }: PageProps) {
             label="Email"
             value={
               dispEmail ? (
-                <a
-                  href={`mailto:${dispEmail}`}
-                  className="hover:underline focus:underline focus:outline-none"
-                >
-                  {dispEmail}
-                </a>
+                <PremiumEmailField email={dispEmail} premium={isPremiumContact} />
               ) : (
                 '—'
               )
