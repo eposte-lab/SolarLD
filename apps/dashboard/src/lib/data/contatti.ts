@@ -31,6 +31,7 @@ export {
   displayPhone,
   displayProvince,
   displayWebsite,
+  isPremiumContact,
   type ContactExtraction,
   type ContattoRow,
   type PlacesEnrichment,
@@ -170,12 +171,18 @@ export async function listContatti(opts: {
     ...new Set(rows.map((r) => r.roof_id).filter((v): v is string => typeof v === 'string')),
   ];
   const candToLead = new Map<string, string>();
+  // Candidates whose promoted lead carries a premium-finder decision-maker
+  // email → drives the vendor-neutral "verified" badge in the table.
+  const premiumCandIds = new Set<string>();
   if (roofIds.length > 0) {
     const { data: leadRows } = await sb
       .from('leads')
-      .select('id, pipeline_status, subjects(raw_data)')
+      .select('id, pipeline_status, subjects(raw_data, decision_maker_email_source)')
       .in('roof_id', roofIds);
-    type SubjectJoin = { raw_data: Record<string, unknown> | null };
+    type SubjectJoin = {
+      raw_data: Record<string, unknown> | null;
+      decision_maker_email_source: string | null;
+    };
     type LeadJoin = {
       id: string;
       pipeline_status: string | null;
@@ -191,11 +198,21 @@ export async function listContatti(opts: {
       // generated types widen it to an array — handle both.
       const subj = Array.isArray(l.subjects) ? l.subjects[0] : l.subjects;
       const candId = subj?.raw_data?.['scan_candidate_id'];
-      if (typeof candId === 'string') candToLead.set(candId, l.id);
+      if (typeof candId === 'string') {
+        candToLead.set(candId, l.id);
+        if (subj?.decision_maker_email_source === 'premium_finder') {
+          premiumCandIds.add(candId);
+        }
+      }
     }
   }
   for (const r of rows) {
-    (r as ContattoRow & { lead_id?: string | null }).lead_id = candToLead.get(r.id) ?? null;
+    const row = r as ContattoRow & {
+      lead_id?: string | null;
+      premium_contact?: boolean | null;
+    };
+    row.lead_id = candToLead.get(r.id) ?? null;
+    row.premium_contact = premiumCandIds.has(r.id);
   }
 
   if (includeUnpromoted) {

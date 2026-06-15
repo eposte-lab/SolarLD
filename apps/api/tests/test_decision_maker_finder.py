@@ -30,10 +30,19 @@ class _FakeSb:
 
     def __init__(self, budget_ok: bool = True) -> None:
         self._budget_ok = budget_ok
+        self.rpc_called = False
 
     def rpc(self, name: str, params: dict):  # noqa: ANN201 - test stub
         assert name == "reserve_premium_budget"
+        self.rpc_called = True
         return _FakeRpc(self._budget_ok)
+
+
+@pytest.fixture(autouse=True)
+def _hunter_key_present(monkeypatch):
+    """Default: a Hunter key IS configured, so the finder reaches the lookup.
+    Tests that exercise the no-key path override this in-body."""
+    monkeypatch.setattr(dmf.settings, "hunter_api_key", "hunter-test-key")
 
 
 def _hunter(
@@ -43,6 +52,7 @@ def _hunter(
     last: str | None = "Rossi",
     pos: str | None = "Amministratore",
     conf: int = 92,
+    verified: bool = True,
 ) -> HunterEmailResult:
     return HunterEmailResult(
         email=email,
@@ -52,7 +62,7 @@ def _hunter(
         linkedin_url=None,
         confidence_score=conf,
         sources_count=3,
-        verified=True,
+        verified=verified,
         raw={},
     )
 
@@ -87,7 +97,33 @@ async def test_already_personal_email_skips_lookup(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_no_hunter_key_skips_without_budget_charge(monkeypatch):
+    # No Hunter key → no-op that NEVER reserves budget or calls Hunter, so the
+    # spend/lookups counters stay clean until the key is configured.
+    monkeypatch.setattr(dmf.settings, "hunter_api_key", "")
+    sb = _FakeSb(budget_ok=True)
+    monkeypatch.setattr(dmf, "get_service_client", lambda: sb)
+
+    called = {"hunter": False}
+
+    async def _ds(*_a, **_k):
+        called["hunter"] = True
+        return []
+
+    monkeypatch.setattr(dmf, "domain_search", _ds)
+
+    out = await dmf.upgrade_to_decision_maker(
+        company_domain="azienda.it", current_email="info@azienda.it", tenant_id="t"
+    )
+    assert out is None
+    assert called["hunter"] is False
+    assert sb.rpc_called is False  # budget counter untouched
+
+
+@pytest.mark.asyncio
 async def test_weak_email_upgraded(monkeypatch):
+    # NeverBounce configured → the authoritative-validation path.
+    monkeypatch.setattr(dmf.settings, "neverbounce_api_key", "nb-test-key")
     monkeypatch.setattr(dmf, "get_service_client", lambda: _FakeSb(budget_ok=True))
 
     async def _ds(domain, *, client=None):
@@ -130,6 +166,7 @@ async def test_budget_exhausted_skips_without_calling_hunter(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_neverbounce_invalid_not_promoted(monkeypatch):
+    monkeypatch.setattr(dmf.settings, "neverbounce_api_key", "nb-test-key")
     monkeypatch.setattr(dmf, "get_service_client", lambda: _FakeSb(budget_ok=True))
 
     async def _ds(domain, *, client=None):
@@ -146,6 +183,197 @@ async def test_neverbounce_invalid_not_promoted(monkeypatch):
         company_domain="azienda.it", current_email="info@azienda.it", tenant_id="t"
     )
     assert out is None
+
+
+@pytest.mark.asyncio
+async def test_hunter_fallback_upgrades_without_neverbounce(monkeypatch):
+    # No NeverBounce key → fall back to Hunter's own verification. A
+    # high-confidence (or Hunter-"valid") named result is promoted, and
+    # NeverBounce is never called.
+    monkeypatch.setattr(dmf.settings, "neverbounce_api_key", "")
+    monkeypatch.setattr(dmf, "get_service_client", lambda: _FakeSb(budget_ok=True))
+
+    async def _ds(domain, *, client=None):
+        return [_hunter("mario.rossi@azienda.it", verified=False, conf=90)]
+
+    monkeypatch.setattr(dmf, "domain_search", _ds)
+
+    async def _verify(email, *, client=None):
+        raise AssertionError("NeverBounce must not be called when its key is unset")
+
+    monkeypatch.setattr(dmf, "verify_email", _verify)
+
+    out = await dmf.upgrade_to_decision_maker(
+        company_domain="azienda.it", current_email="info@azienda.it", tenant_id="t"
+    )
+    assert out is not None
+    assert out.email == "mario.rossi@azienda.it"
+
+
+@pytest.mark.asyncio
+async def test_hunter_fallback_weak_signal_not_promoted(monkeypatch):
+    # No NeverBounce key, Hunter neither "valid" nor high-confidence → skip
+    # (fail closed). Keeps the website email.
+    monkeypatch.setattr(dmf.settings, "neverbounce_api_key", "")
+    monkeypatch.setattr(dmf, "get_service_client", lambda: _FakeSb(budget_ok=True))
+
+    async def _ds(domain, *, client=None):
+        return [_hunter("mario.rossi@azienda.it", verified=False, conf=40)]
+
+    monkeypatch.setattr(dmf, "domain_search", _ds)
+
+    out = await dmf.upgrade_to_decision_maker(
+        company_domain="azienda.it", current_email="info@azienda.it", tenant_id="t"
+    )
+    assert out is None
+
+
+# ---------------------------------------------------------------------------
+# §D — batch_reenrich_and_resend: eligibility/exclusions + dry-run safety
+# ---------------------------------------------------------------------------
+
+
+class _FakeResult:
+    def __init__(self, data: list) -> None:
+        self.data = data
+
+
+class _FakeNot:
+    """Stub for PostgREST's ``.not_`` negation proxy."""
+
+    def __init__(self, q) -> None:  # noqa: ANN001 - test stub (forward ref to _FakeQuery)
+        self._q = q
+
+    def is_(self, *_a, **_k):  # noqa: ANN001, ANN201 - test stub
+        return self._q
+
+    def in_(self, *_a, **_k):  # noqa: ANN001, ANN201 - test stub
+        return self._q
+
+
+class _FakeQuery:
+    """Filter methods are no-ops; ``execute`` returns the table's preset rows.
+    Python-side exclusions (audit_log + outreach_sends) are what we assert."""
+
+    def __init__(self, data: list) -> None:
+        self._data = data
+
+    def select(self, *_a, **_k):  # noqa: ANN001, ANN201 - test stub
+        return self
+
+    def update(self, *_a, **_k):  # noqa: ANN001, ANN201 - test stub
+        return self
+
+    def eq(self, *_a, **_k):  # noqa: ANN001, ANN201 - test stub
+        return self
+
+    def is_(self, *_a, **_k):  # noqa: ANN001, ANN201 - test stub
+        return self
+
+    def in_(self, *_a, **_k):  # noqa: ANN001, ANN201 - test stub
+        return self
+
+    def gte(self, *_a, **_k):  # noqa: ANN001, ANN201 - test stub
+        return self
+
+    def order(self, *_a, **_k):  # noqa: ANN001, ANN201 - test stub
+        return self
+
+    def limit(self, *_a, **_k):  # noqa: ANN001, ANN201 - test stub
+        return self
+
+    @property
+    def not_(self) -> _FakeNot:
+        return _FakeNot(self)
+
+    def execute(self) -> _FakeResult:
+        return _FakeResult(self._data)
+
+
+class _FakeBatchSb:
+    def __init__(self, *, leads=None, audit=None, outreach_sends=None) -> None:
+        self._by_table = {
+            "leads": leads or [],
+            "audit_log": audit or [],
+            "outreach_sends": outreach_sends or [],
+            "subjects": [],
+        }
+
+    def table(self, name: str) -> _FakeQuery:
+        return _FakeQuery(self._by_table.get(name, []))
+
+
+def _wire_batch(monkeypatch, sb, *, upgraded: set[str]):
+    """Patch reenrich/enqueue/log_action; return (reenriched, enqueued) sinks."""
+    reenriched: list[str] = []
+    enqueued: list[dict] = []
+
+    async def _reenrich(*, tenant_id: str, lead_id: str):
+        reenriched.append(lead_id)
+        return {"ok": True, "upgraded": lead_id in upgraded}
+
+    async def _enqueue(function: str, payload: dict, *, job_id=None, defer_until=None):
+        enqueued.append({"function": function, "payload": payload, "job_id": job_id})
+        return {"job_id": job_id, "status": "queued"}
+
+    async def _log(*_a, **_k):
+        return None
+
+    monkeypatch.setattr(dmf, "get_service_client", lambda: sb)
+    monkeypatch.setattr(dmf, "reenrich_lead_contact", _reenrich)
+    monkeypatch.setattr(dmf, "enqueue", _enqueue)
+    monkeypatch.setattr(dmf, "log_action", _log)
+    return reenriched, enqueued
+
+
+@pytest.mark.asyncio
+async def test_batch_dry_run_never_sends(monkeypatch):
+    sb = _FakeBatchSb(leads=[{"id": "L1"}, {"id": "L2"}])
+    reenriched, enqueued = _wire_batch(monkeypatch, sb, upgraded={"L1", "L2"})
+
+    out = await dmf.batch_reenrich_and_resend(tenant_id="t", dry_run=True)
+
+    assert sorted(reenriched) == ["L1", "L2"]
+    assert enqueued == []  # dry-run: nothing sent
+    assert out["upgraded"] == 2
+    assert out["resends_queued"] == 0
+    assert out["dry_run"] is True
+
+
+@pytest.mark.asyncio
+async def test_batch_excludes_alt_address_and_followups(monkeypatch):
+    # L1 was resent to an alternate address (Hilton/Sigma); L2 already got a
+    # cron follow-up (sequence_step>=2); only L3 is eligible.
+    sb = _FakeBatchSb(
+        leads=[{"id": "L1"}, {"id": "L2"}, {"id": "L3"}],
+        audit=[{"target_id": "L1"}],
+        outreach_sends=[{"lead_id": "L2", "sequence_step": 2}],
+    )
+    reenriched, enqueued = _wire_batch(monkeypatch, sb, upgraded={"L3"})
+
+    out = await dmf.batch_reenrich_and_resend(tenant_id="t", dry_run=True)
+
+    assert reenriched == ["L3"]
+    assert out["eligible"] == 1
+    assert out["upgraded"] == 1
+
+
+@pytest.mark.asyncio
+async def test_batch_send_mode_enqueues_official_resend(monkeypatch):
+    sb = _FakeBatchSb(leads=[{"id": "L1"}, {"id": "L2"}])
+    # Only L1 yields a better contact → only L1 is re-sent.
+    reenriched, enqueued = _wire_batch(monkeypatch, sb, upgraded={"L1"})
+
+    out = await dmf.batch_reenrich_and_resend(tenant_id="t", dry_run=False)
+
+    assert sorted(reenriched) == ["L1", "L2"]
+    assert len(enqueued) == 1
+    job = enqueued[0]
+    assert job["function"] == "outreach_task"
+    assert job["payload"]["lead_id"] == "L1"
+    assert job["payload"]["force"] is True
+    assert job["payload"]["sequence_step"] == 1  # official copy, not a follow-up
+    assert out["resends_queued"] == 1
 
 
 @pytest.mark.asyncio

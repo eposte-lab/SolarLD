@@ -13,7 +13,7 @@
  */
 
 import Link from 'next/link';
-import { ArrowUpRight } from 'lucide-react';
+import { ArrowUpRight, BadgeCheck } from 'lucide-react';
 
 import { SortableTh } from '@/components/ui/sortable-th';
 import { useSortableData } from '@/hooks/use-sortable-data';
@@ -26,6 +26,7 @@ import {
   displayOverallScore,
   displayPhone,
   displayProvince,
+  isPremiumContact,
   type ContattoRow,
 } from '@/lib/contatti-display';
 
@@ -200,12 +201,23 @@ export function ContattiTable({ rows }: { rows: ContattoRow[] }) {
                     debug view if needed. */}
                 <td className="px-5 py-4 text-xs">
                   {email ? (
-                    <a
-                      href={`mailto:${email}`}
-                      className="text-primary hover:underline"
-                    >
-                      {email}
-                    </a>
+                    <span className="inline-flex items-center gap-1">
+                      <a
+                        href={`mailto:${email}`}
+                        className="text-primary hover:underline"
+                      >
+                        {email}
+                      </a>
+                      {isPremiumContact(c) ? (
+                        <span
+                          className="inline-flex items-center gap-0.5 rounded-full bg-primary-container px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-on-primary-container"
+                          title="Contatto verificato — email del referente di grado più alto, validata"
+                        >
+                          <BadgeCheck size={10} strokeWidth={2.5} aria-hidden />
+                          Verificato
+                        </span>
+                      ) : null}
+                    </span>
                   ) : null}
                   {phone ? (
                     <a

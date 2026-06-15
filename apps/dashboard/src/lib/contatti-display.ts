@@ -71,6 +71,12 @@ export interface ContattoRow {
   /** Resolved by `listContatti` via roof_id → leads join. NULL when
    *  the candidate hasn't been promoted to a lead yet. */
   lead_id?: string | null;
+  /** True when the promoted lead's decision-maker email was upgraded by the
+   *  premium finder (subjects.decision_maker_email_source='premium_finder').
+   *  Resolved by `listContatti` in the same candidate→lead join; drives the
+   *  "verified" badge. NULL/false on website-scraped or unpromoted rows.
+   *  Vendor-neutral by design — no provider name reaches the UI. */
+  premium_contact?: boolean | null;
   created_at: string;
   // v3 enrichment (NULL on legacy v2 rows)
   predicted_sector: string | null;
@@ -207,6 +213,12 @@ export function displayPhone(c: ContattoRow): string | null {
 
 export function displayOverallScore(c: ContattoRow): number | null {
   return c.proxy_score_data?.overall_score ?? c.score ?? null;
+}
+
+/** Whether this contact's email is a premium-finder decision-maker upgrade —
+ *  drives the vendor-neutral "verified" badge in the contatti/invii lists. */
+export function isPremiumContact(c: ContattoRow): boolean {
+  return c.premium_contact === true;
 }
 
 export function displayWebsite(c: ContattoRow): string | null {

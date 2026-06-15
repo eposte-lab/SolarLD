@@ -945,6 +945,44 @@ async def resend_outreach_to_address(
     return {"ok": True, "lead_id": lead_id, "recipient_override": override, **job}
 
 
+@router.post("/{lead_id}/find-better-contact", status_code=202)
+async def find_better_contact(
+    ctx: CurrentUser,
+    lead_id: str,
+) -> dict[str, object]:
+    """Re-enrich this lead's contact with the premium decision-maker finder.
+
+    Fire-and-forget: enqueues a background job that looks up a named
+    decision-maker email for the company domain (within the capped budget),
+    validates it, and updates the lead's contact in place. The operator then
+    resends with the standard / resend-to-address flow. Returns 202 + writes an
+    audit row; the actual work runs on the worker.
+    """
+    tenant_id = require_tenant(ctx)
+    sb = get_service_client()
+    lead_q = sb.table("leads").select("id").eq("id", lead_id).eq("tenant_id", tenant_id).limit(1)
+    lead_q = apply_released_filter(lead_q, sb, tenant_id)
+    if not lead_q.execute().data:
+        raise HTTPException(status_code=404, detail="Lead non trovato.")
+
+    await audit_log(
+        tenant_id,
+        "lead.find_better_contact_requested",
+        actor_user_id=ctx.sub,
+        target_table="leads",
+        target_id=lead_id,
+    )
+
+    ts = int(datetime.now(tz=UTC).timestamp())
+    job = await enqueue(
+        "find_better_contact_task",
+        {"tenant_id": tenant_id, "lead_id": lead_id},
+        job_id=f"find_contact:{tenant_id}:{lead_id}:{ts}",
+    )
+    log.info("leads.find_better_contact.queued", tenant_id=tenant_id, lead_id=lead_id)
+    return {"ok": True, "lead_id": lead_id, "status": "scheduled", **job}
+
+
 # ---------------------------------------------------------------------------
 # Follow-up drafter — Part B.9
 # ---------------------------------------------------------------------------
