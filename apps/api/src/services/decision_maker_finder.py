@@ -22,6 +22,7 @@ Design rules:
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 import httpx
 
@@ -172,3 +173,66 @@ async def upgrade_to_decision_maker(
         confidence="alta",
         fallback_email=current_email,
     )
+
+
+async def reenrich_lead_contact(*, tenant_id: str, lead_id: str) -> dict[str, Any]:
+    """On-demand / batch re-enrichment of ONE existing lead's contact.
+
+    Derives the company domain from the subject's current email, runs the
+    premium finder, and (on success) updates the subject's decision-maker
+    email/name/role in place — marking it verified and provenance
+    ``premium_finder``. Idempotent: a subject already on ``premium_finder`` is
+    skipped (no spend). Returns a small status dict for the caller/log.
+    """
+    sb = get_service_client()
+    lead = (
+        sb.table("leads")
+        .select("id, subject_id")
+        .eq("id", lead_id)
+        .eq("tenant_id", tenant_id)
+        .limit(1)
+        .maybe_single()
+        .execute()
+    )
+    if not lead or not lead.data:
+        return {"ok": False, "reason": "lead_not_found"}
+    subject_id = lead.data.get("subject_id")
+    subj = (
+        sb.table("subjects")
+        .select("id, decision_maker_email, decision_maker_email_source")
+        .eq("id", subject_id)
+        .limit(1)
+        .maybe_single()
+        .execute()
+    )
+    if not subj or not subj.data:
+        return {"ok": False, "reason": "subject_not_found"}
+
+    if subj.data.get("decision_maker_email_source") == "premium_finder":
+        return {"ok": True, "upgraded": False, "reason": "already_premium"}
+
+    current_email = (subj.data.get("decision_maker_email") or "").strip().lower()
+    if "@" not in current_email:
+        return {"ok": True, "upgraded": False, "reason": "no_domain"}
+    domain = current_email.split("@", 1)[1]
+
+    upgrade = await upgrade_to_decision_maker(
+        company_domain=domain,
+        current_email=current_email,
+        tenant_id=tenant_id,
+        lead_id=lead_id,
+    )
+    if upgrade is None:
+        return {"ok": True, "upgraded": False, "reason": "no_better_contact"}
+
+    sb.table("subjects").update(
+        {
+            "decision_maker_email": upgrade.email,
+            "decision_maker_name": upgrade.name,
+            "decision_maker_role": upgrade.role,
+            "decision_maker_email_source": "premium_finder",
+            "decision_maker_email_fallback": upgrade.fallback_email,
+            "decision_maker_email_verified": True,
+        }
+    ).eq("id", subject_id).execute()
+    return {"ok": True, "upgraded": True}

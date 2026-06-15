@@ -118,6 +118,14 @@ async def launch_outreach_for_list_task(
     }
 
 
+async def find_better_contact_task(_ctx: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
+    """ARQ task: re-enrich ONE lead's contact with the premium decision-maker
+    finder. Triggered by `POST /v1/leads/{id}/find-better-contact`."""
+    from ..services.decision_maker_finder import reenrich_lead_contact
+
+    return await reenrich_lead_contact(tenant_id=payload["tenant_id"], lead_id=payload["lead_id"])
+
+
 async def tracking_task(_ctx: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
     out = await TrackingAgent().run(TrackingInput(**payload))
     return out.model_dump()
@@ -629,6 +637,7 @@ class WorkerSettings:
         hunter_funnel_v3_task,
         validate_prospect_list_task,
         launch_outreach_for_list_task,
+        find_better_contact_task,
     ]
     # Scheduled jobs (UTC):
     #   :00 every hour   → deliverability_hourly_cron   (bounce/complaint spike check)

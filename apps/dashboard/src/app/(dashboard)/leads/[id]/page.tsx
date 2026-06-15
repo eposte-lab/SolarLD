@@ -67,6 +67,7 @@ import {
 
 import { LeadFeedbackPicker } from './LeadFeedbackPicker';
 import { RegenerateRenderingButton } from './RegenerateRenderingButton';
+import { FindBetterContactButton } from './FindBetterContactButton';
 import { ResendToAddressForm } from './ResendToAddressForm';
 import { SendOutreachButton } from './SendOutreachButton';
 import { SendTestOutreachForm } from './SendTestOutreachForm';
@@ -505,6 +506,16 @@ export default async function LeadDetailPage({ params }: PageProps) {
           tenants use the test form above instead. */}
       {!isBlacklisted && !ctx.tenant.outreach_blocked && (
         <ResendToAddressForm leadId={lead.id} />
+      )}
+
+      {/* Production: operator-triggered premium contact re-enrichment — looks up
+          a named decision-maker email for the company domain (capped budget),
+          validates it, and updates the lead in place (POST
+          /leads/{id}/find-better-contact). Vendor-neutral. */}
+      {!isBlacklisted && !ctx.tenant.outreach_blocked && (
+        <div className="mt-1">
+          <FindBetterContactButton leadId={lead.id} />
+        </div>
       )}
 
       {/* ─── Hero: video simulazione (Solar) — oppure info campagna custom ──
