@@ -12,6 +12,8 @@ import pytest
 
 from src.services import contact_waterfall as cw
 from src.services.decision_maker_finder import DecisionMakerUpgrade
+from src.services.decision_maker_name import PersonName
+from src.services.hunter_io_service import HunterEmailResult
 
 
 # --------------------------------------------------------------------------- #
@@ -94,11 +96,22 @@ def _subject(*, email="info@azienda.it", source=None):  # noqa: ANN001
     return {"id": "S1", "decision_maker_email": email, "decision_maker_email_source": source}
 
 
+async def _no_name(**_k):  # noqa: ANN003
+    return None
+
+
+async def _no_finder(**_k):  # noqa: ANN003
+    return None
+
+
 def _wire(monkeypatch, sb, *, mx=True, neverbounce=""):  # noqa: ANN001
     monkeypatch.setattr(cw, "get_service_client", lambda: sb)
     monkeypatch.setattr(cw, "_has_mx_record", lambda domain, **_k: mx)
     monkeypatch.setattr(cw.settings, "neverbounce_api_key", neverbounce)
     monkeypatch.setattr(cw.settings, "max_verifications_per_lead", 6)
+    # STEP 2 off by default: no discovered name, no Hunter finder hit.
+    monkeypatch.setattr(cw, "find_decision_maker_name", _no_name)
+    monkeypatch.setattr(cw, "find_email", _no_finder)
 
 
 def _last_subject_update(sb):  # noqa: ANN001
@@ -309,3 +322,192 @@ async def test_step3_probe_detects_catch_all(monkeypatch):
     assert out.reason == "catch_all"
     # one probe charged, then no ladder blasting
     assert sb.rpc_calls == 1
+
+
+# --------------------------------------------------------------------------- #
+# STEP 2 — name discovery + pattern-guess
+# --------------------------------------------------------------------------- #
+_PERSON = PersonName(first="Mario", last="Rossi")
+
+
+def _hunter(email: str, *, verified: bool) -> HunterEmailResult:
+    return HunterEmailResult(
+        email=email,
+        first_name="Mario",
+        last_name="Rossi",
+        position="Titolare",
+        linkedin_url=None,
+        confidence_score=95,
+        sources_count=3,
+        verified=verified,
+        raw={},
+    )
+
+
+def _discover(person):  # noqa: ANN001, ANN202
+    async def _f(**_k):
+        return person
+
+    return _f
+
+
+def _finder(result):  # noqa: ANN001, ANN202
+    async def _f(**_k):
+        return result
+
+    return _f
+
+
+@pytest.mark.asyncio
+async def test_step2_finder_verified_wins(monkeypatch):
+    sb = _FakeSb(lead=_lead(), subject=_subject(), domain_intel=None)
+    _wire(monkeypatch, sb)
+    monkeypatch.setattr(cw, "_attempt_upgrade", _au_miss)
+    monkeypatch.setattr(cw, "find_decision_maker_name", _discover(_PERSON))
+    monkeypatch.setattr(cw, "find_email", _finder(_hunter("mario.rossi@azienda.it", verified=True)))
+
+    out = await cw.resolve_best_contact(tenant_id="t", lead_id="L1")
+    assert out.status == "done"
+    assert out.email == "mario.rossi@azienda.it"
+    assert out.kind == "decision_maker"
+    assert out.reason == "step2_hunter_finder"
+    su = _last_subject_update(sb)
+    assert su["decision_maker_email"] == "mario.rossi@azienda.it"
+    assert su["decision_maker_name"] == "Mario Rossi"
+
+
+@pytest.mark.asyncio
+async def test_step2_finder_unverified_strict_verify_wins(monkeypatch):
+    sb = _FakeSb(lead=_lead(), subject=_subject(), domain_intel={"catch_all": False})
+    _wire(monkeypatch, sb)
+    monkeypatch.setattr(cw, "_attempt_upgrade", _au_miss)
+    monkeypatch.setattr(cw, "find_decision_maker_name", _discover(_PERSON))
+    monkeypatch.setattr(
+        cw, "find_email", _finder(_hunter("mario.rossi@azienda.it", verified=False))
+    )
+
+    async def _vh(email, *, client=None):
+        return (
+            email.startswith("mario.rossi@"),
+            "valid" if email.startswith("mario.rossi@") else "invalid",
+        )
+
+    monkeypatch.setattr(cw, "verify_email_hunter", _vh)
+
+    out = await cw.resolve_best_contact(tenant_id="t", lead_id="L1")
+    assert out.status == "done"
+    assert out.email == "mario.rossi@azienda.it"
+    assert out.reason == "step2_finder_verified"
+
+
+@pytest.mark.asyncio
+async def test_step2_pattern_guess_wins(monkeypatch):
+    sb = _FakeSb(
+        lead=_lead(),
+        subject=_subject(),
+        domain_intel={"catch_all": False, "email_pattern": "{first}.{last}"},
+    )
+    _wire(monkeypatch, sb)
+    monkeypatch.setattr(cw, "_attempt_upgrade", _au_miss)
+    monkeypatch.setattr(cw, "find_decision_maker_name", _discover(_PERSON))
+    monkeypatch.setattr(cw, "find_email", _no_finder)  # Hunter finder empty
+
+    async def _vh(email, *, client=None):
+        return (
+            email == "mario.rossi@azienda.it",
+            "valid" if email == "mario.rossi@azienda.it" else "invalid",
+        )
+
+    monkeypatch.setattr(cw, "verify_email_hunter", _vh)
+
+    out = await cw.resolve_best_contact(tenant_id="t", lead_id="L1")
+    assert out.status == "done"
+    assert out.email == "mario.rossi@azienda.it"
+    assert out.reason == "step2_pattern_guess"
+
+
+@pytest.mark.asyncio
+async def test_step2_permutations_pick_second_candidate(monkeypatch):
+    # no pattern known → try IT permutations in order; only mrossi@ verifies.
+    sb = _FakeSb(lead=_lead(), subject=_subject(), domain_intel={"catch_all": False})
+    _wire(monkeypatch, sb)
+    monkeypatch.setattr(cw, "_attempt_upgrade", _au_miss)
+    monkeypatch.setattr(cw, "find_decision_maker_name", _discover(_PERSON))
+    monkeypatch.setattr(cw, "find_email", _no_finder)
+
+    async def _vh(email, *, client=None):
+        return (
+            email == "mrossi@azienda.it",
+            "valid" if email == "mrossi@azienda.it" else "invalid",
+        )
+
+    monkeypatch.setattr(cw, "verify_email_hunter", _vh)
+
+    out = await cw.resolve_best_contact(tenant_id="t", lead_id="L1")
+    assert out.status == "done"
+    assert out.email == "mrossi@azienda.it"
+    assert out.reason == "step2_pattern_guess"
+
+
+@pytest.mark.asyncio
+async def test_step2_catch_all_never_blasts_guess(monkeypatch):
+    # name found, Hunter finder returns an UNVERIFIED candidate, domain is
+    # catch-all → STEP 2 must NOT write/send the guess; fall to phone_queue.
+    sb = _FakeSb(lead=_lead(), subject=_subject(), domain_intel={"catch_all": True})
+    _wire(monkeypatch, sb)
+    monkeypatch.setattr(cw, "_attempt_upgrade", _au_miss)
+    monkeypatch.setattr(cw, "find_decision_maker_name", _discover(_PERSON))
+    monkeypatch.setattr(
+        cw, "find_email", _finder(_hunter("mario.rossi@azienda.it", verified=False))
+    )
+
+    async def _vh(email, *, client=None):
+        raise AssertionError("must not verify a guess on a catch-all domain")
+
+    monkeypatch.setattr(cw, "verify_email_hunter", _vh)
+
+    out = await cw.resolve_best_contact(tenant_id="t", lead_id="L1")
+    assert out.status == "phone_queue"
+    assert out.reason == "catch_all"
+    assert _last_subject_update(sb) is None  # nothing fabricated
+    assert sb.rpc_calls == 1  # only the find_email reserve, no probe/guess spend
+
+
+@pytest.mark.asyncio
+async def test_step2_name_hint_skips_discovery(monkeypatch):
+    sb = _FakeSb(lead=_lead(), subject=_subject(), domain_intel=None)
+    _wire(monkeypatch, sb)
+    monkeypatch.setattr(cw, "_attempt_upgrade", _au_miss)
+
+    async def _boom(**_k):
+        raise AssertionError("discovery must be skipped when a name_hint is given")
+
+    monkeypatch.setattr(cw, "find_decision_maker_name", _boom)
+    monkeypatch.setattr(cw, "find_email", _finder(_hunter("mario.rossi@azienda.it", verified=True)))
+
+    out = await cw.resolve_best_contact(tenant_id="t", lead_id="L1", name_hint=("Mario", "Rossi"))
+    assert out.status == "done"
+    assert out.email == "mario.rossi@azienda.it"
+    assert out.reason == "step2_hunter_finder"
+
+
+@pytest.mark.asyncio
+async def test_catch_all_undecided_is_probed_only_once(monkeypatch):
+    # An undecided ('unknown') domain: STEP 2 probes once, STEP 3 must REUSE the
+    # memoized verdict and NOT re-probe (regression guard — was a double charge).
+    sb = _FakeSb(lead=_lead(), subject=_subject(), domain_intel=None)
+    _wire(monkeypatch, sb)
+    monkeypatch.setattr(cw, "_attempt_upgrade", _au_miss)
+    monkeypatch.setattr(cw, "find_decision_maker_name", _discover(_PERSON))
+    monkeypatch.setattr(cw, "find_email", _no_finder)
+
+    async def _vh(email, *, client=None):
+        return (False, "unknown")  # every probe is undecided
+
+    monkeypatch.setattr(cw, "verify_email_hunter", _vh)
+
+    out = await cw.resolve_best_contact(tenant_id="t", lead_id="L1")
+    assert out.status == "phone_queue"
+    assert out.reason == "catch_all_unknown"
+    # find_email reserve (1) + exactly ONE catch-all probe (1); no STEP-3 re-probe
+    assert sb.rpc_calls == 2

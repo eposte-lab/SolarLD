@@ -1,15 +1,17 @@
-"""Contact-enrichment waterfall (Phase 1b) — deterministic best-contact resolver.
+"""Contact-enrichment waterfall — deterministic best-contact resolver.
 
 ``resolve_best_contact`` runs, per qualified lead:
 
   STEP 0  guards  — qualified, idempotent, PEC/non-business, MX, domain_intel
   STEP 1  Hunter-first — reuse ``decision_maker_finder._attempt_upgrade`` (it
           also caches the domain pattern + catch-all into ``domain_intel``)
+  STEP 2  name-discovery + pattern-guess — discover the owner's name from the
+          website (``decision_maker_name``), then resolve their email via the
+          Hunter email-finder (real indexed data) or pattern/permutation guesses
+          (strict-``valid``-verified, gated on catch-all)
   STEP 3  role ladder — ufficiotecnico/tecnico/acquisti/direzione/
           amministrazione/info, each guessed @domain and VERIFIED, **gated on
           the domain's catch-all flag** (never blind-blast a catch-all domain).
-
-(STEP 2 — name-discovery + pattern-guess — is Phase 2.)
 
 Terminal ``status`` ∈ done | done_unverified | phone_queue | needs_manual |
 failed. Always writes ``leads.{best_contact_email, contact_outcome,
@@ -45,7 +47,13 @@ from .decision_maker_finder import (
     _attempt_upgrade,
     cache_domain_intel,
 )
-from .hunter_io_service import verify_email_hunter
+from .decision_maker_name import (
+    PersonName,
+    find_decision_maker_name,
+    it_permutations,
+    render_pattern,
+)
+from .hunter_io_service import find_email, verify_email_hunter
 from .neverbounce_service import NeverBounceError, verify_email
 from .web_scraper import _has_mx_record, is_non_business_domain
 
@@ -95,6 +103,20 @@ class ContactOutcome:
     candidates: list[str] = field(default_factory=list)
 
 
+def _reserve_budget(sb: Any, tenant_id: str) -> bool:
+    """Atomically reserve 1 Hunter credit against the tenant budget. False when
+    the budget is exhausted OR the RPC errors (caller treats both as a stop)."""
+    try:
+        reserved = sb.rpc(
+            "reserve_premium_budget",
+            {"p_tenant_id": tenant_id, "p_cost_cents": _HUNTER_CREDITS_PER_LOOKUP},
+        ).execute()
+        return bool(reserved.data)
+    except Exception as exc:  # noqa: BLE001 — budget RPC is a hard boundary
+        log.warning("waterfall.budget_check_failed", err=type(exc).__name__)
+        return False
+
+
 async def _reserve_and_verify(
     email: str,
     *,
@@ -105,16 +127,8 @@ async def _reserve_and_verify(
     """Charge 1 budget credit and verify ``email`` deliverability. Returns
     ``(deliverable, status, cost_charged)``. Role addresses ARE allowed (this is
     the role ladder). Budget-exhausted → ``(False, 'budget_exhausted', 0)``."""
-    try:
-        reserved = sb.rpc(
-            "reserve_premium_budget",
-            {"p_tenant_id": tenant_id, "p_cost_cents": _HUNTER_CREDITS_PER_LOOKUP},
-        ).execute()
-        if not bool(reserved.data):
-            return False, "budget_exhausted", 0
-    except Exception as exc:  # noqa: BLE001 — budget RPC is a hard boundary
-        log.warning("waterfall.budget_check_failed", err=type(exc).__name__)
-        return False, "budget_check_failed", 0
+    if not _reserve_budget(sb, tenant_id):
+        return False, "budget_exhausted", 0
 
     cost = _HUNTER_CREDITS_PER_LOOKUP
     if settings.neverbounce_api_key:
@@ -208,33 +222,307 @@ def _finish(
     return outcome
 
 
-def _load_catch_all(sb: Any, domain: str) -> bool | None:
+def _load_domain_intel(sb: Any, domain: str, *columns: str) -> dict[str, Any] | None:
     try:
         row = (
             sb.table("domain_intel")
-            .select("catch_all")
+            .select(",".join(columns))
             .eq("domain", domain)
             .limit(1)
             .maybe_single()
             .execute()
         )
-        if row and row.data and row.data.get("catch_all") is not None:
-            return bool(row.data["catch_all"])
+        if row and row.data:
+            return dict(row.data)
     except Exception as exc:  # noqa: BLE001 — cache read is best-effort
         log.debug("domain_intel.read_failed", domain=domain, err=type(exc).__name__)
     return None
+
+
+def _load_catch_all(sb: Any, domain: str) -> bool | None:
+    row = _load_domain_intel(sb, domain, "catch_all")
+    if row and row.get("catch_all") is not None:
+        return bool(row["catch_all"])
+    return None
+
+
+def _load_email_pattern(sb: Any, domain: str) -> str | None:
+    row = _load_domain_intel(sb, domain, "email_pattern")
+    pattern = row.get("email_pattern") if row else None
+    return pattern if isinstance(pattern, str) and pattern else None
+
+
+@dataclass(slots=True)
+class _CatchAll:
+    """Per-resolution catch-all memo. ``probed`` guards against re-probing an
+    UNDECIDED domain (Hunter 'unknown' → value stays None but probed flips True),
+    which is the dominant case for SMTP-blocking SME mail hosts."""
+
+    value: bool | None = None
+    probed: bool = False
+
+
+async def _resolve_catch_all(
+    state: _CatchAll,
+    domain: str,
+    *,
+    tenant_id: str,
+    sb: Any,
+    client: httpx.AsyncClient | None,
+    verifications: int,
+) -> tuple[bool | None, int, int]:
+    """Resolve the domain catch-all flag AT MOST ONCE per resolution (memoized in
+    ``state``, including an undecided None), then reuse. Returns
+    ``(catch_all, cost_added, verifications_added)``."""
+    if state.value is not None or state.probed:
+        return state.value, 0, 0
+    cached = _load_catch_all(sb, domain)
+    if cached is not None:
+        state.value, state.probed = cached, True
+        return cached, 0, 0
+    if verifications >= settings.max_verifications_per_lead:
+        return None, 0, 0
+    catch_all, pcost = await _detect_catch_all(domain, tenant_id=tenant_id, sb=sb, client=client)
+    state.value, state.probed = catch_all, True
+    if catch_all is not None:
+        cache_domain_intel(sb, domain, catch_all=catch_all)
+    return catch_all, pcost, (1 if pcost else 0)
+
+
+def _person_from_hint(name_hint: tuple[str, str] | None) -> PersonName | None:
+    if not name_hint:
+        return None
+    first, last = (name_hint[0] or "").strip(), (name_hint[1] or "").strip()
+    if not first or not last:
+        return None
+    return PersonName(first=first, last=last, role=None)
+
+
+async def _verify_guess(
+    addr: str,
+    *,
+    tenant_id: str,
+    sb: Any,
+    client: httpx.AsyncClient | None,
+) -> tuple[str, int]:
+    """Reserve + verify one GUESSED address. Returns ``(status, cost)`` where
+    status is the raw verifier verdict ('valid'/'invalid'/'budget_exhausted'/…)."""
+    _deliverable, status, vcost = await _reserve_and_verify(
+        addr, tenant_id=tenant_id, sb=sb, client=client
+    )
+    return status, vcost
+
+
+def _win_named(
+    sb: Any,
+    *,
+    lead_id: str,
+    tenant_id: str,
+    subject_id: str,
+    email: str,
+    person: PersonName,
+    current_email: str,
+    cost: int,
+    reason: str,
+    candidates: list[str],
+) -> ContactOutcome:
+    """Mirror a verified NAMED contact into subjects.* and persist the win."""
+    full_name = f"{person.first} {person.last}".strip()
+    _mirror_to_subject(
+        sb, subject_id, email=email, name=full_name, role=person.role, fallback=current_email
+    )
+    return _finish(
+        sb,
+        lead_id=lead_id,
+        tenant_id=tenant_id,
+        outcome=ContactOutcome(
+            status="done",
+            email=email,
+            name=full_name,
+            role=person.role,
+            kind="decision_maker",
+            verified=True,
+            cost_cents=cost,
+            reason=reason,
+            candidates=candidates,
+        ),
+        best_email=email,
+    )
+
+
+async def _step2_named_guess(
+    *,
+    sb: Any,
+    tenant_id: str,
+    lead_id: str,
+    subject_id: str,
+    domain: str,
+    current_email: str,
+    name_hint: tuple[str, str] | None,
+    catch_state: _CatchAll,
+    client: httpx.AsyncClient | None,
+    cost: int,
+    verifications: int,
+) -> tuple[ContactOutcome | None, int, int]:
+    """STEP 2 — name discovery + pattern-guess. Returns
+    ``(outcome|None, cost, verifications)``; a non-None outcome is TERMINAL
+    (already mirrored + persisted). ``None`` → fall through to STEP 3.
+
+    Order (credit-frugal): Hunter email-finder (real indexed data, trusted even
+    on catch-all when Hunter-verified) → blind pattern/permutation guesses (ONLY
+    on a confirmed non-catch-all domain, each strict-'valid'-verified).
+    """
+    cap = settings.max_verifications_per_lead
+    person = _person_from_hint(name_hint)
+    if person is None and verifications < cap:
+        person = await find_decision_maker_name(domain=domain, client=client)
+    if person is None:
+        return None, cost, verifications  # no name → STEP 3
+
+    tried: list[str] = []
+    catch_all: bool | None = None
+
+    # --- 2a) Hunter email-finder: authoritative person → email ----------------
+    if verifications < cap:
+        if not _reserve_budget(sb, tenant_id):
+            return None, cost, verifications  # budget gone → STEP 3 surfaces it
+        cost += _HUNTER_CREDITS_PER_LOOKUP
+        verifications += 1
+        try:
+            res = await find_email(
+                domain=domain, first_name=person.first, last_name=person.last, client=client
+            )
+        except Exception as exc:  # noqa: BLE001 — finder is best-effort
+            log.debug("waterfall.find_email_failed", domain=domain, err=type(exc).__name__)
+            res = None
+        cand = (res.email or "").strip().lower() if res and res.email else ""
+        if cand and "@" in cand:
+            tried.append(cand)
+            if res is not None and res.verified:  # Hunter found AND verified it
+                return (
+                    _win_named(
+                        sb,
+                        lead_id=lead_id,
+                        tenant_id=tenant_id,
+                        subject_id=subject_id,
+                        email=cand,
+                        person=person,
+                        current_email=current_email,
+                        cost=cost,
+                        reason="step2_hunter_finder",
+                        candidates=tried,
+                    ),
+                    cost,
+                    verifications,
+                )
+            # Unverified Hunter candidate → strict-verify, but only off catch-all.
+            catch_all, ccost, cvadd = await _resolve_catch_all(
+                catch_state,
+                domain,
+                tenant_id=tenant_id,
+                sb=sb,
+                client=client,
+                verifications=verifications,
+            )
+            cost += ccost
+            verifications += cvadd
+            if catch_all is False and verifications < cap:
+                status, vcost = await _verify_guess(cand, tenant_id=tenant_id, sb=sb, client=client)
+                cost += vcost
+                if vcost:
+                    verifications += 1
+                if status in _STRICT_VALID_STATUSES:
+                    return (
+                        _win_named(
+                            sb,
+                            lead_id=lead_id,
+                            tenant_id=tenant_id,
+                            subject_id=subject_id,
+                            email=cand,
+                            person=person,
+                            current_email=current_email,
+                            cost=cost,
+                            reason="step2_finder_verified",
+                            candidates=tried,
+                        ),
+                        cost,
+                        verifications,
+                    )
+
+    # --- 2b) blind pattern / permutation guesses (only off catch-all) ---------
+    # _resolve_catch_all is memoized in catch_state: if 2a already probed, this
+    # reuses that value at zero extra cost (no double probe).
+    catch_all, ccost, cvadd = await _resolve_catch_all(
+        catch_state, domain, tenant_id=tenant_id, sb=sb, client=client, verifications=verifications
+    )
+    cost += ccost
+    verifications += cvadd
+    if catch_all is not False:
+        return None, cost, verifications  # catch-all/undecided → never blind-blast
+
+    pattern = _load_email_pattern(sb, domain)
+    locals_ = [render_pattern(pattern, person)] if pattern else it_permutations(person)
+    for lp in locals_:
+        if verifications >= cap:
+            break
+        if not lp:
+            continue
+        addr = f"{lp}@{domain}"
+        if addr == current_email or addr in tried:
+            continue
+        status, vcost = await _verify_guess(addr, tenant_id=tenant_id, sb=sb, client=client)
+        cost += vcost
+        if vcost:
+            verifications += 1
+        tried.append(addr)
+        if status in {"budget_exhausted", "budget_check_failed"}:
+            return (
+                _finish(
+                    sb,
+                    lead_id=lead_id,
+                    tenant_id=tenant_id,
+                    outcome=ContactOutcome(
+                        status="needs_manual",
+                        reason="budget_exhausted",
+                        cost_cents=cost,
+                        candidates=tried,
+                    ),
+                    best_email=current_email,
+                ),
+                cost,
+                verifications,
+            )
+        if status in _STRICT_VALID_STATUSES:
+            return (
+                _win_named(
+                    sb,
+                    lead_id=lead_id,
+                    tenant_id=tenant_id,
+                    subject_id=subject_id,
+                    email=addr,
+                    person=person,
+                    current_email=current_email,
+                    cost=cost,
+                    reason="step2_pattern_guess",
+                    candidates=tried,
+                ),
+                cost,
+                verifications,
+            )
+
+    return None, cost, verifications  # no verified named email → STEP 3
 
 
 async def resolve_best_contact(
     *,
     tenant_id: str,
     lead_id: str,
-    name_hint: tuple[str, str] | None = None,  # noqa: ARG001 — used in Phase 2 (STEP 2)
-    sector: str | None = None,  # noqa: ARG001 — used in Phase 2
+    name_hint: tuple[str, str] | None = None,
+    sector: str | None = None,  # noqa: ARG001 — reserved for Hunter dept filtering
     force: bool = False,
     client: httpx.AsyncClient | None = None,
 ) -> ContactOutcome:
-    """Resolve the best deliverable contact for one qualified lead (STEP 0/1/3)."""
+    """Resolve the best deliverable contact for one qualified lead (STEP 0/1/2/3)."""
     sb = get_service_client()
 
     # --- load lead + subject -------------------------------------------------
@@ -368,17 +656,33 @@ async def resolve_best_contact(
             best_email=current_email,
         )
 
+    # The domain catch-all is probed at most ONCE across STEP 2 + STEP 3
+    # (memoized here, including the undecided 'unknown' verdict).
+    catch_state = _CatchAll()
+
+    # --- STEP 2: name discovery + pattern-guess ------------------------------
+    step2_outcome, cost, verifications = await _step2_named_guess(
+        sb=sb,
+        tenant_id=tenant_id,
+        lead_id=lead_id,
+        subject_id=subject_id,
+        domain=domain,
+        current_email=current_email,
+        name_hint=name_hint,
+        catch_state=catch_state,
+        client=client,
+        cost=cost,
+        verifications=verifications,
+    )
+    if step2_outcome is not None:
+        return step2_outcome
+
     # --- STEP 3: role ladder (gated on catch-all) ----------------------------
-    catch_all = _load_catch_all(sb, domain)
-    if catch_all is None and verifications < settings.max_verifications_per_lead:
-        catch_all, pcost = await _detect_catch_all(
-            domain, tenant_id=tenant_id, sb=sb, client=client
-        )
-        cost += pcost
-        if pcost:
-            verifications += 1
-        if catch_all is not None:
-            cache_domain_intel(sb, domain, catch_all=catch_all)
+    catch_all, ccost, cvadd = await _resolve_catch_all(
+        catch_state, domain, tenant_id=tenant_id, sb=sb, client=client, verifications=verifications
+    )
+    cost += ccost
+    verifications += cvadd
     if catch_all is not False:  # True or undecided → never blind-blast
         return _finish(
             sb,
