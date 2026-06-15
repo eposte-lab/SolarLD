@@ -136,7 +136,7 @@ async def batch_reenrich_contacts_task(
 
     return await batch_reenrich_and_resend(
         tenant_id=payload["tenant_id"],
-        limit=int(payload.get("limit", 150)),
+        limit=int(payload.get("limit", 50)),
         spread_days=int(payload.get("spread_days", 5)),
         per_day_cap=int(payload.get("per_day_cap", 30)),
         dry_run=bool(payload.get("dry_run", True)),

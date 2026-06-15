@@ -295,7 +295,7 @@ def _spread_defer(now: datetime, idx: int, per_day_cap: int) -> datetime:
 async def batch_reenrich_and_resend(
     *,
     tenant_id: str,
-    limit: int = 150,
+    limit: int = 50,
     spread_days: int = 5,  # noqa: ARG001 — kept for caller symmetry; pacing is per_day_cap
     per_day_cap: int = 30,
     dry_run: bool = True,
@@ -306,12 +306,15 @@ async def batch_reenrich_and_resend(
     Selects SENT, non-terminal leads that have NOT already received a follow-up,
     EXCLUDING the leads handled manually via the alt-address resend (Hilton /
     Sigma — identified from the ``lead.outreach_resent_alt_address`` audit
-    trail). For each it runs the premium finder (``reenrich_lead_contact`` —
-    budget-capped, idempotent, fail-open). When ``dry_run`` is False AND a lead
-    was upgraded, it enqueues a re-send of the OFFICIAL outreach to the new
-    address (``force`` re-send, no template change), paced at ``per_day_cap``/day
-    on weekday mornings, and stamps ``last_followup_sent_at`` so re-runs never
-    double-send the same lead.
+    trail). Picks the BEST candidates first — highest L5 score, then most
+    recently sent (recent render) — and caps at ``limit`` (default 50) so we
+    spend premium credits on the strongest already-sent leads instead of all
+    ~300, leaving budget for the funnel auto-enrichment of NEW leads. For each
+    it runs the premium finder (``reenrich_lead_contact`` — budget-capped,
+    idempotent, fail-open). When ``dry_run`` is False AND a lead was upgraded, it
+    enqueues a re-send of the OFFICIAL outreach to the new address (``force``
+    re-send, no template change), paced at ``per_day_cap``/day on weekday
+    mornings, and stamps ``last_followup_sent_at`` so re-runs never double-send.
 
     ``dry_run`` defaults to True: the first run only finds + persists better
     contacts (surfacing the premium badge) and reports counts — it never sends.
@@ -339,6 +342,8 @@ async def batch_reenrich_and_resend(
         log.warning("batch_reenrich.audit_lookup_failed", err=type(exc).__name__)
 
     # 2) Candidate SENT leads: not terminal, not already (manually) followed-up.
+    #    Best first — highest L5 score, then most recently sent (recent render) —
+    #    so the capped budget is spent on the strongest already-sent leads.
     res = (
         sb.table("leads")
         .select("id")
@@ -346,7 +351,8 @@ async def batch_reenrich_and_resend(
         .not_.is_("outreach_sent_at", "null")
         .is_("last_followup_sent_at", "null")
         .not_.in_("pipeline_status", _TERMINAL_LEAD_STATES)
-        .order("outreach_sent_at", desc=False)
+        .order("score", desc=True)
+        .order("outreach_sent_at", desc=True)
         .limit(capped_limit * 2)  # over-fetch; exclusions trim to capped_limit
         .execute()
     )

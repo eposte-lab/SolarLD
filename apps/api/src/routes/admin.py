@@ -1467,7 +1467,13 @@ async def trial_recheck_existing_pv(
 async def trial_batch_reenrich_contacts(
     ctx: CurrentUser,
     tenant_id: str = Query(description="Tenant whose already-sent leads to re-enrich"),
-    limit: int = Query(150, ge=1, le=500, description="Max already-sent leads to process"),
+    limit: int = Query(
+        50,
+        ge=1,
+        le=500,
+        description="Max already-sent leads to process (best first: highest score, "
+        "most recent). Default 50 to spend credits on the strongest leads.",
+    ),
     spread_days: int = Query(5, ge=1, le=30, description="Spread any re-sends over N days"),
     per_day_cap: int = Query(30, ge=1, le=200, description="Max re-sends scheduled per day"),
     dry_run: bool = Query(
