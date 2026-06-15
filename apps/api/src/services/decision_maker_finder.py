@@ -109,6 +109,50 @@ class DecisionMakerUpgrade:
     fallback_email: str | None  # the previous (website) email, kept as backup
 
 
+# Local-parts that are NOT an upgrade over the website email, so we never pick
+# them as the "better" contact: the generic catch-alls we already scrape
+# (info@, contatti@) plus purely functional inboxes (warehouse, invoicing,
+# logistics, support…). A more-targeted generic that is NOT here — direzione@,
+# commerciale@, amministrazione@, vendite@, sede@ — IS kept: it reaches
+# management/sales and beats info@, even though it isn't a named person.
+_NOT_AN_UPGRADE_LOCAL_PARTS = frozenset(
+    {
+        # baseline / catch-all — same value as a scraped info@
+        "info",
+        "contatti",
+        "contact",
+        "mail",
+        "posta",
+        "email",
+        "pec",
+        "noreply",
+        "no-reply",
+        # purely functional — never a commercial / management contact
+        "fatture",
+        "fatturazione",
+        "ordini",
+        "acquisti",
+        "preventivi",
+        "assistenza",
+        "supporto",
+        "support",
+        "help",
+        "staff",
+        "hr",
+        "prenotazioni",
+        "booking",
+        "reception",
+        "logistica",
+        "spedizioni",
+        "magazzino",
+        "privacy",
+        "dpo",
+        "gdpr",
+        "legal",
+    }
+)
+
+
 def _is_personal_email(email: str | None) -> bool:
     """True when ``email`` already looks like a named person (``mario.rossi@``,
     ``m.rossi@``) rather than a shared role inbox."""
@@ -192,12 +236,14 @@ async def _attempt_upgrade(
         )
         return None, "hunter_error"
 
-    # Prefer the best NAMED person (real first+last), on the company domain, not
-    # a generic role inbox. If Hunter has no named person, fall back to the best
-    # non-generic TARGETED mailbox (e.g. a person/role-specific alias like the
-    # Hilton case) — still better than info@. Generic role inboxes (info@,
-    # commerciale@, fatture@, …) are excluded from BOTH. candidates are already
-    # sorted by confidence desc.
+    # Prefer the best NAMED person (real first+last) on the company domain. If
+    # Hunter has none, fall back to the best MORE-TARGETED mailbox — a named-ish
+    # alias OR a commercial/management generic (direzione@, commerciale@,
+    # amministrazione@, vendite@, sede@) — which still beats the scraped info@.
+    # We skip only the baseline catch-alls we already have (info@, contatti@)
+    # and purely-functional inboxes (magazzino@, fatture@, …), and never the
+    # email we already hold. candidates are already sorted by confidence desc.
+    cur = (current_email or "").strip().lower()
     best = None
     best_alias = None
     for c in candidates:
@@ -206,8 +252,10 @@ async def _attempt_upgrade(
         local, dom = c.email.split("@", 1)
         if dom.lower() != domain:
             continue
-        if local.lower() in _ROLE_LOCAL_PARTS:
+        if local.lower() in _NOT_AN_UPGRADE_LOCAL_PARTS:
             continue
+        if c.email.strip().lower() == cur:
+            continue  # same mailbox we already have — not an upgrade
         if c.first_name and c.last_name:
             if best is None:
                 best = c
