@@ -88,6 +88,20 @@ export function ModuleOutreach({ value, onChange }: ModuleOutreachProps) {
         </label>
       </FieldCard>
 
+      <FieldCard
+        title="Contatto per gli invii"
+        hint="Di default scriviamo all'indirizzo email trovato pubblicamente sul sito dell'azienda."
+      >
+        <Toggle
+          label="Usa il contatto decision-maker quando disponibile"
+          hint="Se attivo, gli invii (e i follow-up) usano il contatto del responsabile/titolare individuato e verificato, con fallback automatico all'email del sito. Lascia disattivo per inviare sempre all'indirizzo pubblico."
+          value={value.premium_contact_apply_to_send ?? false}
+          onChange={(v) =>
+            onChange({ ...value, premium_contact_apply_to_send: v })
+          }
+        />
+      </FieldCard>
+
       {/* Sprint 9: quick link to email template & cluster A/B management */}
       <div className="rounded-xl border border-outline-variant/30 bg-surface-container-lowest p-3">
         <p className="text-xs text-on-surface-variant">

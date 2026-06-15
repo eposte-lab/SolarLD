@@ -97,6 +97,12 @@ export interface OutreachConfig {
   channels: OutreachChannels;
   tone_of_voice: string;
   cta_primary: string;
+  /**
+   * Opt-in: use the premium decision-maker contact (resolved by the
+   * contact-enrichment waterfall) for outreach sends. Default false →
+   * keep the publicly-found website email.
+   */
+  premium_contact_apply_to_send?: boolean;
 }
 
 export interface CRMConfig {
@@ -206,6 +212,7 @@ export const DEFAULT_OUTREACH: OutreachConfig = {
   },
   tone_of_voice: 'professionale-diretto',
   cta_primary: 'Prenota un sopralluogo gratuito',
+  premium_contact_apply_to_send: false,
 };
 
 export const DEFAULT_CRM: CRMConfig = {
