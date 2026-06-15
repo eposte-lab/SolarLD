@@ -358,9 +358,21 @@ function FindBetterContactsCard({ tenantId }: { tenantId: string }) {
     }
   }, [tenantId]);
 
+  const loadLatestReport = useCallback(async () => {
+    try {
+      const r = await api.get<{ status: string; report?: DryReport | null }>(
+        `/v1/admin/trial/contact-waterfall-dryrun/latest?tenant_id=${encodeURIComponent(tenantId)}`,
+      );
+      if (r.status === 'done' && r.report) setDryReport(r.report);
+    } catch {
+      /* non-blocking — the last report is best-effort (kept ~1h) */
+    }
+  }, [tenantId]);
+
   useEffect(() => {
     void loadStatus();
-  }, [loadStatus]);
+    void loadLatestReport();
+  }, [loadStatus, loadLatestReport]);
 
   async function run(kind: 'dry' | 'send' | 'backlog') {
     if (busy) return;
