@@ -162,6 +162,28 @@ _NAME_STOPWORDS = frozenset(
         "tecnico",
         "tecnica",
         "ufficio",
+        # honorifics that shouldn't be read as a first name ("Mr Nicola").
+        "mr",
+        "mrs",
+        "ms",
+        "miss",
+        # web-agency credits / map embeds / theme placeholders the regex
+        # otherwise glues into a "name" ("Great Web", "Esposito Google").
+        "web",
+        "google",
+        "maps",
+        "agency",
+        "agenzia",
+        "studio",
+        "design",
+        "marketing",
+        "hosting",
+        "seo",
+        "wordpress",
+        "theme",
+        "template",
+        "realizzazione",
+        "sviluppo",
     }
 )
 
@@ -208,9 +230,17 @@ def _clean_localpart(text: str) -> str:
     return re.sub(r"[^a-z0-9]", "", _ascii_fold(text).lower())
 
 
+# Unambiguous demo/placeholder names left in website themes — never a real owner.
+_PLACEHOLDER_NAMES = frozenset(
+    {"john doe", "jane doe", "jonathan doe", "nome cognome", "name surname", "lorem ipsum"}
+)
+
+
 def _is_plausible_name(full: str) -> bool:
     tokens = [t for t in _WS_RE.split(full.strip()) if t]
     if not (2 <= len(tokens) <= 3):
+        return False
+    if _ascii_fold(" ".join(tokens)).lower() in _PLACEHOLDER_NAMES:
         return False
     for tok in tokens:
         bare = tok.lower().strip(".'’-")
@@ -372,6 +402,33 @@ def _extract_from_titles(html: str) -> list[tuple[int, str, str | None]]:
     return out
 
 
+# Reachability variants. Many Italian SME sites serve only ``http://`` or only
+# the ``www`` host; the production scraper reaches them via the canonical URL,
+# but here we derive from the email domain, so probe scheme/host variants to
+# find the live base instead of assuming ``https://<apex>``.
+_BASE_VARIANTS: tuple[str, ...] = (
+    "https://{d}",
+    "https://www.{d}",
+    "http://{d}",
+    "http://www.{d}",
+)
+
+
+async def _resolve_base(domain: str, client: httpx.AsyncClient) -> tuple[str, str] | None:
+    """Return ``(base_url, homepage_html)`` for the first reachable scheme/host
+    variant, or ``None`` if the site is unreachable on all of them."""
+    for tmpl in _BASE_VARIANTS:
+        base = tmpl.format(d=domain)
+        try:
+            html = await _fetch_html(base, client=client)
+        except Exception as exc:  # noqa: BLE001 — probing is best-effort
+            log.debug("name_discovery.base_probe_failed", base=base, err=type(exc).__name__)
+            continue
+        if html:
+            return base, html
+    return None
+
+
 async def find_decision_maker_name(
     *,
     domain: str,
@@ -380,8 +437,9 @@ async def find_decision_maker_name(
 ) -> PersonName | None:
     """Discover the owner/leader name from the company website. Fail-open → None.
 
-    Fetches up to ``max_pages`` low-cost pages (no API credits, just HTTP),
-    preferring JSON-LD then Italian title regex, and stops early on a strong hit.
+    Resolves a reachable base URL (https/http × apex/www), then fetches up to
+    ``max_pages`` low-cost pages (no API credits, just HTTP), preferring JSON-LD
+    then Italian title regex, stopping early on a strong hit.
     """
     domain = (domain or "").strip().lower()
     if not domain or is_non_business_domain(domain):
@@ -396,20 +454,27 @@ async def find_decision_maker_name(
         )
     candidates: list[tuple[int, str, str | None]] = []
     try:
+        resolved = await _resolve_base(domain, client)
+        if resolved is None:
+            return None
+        base, home_html = resolved
         for path in _NAME_PATHS[: max(1, max_pages)]:
-            url = f"https://{domain}{path}"
-            try:
-                html = await _fetch_html(url, client=client)
-            except Exception as exc:  # noqa: BLE001 — discovery is best-effort
-                log.debug("name_discovery.fetch_failed", url=url, err=type(exc).__name__)
-                continue
+            if path == "":
+                html = home_html  # reuse the homepage already fetched to probe base
+            else:
+                url = f"{base}{path}"
+                try:
+                    html = await _fetch_html(url, client=client)
+                except Exception as exc:  # noqa: BLE001 — discovery is best-effort
+                    log.debug("name_discovery.fetch_failed", url=url, err=type(exc).__name__)
+                    continue
             if not html:
                 continue
             try:
                 candidates.extend(_extract_from_jsonld(html))
                 candidates.extend(_extract_from_titles(html))
             except Exception as exc:  # noqa: BLE001 — extraction is best-effort
-                log.debug("name_discovery.extract_failed", url=url, err=type(exc).__name__)
+                log.debug("name_discovery.extract_failed", domain=domain, err=type(exc).__name__)
                 continue
             if candidates and max(c[0] for c in candidates) >= _STRONG_RANK:
                 break

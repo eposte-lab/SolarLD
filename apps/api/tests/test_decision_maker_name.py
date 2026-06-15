@@ -145,11 +145,28 @@ def _fetch_factory(html_by_suffix: dict[str, str]):
 
 @pytest.mark.asyncio
 async def test_find_returns_person_from_jsonld(monkeypatch):
-    monkeypatch.setattr(dn, "_fetch_html", _fetch_factory({"/chi-siamo": _JSONLD_FOUNDER}))
+    # homepage resolves the base; /chi-siamo carries the JSON-LD
+    monkeypatch.setattr(
+        dn,
+        "_fetch_html",
+        _fetch_factory({"/chi-siamo": _JSONLD_FOUNDER, "acme.it": "<html>home</html>"}),
+    )
     p = await dn.find_decision_maker_name(domain="acme.it", client=object())
     assert p is not None
     assert (p.first, p.last) == ("Mario", "Rossi")
     assert p.role == "Titolare"
+
+
+@pytest.mark.asyncio
+async def test_find_resolves_http_only_domain(monkeypatch):
+    # https variants unreachable; only http://<apex> serves the page
+    async def _fetch(url, *, client, timeout=8.0):  # noqa: ANN001, ANN202
+        return _JSONLD_FOUNDER if url == "http://acme.it" else None
+
+    monkeypatch.setattr(dn, "_fetch_html", _fetch)
+    p = await dn.find_decision_maker_name(domain="acme.it", client=object())
+    assert p is not None
+    assert (p.first, p.last) == ("Mario", "Rossi")
 
 
 @pytest.mark.asyncio
@@ -166,6 +183,15 @@ async def test_find_skips_non_business_domain(monkeypatch):
 @pytest.mark.asyncio
 async def test_find_returns_none_when_no_name(monkeypatch):
     monkeypatch.setattr(
-        dn, "_fetch_html", _fetch_factory({"/chi-siamo": "<p>Solo prodotti, nessun nome.</p>"})
+        dn, "_fetch_html", _fetch_factory({"acme.it": "<p>Solo prodotti, nessun nome.</p>"})
     )
     assert await dn.find_decision_maker_name(domain="acme.it", client=object()) is None
+
+
+@pytest.mark.asyncio
+async def test_find_returns_none_when_unreachable(monkeypatch):
+    async def _fetch(url, *, client, timeout=8.0):  # noqa: ANN001, ANN202
+        return None  # all scheme/host variants unreachable
+
+    monkeypatch.setattr(dn, "_fetch_html", _fetch)
+    assert await dn.find_decision_maker_name(domain="dead.it", client=object()) is None
