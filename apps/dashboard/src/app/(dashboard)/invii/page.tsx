@@ -26,6 +26,7 @@ import { CollapsibleFilters } from '@/components/ui/collapsible-filters';
 import { GradientButton } from '@/components/ui/gradient-button';
 import { KpiChipCard } from '@/components/ui/kpi-chip-card';
 import { InviiTable } from '@/components/invii/invii-table';
+import { isPremiumSource } from '@/components/premium-email-field';
 import { ExportCsvButton } from '@/components/invii/export-csv-button';
 import {
   getCampaignDeliveryStats,
@@ -42,6 +43,7 @@ type Search = Promise<{
   channel?: string;
   status?: string;
   tab?: string;
+  premium?: string;
 }>;
 
 const CHANNEL_OPTIONS = [
@@ -113,6 +115,7 @@ export default async function InviiPage({
   const page = Math.max(1, Number(sp.page) || 1);
   const channelFilter = sp.channel || '';
   const statusFilter = sp.status || '';
+  const premiumFilter = sp.premium === '1';
   const activeTab = sp.tab === 'rimandati' ? 'rimandati' : 'storico';
 
   const ctx = await getCurrentTenantContext();
@@ -128,6 +131,8 @@ export default async function InviiPage({
   const filtered = allCampaigns.filter((c) => {
     if (channelFilter && c.channel !== channelFilter) return false;
     if (statusFilter && c.status !== statusFilter) return false;
+    if (premiumFilter && !isPremiumSource(c.leads?.subjects?.decision_maker_email_source))
+      return false;
     return true;
   });
 
@@ -139,6 +144,7 @@ export default async function InviiPage({
     const params = new URLSearchParams();
     if (channelFilter) params.set('channel', channelFilter);
     if (statusFilter) params.set('status', statusFilter);
+    if (premiumFilter) params.set('premium', '1');
     if (page > 1) params.set('page', String(page));
     for (const [k, v] of Object.entries(overrides)) {
       if (v === undefined || v === '') params.delete(k);
@@ -148,7 +154,9 @@ export default async function InviiPage({
     return s ? `/invii?${s}` : '/invii';
   };
 
-  const activeFilterCount = [channelFilter, statusFilter].filter(Boolean).length;
+  const activeFilterCount = [channelFilter, statusFilter, premiumFilter ? '1' : ''].filter(
+    Boolean,
+  ).length;
 
   return (
     <div className="space-y-4">
@@ -302,6 +310,7 @@ export default async function InviiPage({
         resetHref={queryFor({
           channel: undefined,
           status: undefined,
+          premium: undefined,
           page: undefined,
         })}
       >
@@ -327,6 +336,20 @@ export default async function InviiPage({
             </FilterChip>
           ))}
         </FilterGroup>
+        <FilterGroup label="Contatto">
+          <FilterChip
+            active={!premiumFilter}
+            href={queryFor({ premium: undefined, page: undefined })}
+          >
+            Tutti
+          </FilterChip>
+          <FilterChip
+            active={premiumFilter}
+            href={queryFor({ premium: '1', page: undefined })}
+          >
+            Solo verificati
+          </FilterChip>
+        </FilterGroup>
       </CollapsibleFilters>
 
       {/* Table */}
@@ -338,7 +361,7 @@ export default async function InviiPage({
             </p>
             <h2 className="font-headline text-2xl font-bold tracking-tighter">
               {formatNumber(total)} invii
-              {(channelFilter || statusFilter) && ' (filtrati)'}
+              {(channelFilter || statusFilter || premiumFilter) && ' (filtrati)'}
             </h2>
           </div>
           {/* Link to A/B experiments */}

@@ -121,6 +121,9 @@ export interface ContattiFilter {
    * anche scartati" toggle on /contatti — never the default.
    */
   include_unpromoted?: boolean;
+  /** When true, keep only contacts upgraded to a researched decision-maker
+   *  (premium_finder) — the "Solo verificati" toggle on /contatti. */
+  premium_only?: boolean;
 }
 
 /** Paginated list of scan_candidates. */
@@ -222,9 +225,15 @@ export async function listContatti(opts: {
 
   // Default view: only promoted-to-a-live-lead rows. Compute the grand total
   // over the full filtered set (drives pagination), then slice the page.
-  const promoted = rows.filter(
+  let promoted = rows.filter(
     (r) => (r as ContattoRow & { lead_id?: string | null }).lead_id != null,
   );
+  // "Solo verificati": keep only premium-finder decision-maker contacts.
+  if (opts.filter?.premium_only) {
+    promoted = promoted.filter(
+      (r) => (r as ContattoRow & { premium_contact?: boolean | null }).premium_contact === true,
+    );
+  }
   return {
     rows: promoted.slice(from, from + CONTATTI_PAGE_SIZE),
     total: promoted.length,

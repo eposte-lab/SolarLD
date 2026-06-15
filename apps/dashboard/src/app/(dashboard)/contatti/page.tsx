@@ -36,6 +36,7 @@ type Search = Promise<{
   page?: string;
   territory_id?: string;
   scartati?: string;
+  premium?: string;
 }>;
 
 export default async function ContattiPage({
@@ -46,6 +47,9 @@ export default async function ContattiPage({
   const sp = await searchParams;
   const page = Math.max(1, Number(sp.page) || 1);
   const includeScartati = sp.scartati === '1';
+  // "Solo verificati": show only contacts upgraded to a researched
+  // decision-maker (premium_finder). Vendor-neutral label.
+  const premiumOnly = sp.premium === '1';
 
   // Default filter: only candidates that passed Solar API AND were promoted
   // to a `leads` row (the post-L6 "perfect" contacts). When the operator
@@ -54,6 +58,7 @@ export default async function ContattiPage({
   const filter: ContattiFilter = {
     territory_id: sp.territory_id || undefined,
     include_unpromoted: includeScartati,
+    premium_only: premiumOnly,
   };
 
   // A moderated trial tenant SEES its contatti — the moderation gate is on
@@ -73,6 +78,7 @@ export default async function ContattiPage({
     if (filter.territory_id) params.set('territory_id', filter.territory_id);
     if (page > 1) params.set('page', String(page));
     if (includeScartati) params.set('scartati', '1');
+    if (premiumOnly) params.set('premium', '1');
     for (const [k, v] of Object.entries(overrides)) {
       if (v === undefined || v === '') params.delete(k);
       else params.set(k, v);
@@ -144,8 +150,18 @@ export default async function ContattiPage({
         />
       </BentoGrid>
 
-      {/* Toggle "mostra anche scartati" — debug-only, off by default. */}
-      <div className="flex items-center justify-end">
+      {/* Filtri: "solo verificati" (contatti approfonditi) + debug "scartati". */}
+      <div className="flex flex-wrap items-center justify-end gap-x-5 gap-y-1">
+        <Link
+          href={queryFor({ premium: premiumOnly ? undefined : '1', page: undefined })}
+          className={
+            'text-xs font-semibold uppercase tracking-widest hover:text-on-surface ' +
+            (premiumOnly ? 'text-primary' : 'text-on-surface-variant')
+          }
+          title="Mostra solo i contatti con referente approfondito (di grado superiore)"
+        >
+          {premiumOnly ? '◉ Solo verificati' : '○ Solo verificati'}
+        </Link>
         <Link
           href={queryFor({ scartati: includeScartati ? undefined : '1', page: undefined })}
           className="text-xs font-semibold uppercase tracking-widest text-on-surface-variant hover:text-on-surface"
