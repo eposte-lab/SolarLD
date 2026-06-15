@@ -1582,6 +1582,32 @@ async def trial_contact_waterfall_dryrun(
     }
 
 
+@router.get("/trial/contact-waterfall-dryrun/result")
+async def trial_contact_waterfall_dryrun_result(
+    ctx: CurrentUser,
+    job_id: str = Query(description="job_id returned by the dry-run trigger"),
+) -> dict[str, Any]:
+    """Fetch the dry-run efficiency report by job_id (arq keeps results 1h).
+    ``status`` is ``pending`` until the worker finishes, then ``done`` with the
+    report, or ``error``. Super-admin only — no log grepping needed."""
+    _require_super_admin(ctx)
+    from arq.jobs import Job
+
+    from ..core.queue import get_pool
+
+    try:
+        pool = await get_pool()
+        info = await Job(job_id, redis=pool).result_info()
+    except Exception as exc:  # noqa: BLE001 — result lookup is best-effort
+        log.warning("admin.dryrun_result.lookup_failed", job_id=job_id, err=type(exc).__name__)
+        return {"status": "pending", "report": None}
+    if info is None:
+        return {"status": "pending", "report": None}
+    if info.success:
+        return {"status": "done", "report": info.result}
+    return {"status": "error", "report": None, "error": str(info.result)}
+
+
 @router.get("/trial/premium-status")
 async def trial_premium_status(
     ctx: CurrentUser,
