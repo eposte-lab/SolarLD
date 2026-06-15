@@ -464,6 +464,23 @@ async def test_batch_send_mode_enqueues_official_resend(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_batch_ready_to_send_enriches_but_never_sends(monkeypatch):
+    # target='ready_to_send' enriches the not-yet-sent backlog so it goes out via
+    # the daily cron with a premium contact — it must NEVER force-send here, even
+    # with dry_run=False.
+    sb = _FakeBatchSb(leads=[{"id": "R1"}, {"id": "R2"}])
+    reenriched, enqueued = _wire_batch(monkeypatch, sb, upgraded={"R1", "R2"})
+
+    out = await dmf.batch_reenrich_and_resend(tenant_id="t", target="ready_to_send", dry_run=False)
+
+    assert sorted(reenriched) == ["R1", "R2"]
+    assert enqueued == []  # never sends — the daily cron does
+    assert out["target"] == "ready_to_send"
+    assert out["upgraded"] == 2
+    assert out["resends_queued"] == 0
+
+
+@pytest.mark.asyncio
 async def test_role_only_results_no_upgrade(monkeypatch):
     monkeypatch.setattr(dmf, "get_service_client", lambda: _FakeSb(budget_ok=True))
 

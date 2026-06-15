@@ -256,11 +256,194 @@ export function TrialModerationPanel({ initialTenantId }: { initialTenantId: str
       <SendNowButton tenantId={tenantId} />
       <RegenRendersButton tenantId={tenantId} />
       <RecheckExistingPvButton tenantId={tenantId} />
+      <FindBetterContactsCard tenantId={tenantId} />
       <FollowupTriggerButton tenantId={tenantId} />
       <VisionSelfTestButton />
       <LeadQueue tenantId={tenantId} />
       <InboundQueue tenantId={tenantId} />
     </div>
+  );
+}
+
+type PremiumStatus = {
+  credits_used: number;
+  credits_budget: number;
+  lookups: number;
+  last_batch: {
+    eligible?: number;
+    upgraded?: number;
+    resends_queued?: number;
+    dry_run?: boolean;
+  } | null;
+  last_batch_at: string | null;
+};
+
+/**
+ * FindBetterContactsCard — operator panel for the premium decision-maker finder
+ * over already-SENT leads (§D). "Cerca" runs a dry-run on the 50 best leads
+ * (highest score, most recent) — finds + saves better contacts and shows the
+ * count, sends nothing. "Reinvia" re-sends the official outreach to the upgraded
+ * addresses (behind a confirm). Shows credits used vs the capped budget.
+ */
+function FindBetterContactsCard({ tenantId }: { tenantId: string }) {
+  const [busy, setBusy] = useState<null | 'dry' | 'send' | 'backlog'>(null);
+  const [result, setResult] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState<PremiumStatus | null>(null);
+
+  const loadStatus = useCallback(async () => {
+    try {
+      const s = await api.get<PremiumStatus>(
+        `/v1/admin/trial/premium-status?tenant_id=${encodeURIComponent(tenantId)}`,
+      );
+      setStatus(s);
+    } catch {
+      /* non-blocking — the readout is best-effort */
+    }
+  }, [tenantId]);
+
+  useEffect(() => {
+    void loadStatus();
+  }, [loadStatus]);
+
+  async function run(kind: 'dry' | 'send' | 'backlog') {
+    if (busy) return;
+    if (
+      kind === 'send' &&
+      !window.confirm(
+        "Reinviare l'outreach UFFICIALE ai contatti migliorati? Verranno inviate email reali (spalmate sui giorni, rispettando il cap).",
+      )
+    ) {
+      return;
+    }
+    // 'dry' + 'backlog' never send; 'backlog' enriches the not-yet-sent queue.
+    const dryRun = kind !== 'send';
+    const target = kind === 'backlog' ? 'ready_to_send' : 'sent';
+    setBusy(kind);
+    setResult(null);
+    setError(null);
+    try {
+      const res = await api.post<{ ok: boolean; message?: string }>(
+        `/v1/admin/trial/batch-reenrich-contacts?tenant_id=${encodeURIComponent(
+          tenantId,
+        )}&limit=50&dry_run=${dryRun}&target=${target}`,
+        {},
+      );
+      setResult(res.message ?? 'Avviato.');
+      // Runs on the worker (~1 min for 50). Refresh the counts after a delay.
+      setTimeout(() => void loadStatus(), 60000);
+    } catch (e) {
+      setError(errMessage(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  const lb = status?.last_batch;
+  return (
+    <BentoCard span="full">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <Users size={16} strokeWidth={2.25} aria-hidden className="text-primary" />
+          <h2 className="font-headline text-lg font-bold tracking-tight text-on-surface">
+            Contatti premium (decision-maker)
+          </h2>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void run('backlog')}
+            disabled={busy !== null}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-on-primary transition-opacity hover:opacity-90 disabled:opacity-50"
+          >
+            {busy === 'backlog' ? (
+              <Loader2 size={14} strokeWidth={2.25} aria-hidden className="animate-spin" />
+            ) : (
+              <Users size={14} strokeWidth={2.25} aria-hidden />
+            )}
+            Arricchisci da inviare (50)
+          </button>
+          <button
+            type="button"
+            onClick={() => void run('dry')}
+            disabled={busy !== null}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-outline-variant px-4 py-2 text-sm font-semibold text-on-surface transition-colors hover:border-primary disabled:opacity-50"
+          >
+            {busy === 'dry' ? (
+              <Loader2 size={14} strokeWidth={2.25} aria-hidden className="animate-spin" />
+            ) : (
+              <Users size={14} strokeWidth={2.25} aria-hidden />
+            )}
+            Cerca sui già inviati (50)
+          </button>
+          <button
+            type="button"
+            onClick={() => void run('send')}
+            disabled={busy !== null}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-outline-variant px-4 py-2 text-sm font-semibold text-on-surface transition-colors hover:border-primary disabled:opacity-50"
+          >
+            {busy === 'send' ? (
+              <Loader2 size={14} strokeWidth={2.25} aria-hidden className="animate-spin" />
+            ) : (
+              <Send size={14} strokeWidth={2.25} aria-hidden />
+            )}
+            Reinvia ai migliorati
+          </button>
+        </div>
+      </div>
+      <p className="mt-1 text-xs text-on-surface-variant">
+        <strong>Arricchisci da inviare</strong>: cerca il referente migliore sui lead{' '}
+        <strong>ancora da inviare</strong> (i 50 migliori) così partono col contatto giusto —
+        non invia.{' '}
+        <strong>Cerca sui già inviati</strong>: idem sui 50 già inviati più forti (dry-run).{' '}
+        <strong>Reinvia</strong>: manda l’outreach ufficiale ai già-inviati migliorati.
+      </p>
+
+      {status && (
+        <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-on-surface-variant">
+          <span>
+            Crediti usati:{' '}
+            <strong className="tabular-nums text-on-surface">
+              {status.credits_used}/{status.credits_budget}
+            </strong>
+          </span>
+          <span>
+            Ricerche: <strong className="tabular-nums text-on-surface">{status.lookups}</strong>
+          </span>
+          {lb && (
+            <span>
+              Ultimo batch{lb.dry_run ? ' (dry-run)' : ''}:{' '}
+              <strong className="tabular-nums text-on-surface">
+                {lb.upgraded ?? 0}/{lb.eligible ?? 0}
+              </strong>{' '}
+              migliorati
+              {!lb.dry_run && lb.resends_queued != null
+                ? ` · ${lb.resends_queued} reinvii`
+                : ''}
+              {status.last_batch_at ? ` · ${fmtDate(status.last_batch_at)}` : ''}
+            </span>
+          )}
+        </div>
+      )}
+
+      {result && (
+        <div className="mt-3 flex items-start gap-2 rounded-lg border border-primary/30 bg-primary/10 px-3 py-2 text-sm text-on-surface">
+          <MailCheck
+            size={14}
+            strokeWidth={2.25}
+            aria-hidden
+            className="mt-0.5 shrink-0 text-primary"
+          />
+          <span>{result} Ricarica tra ~1 min per i conteggi.</span>
+        </div>
+      )}
+      {error && (
+        <div className="mt-3 flex items-start gap-2 rounded-lg border border-error/30 bg-error-container/20 px-3 py-2 text-sm text-error">
+          <AlertTriangle size={14} strokeWidth={2.25} aria-hidden className="mt-0.5 shrink-0" />
+          <span className="whitespace-pre-wrap">{error}</span>
+        </div>
+      )}
+    </BentoCard>
   );
 }
 

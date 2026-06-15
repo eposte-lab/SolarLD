@@ -1481,6 +1481,13 @@ async def trial_batch_reenrich_contacts(
         description="When true (default) ONLY finds + saves better contacts and reports "
         "counts — sends nothing. Set false to also re-send the official outreach.",
     ),
+    target: str = Query(
+        "sent",
+        pattern="^(sent|ready_to_send)$",
+        description="'sent' (default) = re-engage already-sent leads. 'ready_to_send' = "
+        "enrich the NOT-yet-sent backlog so it gets premium contacts before the daily "
+        "send (never sends here — the cron does).",
+    ),
 ) -> dict[str, Any]:
     """§D — batch-upgrade the decision-maker email of already-SENT leads via the
     premium finder, and (when ``dry_run=false``) re-send the official outreach to
@@ -1502,9 +1509,10 @@ async def trial_batch_reenrich_contacts(
             "spread_days": spread_days,
             "per_day_cap": per_day_cap,
             "dry_run": dry_run,
+            "target": target,
             "actor": ctx.user_id,
         },
-        job_id=f"batch_reenrich:{tenant_id}:{int(datetime.now(tz=UTC).timestamp())}",
+        job_id=f"batch_reenrich:{tenant_id}:{target}:{int(datetime.now(tz=UTC).timestamp())}",
     )
     log.info(
         "admin.trial_batch_reenrich_contacts.scheduled",
@@ -1527,6 +1535,47 @@ async def trial_batch_reenrich_contacts(
             + " Controlla i log del worker e ricarica /contatti."
         ),
         **job,
+    }
+
+
+@router.get("/trial/premium-status")
+async def trial_premium_status(
+    ctx: CurrentUser,
+    tenant_id: str = Query(description="Tenant whose premium-finder usage to read"),
+) -> dict[str, Any]:
+    """Premium decision-maker finder usage for the operator panel: credits used
+    vs the capped budget (1 credit = 1 lookup) + the last batch run's counts
+    (eligible / upgraded / re-sends), read from the audit trail. Super-admin only.
+    """
+    _require_super_admin(ctx)
+    sb = get_service_client()
+
+    usage = (
+        sb.table("premium_contact_usage")
+        .select("budget_cents, spend_cents, lookups")
+        .eq("tenant_id", tenant_id)
+        .limit(1)
+        .execute()
+    )
+    u = (usage.data or [{}])[0]
+
+    last = (
+        sb.table("audit_log")
+        .select("diff, at")
+        .eq("tenant_id", tenant_id)
+        .eq("action", "batch.reenrich_and_resend")
+        .order("at", desc=True)
+        .limit(1)
+        .execute()
+    )
+    last_row = (last.data or [None])[0]
+
+    return {
+        "credits_used": int(u.get("spend_cents") or 0),
+        "credits_budget": int(u.get("budget_cents") or 0),
+        "lookups": int(u.get("lookups") or 0),
+        "last_batch": (last_row or {}).get("diff"),
+        "last_batch_at": (last_row or {}).get("at"),
     }
 
 
