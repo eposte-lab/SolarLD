@@ -201,6 +201,14 @@ class OutreachInput(BaseModel):
             "valid email and must NOT match the lead's actual recipient."
         ),
     )
+    subject_override: str | None = Field(
+        default=None,
+        description=(
+            "When set, replaces the computed email subject (oggetto). Operator "
+            "lever from the resend-to-address surface — wins over A/B, campaign "
+            "copy and cluster variants. Empty/None → the standard subject."
+        ),
+    )
 
 
 class OutreachOutput(BaseModel):
@@ -1258,6 +1266,13 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
         #      ``derivations`` column. Newer leads read derivations
         #      directly so the email body never drifts from the
         #      portal page numbers.
+        # Operator subject override — the resend-to-address surface lets the
+        # operator set a custom oggetto (e.g. "c.a. Sig. Carlo — Hilton Napoli").
+        # Highest priority: applied last, so it wins over the A/B, campaign-copy
+        # and cluster-variant subjects computed above.
+        if payload.subject_override and payload.subject_override.strip():
+            final_subject = payload.subject_override.strip()
+
         roof_derivations = roof.get("derivations") if roof else None
         ctx = OutreachContext(
             tenant_name=tenant_row.get("business_name") or "SolarLead",
