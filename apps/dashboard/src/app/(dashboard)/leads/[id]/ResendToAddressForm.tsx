@@ -32,19 +32,19 @@ interface Props {
 export function ResendToAddressForm({ leadId }: Props) {
   const router = useRouter();
   const [override, setOverride] = useState('');
-  const [reason, setReason] = useState('');
+  const [subject, setSubject] = useState('');
   const [state, setState] = useState<State>({ kind: 'idle' });
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     const email = override.trim();
-    const why = reason.trim();
-    if (!email || why.length < 3) return;
+    const subj = subject.trim();
+    if (!email) return;
     setState({ kind: 'sending' });
     try {
       await api.post(`/v1/leads/${leadId}/resend-to-address`, {
         recipient_override: email,
-        reason: why,
+        subject_override: subj || null,
       });
       setState({
         kind: 'success',
@@ -63,7 +63,7 @@ export function ResendToAddressForm({ leadId }: Props) {
   }
 
   const busy = state.kind === 'sending';
-  const canSend = override.trim().length > 0 && reason.trim().length >= 3;
+  const canSend = override.trim().length > 0;
 
   return (
     <section className="rounded-2xl bg-surface-container-high p-5 ring-1 ring-outline-variant shadow-ambient">
@@ -81,8 +81,9 @@ export function ResendToAddressForm({ leadId }: Props) {
           <p className="mt-1 text-xs leading-relaxed text-on-surface-variant">
             Invia l&apos;outreach ufficiale <strong>identico</strong> (stesso
             template, dati impianto e rendering) a un indirizzo diverso — ad es.
-            se il referente ha chiesto l&apos;offerta su un&apos;altra mail. Il
-            motivo è obbligatorio e ogni invio viene registrato nell&apos;audit.
+            se il referente ha chiesto l&apos;offerta su un&apos;altra mail. Puoi
+            impostare un <strong>oggetto</strong> personalizzato (opzionale);
+            ogni invio viene registrato nell&apos;audit.
           </p>
         </div>
       </div>
@@ -99,12 +100,10 @@ export function ResendToAddressForm({ leadId }: Props) {
         />
         <input
           type="text"
-          required
-          minLength={3}
-          maxLength={500}
-          placeholder="Motivo (es. richiesto dal referente)"
-          value={reason}
-          onChange={(e) => setReason(e.target.value)}
+          maxLength={300}
+          placeholder="Oggetto (opzionale, es. c.a. Sig. Carlo — Hilton Napoli)"
+          value={subject}
+          onChange={(e) => setSubject(e.target.value)}
           disabled={busy}
           className="rounded-full border border-outline-variant bg-surface-container-low px-4 py-2 text-sm text-on-surface placeholder:text-on-surface-muted focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-50"
         />

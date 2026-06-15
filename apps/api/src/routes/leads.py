@@ -842,7 +842,10 @@ async def send_test_outreach(
 
 class ResendToAddressRequest(BaseModel):
     recipient_override: str
-    reason: str = Field(min_length=3, max_length=500)
+    # Optional custom email subject (oggetto). Empty/None → the standard
+    # computed subject. The operator uses this to address a specific person at
+    # a shared inbox, e.g. "c.a. Sig. Carlo — casella Hilton Napoli".
+    subject_override: str | None = Field(default=None, max_length=300)
 
 
 @router.post("/{lead_id}/resend-to-address")
@@ -859,10 +862,12 @@ async def resend_outreach_to_address(
     outreach, just a recipient override.
 
     Unlike ``send-test-outreach`` (demo tenants only) this works for production
-    tenants, but it is NOT silent: a ``reason`` is mandatory and every call
-    writes an ``audit_log`` row (operator, lead, address, reason). An
-    alternate-recipient send is therefore always traceable — the lead's
-    engagement can never be quietly redirected/inflated without a trail.
+    tenants, but it is NOT silent: every call writes an ``audit_log`` row
+    (operator, lead, address, custom subject) so an alternate-recipient send is
+    always traceable — the lead's engagement can never be quietly
+    redirected/inflated without a trail. The operator may also set a custom
+    email subject (``subject_override``) to address a specific person at a
+    shared inbox.
     """
     tenant_id = require_tenant(ctx)
     sb = get_service_client()
@@ -870,9 +875,7 @@ async def resend_outreach_to_address(
     override = (body.recipient_override or "").strip().lower()
     if not _EMAIL_RX.match(override):
         raise HTTPException(status_code=400, detail="Email non valida.")
-    reason = body.reason.strip()
-    if len(reason) < 3:
-        raise HTTPException(status_code=400, detail="Motivo obbligatorio (per l'audit).")
+    subject_override = (body.subject_override or "").strip() or None
 
     # Resolve the lead + its real recipient (moderation gate). Refuse a
     # self-aimed override — typing the prospect's own address is just a normal
@@ -900,7 +903,7 @@ async def resend_outreach_to_address(
             ),
         )
 
-    # Audit FIRST — append-only trail (operator, lead, address, reason).
+    # Audit FIRST — append-only trail (operator, lead, address, custom subject).
     # Best-effort: log_action never raises.
     await audit_log(
         tenant_id,
@@ -908,7 +911,7 @@ async def resend_outreach_to_address(
         actor_user_id=ctx.sub,
         target_table="leads",
         target_id=lead_id,
-        diff={"recipient_override": override, "reason": reason},
+        diff={"recipient_override": override, "subject_override": subject_override},
     )
 
     # Same machinery as the daily outreach (identical template/data/rendering),
@@ -928,6 +931,7 @@ async def resend_outreach_to_address(
             "channel": "email",
             "force": True,
             "recipient_override": override,
+            "subject_override": subject_override,
         },
         job_id=f"outreach_resend:{tenant_id}:{lead_id}:{override_tag}:{ts}",
     )
@@ -935,8 +939,8 @@ async def resend_outreach_to_address(
         "leads.resend_to_address.queued",
         tenant_id=tenant_id,
         lead_id=lead_id,
+        has_subject_override=bool(subject_override),
         override_domain=override.split("@", 1)[1],
-        reason=reason,
     )
     return {"ok": True, "lead_id": lead_id, "recipient_override": override, **job}
 
