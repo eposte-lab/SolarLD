@@ -62,7 +62,7 @@ export type FollowUpKind =
 
 export interface FollowUpState {
   kind: FollowUpKind;
-  /** Short label for the chip ("Manuale · prendi tu", "Auto · Engaged", …). */
+  /** Short label for the chip ("Ricontatta · Caldo", "Auto · Engaged", …). */
   label: string;
   /** Single-paragraph tooltip explaining what the system is doing. */
   tooltip: string;
@@ -115,7 +115,7 @@ export function followUpState(
     const alertedRel = alerted ? relativeShort(now, alerted) : 'da poco';
     return {
       kind: 'manual',
-      label: 'Manuale · prendi tu',
+      label: 'Ricontatta · Caldo',
       tooltip:
         `Lead cottissimo (engagement ${score}/100). Il sistema ha sospeso ` +
         `le email automatiche e ti chiede di chiamare tu. Notifica inviata ${alertedRel}.`,
