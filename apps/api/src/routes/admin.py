@@ -1325,17 +1325,25 @@ async def trial_regenerate_failed_renders(
     """Re-render (creative_task force) leads — without re-sending. Super-admin
     only.
 
-    Default targets only leads with a non-null ``creative_skipped_reason``
-    (Solar coverage gap, after_url_missing, …). Pass ``all=true`` to re-render
-    EVERY lead regardless of prior success, so framing/centering changes
-    reach already-rendered leads (hotels/complexes). In neither case is an
-    ``outreach_task`` enqueued → no prospect is emailed again.
+    Default targets every lead that has NO render image yet
+    (``rendering_image_url IS NULL``), excluding dead statuses. This is the
+    true "failed render" set: it INCLUDES silent failures where the creative
+    agent crashed before writing ``creative_skipped_reason`` (NULL image +
+    NULL reason) — the old filter keyed on a non-null reason, so those were
+    invisible here and only reachable via ``all=true``. Pass ``all=true`` to
+    re-render EVERY lead regardless of prior success, so framing/centering
+    changes reach already-rendered leads (hotels/complexes). In neither case
+    is an ``outreach_task`` enqueued → no prospect is emailed again.
     """
     _require_super_admin(ctx)
     sb = get_service_client()
     query = sb.table("leads").select("id").eq("tenant_id", tenant_id)
     if not all_leads:
-        query = query.not_.is_("creative_skipped_reason", "null")
+        # "Failed render" = no image asset produced. Skip terminal/blacklisted
+        # leads — re-rendering one that will never send just burns Solar calls.
+        query = query.is_("rendering_image_url", "null").not_.in_(
+            "pipeline_status", ["blacklisted", "closed_lost", "closed_won"]
+        )
     res = query.execute()
     lead_ids = [r["id"] for r in (res.data or [])]
     # Millisecond timestamp → unique job_id so arq's 1h result cache can't
