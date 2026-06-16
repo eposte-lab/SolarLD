@@ -74,6 +74,15 @@ _MAX_CALLS_PER_RUN_FACTOR = 2
 # discovering more right now; consume what's already there first.
 _SKIP_DISCOVERY_BACKLOG = 200
 
+# Max candidates a SINGLE funnel run consumes through L2-L6. The whole batch is
+# processed and only THEN stamped `processed_at` (the consumption cursor), so a
+# run that exceeds arq's job_timeout (600s) is killed BEFORE committing → the
+# next run re-loads the same candidates → infinite loop with zero progress
+# (observed: 700+ candidates, 0 ever marked processed). A small batch finishes
+# well within the timeout, commits, and produces leads; the next run picks up
+# the following chunk. Throughput = this batch × the dispatch cadence.
+_CONSUMPTION_BATCH = 120
+
 
 def _parse_ts(value: Any) -> datetime:
     """Parse an ISO timestamp (str or datetime) into an aware datetime."""
@@ -417,7 +426,11 @@ async def load_backlog(ctx: FunnelV3Context, *, limit: int) -> list[PlaceCandida
     )
     if ctx.province_codes:
         q = q.in_("province_code", ctx.province_codes)
-    rows = (q.order("created_at").limit(limit).execute()).data or []
+    # Cap the batch so a run always finishes L2-L6 + mark_processed inside the
+    # arq job_timeout (see _CONSUMPTION_BATCH) and never re-loops a half-done
+    # batch forever.
+    effective_limit = min(int(limit) if limit else _CONSUMPTION_BATCH, _CONSUMPTION_BATCH)
+    rows = (q.order("created_at").limit(effective_limit).execute()).data or []
     return [_row_to_record(r) for r in rows]
 
 
