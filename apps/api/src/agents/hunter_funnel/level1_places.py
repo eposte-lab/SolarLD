@@ -36,7 +36,7 @@ from ...services.places_discovery import (
     PlaceCandidate,
     discover_for_zone,
 )
-from ...services.places_to_sector import classify_place
+from ...services.places_to_sector import classify_place, included_types_for_sector
 from ...services.sector_target_service import (
     SectorAreaMapping,
     _warm_cache,
@@ -138,6 +138,30 @@ async def run_level1_places(ctx: FunnelV3Context) -> dict[str, Any]:
         if cfg is not None:
             sector_configs[s] = cfg
 
+    # Resilience: an EMPTY palette is the documented catastrophic-silent
+    # failure. A transient/failed read of `ateco_google_types` leaves
+    # `sector_configs` empty → every zone fails the `sector not in
+    # sector_configs` filter below → L1 drains ZERO zones and the whole
+    # territory feed dies silently (observed: discovery stalled for days with
+    # thousands of eligible zones untouched). Rather than stall, fall back to
+    # the hardcoded sector→Google-type map so discovery keeps running on the
+    # Nearby pass (the DB keyword long-tail returns once the read recovers),
+    # and log LOUDLY so the empty read is visible immediately instead of after
+    # days of zero leads.
+    if not sector_configs:
+        log.error(
+            "level1_places.empty_palette_fallback",
+            tenant_id=ctx.tenant_id,
+            sectors_in_play=sectors_in_play,
+            note=(
+                "ateco_google_types palette empty — falling back to hardcoded "
+                "primary types so discovery does not silently stall"
+            ),
+        )
+        for s in sectors_in_play:
+            if included_types_for_sector(s):
+                sector_configs[s] = SectorAreaMapping(wizard_group=s)
+
     # Strict allow-list of target sectors (zone primary + matched).
     target_sectors: set[str] = set(sectors_in_play)
     for z in zones:
@@ -159,6 +183,7 @@ async def run_level1_places(ctx: FunnelV3Context) -> dict[str, Any]:
     all_candidates: dict[str, tuple[PlaceCandidate, dict[str, Any]]] = {}
     total_calls = 0
     zones_skipped_fresh = 0
+    zones_dropped_no_config = 0
     zones_discovered: list[dict[str, Any]] = []
 
     # Group eligible zones into (province, sector) buckets, preserving the
@@ -167,6 +192,9 @@ async def run_level1_places(ctx: FunnelV3Context) -> dict[str, Any]:
     for z in zones:
         sector = z.get("primary_sector")
         if not sector or sector not in sector_configs:
+            # Counted explicitly so an empty/partial palette is visible in the
+            # done-log (a big number here = the silent-stall signature).
+            zones_dropped_no_config += 1
             continue
         if z.get("depleted"):
             zones_skipped_fresh += 1
@@ -317,6 +345,8 @@ async def run_level1_places(ctx: FunnelV3Context) -> dict[str, Any]:
         province_codes=ctx.province_codes,
         zones_total=len(zones),
         zones_skipped_fresh=zones_skipped_fresh,
+        zones_dropped_no_config=zones_dropped_no_config,
+        sector_configs=len(sector_configs),
         places_calls=total_calls,
         discovered=len(persisted),
         cost_cents=cost_cents,
@@ -325,6 +355,7 @@ async def run_level1_places(ctx: FunnelV3Context) -> dict[str, Any]:
         "discovered": len(persisted),
         "zones_total": len(zones),
         "zones_skipped_fresh": zones_skipped_fresh,
+        "zones_dropped_no_config": zones_dropped_no_config,
         "places_calls": total_calls,
     }
 
