@@ -21,10 +21,12 @@ import {
   CheckCircle2,
   CircleDot,
   FileImage,
+  Inbox,
   LineChart,
   Mail,
   MessageCircle,
   MousePointerClick,
+  PenLine,
   PlayCircle,
   ScrollText,
   Volume2,
@@ -100,9 +102,19 @@ const EVENT_STYLES: Record<string, EventStyle> = {
     label: 'Click su WhatsApp',
     tone: 'bg-secondary-container text-on-secondary-container',
   },
+  'portal.contact_view': {
+    icon: Inbox,
+    label: 'Ha aperto il form di contatto',
+    tone: 'bg-tertiary-container text-on-tertiary-container',
+  },
+  'portal.contact_started': {
+    icon: PenLine,
+    label: 'Ha iniziato a compilare il form',
+    tone: 'bg-tertiary-container text-on-tertiary-container',
+  },
   'portal.appointment_click': {
     icon: CalendarCheck,
-    label: 'Richiesta sopralluogo',
+    label: 'Ha cliccato «Contattaci subito»',
     tone: 'bg-secondary-container text-on-secondary-container',
   },
   'portal.email_reply_click': {

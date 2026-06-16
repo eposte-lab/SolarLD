@@ -76,9 +76,40 @@ def test_attention_plus_engagement_never_reaches_hot() -> None:
 
 
 def test_one_contact_click_makes_lead_hot() -> None:
-    # Apertura portale (+10) + click "richiedi sopralluogo" (+50) = 60.
+    # Apertura portale (+10) + click "Contattaci subito" (+50) = 60, poi
+    # il floor "richiesta di contatto" lo porta a 70.
     score = compute_score(_stats(sessions={"s1"}, appointment_click=1))
     assert score >= HOT_THRESHOLD
+
+
+def test_appointment_requested_floors_to_hot_without_portal_activity() -> None:
+    # Segnale autorevole dalla colonna appointment_requested_at: una
+    # richiesta di contatto inviata rende il lead "caldo" anche senza
+    # alcun evento sul portale (es. eventi fuori dalla finestra di 30
+    # giorni — caso backfill dei lead che hanno già richiesto contatto).
+    score = compute_score(_stats(appointment_requested=True))
+    assert score >= HOT_THRESHOLD
+    assert score >= 70
+
+
+def test_appointment_signal_is_binary_either_source() -> None:
+    # +50 una volta sola, identico che arrivi dall'evento portal
+    # (appointment_click) o dalla colonna autorevole (appointment_requested).
+    from_click = compute_score(_stats(sessions={"s1"}, appointment_click=1))
+    from_column = compute_score(_stats(sessions={"s1"}, appointment_requested=True))
+    assert from_click == from_column
+    assert from_click >= 70
+
+
+def test_contact_funnel_adds_engagement() -> None:
+    # Aprire il form e iniziare a compilarlo sono segnali di
+    # coinvolgimento crescente, sotto la soglia "caldo" da soli.
+    base = compute_score(_stats(sessions={"s1"}))
+    opened = compute_score(_stats(sessions={"s1"}, contact_view=1))
+    started = compute_score(_stats(sessions={"s1"}, contact_view=1, contact_started=1))
+    assert opened > base
+    assert started > opened
+    assert started < HOT_THRESHOLD
 
 
 def test_audio_and_fullscreen_now_count() -> None:

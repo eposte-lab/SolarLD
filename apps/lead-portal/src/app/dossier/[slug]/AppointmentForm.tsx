@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { API_URL } from '@/lib/api';
+import { postPortalEvent } from '@/lib/tracking';
 
 type Status = 'idle' | 'submitting' | 'success' | 'error';
 
@@ -11,6 +12,7 @@ export function AppointmentForm({
   accentColor,
   privacyPolicyUrl,
   tenantName,
+  trackContactView = false,
 }: {
   slug: string;
   brandColor: string;
@@ -19,10 +21,35 @@ export function AppointmentForm({
   privacyPolicyUrl?: string | null;
   /** Titolare del trattamento — nominato nel testo del consenso. */
   tenantName: string;
+  /**
+   * Fire ``portal.contact_view`` on mount. Set on the standalone
+   * ``/contatto`` page (the follow-up CTA destination) so we can tell a
+   * lead who navigated to the contact form apart from one who merely
+   * scrolled the dossier. In the in-dossier form leave it false — the
+   * dossier already fires ``portal.view`` and we don't want every page
+   * load to count as a contact-form open.
+   */
+  trackContactView?: boolean;
 }) {
   const accent = accentColor || brandColor;
   const [status, setStatus] = useState<Status>('idle');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  // One-shot guards: ``contact_view`` fires once per mount, and
+  // ``contact_started`` fires only on the first interaction with a field
+  // so a hesitant lead who typed and left is still distinguishable from
+  // one who never touched the form.
+  const startedRef = useRef(false);
+
+  useEffect(() => {
+    if (!trackContactView) return;
+    postPortalEvent(slug, 'portal.contact_view');
+  }, [slug, trackContactView]);
+
+  function handleFirstInput() {
+    if (startedRef.current) return;
+    startedRef.current = true;
+    postPortalEvent(slug, 'portal.contact_started');
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -52,6 +79,13 @@ export function AppointmentForm({
     }
     setStatus('submitting');
     setErrorMsg(null);
+
+    // High-intent signal: the lead clicked "Contattaci subito" with a
+    // valid name + phone. This is the strongest hand-raise in the funnel
+    // (+50 engagement → "caldo"). Fired before the network call so it
+    // lands even if the POST below is cut short by a fast navigation.
+    postPortalEvent(slug, 'portal.appointment_click');
+
     try {
       const res = await fetch(
         `${API_URL}/v1/public/lead/${encodeURIComponent(slug)}/appointment`,
@@ -94,7 +128,7 @@ export function AppointmentForm({
     privacyPolicyUrl || `/privacy?slug=${encodeURIComponent(slug)}`;
 
   return (
-    <form onSubmit={handleSubmit} className="mt-4 space-y-3">
+    <form onSubmit={handleSubmit} onInput={handleFirstInput} className="mt-4 space-y-3">
       <input
         name="contact_name"
         placeholder="Nome e cognome"
