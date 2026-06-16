@@ -175,16 +175,22 @@ export async function listContatti(opts: {
   ];
   const candToLead = new Map<string, string>();
   // Candidates whose promoted lead carries a premium-finder decision-maker
-  // email → drives the vendor-neutral "verified" badge in the table.
+  // email → drives the "Premium" badge in the table. We also carry the
+  // ACTUAL premium email so the table shows the upgraded address
+  // (amministrazione@…) instead of the scraped generic (info@…).
   const premiumCandIds = new Set<string>();
+  const premiumEmailByCand = new Map<string, string>();
   if (roofIds.length > 0) {
     const { data: leadRows } = await sb
       .from('leads')
-      .select('id, pipeline_status, subjects(raw_data, decision_maker_email_source)')
+      .select(
+        'id, pipeline_status, subjects(raw_data, decision_maker_email_source, decision_maker_email)',
+      )
       .in('roof_id', roofIds);
     type SubjectJoin = {
       raw_data: Record<string, unknown> | null;
       decision_maker_email_source: string | null;
+      decision_maker_email: string | null;
     };
     type LeadJoin = {
       id: string;
@@ -205,6 +211,9 @@ export async function listContatti(opts: {
         candToLead.set(candId, l.id);
         if (subj?.decision_maker_email_source === 'premium_finder') {
           premiumCandIds.add(candId);
+          if (subj?.decision_maker_email) {
+            premiumEmailByCand.set(candId, subj.decision_maker_email);
+          }
         }
       }
     }
@@ -213,9 +222,11 @@ export async function listContatti(opts: {
     const row = r as ContattoRow & {
       lead_id?: string | null;
       premium_contact?: boolean | null;
+      premium_email?: string | null;
     };
     row.lead_id = candToLead.get(r.id) ?? null;
     row.premium_contact = premiumCandIds.has(r.id);
+    row.premium_email = premiumEmailByCand.get(r.id) ?? null;
   }
 
   if (includeUnpromoted) {

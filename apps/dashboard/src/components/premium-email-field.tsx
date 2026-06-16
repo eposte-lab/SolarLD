@@ -24,18 +24,19 @@ export function isPremiumSource(source: string | null | undefined): boolean {
   return source === PREMIUM_EMAIL_SOURCE;
 }
 
-/** Small "Verificato" pill for list rows (contatti, invii). Vendor-neutral. */
+/** Bright "Premium" pill for list rows (contatti, invii, lead). Marks a
+ *  higher-grade decision-maker contact. Solid accent for high visibility. */
 export function PremiumBadge({ className }: { className?: string }) {
   return (
     <span
       title={PREMIUM_TOOLTIP}
       className={
-        'inline-flex items-center gap-0.5 rounded-full bg-primary-container px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-on-primary-container' +
+        'inline-flex items-center gap-1 rounded-full bg-primary px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-on-primary shadow-sm ring-1 ring-primary/40' +
         (className ? ` ${className}` : '')
       }
     >
-      <BadgeCheck size={10} strokeWidth={2.5} aria-hidden />
-      Verificato
+      <BadgeCheck size={11} strokeWidth={2.5} aria-hidden />
+      Premium
     </span>
   );
 }

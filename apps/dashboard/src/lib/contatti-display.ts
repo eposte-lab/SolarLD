@@ -77,6 +77,10 @@ export interface ContattoRow {
    *  "verified" badge. NULL/false on website-scraped or unpromoted rows.
    *  Vendor-neutral by design — no provider name reaches the UI. */
   premium_contact?: boolean | null;
+  /** The upgraded decision-maker email (subjects.decision_maker_email) when
+   *  premium_contact is true — shown in the table INSTEAD of the scraped
+   *  generic so the operator sees the address that will actually be used. */
+  premium_email?: string | null;
   created_at: string;
   // v3 enrichment (NULL on legacy v2 rows)
   predicted_sector: string | null;
@@ -189,6 +193,11 @@ function looksLikeRealPhone(phone: string): boolean {
 }
 
 export function displayEmail(c: ContattoRow): string | null {
+  // Premium-finder upgrade wins: show the actual decision-maker address
+  // (amministrazione@…) that outreach will use, not the scraped generic.
+  if (c.premium_email && !looksLikeExampleEmail(c.premium_email)) {
+    return c.premium_email;
+  }
   const email = c.contact_extraction?.best_email ?? null;
   if (!email) return null;
   if (looksLikeExampleEmail(email)) return null;
