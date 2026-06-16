@@ -204,7 +204,20 @@ export default async function ContattiPage({
       <BentoCard padding="tight" span="full">
         {rows.length === 0 ? (
           <div className="rounded-lg bg-surface-container-low p-12 text-center">
-            {summary.l1 > 0 ? (
+            {summary.l4_qualified > 0 ? (
+              <p className="text-sm text-on-surface-variant">
+                Ci sono <strong>{formatNumber(summary.l4_qualified)}</strong> contatti
+                con tetto idoneo, ma nessuno è visibile col filtro corrente. Togli i
+                filtri o prova{' '}
+                <Link
+                  href={queryFor({ scartati: '1', premium: undefined, page: undefined })}
+                  className="font-semibold text-primary hover:underline"
+                >
+                  Mostra anche scartati
+                </Link>
+                .
+              </p>
+            ) : summary.l1 > 0 ? (
               <p className="text-sm text-on-surface-variant">
                 Hai scansionato <strong>{formatNumber(summary.l1)}</strong> aziende
                 ma nessuna ha ancora un tetto idoneo verificato. Aspetta che
