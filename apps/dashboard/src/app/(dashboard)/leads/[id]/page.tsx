@@ -71,8 +71,7 @@ import {
   PremiumEmailField,
   isPremiumSource,
 } from '@/components/premium-email-field';
-import { FindBetterContactButton } from './FindBetterContactButton';
-import { ResendToAddressForm } from './ResendToAddressForm';
+import { ResendToAddressButton } from './ResendToAddressButton';
 import { SendOutreachButton } from './SendOutreachButton';
 import { SendTestOutreachForm } from './SendTestOutreachForm';
 import { SolarApiInspector } from './SolarApiInspector';
@@ -456,6 +455,9 @@ export default async function LeadDetailPage({ params }: PageProps) {
               <SendOutreachButton leadId={lead.id} alreadySent={alreadySent} />
             )}
             <div className="flex flex-wrap items-center justify-end gap-2">
+              {!isBlacklisted && !ctx.tenant.outreach_blocked && (
+                <ResendToAddressButton leadId={lead.id} />
+              )}
               {portalVisitBlocked ? (
                 <PortalVisitBlocked
                   label="Pagina personale"
@@ -508,24 +510,11 @@ export default async function LeadDetailPage({ params }: PageProps) {
         />
       )}
 
-      {/* Production: resend the official outreach to an alternate address the
-          decision-maker requested (address change / additional contact). Sends
-          the identical official email; a reason is mandatory and every send is
-          written to audit_log (POST /leads/{id}/resend-to-address). Demo
-          tenants use the test form above instead. */}
-      {!isBlacklisted && !ctx.tenant.outreach_blocked && (
-        <ResendToAddressForm leadId={lead.id} />
-      )}
-
-      {/* Production: operator-triggered premium contact re-enrichment — looks up
-          a named decision-maker email for the company domain (capped budget),
-          validates it, and updates the lead in place (POST
-          /leads/{id}/find-better-contact). Vendor-neutral. */}
-      {!isBlacklisted && !ctx.tenant.outreach_blocked && (
-        <div className="mt-1">
-          <FindBetterContactButton leadId={lead.id} />
-        </div>
-      )}
+      {/* "Reinvia a un altro indirizzo" now lives behind the resend action in
+          the header action bar (ResendToAddressButton → modal), so the form no
+          longer occupies the lead body. The manual "Trova contatto migliore"
+          entry-point was removed — the contact waterfall runs automatically and
+          synchronously at L6 promotion, so the operator no longer triggers it. */}
 
       {/* ─── Hero: video simulazione (Solar) — oppure info campagna custom ──
           For Solar leads: fallback chain video → GIF → static after image.
