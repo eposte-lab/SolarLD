@@ -364,7 +364,18 @@ async def request_appointment(slug: str, payload: AppointmentRequest) -> dict[st
             ).eq("id", lead["id"]).execute()
         except Exception as exc:  # noqa: BLE001 — never block the 202
             log.warning("appointment.stamp_failed", tenant_id=tenant_id, err=str(exc)[:200])
-        # No operator email, no status change, no event, no tenant email, no webhook.
+        # Operator opted in (AskUserQuestion): a contact request is urgent,
+        # so notify the tenant's contact_email IMMEDIATELY even while the
+        # request also sits in the inbound queue for review. Still NO status
+        # change / event / webhook here — those stay gated on approval so the
+        # moderation freeze on the lead surface is preserved.
+        await notify_tenant_contact_request(
+            sb,
+            tenant_id=tenant_id,
+            tenant_data=tenant_data,
+            payload=payload_dict,
+            dossier_url=dossier_url,
+        )
         return {"ok": True, "status": "held"}
 
     # ── Normal tenant: original behavior ─────────────────────────────
@@ -982,6 +993,7 @@ _ALLOWED_EVENT_KINDS: frozenset[str] = frozenset(
         # Contact-form funnel (richiesta di contatto).
         "portal.contact_view",  # opened the contact form (follow-up CTA landing)
         "portal.contact_started",  # typed the first character into the form
+        "portal.contact_abandoned",  # typed but left without submitting (partial data + consent in metadata)
     }
 )
 
@@ -1020,6 +1032,7 @@ class PortalTrackEvent(BaseModel):
         # Contact-form funnel (richiesta di contatto)
         "portal.contact_view",
         "portal.contact_started",
+        "portal.contact_abandoned",
     ]
     metadata: dict[str, Any] = Field(default_factory=dict)
     elapsed_ms: int | None = Field(default=None, ge=0, le=24 * 60 * 60 * 1000)
