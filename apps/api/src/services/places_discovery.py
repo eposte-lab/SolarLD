@@ -319,19 +319,26 @@ async def discover_for_zone(
 ) -> tuple[list[PlaceCandidate], int]:
     """Discover Places candidates for one zone, by sector.
 
-    Two paths, picked by whether the sector has a usable Google primary
-    type (``places_to_sector._SECTOR_TO_INCLUDED_TYPES``):
+    Two COMPLEMENTARY passes, merged + deduped — both run when the sector
+    has the inputs for them (they are no longer mutually exclusive):
 
-    * **Types path** (food, retail, healthcare, logistics, …): ONE Nearby
-      call with ``includedPrimaryTypes`` — cheap and precise.
-    * **Keyword path** (heavy/light industry): Google's taxonomy has no
-      ``factory``/``warehouse`` leaf (``warehouse`` is rejected HTTP 400),
-      so we run capped keyword Text Search ("carpenteria metallica",
-      "acciaieria", …) biased to the zone — this is what surfaces the
-      ``manufacturer``-typed B2B companies on the big industrial roofs.
+    * **Types pass** (food, retail, healthcare, logistics, …): ONE Nearby
+      call with ``includedPrimaryTypes`` — cheap and precise. But Nearby
+      (Places API New) caps at 20 results with NO pagination, so on a dense
+      zone it only ever sees the top-20 and a re-mined territory yields ~0
+      net-new after dedup.
+    * **Keyword pass** (every sector that has ``places_keywords``): capped
+      keyword Text Search ("caseificio", "ipermercato", "carpenteria
+      metallica", …) biased to the zone. Heavy/light industry have NO
+      Google primary type so this is their only pass; for the types-path
+      sectors it now ADDS the long tail of businesses Google ranks below
+      the type top-20 or classifies under a different primary type. Those
+      curated keywords used to be ignored for type-bearing sectors, which
+      is why re-mining found nothing new.
 
     Returns (candidates, calls_made) so the caller updates the cost
-    accumulator (``NEARBY_COST_CENTS`` per call).
+    accumulator (``NEARBY_COST_CENTS`` per call). The per-run call ceiling
+    in ``level1_places`` bounds the extra keyword cost.
     """
     key = api_key or settings.google_places_api_key
     if not key:
@@ -365,8 +372,11 @@ async def discover_for_zone(
         deduped: dict[str, PlaceCandidate] = {}
         calls = 0
 
+        # Pass 1 — Types: one precise Nearby call when the sector has Google
+        # primary types. Capped at 20 with no pagination; the keyword pass
+        # below augments it. A Nearby HTTP error no longer aborts the zone —
+        # we still attempt the keyword pass (degrade, don't return empty).
         if included_types:
-            # Valid Google primary types → one cheap, precise Nearby call.
             try:
                 raw = await _places_nearby_call(
                     lat=centroid_lat,
@@ -378,10 +388,10 @@ async def discover_for_zone(
                     client=client,
                     api_key=key,
                 )
-                calls = 1
+                calls += 1
             except (httpx.HTTPError, httpx.TimeoutException) as exc:
                 log.warning("places_discovery.call_error", sector=sector, err=type(exc).__name__)
-                return [], 0
+                raw = []
             hint = ",".join(included_types)
             for raw_place in raw:
                 cand = _parse_place(raw_place)
@@ -389,37 +399,39 @@ async def discover_for_zone(
                     continue
                 cand.discovery_keyword = hint
                 deduped[cand.place_id] = cand
-        else:
-            # No usable Google primary type (heavy/light industry: Places
-            # has no `factory`/`warehouse` leaf) → keyword Text Search biased
-            # to the zone. Capped fan-out; the L1 candidate cap bounds the
-            # overall scan.
-            for kw in keywords[:_MAX_KEYWORDS_PER_ZONE]:
-                try:
-                    raw = await _places_text_call(
-                        lat=centroid_lat,
-                        lng=centroid_lng,
-                        radius_m=radius,
-                        keyword=kw,
-                        max_results=max_results_per_keyword,
-                        client=client,
-                        api_key=key,
-                    )
-                except (httpx.HTTPError, httpx.TimeoutException) as exc:
-                    log.warning(
-                        "places_discovery.text_call_error",
-                        sector=sector,
-                        keyword=kw,
-                        err=type(exc).__name__,
-                    )
+
+        # Pass 2 — Keyword Text Search. Runs for EVERY sector that carries
+        # `places_keywords`, ADDITIVELY on top of the types pass. For
+        # heavy/light industry (no primary type) it is the only pass; for the
+        # type-bearing sectors it surfaces the long tail the 20-cap Nearby
+        # misses — the curated keywords that used to be ignored. Capped
+        # fan-out; the L1 per-run call ceiling bounds the overall scan.
+        for kw in keywords[:_MAX_KEYWORDS_PER_ZONE]:
+            try:
+                raw = await _places_text_call(
+                    lat=centroid_lat,
+                    lng=centroid_lng,
+                    radius_m=radius,
+                    keyword=kw,
+                    max_results=max_results_per_keyword,
+                    client=client,
+                    api_key=key,
+                )
+            except (httpx.HTTPError, httpx.TimeoutException) as exc:
+                log.warning(
+                    "places_discovery.text_call_error",
+                    sector=sector,
+                    keyword=kw,
+                    err=type(exc).__name__,
+                )
+                continue
+            calls += 1
+            for raw_place in raw:
+                cand = _parse_place(raw_place)
+                if cand is None or cand.place_id in deduped:
                     continue
-                calls += 1
-                for raw_place in raw:
-                    cand = _parse_place(raw_place)
-                    if cand is None or cand.place_id in deduped:
-                        continue
-                    cand.discovery_keyword = kw
-                    deduped[cand.place_id] = cand
+                cand.discovery_keyword = kw
+                deduped[cand.place_id] = cand
 
         candidates = list(deduped.values())
         # Server-side excludedTypes covers most cases; this final sweep
@@ -432,7 +444,9 @@ async def discover_for_zone(
         log.info(
             "places_discovery.zone_done",
             sector=sector,
-            mode="types" if included_types else "keywords",
+            mode="+".join(
+                m for m, on in (("types", bool(included_types)), ("keywords", bool(keywords))) if on
+            ),
             radius_m=radius,
             results=len(candidates),
             calls=calls,
