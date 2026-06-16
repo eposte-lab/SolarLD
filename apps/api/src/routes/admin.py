@@ -2094,10 +2094,24 @@ async def trial_approve_inbound(ctx: CurrentUser, request_id: str) -> dict[str, 
         "pipeline_status": LeadStatus.APPOINTMENT.value,
         "operator_released_at": now_iso,
         "operator_review_status": "released",
+        # Authoritative request timestamp — already set on the hold path,
+        # re-stamped here for the rare case it was missed. Drives the
+        # engagement hot-floor (see step 4 recompute).
+        "appointment_requested_at": now_iso,
     }
     if not lead.get("source"):
         update_fields["source"] = "cta_click"
     sb.table("leads").update(update_fields).eq("id", lead_id).execute()
+
+    # 1b) Recompute the engagement score so the freshly-released lead lands
+    # as "caldo" (floored via appointment_requested_at). Fail-open — the
+    # nightly rollup reconciles if this raises.
+    try:
+        from ..services.engagement_service import recompute_lead_engagement
+
+        await recompute_lead_engagement(lead_id)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("admin.trial_approve_recompute_failed", lead_id=lead_id, err=str(exc)[:200])
 
     # 2) Emit the tenant-facing event (dashboard realtime + timeline).
     # Direct insert (NOT _emit_public_event): _emit_public_event also fires an

@@ -1124,10 +1124,10 @@ export default async function LeadDetailPage({ params }: PageProps) {
         <div className="flex flex-wrap items-end justify-between gap-2">
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">
-              Portale personale
+              Comportamento
             </p>
             <h2 className="font-headline text-lg font-bold text-on-surface">
-              Cosa ha fatto sul portale
+              Attività del cliente
             </h2>
           </div>
           {(() => {
@@ -1213,10 +1213,22 @@ export default async function LeadDetailPage({ params }: PageProps) {
               <ul className="space-y-2">
                 {inquiries.map((iq) => {
                   const p = (iq.payload || {}) as Record<string, unknown>;
-                  const contactName = p.contact_name as string | undefined;
-                  const contactPhone = p.contact_phone as string | undefined;
-                  const contactEmail = p.contact_email as string | undefined;
-                  const message = p.message as string | undefined;
+                  // The appointment event payload uses `contact_name`,
+                  // `phone`, `email`, `notes`, `preferred_time` (see
+                  // routes/public.py + routes/admin.py). Older rows / other
+                  // surfaces may use `contact_*`/`message`, so fall back.
+                  const str = (...keys: string[]): string | undefined => {
+                    for (const k of keys) {
+                      const v = p[k];
+                      if (typeof v === 'string' && v.trim()) return v.trim();
+                    }
+                    return undefined;
+                  };
+                  const contactName = str('contact_name', 'name', 'full_name');
+                  const contactPhone = str('phone', 'contact_phone', 'telefono');
+                  const contactEmail = str('email', 'contact_email');
+                  const preferredTime = str('preferred_time', 'orario');
+                  const message = str('notes', 'message', 'messaggio', 'note');
                   return (
                     <li
                       key={String(iq.id)}
@@ -1248,6 +1260,11 @@ export default async function LeadDetailPage({ params }: PageProps) {
                           {relativeTime(iq.occurred_at)}
                         </span>
                       </div>
+                      {preferredTime && (
+                        <p className="mt-1 text-xs text-on-surface-variant">
+                          Orario preferito: {preferredTime}
+                        </p>
+                      )}
                       {message && (
                         <p className="mt-1 text-xs text-on-surface-variant">
                           {message}

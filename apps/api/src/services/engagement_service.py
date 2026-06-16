@@ -24,6 +24,8 @@ Formula (v3 — ristrutturata in 3 fasce di intenzione):
       + 6  per portal.audio_on
       + 6  per portal.video_fullscreen
       +10  per portal.roi_viewed
+      + 8  per portal.contact_view (ha aperto il form di contatto)
+      +12  per portal.contact_started (ha iniziato a compilarlo)
       + 5  se outreach_opened_at è valorizzato (email aperta)
     Fascia 3 — Intenzione (ha alzato la mano), tetto 70:
       +50  per portal.whatsapp_click
@@ -32,6 +34,15 @@ Formula (v3 — ristrutturata in 3 fasce di intenzione):
       +35  se la bolletta è stata caricata (leads.bolletta_uploaded_at —
            segnale autorevole, indipendente dall'evento portal_events)
       +12  se outreach_clicked_at è valorizzato (link email cliccato)
+
+Floor "richiesta di contatto": se il lead ha inviato il form (segnale
+autorevole ``leads.appointment_requested_at``, indipendente dall'evento
+portal_events e immune alla finestra di 30 giorni) lo score è forzato ad
+almeno ``APPOINTMENT_HOT_FLOOR`` (70). Una richiesta di contatto è la
+mano alzata più forte del funnel: deve sempre risultare "caldo", anche
+mesi dopo e anche se gli eventi di navigazione sono usciti dalla
+finestra. Vale sia per i tenant moderati (richiesta in coda) sia, in
+backfill, per chi ha già richiesto contatto in passato.
 
 Logica: la sola apertura del portale non rende "caldo" un lead — la
 fascia Attenzione è limitata a 32 punti. Per arrivare a "caldo" (>=60)
@@ -101,6 +112,8 @@ W_VIDEO_COMPLETE = 16
 W_AUDIO_ON = 6  # ha attivato l'audio del video
 W_VIDEO_FULLSCREEN = 6  # ha messo il video a schermo intero
 W_ROI_VIEWED = 10
+W_CONTACT_VIEW = 8  # ha aperto il form "richiesta di contatto"
+W_CONTACT_STARTED = 12  # ha iniziato a compilare il form (primo carattere)
 W_EMAIL_OPENED = 5
 TIER_ENGAGEMENT_CAP = 30  # tetto dell'intera fascia "coinvolgimento"
 
@@ -114,6 +127,12 @@ W_EMAIL_REPLY_CLICK = 50
 W_BOLLETTA_UPLOADED = 35
 W_EMAIL_CLICKED = 12  # ha cliccato un link nell'email di outreach
 TIER_INTENT_CAP = 70  # tetto dell'intera fascia "intenzione"
+
+# Floor applicato quando il lead ha INVIATO il form di contatto
+# (``leads.appointment_requested_at``): una richiesta di contatto deve
+# sempre risultare "caldo" (>=60). 70 la colloca saldamente in fascia
+# calda lasciando margine per i segnali aggiuntivi.
+APPOINTMENT_HOT_FLOOR = 70
 
 SCORE_MAX = 100
 
@@ -133,6 +152,8 @@ class LeadEngagementStats:
     video_complete: int = 0
     audio_on: int = 0
     video_fullscreen: int = 0
+    contact_view: int = 0
+    contact_started: int = 0
     bolletta_uploaded: int = 0
     whatsapp_click: int = 0
     appointment_click: int = 0
@@ -144,6 +165,11 @@ class LeadEngagementStats:
     # by the rollup after the loop.
     outreach_opened: bool = False
     outreach_clicked: bool = False
+    # Authoritative "ha inviato il form di contatto" signal from
+    # leads.appointment_requested_at — independent of portal_events and
+    # of the 30-day window. Triggers the +50 intent credit AND the
+    # hot-floor (see compute_score).
+    appointment_requested: bool = False
 
     @property
     def total_time_sec(self) -> int:
@@ -175,6 +201,10 @@ def compute_score(stats: LeadEngagementStats) -> int:
     engagement += W_AUDIO_ON * stats.audio_on
     engagement += W_VIDEO_FULLSCREEN * stats.video_fullscreen
     engagement += W_ROI_VIEWED * stats.roi_viewed
+    # Il funnel di contatto è binario: aprire/iniziare il form più volte
+    # non vale di più — conta che l'abbia fatto.
+    engagement += W_CONTACT_VIEW * min(1, stats.contact_view)
+    engagement += W_CONTACT_STARTED * min(1, stats.contact_started)
     if stats.outreach_opened:
         engagement += W_EMAIL_OPENED
     engagement = min(engagement, TIER_ENGAGEMENT_CAP)
@@ -182,7 +212,13 @@ def compute_score(stats: LeadEngagementStats) -> int:
     # Fascia 3 — Intenzione: ha alzato la mano.
     intent = 0
     intent += W_WHATSAPP_CLICK * stats.whatsapp_click
-    intent += W_APPOINTMENT_CLICK * stats.appointment_click
+    # Richiesta di contatto: form inviato (segnale autorevole dalla
+    # colonna ``appointment_requested_at``) OPPURE click "Contattaci
+    # subito" tracciato via portal_events. Binario: vale +50 una volta
+    # sola, da qualunque delle due fonti provenga.
+    requested_contact = stats.appointment_requested or stats.appointment_click > 0
+    if requested_contact:
+        intent += W_APPOINTMENT_CLICK
     intent += W_EMAIL_REPLY_CLICK * stats.email_reply_click
     # La bolletta è un segnale binario: caricarla due volte non vale +70.
     intent += W_BOLLETTA_UPLOADED * min(1, stats.bolletta_uploaded)
@@ -190,7 +226,13 @@ def compute_score(stats: LeadEngagementStats) -> int:
         intent += W_EMAIL_CLICKED
     intent = min(intent, TIER_INTENT_CAP)
 
-    return max(0, min(SCORE_MAX, attention + engagement + intent))
+    score = max(0, min(SCORE_MAX, attention + engagement + intent))
+    # Floor: una richiesta di contatto inviata è la mano alzata più forte
+    # del funnel — deve sempre risultare "calda", anche se gli eventi di
+    # navigazione sono fuori dalla finestra di 30 giorni.
+    if requested_contact:
+        score = max(score, APPOINTMENT_HOT_FLOOR)
+    return score
 
 
 def _accumulate_event(stats: LeadEngagementStats, row: dict[str, Any]) -> None:
@@ -225,6 +267,10 @@ def _accumulate_event(stats: LeadEngagementStats, row: dict[str, Any]) -> None:
         stats.audio_on += 1
     elif kind == "portal.video_fullscreen":
         stats.video_fullscreen += 1
+    elif kind == "portal.contact_view":
+        stats.contact_view += 1
+    elif kind == "portal.contact_started":
+        stats.contact_started += 1
     elif kind == "portal.email_reply_click":
         stats.email_reply_click += 1
     elif kind == "portal.whatsapp_click":
@@ -262,7 +308,7 @@ async def recompute_lead_engagement(lead_id: str, *, now: datetime | None = None
         sb.table("leads")
         .select(
             "id, tenant_id, outreach_opened_at, outreach_clicked_at, "
-            "bolletta_uploaded_at, engagement_peak_score"
+            "bolletta_uploaded_at, appointment_requested_at, engagement_peak_score"
         )
         .eq("id", lead_id)
         .limit(1)
@@ -284,6 +330,7 @@ async def recompute_lead_engagement(lead_id: str, *, now: datetime | None = None
         _accumulate_event(stats, row)
     stats.outreach_opened = bool(lead.get("outreach_opened_at"))
     stats.outreach_clicked = bool(lead.get("outreach_clicked_at"))
+    stats.appointment_requested = bool(lead.get("appointment_requested_at"))
     # `leads.bolletta_uploaded_at` is the authoritative bolletta signal:
     # it's stamped synchronously the moment the upload lands, while the
     # `portal.bolletta_uploaded` event is best-effort and can be lost if
@@ -359,7 +406,10 @@ async def run_engagement_rollup(
     lead_ids = list(by_lead.keys())
     leads_res = (
         sb.table("leads")
-        .select("id, outreach_opened_at, outreach_clicked_at, bolletta_uploaded_at")
+        .select(
+            "id, outreach_opened_at, outreach_clicked_at, "
+            "bolletta_uploaded_at, appointment_requested_at"
+        )
         .in_("id", lead_ids)
         .execute()
     )
@@ -369,6 +419,7 @@ async def run_engagement_rollup(
             continue
         by_lead[lid].outreach_opened = bool(row.get("outreach_opened_at"))
         by_lead[lid].outreach_clicked = bool(row.get("outreach_clicked_at"))
+        by_lead[lid].appointment_requested = bool(row.get("appointment_requested_at"))
         # Authoritative bolletta signal — see recompute_lead_engagement.
         if row.get("bolletta_uploaded_at"):
             by_lead[lid].bolletta_uploaded = max(by_lead[lid].bolletta_uploaded, 1)

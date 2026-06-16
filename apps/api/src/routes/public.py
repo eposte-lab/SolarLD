@@ -353,6 +353,17 @@ async def request_appointment(slug: str, payload: AppointmentRequest) -> dict[st
             ).execute()
         except Exception as exc:  # noqa: BLE001 — never block the 202
             log.warning("appointment.queue_insert_failed", tenant_id=tenant_id, err=str(exc)[:200])
+        # Stamp the authoritative request timestamp. This is invisible to
+        # the tenant — a frozen (un-promoted) contatto has its
+        # engagement_score masked by the moderation freeze — but it means
+        # the score is already correct (floored to "caldo") the moment the
+        # operator approves/promotes, when the approval path recomputes.
+        try:
+            sb.table("leads").update(
+                {"appointment_requested_at": datetime.now(UTC).isoformat()}
+            ).eq("id", lead["id"]).execute()
+        except Exception as exc:  # noqa: BLE001 — never block the 202
+            log.warning("appointment.stamp_failed", tenant_id=tenant_id, err=str(exc)[:200])
         # No operator email, no status change, no event, no tenant email, no webhook.
         return {"ok": True, "status": "held"}
 
@@ -362,12 +373,25 @@ async def request_appointment(slug: str, payload: AppointmentRequest) -> dict[st
     # advance pipeline_status to 'appointment'.
     update_fields: dict[str, object] = {
         "pipeline_status": LeadStatus.APPOINTMENT.value,
+        # Authoritative "ha richiesto contatto" timestamp — drives the
+        # engagement hot-floor (engagement_service) regardless of whether
+        # the portal.appointment_click beacon landed.
+        "appointment_requested_at": datetime.now(UTC).isoformat(),
     }
     if not lead.get("source"):
         # Only stamp source once — do not overwrite a subsequent whatsapp_reply.
         update_fields["source"] = "cta_click"
 
     sb.table("leads").update(update_fields).eq("id", lead["id"]).execute()
+
+    # Recompute the engagement score now so the lead jumps to "caldo"
+    # immediately (floored via appointment_requested_at) — the dashboard
+    # picks it up via Supabase Realtime without waiting for the nightly
+    # rollup. Fail-open: the rollup reconciles if this raises.
+    try:
+        await _recompute_lead_engagement(lead["id"])
+    except Exception as exc:  # noqa: BLE001
+        log.warning("appointment.recompute_failed", lead_id=lead["id"], err=str(exc)[:200])
 
     event_payload = {
         "slug": slug,
@@ -955,6 +979,9 @@ _ALLOWED_EVENT_KINDS: frozenset[str] = frozenset(
         "portal.video_fullscreen",  # entered fullscreen on hero video
         "portal.email_reply_click",  # clicked the secondary "Rispondi via email" CTA
         "portal.bolletta_uploaded",  # uploaded a bill (B-tier signal — score +50)
+        # Contact-form funnel (richiesta di contatto).
+        "portal.contact_view",  # opened the contact form (follow-up CTA landing)
+        "portal.contact_started",  # typed the first character into the form
     }
 )
 
@@ -990,6 +1017,9 @@ class PortalTrackEvent(BaseModel):
         "portal.video_fullscreen",
         "portal.email_reply_click",
         "portal.bolletta_uploaded",
+        # Contact-form funnel (richiesta di contatto)
+        "portal.contact_view",
+        "portal.contact_started",
     ]
     metadata: dict[str, Any] = Field(default_factory=dict)
     elapsed_ms: int | None = Field(default=None, ge=0, le=24 * 60 * 60 * 1000)

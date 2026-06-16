@@ -51,7 +51,12 @@ export type PortalEventKind =
   | 'portal.audio_on'
   | 'portal.video_fullscreen'
   | 'portal.email_reply_click'
-  | 'portal.bolletta_uploaded';
+  | 'portal.bolletta_uploaded'
+  // Contact-form funnel — il lead apre il form "richiesta di contatto"
+  // (dalla CTA dei follow-up o dal dossier), inizia a compilarlo, e
+  // clicca "Contattaci subito" (= portal.appointment_click, già pesato).
+  | 'portal.contact_view'
+  | 'portal.contact_started';
 
 const SESSION_STORAGE_KEY = 'solarLead.portal.session_id';
 

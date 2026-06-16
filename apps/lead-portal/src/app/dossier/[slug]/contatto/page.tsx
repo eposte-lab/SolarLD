@@ -58,6 +58,7 @@ export default async function ContattoPage({ params }: PageProps) {
           accentColor={brandAccent}
           privacyPolicyUrl={tenant?.privacy_policy_url}
           tenantName={tenantName}
+          trackContactView
         />
       </div>
     </main>
