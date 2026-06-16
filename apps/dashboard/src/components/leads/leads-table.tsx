@@ -25,6 +25,7 @@
 import Link from 'next/link';
 import { Fragment, useState } from 'react';
 
+import { PremiumBadge, isPremiumSource } from '@/components/premium-email-field';
 import { EngagementScoreChip } from '@/components/ui/engagement-score-chip';
 import { FollowUpStateChip } from '@/components/ui/follow-up-state-chip';
 import { SortableTh } from '@/components/ui/sortable-th';
@@ -200,6 +201,9 @@ export function LeadsTable({
                   <td className="px-5 py-4 font-semibold text-on-surface">
                     <div className="flex items-center gap-2">
                       <span>{name}</span>
+                      {isPremiumSource(
+                        lead.subjects?.decision_maker_email_source,
+                      ) && <PremiumBadge />}
                       {isAi && (
                         <button
                           type="button"
