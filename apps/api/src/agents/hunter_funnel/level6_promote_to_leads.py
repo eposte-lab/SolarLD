@@ -21,10 +21,14 @@ Downstream: the existing creative + outreach agents (FLUSSO 3) pick up
 ``leads`` rows with ``pipeline_status='ready_to_send'`` automatically —
 no further wiring needed inside the v3 funnel.
 
-Cost: near-zero. The only external call is the OPTIONAL premium
-decision-maker lookup (§B) attempted once per NEW subject — capped by the
-per-tenant premium budget and fail-open, so a miss/exhausted-budget keeps
-the website email and never blocks promotion.
+Contact validation: when the tenant uses the contact layer
+(``apply_premium``), the FULL contact waterfall (``resolve_best_contact``)
+runs SYNCHRONOUSLY right after each lead insert, so the territory scan's
+validated cap counts only leads that come out with a deliverable address.
+It is fail-open (a premium miss keeps the website email) and budget-capped
+(~6 Hunter/NeverBounce credits/lead worst case, per-domain cached). A lead
+with no deliverable contact is parked as ``to_call`` and not counted. When
+the flag is off, promotion keeps the website email and counts every insert.
 """
 
 from __future__ import annotations
@@ -35,8 +39,8 @@ import secrets
 from typing import TYPE_CHECKING, Any
 
 from ...core.logging import get_logger
-from ...core.queue import enqueue
 from ...core.supabase_client import get_service_client
+from ...services.contact_waterfall import ContactOutcome, resolve_best_contact
 from ...services.national_chains import is_generic_localpart, is_national_chain
 from ...services.tenant_module_service import is_premium_contact_apply_to_send
 
@@ -80,6 +84,27 @@ def _is_valid_email(value: str | None) -> bool:
     if not value:
         return False
     return bool(_EMAIL_RE.fullmatch(value.strip()))
+
+
+# ContactOutcome terminal states that mean the lead ends WITHOUT a deliverable
+# address. The waterfall is fail-open — every other terminal state preserves a
+# sendable email (a premium win, or the website email on an MX-valid domain) —
+# so only these count as "not contact-validated".
+_NON_DELIVERABLE_REASONS = frozenset({"no_mx", "no_domain", "non_business_or_pec"})
+
+
+def _contact_is_deliverable(outcome: ContactOutcome) -> bool:
+    """True if the lead has a deliverable contact after the sync waterfall.
+
+    ``failed`` = lead/subject not found (no contact at all). ``needs_manual``
+    with a no-MX / no-domain / PEC reason = the address can't receive mail.
+    Everything else (``done`` / ``done_unverified`` / ``phone_queue`` /
+    budget-exhausted ``needs_manual``) keeps a sendable address — the
+    waterfall preserves the website email on any non-rejecting path.
+    """
+    if outcome.status == "failed":
+        return False
+    return not (outcome.status == "needs_manual" and outcome.reason in _NON_DELIVERABLE_REASONS)
 
 
 def _tier_for(score: int) -> str:
@@ -191,6 +216,10 @@ async def run_level6_promote_to_leads(
                 sb.table("leads")
                 .select("id, subjects:subjects(raw_data)")
                 .eq("tenant_id", ctx.tenant_id)
+                # Parked-for-phone leads (no deliverable contact) are NOT part
+                # of the sendable pool — counting them would let unvalidated
+                # leads fill the cap and starve promotion of real ones.
+                .neq("pipeline_status", "to_call")
                 .execute()
             )
             n = 0
@@ -396,24 +425,53 @@ async def run_level6_promote_to_leads(
                 "source": None,
             }
             lead_ins = sb.table("leads").insert(lead_payload).execute()
-            inserted += 1
-
-            # Contact-enrichment waterfall — ASYNC, fail-open, OPT-IN. Resolves
-            # the best deliverable decision-maker/role contact (Hunter-first →
-            # role ladder, catch-all gated) and updates the subject in place.
-            # Never blocks promotion; a miss keeps the website email. Only
-            # enqueued when the tenant opted in (else outreach stays on the
-            # website email — the worker task also re-checks the flag).
             new_lead_id = (lead_ins.data or [{}])[0].get("id")
-            if new_lead_id and apply_premium:
+
+            # Contact validation — SYNCHRONOUS, fail-open, OPT-IN.
+            #
+            # When the tenant uses the contact layer (apply_premium), run the
+            # FULL waterfall (resolve_best_contact) INLINE — before counting —
+            # so the territory scan's validated cap counts only leads that come
+            # out with a deliverable address ("i 50 devono essere già
+            # convalidati di contatto"). The waterfall needs the lead row to
+            # exist (it reads by lead_id), hence it runs right after the insert.
+            # It is fail-open: a premium miss keeps the website email, so
+            # "deliverable" = any terminal state except no-MX / no-domain / PEC
+            # / lead-not-found. A lead with NO deliverable contact is parked as
+            # `to_call` (phone follow-up) and does NOT count toward the cap.
+            #
+            # When the flag is off, behaviour is unchanged: every insert counts,
+            # no inline resolution (outreach stays on the website email).
+            counted = True
+            if apply_premium and new_lead_id:
                 try:
-                    await enqueue(
-                        "contact_enrichment_task",
-                        {"tenant_id": ctx.tenant_id, "lead_id": new_lead_id},
-                        job_id=f"contact-enrich:{ctx.tenant_id}:{new_lead_id}",
+                    outcome = await resolve_best_contact(
+                        tenant_id=ctx.tenant_id, lead_id=new_lead_id
                     )
-                except Exception as exc:  # noqa: BLE001 — enqueue best-effort
-                    log.warning("level6_promote.enqueue_enrich_failed", err=type(exc).__name__)
+                except Exception as exc:  # noqa: BLE001 — the waterfall is
+                    # fail-open: a transient Hunter/NeverBounce/DNS error must
+                    # not strand the lead. Keep it (website email) and count it.
+                    log.warning(
+                        "level6_promote.sync_waterfall_error",
+                        lead_id=new_lead_id,
+                        err=type(exc).__name__,
+                    )
+                    outcome = None
+                if outcome is not None and not _contact_is_deliverable(outcome):
+                    # No deliverable address after the full waterfall → not
+                    # contact-validated. Park for phone follow-up; don't count.
+                    sb.table("leads").update({"pipeline_status": "to_call"}).eq(
+                        "id", new_lead_id
+                    ).eq("tenant_id", ctx.tenant_id).execute()
+                    log.info(
+                        "level6_promote.not_contact_validated",
+                        lead_id=new_lead_id,
+                        status=outcome.status,
+                        reason=outcome.reason,
+                    )
+                    counted = False
+            if counted:
+                inserted += 1
         except Exception as exc:  # noqa: BLE001
             log.warning(
                 "level6_promote.exception",
