@@ -66,6 +66,14 @@ _DEPLETED_NEW_THRESHOLD = 2
 # normal scan.
 _MAX_CALLS_PER_RUN_FACTOR = 2
 
+# Skip the (slow, Places-heavy) discovery phase when the pool already holds at
+# least this many un-processed candidates. Discovery is a "top up the pool when
+# it runs low" step — running it on every funnel pass blocks consumption (the
+# part that actually produces leads) behind a long Places-search phase and
+# burns API budget. With a deep backlog there's nothing to gain from
+# discovering more right now; consume what's already there first.
+_SKIP_DISCOVERY_BACKLOG = 200
+
 
 def _parse_ts(value: Any) -> datetime:
     """Parse an ISO timestamp (str or datetime) into an aware datetime."""
@@ -107,6 +115,36 @@ async def run_level1_places(ctx: FunnelV3Context) -> dict[str, Any]:
     ``zones_total``, ``zones_skipped_fresh``, ``places_calls``.
     """
     sb = get_service_client()
+
+    # 0) Backlog short-circuit. If the pool already has plenty of un-processed
+    #    candidates, SKIP discovery so this run goes straight to consuming them
+    #    (the L2-L6 phase that produces leads) instead of stalling for minutes
+    #    in the Places-search phase. Discovery resumes automatically once
+    #    consumption has drained the backlog below the threshold.
+    backlog_q = (
+        sb.table("scan_candidates")
+        .select("id", count="exact")
+        .eq("tenant_id", ctx.tenant_id)
+        .is_("processed_at", "null")
+        .not_.is_("google_place_id", "null")
+    )
+    if ctx.province_codes:
+        backlog_q = backlog_q.in_("province_code", ctx.province_codes)
+    backlog = (backlog_q.limit(1).execute()).count or 0
+    if backlog >= _SKIP_DISCOVERY_BACKLOG:
+        log.info(
+            "level1_places.skip_discovery_backlog_deep",
+            tenant_id=ctx.tenant_id,
+            backlog=backlog,
+        )
+        return {
+            "discovered": 0,
+            "zones_total": 0,
+            "zones_skipped_fresh": 0,
+            "zones_dropped_no_config": 0,
+            "places_calls": 0,
+            "skipped_backlog_deep": backlog,
+        }
 
     # 1) Load the zones of this scan's territory.
     zq = (

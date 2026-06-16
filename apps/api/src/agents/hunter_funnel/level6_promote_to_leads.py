@@ -33,6 +33,7 @@ the flag is off, promotion keeps the website email and counts every insert.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import re
 import secrets
@@ -445,12 +446,18 @@ async def run_level6_promote_to_leads(
             counted = True
             if apply_premium and new_lead_id:
                 try:
-                    outcome = await resolve_best_contact(
-                        tenant_id=ctx.tenant_id, lead_id=new_lead_id
+                    # Hard-cap each waterfall so one slow/hanging Hunter /
+                    # NeverBounce / DNS call can't stall the whole L6 loop (and
+                    # with it the funnel run — observed: a run wedged for an
+                    # hour with 0 candidates analysed). On timeout the except
+                    # keeps the lead on its website email and counts it.
+                    outcome = await asyncio.wait_for(
+                        resolve_best_contact(tenant_id=ctx.tenant_id, lead_id=new_lead_id),
+                        timeout=20.0,
                     )
                 except Exception as exc:  # noqa: BLE001 — the waterfall is
-                    # fail-open: a transient Hunter/NeverBounce/DNS error must
-                    # not strand the lead. Keep it (website email) and count it.
+                    # fail-open: a transient/timed-out Hunter/NeverBounce/DNS
+                    # error must not strand the lead. Keep it + count it.
                     log.warning(
                         "level6_promote.sync_waterfall_error",
                         lead_id=new_lead_id,
