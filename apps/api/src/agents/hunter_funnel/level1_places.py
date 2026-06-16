@@ -47,12 +47,13 @@ from .types_v3 import FunnelV3Context, PlaceCandidateRecord
 
 log = get_logger(__name__)
 
-# A zone discovered within this many days is not re-queried on Places —
-# it almost certainly has no new businesses yet, and re-querying just
-# burns API budget. New businesses open slowly, so a quarterly window
-# is enough for a "sempre attiva" scan to pick them up without re-paying
-# Places every couple of weeks for nothing.
-_FRESHNESS_DAYS = 90
+# A zone discovered within this many days is not re-queried on Places.
+# 90 days (a quarterly window) starved a daily "sempre attiva" trial: once
+# the grid was touched, every zone was frozen for 3 months and discovery
+# went dry. A ~3-week window lets the scan re-mine the territory — picking
+# up newly-listed businesses AND the long tail surfaced by the additive
+# keyword pass (places_discovery) — without re-paying Places too often.
+_FRESHNESS_DAYS = 21
 
 # On a re-discovery, a zone that yields this few NEW candidates is
 # considered tapped out and flagged `depleted` (skipped from then on).
