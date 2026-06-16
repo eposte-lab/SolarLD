@@ -334,7 +334,12 @@ async def request_appointment(slug: str, payload: AppointmentRequest) -> dict[st
     )
     tenant_data = (tenant_row.data or {}) if tenant_row else {}
 
-    moderated = is_tenant_moderated(sb, tenant_id)
+    # Only un-promoted contatti on a moderated tenant are still held for
+    # operator review. Once a lead is released (operator_released_at set —
+    # which now happens automatically for auto-release tenants), its
+    # appointment follows the normal direct flow: email + event + status +
+    # webhook, visible to the tenant with no approval step.
+    moderated = is_tenant_moderated(sb, tenant_id) and not lead.get("operator_released_at")
 
     # ── Moderated trial tenant: HOLD, surface nothing to the tenant ──
     if moderated:
@@ -1472,7 +1477,8 @@ def _load_lead_by_slug(sb: Any, slug: str, *, allow_expired: bool = False) -> di
         .select(
             "id, tenant_id, pipeline_status, outreach_sent_at, "
             "outreach_opened_at, outreach_clicked_at, "
-            "dashboard_visited_at, whatsapp_initiated_at, source"
+            "dashboard_visited_at, whatsapp_initiated_at, source, "
+            "operator_released_at"
         )
         .eq("public_slug", slug)
         .limit(1)
