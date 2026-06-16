@@ -42,9 +42,23 @@ export default async function ContattoPage({ params }: PageProps) {
     <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-5 py-10">
       <VisitTracker slug={slug} />
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <p className="mb-4 text-lg font-extrabold tracking-tight" style={{ color: brandColor }}>
-          {tenantName}
-        </p>
+        {tenant?.brand_logo_url ? (
+          <div className="mb-5 flex justify-center">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={tenant.brand_logo_url}
+              alt={tenantName}
+              className="h-12 w-auto max-w-[80%] object-contain"
+            />
+          </div>
+        ) : (
+          <p
+            className="mb-4 text-center text-lg font-extrabold tracking-tight"
+            style={{ color: brandColor }}
+          >
+            {tenantName}
+          </p>
+        )}
         <h1 className="text-2xl font-extrabold leading-tight tracking-tight text-slate-900">
           Richiedi di essere ricontattato
         </h1>
