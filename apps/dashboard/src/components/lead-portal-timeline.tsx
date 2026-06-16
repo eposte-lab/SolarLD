@@ -21,6 +21,7 @@ import {
   CheckCircle2,
   CircleDot,
   FileImage,
+  FilePen,
   Inbox,
   LineChart,
   Mail,
@@ -112,6 +113,11 @@ const EVENT_STYLES: Record<string, EventStyle> = {
     label: 'Ha iniziato a compilare il form',
     tone: 'bg-tertiary-container text-on-tertiary-container',
   },
+  'portal.contact_abandoned': {
+    icon: FilePen,
+    label: 'Ha compilato il form senza inviarlo',
+    tone: 'bg-secondary-container text-on-secondary-container',
+  },
   'portal.appointment_click': {
     icon: CalendarCheck,
     label: 'Ha cliccato «Contattaci subito»',
@@ -138,6 +144,19 @@ const FALLBACK_STYLE: EventStyle = {
 function formatEventDetail(row: PortalEventRow): string | null {
   const md = row.metadata;
   if (!md || typeof md !== 'object') return null;
+  // Abandoned contact form — surface the partial data the lead typed +
+  // whether they had ticked GDPR consent at the moment they left.
+  if (row.event_kind === 'portal.contact_abandoned') {
+    const m = md as Record<string, unknown>;
+    const str = (k: string) => (typeof m[k] === 'string' ? (m[k] as string).trim() : '');
+    const parts: string[] = [];
+    for (const k of ['contact_name', 'phone', 'email', 'preferred_time', 'notes']) {
+      const v = str(k);
+      if (v) parts.push(v);
+    }
+    parts.push(m.gdpr_consent === true ? 'consenso ✓' : 'consenso ✗');
+    return parts.join(' · ');
+  }
   // A few well-known metadata fields we surface inline.
   if (row.event_kind === 'portal.bolletta_uploaded') {
     const kwh = (md as { kwh?: number }).kwh;

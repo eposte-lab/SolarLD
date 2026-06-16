@@ -34,22 +34,63 @@ export function AppointmentForm({
   const accent = accentColor || brandColor;
   const [status, setStatus] = useState<Status>('idle');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  // One-shot guards: ``contact_view`` fires once per mount, and
-  // ``contact_started`` fires only on the first interaction with a field
-  // so a hesitant lead who typed and left is still distinguishable from
-  // one who never touched the form.
+  // Guards: ``contact_view`` fires once per mount; ``contact_started``
+  // once on the first keystroke; ``dirtyRef`` marks unsent edits so the
+  // abandon-capture sends the LATEST draft (not a stale one) and doesn't
+  // spam on every tab switch; ``submittedRef`` suppresses the abandon
+  // capture once the form was actually sent.
   const startedRef = useRef(false);
+  const dirtyRef = useRef(false);
+  const submittedRef = useRef(false);
+  const formRef = useRef<HTMLFormElement>(null);
 
   useEffect(() => {
     if (!trackContactView) return;
     postPortalEvent(slug, 'portal.contact_view');
   }, [slug, trackContactView]);
 
-  function handleFirstInput() {
+  function handleInput() {
+    dirtyRef.current = true;
     if (startedRef.current) return;
     startedRef.current = true;
     postPortalEvent(slug, 'portal.contact_started');
   }
+
+  // Abandon-capture: if the lead typed something and then leaves WITHOUT
+  // submitting, beacon the partial values + the GDPR-consent state.
+  //
+  // ⚠️ GDPR: this persists personal data the visitor did NOT submit. The
+  // operator (data controller) explicitly opted into collecting abandoned
+  // drafts as lead intelligence. ``gdpr_consent`` records whether the
+  // consent box was ticked at the moment they left, so the controller can
+  // decide whether follow-up on this draft is lawful.
+  useEffect(() => {
+    const captureDraft = () => {
+      if (submittedRef.current || !startedRef.current || !dirtyRef.current) return;
+      const form = formRef.current;
+      if (!form) return;
+      dirtyRef.current = false;
+      const data = new FormData(form);
+      const val = (k: string) => String(data.get(k) ?? '').trim();
+      postPortalEvent(slug, 'portal.contact_abandoned', {
+        contact_name: val('contact_name'),
+        phone: val('phone'),
+        email: val('email'),
+        preferred_time: val('preferred_time'),
+        notes: val('notes'),
+        gdpr_consent: Boolean(data.get('gdpr_consent')),
+      });
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') captureDraft();
+    };
+    window.addEventListener('pagehide', captureDraft);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('pagehide', captureDraft);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [slug]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -99,6 +140,8 @@ export function AppointmentForm({
         const text = await res.text();
         throw new Error(text || `HTTP ${res.status}`);
       }
+      submittedRef.current = true;
+      dirtyRef.current = false;
       setStatus('success');
       form.reset();
 
@@ -128,7 +171,7 @@ export function AppointmentForm({
     privacyPolicyUrl || `/privacy?slug=${encodeURIComponent(slug)}`;
 
   return (
-    <form onSubmit={handleSubmit} onInput={handleFirstInput} className="mt-4 space-y-3">
+    <form ref={formRef} onSubmit={handleSubmit} onInput={handleInput} className="mt-4 space-y-3">
       <input
         name="contact_name"
         placeholder="Nome e cognome"

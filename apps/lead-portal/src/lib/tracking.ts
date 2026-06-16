@@ -56,7 +56,10 @@ export type PortalEventKind =
   // (dalla CTA dei follow-up o dal dossier), inizia a compilarlo, e
   // clicca "Contattaci subito" (= portal.appointment_click, già pesato).
   | 'portal.contact_view'
-  | 'portal.contact_started';
+  | 'portal.contact_started'
+  // Fired on page-leave when the lead typed into the contact form but did
+  // NOT submit — carries the partial values + GDPR-consent state.
+  | 'portal.contact_abandoned';
 
 const SESSION_STORAGE_KEY = 'solarLead.portal.session_id';
 

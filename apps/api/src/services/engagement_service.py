@@ -269,7 +269,9 @@ def _accumulate_event(stats: LeadEngagementStats, row: dict[str, Any]) -> None:
         stats.video_fullscreen += 1
     elif kind == "portal.contact_view":
         stats.contact_view += 1
-    elif kind == "portal.contact_started":
+    elif kind in ("portal.contact_started", "portal.contact_abandoned"):
+        # Abandoned-with-data is the same "began filling" signal — count it
+        # so a lost ``contact_started`` beacon doesn't drop the +12.
         stats.contact_started += 1
     elif kind == "portal.email_reply_click":
         stats.email_reply_click += 1
