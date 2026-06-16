@@ -76,7 +76,6 @@ from ..services.google_solar_service import (
 from ..services.image_alignment_service import align_after_to_before
 from ..services.osm_building_service import find_nearest_building
 from ..services.remotion_service import (
-    RemotionError,
     RenderTransitionInput,
     render_transition,
 )
@@ -123,6 +122,45 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
     name = "agent.creative"
 
     async def execute(self, payload: CreativeInput) -> CreativeOutput:
+        """Silent-failure backstop around the real render pipeline.
+
+        ``_execute_impl`` has graceful per-step handlers, but a few regions
+        run un-wrapped: the lead/roof/subject loads, the tenant ``.single()``
+        fetch (raises on 0/multiple rows), ``compute_roi``, and — most
+        damaging — the final ``leads`` UPDATE itself. If any of those raise,
+        ``AgentBase.run`` re-raises, arq eventually drops the job, and the
+        lead is left ``rendering_image_url=NULL`` AND
+        ``creative_skipped_reason=NULL`` — silently stuck behind the
+        ``render_not_ready`` send gate and INVISIBLE to the
+        regenerate-failed-renders route. Convert any unexpected escape into a
+        recorded skip so the lead is always visible + re-renderable.
+        """
+        try:
+            return await self._execute_impl(payload)
+        except Exception as exc:  # noqa: BLE001 — last-resort backstop
+            reason = f"render_error:{type(exc).__name__}"
+            log.exception(
+                "creative.execute_failed",
+                lead_id=payload.lead_id,
+                tenant_id=payload.tenant_id,
+                reason=reason,
+            )
+            # Best-effort: only stamp leads that genuinely have no image yet,
+            # so a failure AFTER a successful image-persist can't retro-mark a
+            # rendered lead as skipped.
+            try:
+                get_service_client().table("leads").update({"creative_skipped_reason": reason}).eq(
+                    "id", payload.lead_id
+                ).eq("tenant_id", payload.tenant_id).is_("rendering_image_url", "null").execute()
+            except Exception as write_exc:  # noqa: BLE001
+                log.warning(
+                    "creative.execute_failure_mark_failed",
+                    lead_id=payload.lead_id,
+                    err=str(write_exc)[:200],
+                )
+            return CreativeOutput(lead_id=payload.lead_id, skipped=True, reason=reason)
+
+    async def _execute_impl(self, payload: CreativeInput) -> CreativeOutput:
         sb = get_service_client()
 
         # 1) Load lead, then the roof + subject + tenant branding in parallel-ish
@@ -163,11 +201,21 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
 
         # 3) ROI first — it's pure and independent of the image path, so we
         # can persist useful data even if the rendering step is skipped.
-        roi = compute_roi(
-            estimated_kwp=roof.get("estimated_kwp"),
-            estimated_yearly_kwh=roof.get("estimated_yearly_kwh"),
-            subject_type=subject.get("type") or "unknown",
-        )
+        try:
+            roi = compute_roi(
+                estimated_kwp=roof.get("estimated_kwp"),
+                estimated_yearly_kwh=roof.get("estimated_yearly_kwh"),
+                subject_type=subject.get("type") or "unknown",
+            )
+        except Exception as exc:  # noqa: BLE001 — ROI is best-effort; a math
+            # fault on malformed roof numbers must not crash the render. The
+            # image can still be produced; downstream already handles roi=None.
+            log.warning(
+                "creative.roi_compute_failed",
+                lead_id=payload.lead_id,
+                err=str(exc)[:160],
+            )
+            roi = None
         roi_jsonb = roi.to_jsonb() if roi else {}
 
         # 4) Fetch Solar API data + real aerial → AI-paint photoreal panels.
@@ -607,6 +655,26 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
                     status="error",
                     metadata={"lead_id": payload.lead_id, "err": err_msg[:80]},
                 )
+            except Exception as exc:  # noqa: BLE001 — silent-failure backstop.
+                # The branches above only catch the *classified* render
+                # failures. Anything else inside this block — a Supabase
+                # Storage upload_bytes error, a non-AiPaintError from the
+                # paint engine, an align/normalize/bake fault — used to
+                # ESCAPE here: AgentBase.run re-raised it, arq retried and
+                # gave up, and the lead was left rendering_image_url=NULL
+                # AND creative_skipped_reason=NULL. That silent NULL/NULL
+                # state is invisible to the operator and excluded from the
+                # regenerate-failed-renders route, so the lead stayed stuck
+                # behind the render_not_ready send gate forever. Record a
+                # reason and fall through to persist instead of propagating.
+                err_msg = str(exc).replace("\n", " ")[:160]
+                skipped_reason = f"render_unexpected:{type(exc).__name__}"
+                log.warning(
+                    "creative.render_unexpected_error",
+                    lead_id=payload.lead_id,
+                    err_type=type(exc).__name__,
+                    err=err_msg,
+                )
 
         # 6) Video + GIF via Remotion sidecar (Sprint 5). We only try
         # this when both a before and an after exist — the transition
@@ -662,7 +730,11 @@ class CreativeAgent(AgentBase[CreativeInput, CreativeOutput]):
                     mp4=video_url,
                     gif=gif_url,
                 )
-            except (RemotionError, httpx.HTTPError) as exc:
+            except Exception as exc:  # noqa: BLE001 — video is a non-fatal step.
+                # The after-image is already uploaded; a generic sidecar fault
+                # (not only RemotionError/httpx — e.g. a ValidationError building
+                # RenderTransitionInput) must still persist the image with a
+                # diagnostic reason instead of propagating into a silent NULL.
                 gif_fallback_reason = "remotion_failed"
                 # Capture exception class name explicitly because some httpx
                 # exceptions (e.g. ReadTimeout) have empty str() representations
