@@ -181,12 +181,20 @@ export async function listContatti(opts: {
   const premiumCandIds = new Set<string>();
   const premiumEmailByCand = new Map<string, string>();
   if (roofIds.length > 0) {
+    // Fetch the tenant's leads (RLS-scoped) WITHOUT a `.in('roof_id', roofIds)`
+    // filter. With hundreds of accepted candidates that IN list blows past the
+    // request-URL length limit → PostgREST drops the request → leadRows comes
+    // back empty → every candidate maps to no lead → the table renders EMPTY
+    // even when there ARE qualified, promoted contacts (the "nessuna idonea"
+    // false alarm that appeared once the dataset grew). The candidate→lead
+    // match below is by subjects.raw_data.scan_candidate_id, so fetching all
+    // leads and building the full map is correct (bounded by the lead-pool cap).
     const { data: leadRows } = await sb
       .from('leads')
       .select(
         'id, pipeline_status, subjects(raw_data, decision_maker_email_source, decision_maker_email)',
       )
-      .in('roof_id', roofIds);
+      .limit(10000);
     type SubjectJoin = {
       raw_data: Record<string, unknown> | null;
       decision_maker_email_source: string | null;
