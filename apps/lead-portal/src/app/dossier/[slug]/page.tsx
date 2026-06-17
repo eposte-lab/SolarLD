@@ -11,6 +11,7 @@ import { HeroStat } from '@/components/HeroStat';
 import { fetchPublicLead, leadHeroCopy } from '@/lib/api';
 
 import { AppointmentForm } from './AppointmentForm';
+import { ExitIntentModal } from './ExitIntentModal';
 import { PortalTracker } from './PortalTracker';
 import { VisitTracker } from './VisitTracker';
 
@@ -160,6 +161,16 @@ export default async function LeadPage({ params }: PageProps) {
     <main className="min-h-screen bg-surface text-on-surface">
       <VisitTracker slug={slug} />
       <PortalTracker slug={slug} />
+      <ExitIntentModal
+        slug={slug}
+        brandColor={brandColor}
+        accentColor={brandAccent}
+        tenantName={tenantName}
+        privacyPolicyUrl={tenant?.privacy_policy_url}
+        alreadyConverted={['appointment', 'closed_won', 'closed_lost'].includes(
+          lead.pipeline_status,
+        )}
+      />
 
       {/* ============== Header ============== */}
       <header className="bg-surface-container">

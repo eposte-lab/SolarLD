@@ -999,6 +999,9 @@ _ALLOWED_EVENT_KINDS: frozenset[str] = frozenset(
         "portal.contact_view",  # opened the contact form (follow-up CTA landing)
         "portal.contact_started",  # typed the first character into the form
         "portal.contact_abandoned",  # typed but left without submitting (partial data + consent in metadata)
+        "portal.exit_intent_shown",  # exit-intent popup surfaced
+        "portal.exit_intent_dismissed",  # exit-intent popup closed without converting
+        "portal.exit_intent_submitted",  # exit-intent mini-form sent
     }
 )
 
@@ -1038,6 +1041,10 @@ class PortalTrackEvent(BaseModel):
         "portal.contact_view",
         "portal.contact_started",
         "portal.contact_abandoned",
+        # Exit-intent popup
+        "portal.exit_intent_shown",
+        "portal.exit_intent_dismissed",
+        "portal.exit_intent_submitted",
     ]
     metadata: dict[str, Any] = Field(default_factory=dict)
     elapsed_ms: int | None = Field(default=None, ge=0, le=24 * 60 * 60 * 1000)

@@ -59,7 +59,12 @@ export type PortalEventKind =
   | 'portal.contact_started'
   // Fired on page-leave when the lead typed into the contact form but did
   // NOT submit — carries the partial values + GDPR-consent state.
-  | 'portal.contact_abandoned';
+  | 'portal.contact_abandoned'
+  // Exit-intent popup: shown when the visitor is about to leave, dismissed
+  // when closed, submitted when the mini contact-form is sent.
+  | 'portal.exit_intent_shown'
+  | 'portal.exit_intent_dismissed'
+  | 'portal.exit_intent_submitted';
 
 const SESSION_STORAGE_KEY = 'solarLead.portal.session_id';
 
