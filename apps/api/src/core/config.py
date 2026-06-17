@@ -72,6 +72,15 @@ class Settings(BaseSettings):
     anthropic_haiku_model: str = "claude-haiku-4-5"
     replicate_api_token: str = ""
 
+    # Client-side throttle on Replicate prediction CREATES (per-account limit).
+    # Replicate rate-limits "creating predictions" per-account; this account has
+    # been reduced to ~6/min, burst 1, so firing the render pipeline at arq
+    # concurrency self-inflicted 429s (mass lead.render_skipped → starved sends,
+    # 2026-06-17). ``services/replicate_throttle`` serialises + spaces every
+    # create POST to stay at/under this rate. Raise it (via env
+    # REPLICATE_CREATES_PER_MIN) when the Replicate plan/limit is restored.
+    replicate_creates_per_min: int = 6
+
     # When set, the CreativeAgent skips ALL Replicate-dependent steps
     # (nano-banana panel paint AND Kling 1.6-Pro video transition) and
     # falls back to a fully-local rendering: PIL-geometric panel

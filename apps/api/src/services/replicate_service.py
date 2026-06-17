@@ -37,6 +37,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 
 from ..core.config import settings
 from ..core.logging import get_logger
+from .replicate_throttle import acquire_create_slot
 
 log = get_logger(__name__)
 
@@ -172,6 +173,9 @@ async def create_prediction(
     if client is None:
         client = httpx.AsyncClient(timeout=30.0)
     try:
+        # Stay under the per-account "creating predictions" rate limit so we
+        # don't self-inflict 429s by bursting the render batch.
+        await acquire_create_slot()
         resp = await client.post(
             f"{REPLICATE_API_BASE}/predictions",
             headers=_auth_headers(),

@@ -29,6 +29,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 
 from ..core.config import settings
 from ..core.logging import get_logger
+from .replicate_throttle import acquire_create_slot
 
 log = get_logger(__name__)
 
@@ -200,6 +201,9 @@ async def _run_nano_banana(
     )
 
     try:
+        # Stay under the per-account "creating predictions" rate limit so we
+        # don't self-inflict 429s by bursting the render batch.
+        await acquire_create_slot()
         resp = await client.post(
             create_url,
             headers={**_auth_headers(), "Prefer": "wait=10"},
@@ -213,6 +217,7 @@ async def _run_nano_banana(
                     retry_after_s = float(ra_header)
             log.warning("ai_paint.rate_limited", retry_after_s=retry_after_s)
             await asyncio.sleep(min(retry_after_s, 60.0))
+            await acquire_create_slot()
             resp = await client.post(
                 create_url,
                 headers={**_auth_headers(), "Prefer": "wait=10"},
