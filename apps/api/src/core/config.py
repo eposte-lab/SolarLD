@@ -119,6 +119,23 @@ class Settings(BaseSettings):
     # google_solar_api_key is not configured; real key always wins.
     google_solar_mock_mode: bool = False
 
+    # ---- Realistic roof sizing (anti over-placement) ----
+    # Google's solarPanels list is its MAXIMUM array — on complex urban roofs it
+    # fills every sliver/structure (e.g. 857 panels across 102 segments), which
+    # inflates kWp/€ and over-promises. When enabled, the parsed RoofInsight is
+    # trimmed to the genuinely installable roof (drop slivers + steep faces) and
+    # estimated_kwp / estimated_yearly_kwh / panels are recomputed from the kept
+    # subset — so layout AND quoted numbers stay honest. Tunable; fail-open.
+    realistic_sizing_enabled: bool = True
+    # Keep a roof segment only if its panel count is at least this FRACTION of
+    # the largest segment's — i.e. keep the main roof planes, drop the scattered
+    # fill Google spreads across the whole complex. 0.30 ≈ "main roof", trims
+    # ~23% of panels on average for Total Trade (the over-placement cases are the
+    # complex multi-segment roofs; simple roofs are untouched).
+    realistic_sizing_min_segment_fraction: float = 0.30
+    # Drop a roof segment steeper than this (likely a facade/wall, not a roof).
+    realistic_sizing_max_pitch_deg: float = 50.0
+
     # ---- Creative rendering engine ----
     # "google_solar" (default, only active path): fetch RGB aerial from
     #   Google Solar dataLayers + draw panel geometry deterministically
