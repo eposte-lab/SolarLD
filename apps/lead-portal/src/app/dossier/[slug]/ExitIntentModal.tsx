@@ -54,6 +54,9 @@ export function ExitIntentModal({
   const [open, setOpen] = useState(false);
   const [status, setStatus] = useState<Status>('idle');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  // Email the prospect left (if any) — drives the "proposta inviata via email"
+  // line in the success state.
+  const [resentEmail, setResentEmail] = useState<string | null>(null);
   const shownRef = useRef(false);
   const triggerRef = useRef<string>('desktop_mouseout');
 
@@ -144,8 +147,20 @@ export function ExitIntentModal({
     }
     const contact_name = String(data.get('contact_name') ?? '').trim();
     const phone = String(data.get('phone') ?? '').trim();
+    // Email is OPTIONAL: phone alone is enough to be recontacted. When present,
+    // the backend re-sends the exact proposal to it automatically.
+    const email = String(data.get('email') ?? '').trim() || null;
     if (!contact_name || !phone) {
       setErrorMsg('Nome e telefono sono obbligatori.');
+      setStatus('error');
+      return;
+    }
+    // Email is optional, but if present it must satisfy the backend regex —
+    // otherwise the whole 202 (including the phone recontact) 422s. Mirror the
+    // server pattern here so a typo surfaces a clear message instead of
+    // silently sinking the submission.
+    if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+      setErrorMsg('L’email inserita non è valida. Correggila o lasciala vuota.');
       setStatus('error');
       return;
     }
@@ -159,12 +174,16 @@ export function ExitIntentModal({
       await submitAppointment(slug, {
         contact_name,
         phone,
-        email: null,
+        email,
         preferred_time: null,
         notes: null,
       });
       setFlag(CLOSED_KEY);
-      postPortalEvent(slug, 'portal.exit_intent_submitted', { trigger: triggerRef.current });
+      setResentEmail(email);
+      postPortalEvent(slug, 'portal.exit_intent_submitted', {
+        trigger: triggerRef.current,
+        with_email: Boolean(email),
+      });
       setStatus('success');
       window.setTimeout(() => setOpen(false), 2400);
     } catch (err) {
@@ -208,6 +227,12 @@ export function ExitIntentModal({
             <p className="mt-2 text-sm text-on-surface-variant">
               Ti richiamiamo a breve con l’analisi del tuo risparmio.
             </p>
+            {resentEmail ? (
+              <p className="mt-2 text-sm text-on-surface-variant">
+                Ti abbiamo inviato la proposta anche via email a{' '}
+                <span className="font-semibold text-on-surface">{resentEmail}</span>.
+              </p>
+            ) : null}
           </div>
         ) : (
           <>
@@ -225,7 +250,8 @@ export function ExitIntentModal({
             </h2>
             <p className="mt-2 text-sm text-on-surface-variant">
               Lascia nome e numero: un tecnico di {tenantName} ti richiama con l’analisi
-              completa del risparmio sulla tua sede. Bastano due dati.
+              completa del risparmio sulla tua sede. Vuoi anche la proposta scritta?
+              Aggiungi l’email e te la inviamo subito.
             </p>
 
             <form onSubmit={handleSubmit} className="mt-4 space-y-3">
@@ -242,6 +268,13 @@ export function ExitIntentModal({
                 placeholder="Telefono"
                 required
                 maxLength={40}
+                className="w-full rounded-md border border-slate-300 px-3 py-2.5 text-sm focus:border-slate-500 focus:outline-none"
+              />
+              <input
+                name="email"
+                type="email"
+                placeholder="Email (opzionale — ricevi subito la proposta)"
+                maxLength={200}
                 className="w-full rounded-md border border-slate-300 px-3 py-2.5 text-sm focus:border-slate-500 focus:outline-none"
               />
 
