@@ -83,7 +83,9 @@ async def test_pick_runs_even_when_alert_emission_raises(monkeypatch: Any) -> No
     monkeypatch.setattr(
         dp,
         "get_service_client",
-        lambda: _FakeSb({"ready_to_send_count": 150, "expiring_within_3d": 0, "needs_refill": False}),
+        lambda: _FakeSb(
+            {"ready_to_send_count": 150, "expiring_within_3d": 0, "needs_refill": False}
+        ),
     )
 
     async def _boom(**_k: Any) -> None:
