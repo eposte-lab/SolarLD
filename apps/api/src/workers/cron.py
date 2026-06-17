@@ -446,6 +446,30 @@ async def daily_pipeline_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, **{k: v for k, v in result.items() if k != "details"}}
 
 
+async def daily_pipeline_afternoon_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
+    """Afternoon catch-up for the daily send — 14:30 Rome (12:30 UTC).
+
+    A second pass of the SAME cap-aware orchestrator as the 08:30 morning
+    run. It exists as a safety net: if the morning under-delivered — a
+    malfunction, a slow render queue, or it simply didn't get through the
+    whole batch inside the window — this tops the day up to
+    ``daily_send_cap`` so the leads still go out the same day. Because the
+    orchestrator's pick is cap-aware (it subtracts what was already picked
+    today), this is a harmless no-op on a normal day where the morning
+    already shipped the full cap. The non-force ``outreach_task`` it enqueues
+    respects the 14-18 send window, so the catch-up lands in the afternoon.
+    """
+    from ..services.daily_pipeline_orchestrator import run_daily_orchestrator
+
+    result = await run_daily_orchestrator()
+    log.info(
+        "cron.daily_pipeline_afternoon.done",
+        tenants_processed=result.get("tenants_processed"),
+        tenants_failed=result.get("tenants_failed"),
+    )
+    return {"ok": True, "pass": "afternoon", **{k: v for k, v in result.items() if k != "details"}}
+
+
 async def scan_jobs_dispatcher_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
     """Dispatcher per la coda scan_jobs (PR #refactor).
 

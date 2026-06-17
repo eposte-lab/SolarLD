@@ -171,8 +171,17 @@ async def process_tenant_daily_send(tenant: dict[str, Any]) -> dict[str, Any]:
             await emit_atoka_failure_alert(tenant_id=tenant_id, err=str(exc))
             refill_outcome = {"status": "failed", "error": str(exc)}
 
-    # Pick up to daily_send_cap leads (atomic FIFO).
-    picked_ids = pick_from_warehouse(tenant_id=tenant_id, n=policy.daily_send_cap)
+    # Cap-aware pick (atomic FIFO). ``daily_send_cap`` is a DAILY ceiling on
+    # how many leads we consume, NOT a per-run quota. This orchestrator runs
+    # twice a day — the 08:30 morning primary and the 14:30 afternoon
+    # catch-up — so the second pass must only TOP UP to the cap, never pick a
+    # fresh full batch on top of the first (which would silently double the
+    # day's volume and burn domain reputation). Count what was already picked
+    # today (UTC) and request only the remainder; the afternoon run is a no-op
+    # when the morning already shipped the full cap.
+    picked_today = _count_picked_today(sb, tenant_id)
+    remaining_cap = max(0, policy.daily_send_cap - picked_today)
+    picked_ids = pick_from_warehouse(tenant_id=tenant_id, n=remaining_cap)
 
     # Enqueue per-lead creative + outreach. The pick has already moved the
     # leads to `picked`. creative_task renders the assets; it does NOT chain
@@ -201,6 +210,8 @@ async def process_tenant_daily_send(tenant: dict[str, Any]) -> dict[str, Any]:
         "needed_refill": needs_refill,
         "refill": refill_outcome,
         "picked": len(picked_ids),
+        "picked_today_before": picked_today,
+        "remaining_cap": remaining_cap,
         "cap": policy.daily_send_cap,
     }
 
@@ -231,6 +242,32 @@ def pick_from_warehouse(*, tenant_id: str, n: int) -> list[str]:
         if rid:
             out.append(str(rid))
     return out
+
+
+def _count_picked_today(sb: Any, tenant_id: str) -> int:
+    """How many leads this tenant already picked today (UTC midnight → now).
+
+    Makes the daily pick cap-aware so the 14:30 afternoon catch-up run only
+    tops up to ``daily_send_cap`` instead of picking a second full batch.
+    Counts by ``picked_at`` so leads that have since moved on (sent,
+    blacklisted, …) still count against today's consumption — the cap is on
+    how many we *commit to* per day, not how many remain in-flight. On any
+    read error we fail OPEN (return 0 → behave like the legacy full pick)
+    rather than silently skipping the send.
+    """
+    day_start = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    try:
+        res = (
+            sb.table("leads")
+            .select("id", count="exact")
+            .eq("tenant_id", tenant_id)
+            .gte("picked_at", day_start.isoformat())
+            .execute()
+        )
+        return int(res.count or 0)
+    except Exception as exc:  # noqa: BLE001 — telemetry/count must not block the pick
+        log.warning("daily_pipeline.picked_today_count_failed", tenant_id=tenant_id, err=str(exc))
+        return 0
 
 
 # ----------------------------------------------------------------------

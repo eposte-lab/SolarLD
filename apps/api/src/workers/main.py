@@ -35,6 +35,7 @@ from ..services.tenant_config_service import get_for_tenant as get_tenant_config
 from .cron import (
     cluster_ab_evaluation_cron,
     daily_digest_cron,
+    daily_pipeline_afternoon_cron,
     daily_pipeline_cron,
     deliverability_hourly_cron,
     engagement_followup_cron,
@@ -772,6 +773,12 @@ class WorkerSettings:
         # was skipped with outside_send_window. (DST note: in winter/CET this
         # is 07:30 Rome — revisit if the trial runs past late October.)
         cron(daily_pipeline_cron, hour=6, minute=30, run_at_startup=False),
+        # Afternoon catch-up: 12:30 UTC = 14:30 Rome (CEST). Cap-aware, so it's
+        # a no-op when the morning already shipped the full daily cap; it only
+        # tops up after a morning under-delivery. (DST note: in winter/CET this
+        # is 13:30 Rome — both land inside the 14-18 window only in summer;
+        # revisit alongside the morning run if the trial runs past late October.)
+        cron(daily_pipeline_afternoon_cron, hour=12, minute=30, run_at_startup=False),
         cron(send_time_rollup_cron, hour=3, minute=45, run_at_startup=False),
         cron(engagement_rollup_cron, hour=4, minute=0, run_at_startup=False),
         # Task 14: sync Smartlead warm-up health scores before the morning
