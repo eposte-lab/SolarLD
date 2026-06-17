@@ -2049,9 +2049,9 @@ async def backfill_derivations(
 @router.post("/backfill-realistic-sizing")
 async def backfill_realistic_sizing(
     ctx: CurrentUser,
-    target: Annotated[Literal["ready_to_send", "all"], Query()] = "ready_to_send",
-    dry_run: Annotated[bool, Query()] = True,
-    limit: Annotated[int, Query(ge=1, le=2000)] = 500,
+    target: Literal["ready_to_send", "all"] = Query(default="ready_to_send"),
+    dry_run: bool = Query(default=True),
+    limit: int = Query(default=500, ge=1, le=2000),
 ) -> dict[str, object]:
     """Recompute this tenant's stored sizing under the realistic-sizing trim.
 
