@@ -10,6 +10,8 @@ from src.core.config import settings
 from src.services.google_solar_service import RoofInsight, SolarPanel
 from src.services.roof_sizing import (
     apply_realistic_sizing,
+    extract_all_panels,
+    panels_inside_polygon,
     recompute_from_panels,
     select_realistic_panels,
 )
@@ -143,3 +145,41 @@ def test_recompute_from_panels_math():
     assert out.max_panel_count == 10
     assert out.estimated_kwp == pytest.approx(10 * _PANEL_W / 1000.0)  # 4.0
     assert out.estimated_yearly_kwh == pytest.approx(10 * _PANEL_KWH)  # 5000
+
+
+def test_extract_all_panels_reads_full_set():
+    payload = {
+        "solarPotential": {
+            "solarPanels": [
+                {
+                    "center": {"latitude": 40.0, "longitude": 14.0},
+                    "segmentIndex": 0,
+                    "yearlyEnergyDcKwh": 500,
+                    "orientation": "LANDSCAPE",
+                },
+                {
+                    "center": {"latitude": 40.1, "longitude": 14.1},
+                    "segmentIndex": 1,
+                    "yearlyEnergyDcKwh": 480,
+                },
+            ]
+        }
+    }
+    panels = extract_all_panels(payload)
+    assert len(panels) == 2
+    assert (panels[0].lat, panels[0].lng) == (40.0, 14.0)
+    assert panels[1].yearly_energy_kwh == 480.0
+
+
+def test_panels_inside_polygon_filters_by_containment():
+    panels = [
+        SolarPanel(40.05, 14.05, "LANDSCAPE", 0.0, 500.0, 0),  # inside
+        SolarPanel(41.0, 15.0, "LANDSCAPE", 0.0, 500.0, 0),  # outside
+    ]
+    poly = {
+        "type": "Polygon",
+        "coordinates": [[[14.0, 40.0], [14.1, 40.0], [14.1, 40.1], [14.0, 40.1], [14.0, 40.0]]],
+    }
+    inside = panels_inside_polygon(panels, poly)
+    assert len(inside) == 1
+    assert (inside[0].lat, inside[0].lng) == (40.05, 14.05)

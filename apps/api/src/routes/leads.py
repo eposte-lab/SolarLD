@@ -2220,3 +2220,126 @@ async def backfill_realistic_sizing(
         ),
         "samples": samples,
     }
+
+
+class RoofDelineationInput(BaseModel):
+    """Operator-drawn real roof area + whether to persist or just preview."""
+
+    polygon_geojson: dict[str, Any] = Field(
+        description="GeoJSON Polygon ([lng,lat] rings) of the real usable roof."
+    )
+    dry_run: bool = True
+
+
+@router.post("/{lead_id}/roof-delineation")
+async def roof_delineation(
+    ctx: CurrentUser, lead_id: str, body: RoofDelineationInput
+) -> dict[str, object]:
+    """Recompute a lead's sizing from an operator-drawn roof polygon (Feature 2).
+
+    Keeps the Google Solar panels whose centre falls INSIDE ``polygon_geojson``
+    and recomputes ``estimated_kwp`` / ``estimated_yearly_kwh`` +
+    ``compute_full_derivations`` from that subset. ``dry_run`` (default) previews
+    the numbers without writing; ``dry_run=false`` persists the override on
+    ``roofs.delineation`` + the recomputed sizing, so it flows to the dossier /
+    email. Pure Python — no Solar/Replicate spend; the AI render is untouched.
+    """
+    tenant_id = require_tenant(ctx)
+    sb = get_service_client()
+    from ..services.google_solar_service import _parse_building_insight_payload
+    from ..services.roi_service import compute_full_derivations
+    from ..services.roof_sizing import (
+        extract_all_panels,
+        panels_inside_polygon,
+        recompute_from_panels,
+    )
+
+    query = (
+        sb.table("leads")
+        .select("id, roi_data, roofs(id, area_sqm, raw_data)")
+        .eq("id", lead_id)
+        .eq("tenant_id", tenant_id)
+        .limit(1)
+    )
+    query = apply_released_filter(query, sb, tenant_id)
+    res = query.execute()
+    if not res.data:
+        raise HTTPException(status_code=404, detail="Lead non trovato.")
+    lead = res.data[0]
+    roof = lead.get("roofs") or {}
+    if isinstance(roof, list):
+        roof = roof[0] if roof else {}
+    raw = roof.get("raw_data") or {}
+    payload = (raw.get("solar") if isinstance(raw, dict) else None) or raw
+    if not isinstance(payload, dict) or "solarPotential" not in payload:
+        raise HTTPException(status_code=404, detail="Dati Solar non disponibili per questo lead.")
+
+    try:
+        all_panels = extract_all_panels(payload)
+        inside = panels_inside_polygon(all_panels, body.polygon_geojson)
+    except Exception as exc:  # noqa: BLE001 — malformed GeoJSON → 400
+        raise HTTPException(status_code=400, detail="Poligono non valido.") from exc
+    if not inside:
+        raise HTTPException(status_code=400, detail="Nessun pannello dentro l'area selezionata.")
+
+    insight = _parse_building_insight_payload(payload)
+    sized = recompute_from_panels(insight, inside)
+    derivations = compute_full_derivations(
+        estimated_kwp=sized.estimated_kwp,
+        estimated_yearly_kwh=sized.estimated_yearly_kwh,
+        roof_area_sqm=insight.area_sqm,
+        panel_count=len(inside),
+        panel_capacity_w=insight.panel_capacity_w,
+        panel_width_m=insight.panel_width_m,
+        panel_height_m=insight.panel_height_m,
+        subject_type="b2b",
+        tenant_cost_assumptions=None,
+    )
+
+    panel_area = round(len(inside) * insight.panel_width_m * insight.panel_height_m, 1)
+    preview = {
+        "kept_panel_count": len(inside),
+        "total_panel_count": len(all_panels),
+        "estimated_kwp": sized.estimated_kwp,
+        "estimated_yearly_kwh": sized.estimated_yearly_kwh,
+        "panel_area_sqm": panel_area,
+        "yearly_savings_eur": (derivations or {}).get("yearly_savings_eur"),
+        "payback_years": (derivations or {}).get("payback_years"),
+    }
+    if body.dry_run or derivations is None:
+        return {"ok": True, "dry_run": True, **preview}
+
+    # Persist: the manual override supersedes the automatic trim for this roof.
+    delineation = {
+        "polygon_geojson": body.polygon_geojson,
+        "kept_panel_count": len(inside),
+        "area_sqm": panel_area,
+        "kwp": sized.estimated_kwp,
+        "by_user_id": ctx.sub,
+        "at": datetime.now(UTC).isoformat(),
+    }
+    sb.table("roofs").update(
+        {
+            "estimated_kwp": sized.estimated_kwp,
+            "estimated_yearly_kwh": sized.estimated_yearly_kwh,
+            "derivations": derivations,
+            "delineation": delineation,
+        }
+    ).eq("id", roof["id"]).execute()
+    merged = {
+        **(lead.get("roi_data") or {}),
+        "estimated_kwp": derivations.get("estimated_kwp"),
+        "annual_savings_eur": derivations.get("yearly_savings_eur"),
+        "payback_years": derivations.get("payback_years"),
+        "co2_saved_kg": derivations.get("co2_kg_per_year"),
+    }
+    sb.table("leads").update({"roi_data": merged}).eq("id", lead_id).execute()
+    await audit_log(
+        tenant_id,
+        "roofs.delineation_saved",
+        actor_user_id=ctx.sub,
+        target_table="roofs",
+        target_id=roof["id"],
+        diff={"kept_panels": len(inside), "kwp": sized.estimated_kwp},
+    )
+    return {"ok": True, "dry_run": False, **preview}

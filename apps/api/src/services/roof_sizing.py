@@ -91,6 +91,47 @@ def select_realistic_panels(
     return [p for p in panels if p.segment_index in keep_segs]
 
 
+def extract_all_panels(payload: dict[str, Any]) -> list[SolarPanel]:
+    """Every Google Solar panel from a raw buildingInsights payload — UNtrimmed.
+
+    The manual delineation tool (Feature 2) filters the FULL panel set by the
+    operator's polygon, so it needs the panels straight from ``raw_data`` rather
+    than the automatically-trimmed ``insight.panels``. Tolerates the bare and
+    ``solar``-nested payload shapes.
+    """
+    potential = (
+        (payload.get("solar") if isinstance(payload, dict) else None) or payload or {}
+    ).get("solarPotential") or {}
+    out: list[SolarPanel] = []
+    for p in potential.get("solarPanels") or []:
+        c = p.get("center") or {}
+        lat = float(c.get("latitude", 0.0) or 0.0)
+        lng = float(c.get("longitude", 0.0) or 0.0)
+        if not lat and not lng:
+            continue
+        out.append(
+            SolarPanel(
+                lat=lat,
+                lng=lng,
+                orientation=str(p.get("orientation", "LANDSCAPE")),
+                segment_azimuth_deg=0.0,
+                yearly_energy_kwh=float(p.get("yearlyEnergyDcKwh", 0.0) or 0.0),
+                segment_index=int(p.get("segmentIndex", 0) or 0),
+            )
+        )
+    return out
+
+
+def panels_inside_polygon(
+    panels: list[SolarPanel], polygon_geojson: dict[str, Any]
+) -> list[SolarPanel]:
+    """Panels whose centre falls inside the GeoJSON polygon (``[lng, lat]`` rings)."""
+    from shapely.geometry import Point, shape
+
+    poly = shape(polygon_geojson)
+    return [p for p in panels if poly.contains(Point(p.lng, p.lat))]
+
+
 def recompute_from_panels(insight: RoofInsight, kept: list[SolarPanel]) -> RoofInsight:
     """Return a copy of ``insight`` resized to the ``kept`` panel subset.
 
