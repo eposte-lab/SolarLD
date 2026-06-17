@@ -68,6 +68,9 @@ export interface ContattiSummary {
   avg_overall_score: number | null;  // AVG(proxy_score_data.overall_score)
   valid_email_count: number;         // count with best_email AND not flagged
                                      // disposable/free_email_provider_b2b
+  ready_to_send_count: number;       // leads pipeline_status='ready_to_send'
+                                     // AND rendering_image_url present — the
+                                     // honest "partirà al prossimo invio" set
 }
 
 export interface ScanFunnelData {
@@ -124,6 +127,12 @@ export interface ContattiFilter {
   /** When true, keep only contacts upgraded to a researched decision-maker
    *  (premium_finder) — the "Solo verificati" toggle on /contatti. */
   premium_only?: boolean;
+  /** When true, keep only contacts whose promoted lead is genuinely ready to
+   *  send NOW (pipeline_status='ready_to_send' AND render image present) — the
+   *  "Solo pronti all'invio" toggle. This is the honest "partirà al prossimo
+   *  invio" set, distinct from "convalidato" (idoneo ma magari in attesa di
+   *  render). */
+  ready_to_send_only?: boolean;
 }
 
 /** Paginated list of scan_candidates. */
@@ -180,6 +189,11 @@ export async function listContatti(opts: {
   // (amministrazione@…) instead of the scraped generic (info@…).
   const premiumCandIds = new Set<string>();
   const premiumEmailByCand = new Map<string, string>();
+  // Candidates whose promoted lead is genuinely ready to send NOW: status
+  // 'ready_to_send' AND a render image already present. Drives the "Pronto"
+  // badge + the "Solo pronti all'invio" filter — the honest "partirà al
+  // prossimo invio" set.
+  const readyCandIds = new Set<string>();
   if (roofIds.length > 0) {
     // Fetch the tenant's leads (RLS-scoped) WITHOUT a `.in('roof_id', roofIds)`
     // filter. With hundreds of accepted candidates that IN list blows past the
@@ -192,7 +206,7 @@ export async function listContatti(opts: {
     const { data: leadRows } = await sb
       .from('leads')
       .select(
-        'id, pipeline_status, subjects(raw_data, decision_maker_email_source, decision_maker_email)',
+        'id, pipeline_status, rendering_image_url, subjects(raw_data, decision_maker_email_source, decision_maker_email)',
       )
       .limit(10000);
     type SubjectJoin = {
@@ -203,6 +217,7 @@ export async function listContatti(opts: {
     type LeadJoin = {
       id: string;
       pipeline_status: string | null;
+      rendering_image_url: string | null;
       subjects: SubjectJoin | SubjectJoin[] | null;
     };
     // A blacklisted (e.g. existing-PV) or closed lead is no longer a valid
@@ -223,6 +238,13 @@ export async function listContatti(opts: {
             premiumEmailByCand.set(candId, subj.decision_maker_email);
           }
         }
+        if (
+          l.pipeline_status === 'ready_to_send' &&
+          typeof l.rendering_image_url === 'string' &&
+          l.rendering_image_url.length > 0
+        ) {
+          readyCandIds.add(candId);
+        }
       }
     }
   }
@@ -231,10 +253,12 @@ export async function listContatti(opts: {
       lead_id?: string | null;
       premium_contact?: boolean | null;
       premium_email?: string | null;
+      ready_to_send?: boolean | null;
     };
     row.lead_id = candToLead.get(r.id) ?? null;
     row.premium_contact = premiumCandIds.has(r.id);
     row.premium_email = premiumEmailByCand.get(r.id) ?? null;
+    row.ready_to_send = readyCandIds.has(r.id);
   }
 
   if (includeUnpromoted) {
@@ -251,6 +275,13 @@ export async function listContatti(opts: {
   if (opts.filter?.premium_only) {
     promoted = promoted.filter(
       (r) => (r as ContattoRow & { premium_contact?: boolean | null }).premium_contact === true,
+    );
+  }
+  // "Solo pronti all'invio": keep only contacts that will actually go out on
+  // the next send pass (ready_to_send + render present).
+  if (opts.filter?.ready_to_send_only) {
+    promoted = promoted.filter(
+      (r) => (r as ContattoRow & { ready_to_send?: boolean | null }).ready_to_send === true,
     );
   }
   return {
@@ -415,6 +446,20 @@ export async function getContattiSummary(): Promise<ContattiSummary> {
     };
   };
 
+  // "Pronti all'invio": leads that will actually go out next pass — status
+  // ready_to_send AND a render image already present. This is the honest
+  // count the operator plans the day's sends against (distinct from
+  // "Convalidati", which counts idoneità a prescindere dal render).
+  const countReadyToSend = async (): Promise<number> => {
+    const { count, error } = await sb
+      .from('leads')
+      .select('id', { count: 'exact', head: true })
+      .eq('pipeline_status', 'ready_to_send')
+      .not('rendering_image_url', 'is', null);
+    if (error) return 0;
+    return count ?? 0;
+  };
+
   const [
     l1,
     l1_30d,
@@ -424,6 +469,7 @@ export async function getContattiSummary(): Promise<ContattiSummary> {
     l4_no_building,
     l4_skipped,
     aggregates,
+    ready_to_send_count,
   ] = await Promise.all([
     countGte(1),
     countGteSince(1, since30d),
@@ -433,6 +479,7 @@ export async function getContattiSummary(): Promise<ContattiSummary> {
     countVerdict('no_building'),
     countVerdict('skipped_below_gate'),
     fetchQualifiedAggregates(),
+    countReadyToSend(),
   ]);
 
   // KPI "convalidati" = candidates that passed Solar API AND were
@@ -451,6 +498,7 @@ export async function getContattiSummary(): Promise<ContattiSummary> {
     l4_no_building,
     l4_skipped,
     total: l1,
+    ready_to_send_count,
     ...kpiAggregates,
   };
 }

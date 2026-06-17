@@ -13,7 +13,7 @@
  */
 
 import Link from 'next/link';
-import { ArrowUpRight, BadgeCheck } from 'lucide-react';
+import { ArrowUpRight, BadgeCheck, Send } from 'lucide-react';
 
 import { SortableTh } from '@/components/ui/sortable-th';
 import { useSortableData } from '@/hooks/use-sortable-data';
@@ -27,6 +27,7 @@ import {
   displayPhone,
   displayProvince,
   isPremiumContact,
+  isReadyToSend,
   type ContattoRow,
 } from '@/lib/contatti-display';
 
@@ -125,7 +126,18 @@ export function ContattiTable({ rows }: { rows: ContattoRow[] }) {
               >
                 {/* Azienda */}
                 <td className="px-5 py-4">
-                  <div className="font-semibold text-on-surface">{name}</div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-on-surface">{name}</span>
+                    {isReadyToSend(c) ? (
+                      <span
+                        className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-success/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-success"
+                        title="Pronto all'invio — render generato, partirà al prossimo invio"
+                      >
+                        <Send size={9} strokeWidth={2.5} aria-hidden />
+                        Pronto
+                      </span>
+                    ) : null}
+                  </div>
                   {c.vat_number ? (
                     <div className="font-mono text-[10px] text-on-surface-variant">
                       {c.vat_number}

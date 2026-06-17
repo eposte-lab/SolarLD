@@ -81,6 +81,13 @@ export interface ContattoRow {
    *  premium_contact is true — shown in the table INSTEAD of the scraped
    *  generic so the operator sees the address that will actually be used. */
   premium_email?: string | null;
+  /** True when the promoted lead is `ready_to_send` AND already has its
+   *  rendering image — i.e. it will actually go out on the next send pass
+   *  (the render-readiness gate is the only variable one; every other send
+   *  gate already passes for promoted contacts). Resolved by `listContatti`
+   *  in the candidate→lead join; drives the "Pronto" badge + the "Solo pronti
+   *  all'invio" filter. False when the lead is still awaiting its render. */
+  ready_to_send?: boolean | null;
   created_at: string;
   // v3 enrichment (NULL on legacy v2 rows)
   predicted_sector: string | null;
@@ -173,6 +180,9 @@ function looksLikeExampleEmail(email: string): boolean {
     lower.includes('dummy') ||
     lower.includes('placeholder') ||
     lower.startsWith('your@') ||
+    lower.startsWith('tua@') ||
+    lower.startsWith('latua@') ||
+    lower.startsWith('la-tua@') ||
     lower.startsWith('user@') ||
     lower.startsWith('nome@') ||
     lower.startsWith('cognome@')
@@ -228,6 +238,12 @@ export function displayOverallScore(c: ContattoRow): number | null {
  *  drives the vendor-neutral "verified" badge in the contatti/invii lists. */
 export function isPremiumContact(c: ContattoRow): boolean {
   return c.premium_contact === true;
+}
+
+/** Whether this contact's promoted lead is genuinely ready to send right now
+ *  (ready_to_send status + render image present). Drives the "Pronto" badge. */
+export function isReadyToSend(c: ContattoRow): boolean {
+  return c.ready_to_send === true;
 }
 
 export function displayWebsite(c: ContattoRow): string | null {
