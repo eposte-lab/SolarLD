@@ -40,6 +40,7 @@ import secrets
 from typing import TYPE_CHECKING, Any
 
 from ...core.logging import get_logger
+from ...core.queue import enqueue
 from ...core.supabase_client import get_service_client
 from ...services.contact_waterfall import ContactOutcome, resolve_best_contact
 from ...services.national_chains import is_generic_localpart, is_national_chain
@@ -427,6 +428,28 @@ async def run_level6_promote_to_leads(
             }
             lead_ins = sb.table("leads").insert(lead_payload).execute()
             new_lead_id = (lead_ins.data or [{}])[0].get("id")
+
+            # Pre-render at promotion. A lead is promoted to `ready_to_send`
+            # WITHOUT an image; rendering used to happen only at the daily
+            # send's pick-time, racing the send — so the morning batch found
+            # most leads un-rendered and skipped them (render_not_ready),
+            # sending nothing (observed: 133/150 ready_to_send had render NULL,
+            # never attempted). Enqueue the creative NOW so the inventory builds
+            # ALREADY rendered and is genuinely sendable. Best-effort; arq
+            # dedupes by job_id, and the agent is idempotent (skips if rendered).
+            if new_lead_id:
+                try:
+                    await enqueue(
+                        "creative_task",
+                        {"tenant_id": ctx.tenant_id, "lead_id": new_lead_id},
+                        job_id=f"creative:{ctx.tenant_id}:{new_lead_id}",
+                    )
+                except Exception as exc:  # noqa: BLE001 — enqueue best-effort
+                    log.warning(
+                        "level6_promote.enqueue_creative_failed",
+                        lead_id=new_lead_id,
+                        err=type(exc).__name__,
+                    )
 
             # Contact validation — SYNCHRONOUS, fail-open, OPT-IN.
             #
