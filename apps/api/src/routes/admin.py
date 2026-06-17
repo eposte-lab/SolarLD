@@ -1230,37 +1230,17 @@ async def trial_lead_activity(ctx: CurrentUser, lead_id: str) -> TrialLeadActivi
     return TrialLeadActivityResponse(lead_id=lead_id, events=events, portal_events=portal)
 
 
-@router.post("/trial/run-daily-send")
-async def trial_run_daily_send(
-    ctx: CurrentUser,
-    tenant_id: str = Query(description="Tenant whose ready leads to ship now"),
-) -> dict[str, Any]:
-    """Manually trigger today's outreach for a tenant — on demand.
+async def _run_daily_send_bg(tenant_id: str, actor: str | None) -> None:
+    """Background worker for the on-demand 'Avvia invii ora' button.
 
-    Picks up to ``daily_send_cap`` ``ready_to_send`` leads (atomic FIFO)
-    and enqueues the creative + outreach pipeline for each, exactly like
-    the daily cron's pick phase. Super-admin only. This is the operator's
-    "Avvia invii ora" lever: it does NOT bypass the send-window or the
-    daily cap (``outreach.py`` still gates on those), it just doesn't wait
-    for the 05:30 cron tick. Refill is intentionally NOT triggered here —
-    this only ships what is already in the warehouse.
+    Picks today's batch and enqueues creative + outreach per lead AFTER the
+    HTTP response is sent. Running the pick + ~2×cap arq enqueues INLINE made
+    the request hang long enough that Railway's gateway returned a timeout
+    WITHOUT CORS headers — which the browser misreported as 'Failed to fetch'
+    (the exact failure #300/#307 fixed for the other admin buttons). Any error
+    is logged, never surfaced; the daily cron (+ telemetry guard) is the
+    durable fallback.
     """
-    _require_super_admin(ctx)
-    sb = get_service_client()
-    row = (
-        sb.table("tenants")
-        .select(
-            "id, status, daily_target_send_cap, daily_send_cap_min, "
-            "daily_send_cap_max, warehouse_buffer_days, lead_expiration_days, "
-            "atoka_survival_target"
-        )
-        .eq("id", tenant_id)
-        .limit(1)
-        .execute()
-    )
-    if not row.data:
-        raise HTTPException(status_code=404, detail="tenant not found")
-
     from ..services.daily_pipeline_orchestrator import (
         _OUTREACH_DEFER_SECONDS,
         _OUTREACH_SPACING_SECONDS,
@@ -1268,43 +1248,126 @@ async def trial_run_daily_send(
     )
     from ..services.warehouse_policy import policy_for
 
-    policy = policy_for(row.data[0])
-    picked = pick_from_warehouse(tenant_id=tenant_id, n=policy.daily_send_cap)
-    # Render then send. creative_task does not chain to outreach, so we
-    # enqueue the outreach_task ourselves, deferred so the render lands
-    # first (same as the daily orchestrator). Deterministic job_ids =
-    # idempotent on double-click. CRITICAL: stagger each lead by
-    # ``_OUTREACH_SPACING_SECONDS`` so the per-inbox 180 s cooldown doesn't
-    # block all-but-one when the whole batch fires at the same instant.
-    base_at = datetime.now(UTC) + timedelta(seconds=_OUTREACH_DEFER_SECONDS)
-    for idx, lid in enumerate(picked):
-        outreach_at = base_at + timedelta(seconds=idx * _OUTREACH_SPACING_SECONDS)
-        await enqueue(
-            "creative_task",
-            {"tenant_id": tenant_id, "lead_id": lid, "trigger": "manual_send"},
-            job_id=f"creative:{tenant_id}:{lid}",
+    try:
+        sb = get_service_client()
+        row = (
+            sb.table("tenants")
+            .select(
+                "id, status, daily_target_send_cap, daily_send_cap_min, "
+                "daily_send_cap_max, warehouse_buffer_days, lead_expiration_days, "
+                "atoka_survival_target"
+            )
+            .eq("id", tenant_id)
+            .limit(1)
+            .execute()
         )
-        await enqueue(
-            "outreach_task",
-            # force=True: this endpoint is the operator's explicit "send now"
-            # button. It must bypass the Mon-Fri 08-12/14-18 send-window gate
-            # (otherwise a click during the 12-14 lunch break or after hours
-            # silently skips every lead). The tenant is fully onboarded
-            # (legal + business_name present), so the GDPR/branding gates that
-            # force also bypasses are satisfied anyway. Idempotency is safe:
-            # warehouse_pick only dequeues not-yet-sent ready_to_send leads.
-            {"tenant_id": tenant_id, "lead_id": lid, "channel": "email", "force": True},
-            job_id=f"outreach:{tenant_id}:{lid}:email",
-            defer_until=outreach_at,
+        if not row.data:
+            log.warning(
+                "admin.trial_run_daily_send.tenant_missing",
+                tenant_id=tenant_id,
+                super_admin=actor,
+            )
+            return
+
+        policy = policy_for(row.data[0])
+        picked = pick_from_warehouse(tenant_id=tenant_id, n=policy.daily_send_cap)
+        # Render then send. creative_task does not chain to outreach, so we
+        # enqueue the outreach_task ourselves, deferred so the render lands
+        # first (same as the daily orchestrator). Deterministic job_ids =
+        # idempotent on double-click. CRITICAL: stagger each lead by
+        # ``_OUTREACH_SPACING_SECONDS`` so the per-inbox 180 s cooldown doesn't
+        # block all-but-one when the whole batch fires at the same instant.
+        base_at = datetime.now(UTC) + timedelta(seconds=_OUTREACH_DEFER_SECONDS)
+        for idx, lid in enumerate(picked):
+            outreach_at = base_at + timedelta(seconds=idx * _OUTREACH_SPACING_SECONDS)
+            await enqueue(
+                "creative_task",
+                {"tenant_id": tenant_id, "lead_id": lid, "trigger": "manual_send"},
+                job_id=f"creative:{tenant_id}:{lid}",
+            )
+            await enqueue(
+                "outreach_task",
+                # force=True: this is the operator's explicit "send now" button.
+                # It must bypass the Mon-Fri 08-12/14-18 send-window gate
+                # (otherwise a click during the 12-14 lunch break or after hours
+                # silently skips every lead). The tenant is fully onboarded
+                # (legal + business_name present), so the GDPR/branding gates
+                # that force also bypasses are satisfied anyway. Idempotency is
+                # safe: warehouse_pick only dequeues not-yet-sent ready leads.
+                {"tenant_id": tenant_id, "lead_id": lid, "channel": "email", "force": True},
+                job_id=f"outreach:{tenant_id}:{lid}:email",
+                defer_until=outreach_at,
+            )
+        log.info(
+            "admin.trial_run_daily_send.done",
+            tenant_id=tenant_id,
+            picked=len(picked),
+            cap=policy.daily_send_cap,
+            super_admin=actor,
         )
+    except Exception as exc:  # noqa: BLE001 — fire-and-forget; cron is fallback
+        log.warning(
+            "admin.trial_run_daily_send.failed",
+            tenant_id=tenant_id,
+            err=str(exc)[:300],
+            super_admin=actor,
+        )
+
+
+@router.post("/trial/run-daily-send", status_code=status.HTTP_202_ACCEPTED)
+async def trial_run_daily_send(
+    ctx: CurrentUser,
+    background: BackgroundTasks,
+    tenant_id: str = Query(description="Tenant whose ready leads to ship now"),
+) -> dict[str, Any]:
+    """Manually trigger today's outreach for a tenant — on demand.
+
+    Picks up to ``daily_send_cap`` ``ready_to_send`` leads (atomic FIFO) and
+    enqueues the creative + outreach pipeline for each, exactly like the daily
+    cron's pick phase. Super-admin only. It does NOT bypass the daily cap; the
+    deferred ``outreach_task`` runs with ``force=True`` so the explicit button
+    also ships outside the Mon-Fri send window. Refill is intentionally NOT
+    triggered here — this only ships what is already in the warehouse.
+
+    FIRE-AND-FORGET: the pick + ~2×cap arq enqueues run in a BACKGROUND task so
+    the request returns immediately with a 202. Doing that work inline made the
+    request hang long enough that Railway's gateway timed out WITHOUT CORS
+    headers — surfaced in the browser as 'Failed to fetch' (the same bug #300
+    and #307 already fixed for the other admin buttons). The 202 below is a
+    normal FastAPI response that carries CORS headers, so the dashboard call
+    always succeeds.
+    """
+    _require_super_admin(ctx)
+    sb = get_service_client()
+    row = (
+        sb.table("tenants")
+        .select("id, daily_target_send_cap, daily_send_cap_min, daily_send_cap_max")
+        .eq("id", tenant_id)
+        .limit(1)
+        .execute()
+    )
+    if not row.data:
+        raise HTTPException(status_code=404, detail="tenant not found")
+
+    from ..services.warehouse_policy import policy_for
+
+    cap = policy_for(row.data[0]).daily_send_cap
+    background.add_task(_run_daily_send_bg, tenant_id, ctx.user_id)
     log.info(
-        "admin.trial_run_daily_send",
+        "admin.trial_run_daily_send.scheduled",
         tenant_id=tenant_id,
-        picked=len(picked),
-        cap=policy.daily_send_cap,
+        cap=cap,
         super_admin=ctx.user_id,
     )
-    return {"ok": True, "picked": len(picked), "cap": policy.daily_send_cap}
+    return {
+        "ok": True,
+        "status": "scheduled",
+        "cap": cap,
+        "message": (
+            f"Invio avviato (fino a {cap} lead/giorno). Prelievo dal magazzino, "
+            "render e outreach partono a breve — controlla Invii tra qualche minuto."
+        ),
+    }
 
 
 @router.post("/trial/regenerate-failed-renders")

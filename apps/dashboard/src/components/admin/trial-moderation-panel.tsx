@@ -650,14 +650,25 @@ function SendNowButton({ tenantId }: { tenantId: string }) {
     setResult(null);
     setError(null);
     try {
-      const res = await api.post<{ ok: boolean; picked: number; cap: number }>(
+      const res = await api.post<{
+        ok: boolean;
+        status?: string;
+        picked?: number;
+        cap: number;
+        message?: string;
+      }>(
         `/v1/admin/trial/run-daily-send?tenant_id=${encodeURIComponent(tenantId)}`,
         {},
       );
+      // New async shape (202): the pick + enqueue run in a background task, so
+      // the API returns immediately with a message instead of a `picked` count
+      // (running it inline caused the 'Failed to fetch' gateway timeout). Fall
+      // back to the legacy `picked` shape for older deploys.
       setResult(
-        res.picked > 0
-          ? `${res.picked} lead presi dal magazzino (cap ${res.cap}/giorno). Render + invio in corso, nelle finestre orarie 08–12 / 14–18.`
-          : `Nessun lead pronto da inviare adesso (magazzino vuoto o cap giornaliero già raggiunto).`,
+        res.message ??
+          (res.picked && res.picked > 0
+            ? `${res.picked} lead presi dal magazzino (cap ${res.cap}/giorno). Render + invio in corso, nelle finestre orarie 08–12 / 14–18.`
+            : `Nessun lead pronto da inviare adesso (magazzino vuoto o cap giornaliero già raggiunto).`),
       );
     } catch (e) {
       setError(errMessage(e));
