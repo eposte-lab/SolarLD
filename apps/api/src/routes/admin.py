@@ -2123,6 +2123,88 @@ async def trial_hold_lead(ctx: CurrentUser, lead_id: str) -> dict[str, Any]:
     return {"ok": True, "lead_id": lead_id, "operator_review_status": "held"}
 
 
+@router.post("/leads/{lead_id}/exclude")
+async def admin_exclude_lead(
+    ctx: CurrentUser,
+    lead_id: str,
+    reason: str = Query(
+        default="not_in_target",
+        description="Why excluded (not_in_target | has_pv | wrong_data | other).",
+    ),
+    set_existing_pv: bool = Query(
+        default=False,
+        description="Also flag the roof as has_existing_pv (use when the lead already has panels).",
+    ),
+) -> dict[str, Any]:
+    """One-click COMPLETE removal of a lead from every active surface.
+
+    Blacklisting alone is NOT enough: the hot/recontact surfaces key on
+    ``operator_released_at`` / ``appointment_requested_at`` / ``engagement_score``,
+    so a blacklisted-but-still-released lead re-appears as a hot recontact
+    (observed with Hotel Terme Gran Paradiso). This clears ALL of those at once,
+    rejects any held inbound request, optionally flags existing PV, and logs an
+    audit event (visible in the tenant activity-log). Super-admin only.
+    """
+    _require_super_admin(ctx)
+    sb = get_service_client()
+
+    row = sb.table("leads").select("id, tenant_id, roof_id").eq("id", lead_id).limit(1).execute()
+    if not row.data:
+        raise HTTPException(status_code=404, detail="lead not found")
+    lead = row.data[0]
+    tenant_id = lead.get("tenant_id")
+    roof_id = lead.get("roof_id")
+
+    sb.table("leads").update(
+        {
+            "pipeline_status": "blacklisted",
+            "operator_released_at": None,
+            "operator_review_status": "held",
+            "appointment_requested_at": None,
+            "engagement_score": 0,
+        }
+    ).eq("id", lead_id).execute()
+
+    # Reject any held/approved inbound request for this lead (best-effort).
+    try:
+        sb.table("pending_inbound_requests").update(
+            {
+                "status": "rejected",
+                "decided_at": datetime.now(UTC).isoformat(),
+                "decided_by": ctx.user_id,
+            }
+        ).eq("lead_id", lead_id).neq("status", "rejected").execute()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("admin.exclude_lead.reject_inbound_failed", lead_id=lead_id, err=str(exc)[:200])
+
+    if set_existing_pv and roof_id:
+        try:
+            sb.table("roofs").update({"has_existing_pv": True}).eq("id", roof_id).execute()
+        except Exception as exc:  # noqa: BLE001
+            log.warning("admin.exclude_lead.set_pv_failed", lead_id=lead_id, err=str(exc)[:200])
+
+    # Audit event so the exclusion shows in the tenant activity-log.
+    try:
+        sb.table("events").insert(
+            {
+                "tenant_id": tenant_id,
+                "lead_id": lead_id,
+                "event_type": "moderation.lead.excluded",
+                "event_source": "admin",
+                "payload": {
+                    "reason": reason,
+                    "by": ctx.user_id,
+                    "set_existing_pv": set_existing_pv,
+                },
+            }
+        ).execute()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("admin.exclude_lead.event_failed", lead_id=lead_id, err=str(exc)[:200])
+
+    log.info("admin.exclude_lead", lead_id=lead_id, reason=reason, super_admin=ctx.user_id)
+    return {"ok": True, "lead_id": lead_id, "excluded": True, "reason": reason}
+
+
 class TrialPendingInbound(BaseModel):
     """One held inbound appointment request awaiting operator decision."""
 
