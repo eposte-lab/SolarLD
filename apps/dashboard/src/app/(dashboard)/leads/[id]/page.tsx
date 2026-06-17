@@ -1384,7 +1384,18 @@ export default async function LeadDetailPage({ params }: PageProps) {
         defaultOpen={false}
       >
         <div className="pt-1">
-          <SolarApiInspector lead={lead} />
+          {/* Gate the "real Solar API layout" action on engagement ≥ tiepido
+              (score ≥ 25, mirror of engagementTier 'warm'), and only once the
+              nightly rollup has actually scored the lead (updatedAt set) so a
+              never-rolled lead isn't mis-treated as warm. Reads the (possibly
+              frozen) `lead` so a moderated contatto doesn't leak the action. */}
+          <SolarApiInspector
+            lead={lead}
+            showSolarLayout={
+              lead.engagement_score_updated_at != null &&
+              (lead.engagement_score ?? 0) >= 25
+            }
+          />
         </div>
       </CollapsibleCard>
 

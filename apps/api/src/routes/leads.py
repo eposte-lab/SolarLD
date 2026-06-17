@@ -12,6 +12,7 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 
+from ..core.config import settings
 from ..core.logging import get_logger
 from ..core.queue import enqueue, fire_crm_event
 from ..core.security import CurrentUser, require_tenant
@@ -20,7 +21,17 @@ from ..models.lead import LeadFeedback, LeadListResponse
 from ..services.audit_service import log_action as audit_log
 from ..services.moderation_service import apply_released_filter, assert_lead_visible
 from ..services.savings_compare_service import compute_epc_annual, compute_savings_compare
-from ..services.storage_service import sign_url
+from ..services.storage_service import sign_url, upload_bytes
+
+# Bucket holding all per-lead render assets ({tenant}/{lead}/*.png). Private in
+# prod — every URL is a freshly minted, short-lived signed URL.
+RENDERINGS_BUCKET = "renderings"
+
+# Engagement floor (mirror of the dashboard's engagementTier 'warm'=tiepido) for
+# the on-demand Solar-layout overlay: only generate for leads that have warmed
+# up, so the one-time base-imagery fetch is bounded to genuinely interesting
+# leads.
+_SOLAR_LAYOUT_MIN_ENGAGEMENT = 25
 
 log = get_logger(__name__)
 
@@ -343,6 +354,105 @@ async def get_lead(ctx: CurrentUser, lead_id: str) -> dict[str, object]:
     if not res.data:
         raise HTTPException(status_code=404, detail="Lead not found")
     return res.data[0]
+
+
+def _renderings_object_exists(sb: Any, folder: str, name: str) -> bool:
+    """Whether ``{folder}/{name}`` already exists in the renderings bucket.
+
+    Best-effort: any storage error → treat as a miss (we regenerate rather
+    than fail). Used to skip re-rendering an already-cached solar layout.
+    """
+    try:
+        listing = sb.storage.from_(RENDERINGS_BUCKET).list(folder) or []
+        return any((obj.get("name") == name) for obj in listing)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("leads.renderings_list_failed", folder=folder, err=str(exc)[:200])
+        return False
+
+
+@router.get("/{lead_id}/solar-layout")
+async def lead_solar_layout(ctx: CurrentUser, lead_id: str) -> dict[str, object]:
+    """On-demand "real Google Solar panel layout" overlay for a warm/hot lead.
+
+    Draws the PV panels at the EXACT Google Solar API positions (deterministic
+    PIL, NO AI) on the building's aerial — distinct from the marketing AI
+    render — so the operator can sanity-check that the proposed array actually
+    fits the roof (vs an inflated "paper" layout). Built from the already-stored
+    ``roofs.raw_data`` panel geometry, so there is NO AI/Replicate cost; the
+    final PNG is cached in the renderings bucket, so only the FIRST open per
+    lead pays the single base-imagery fetch and every later open is free.
+
+    Returns a short-lived signed URL (the bucket is private). Gated on
+    engagement ≥ "tiepido" to bound that one-time generation cost.
+    """
+    tenant_id = require_tenant(ctx)
+    sb = get_service_client()
+    query = (
+        sb.table("leads")
+        .select("id, engagement_score, roofs(lat, lng, raw_data)")
+        .eq("id", lead_id)
+        .eq("tenant_id", tenant_id)
+        .limit(1)
+    )
+    query = apply_released_filter(query, sb, tenant_id)
+    res = query.execute()
+    if not res.data:
+        raise HTTPException(status_code=404, detail="Lead non trovato.")
+    lead = res.data[0]
+
+    # Bound the one-time base-imagery cost: mirror the dashboard's tiepido+ gate.
+    if int(lead.get("engagement_score") or 0) < _SOLAR_LAYOUT_MIN_ENGAGEMENT:
+        raise HTTPException(
+            status_code=403,
+            detail="Layout disponibile solo per lead con engagement sufficiente.",
+        )
+
+    roof = lead.get("roofs") or {}
+    if isinstance(roof, list):  # PostgREST embeds to-one as object, types widen to list
+        roof = roof[0] if roof else {}
+    lat, lng = roof.get("lat"), roof.get("lng")
+    raw = roof.get("raw_data") or {}
+    # Production writers nest the Google buildingInsights JSON under 'solar';
+    # the legacy writer stored it bare. Try the nested key first.
+    payload = raw.get("solar") or raw
+    if not isinstance(payload, dict) or lat is None or lng is None:
+        raise HTTPException(status_code=404, detail="Dati Solar non disponibili per questo lead.")
+
+    path = f"{tenant_id}/{lead_id}/solar_layout.png"
+
+    # Cache hit → just mint a fresh signed URL (no regeneration).
+    if _renderings_object_exists(sb, f"{tenant_id}/{lead_id}", "solar_layout.png"):
+        return {"url": sign_url(RENDERINGS_BUCKET, path, 3600), "cached": True}
+
+    # Cache miss → render the deterministic overlay from stored geometry.
+    from ..services.google_solar_service import _parse_building_insight_payload
+    from ..services.solar_rendering_service import render_before_after
+
+    insight = _parse_building_insight_payload(payload)
+    if not insight.panels:
+        raise HTTPException(
+            status_code=404, detail="Nessun pannello nel layout Solar per questo lead."
+        )
+    try:
+        _before_bytes, after_bytes = await render_before_after(
+            float(lat),
+            float(lng),
+            insight,
+            api_key=settings.google_solar_api_key or None,
+        )
+    except Exception as exc:  # noqa: BLE001
+        log.warning("leads.solar_layout_render_failed", lead_id=lead_id, err=str(exc)[:200])
+        raise HTTPException(status_code=502, detail="Generazione layout non riuscita.") from exc
+
+    # Cache for free repeat opens (private bucket → ignore the public URL).
+    try:
+        upload_bytes(
+            bucket=RENDERINGS_BUCKET, path=path, data=after_bytes, content_type="image/png"
+        )
+    except Exception as exc:  # noqa: BLE001 — caching is best-effort
+        log.warning("leads.solar_layout_cache_failed", lead_id=lead_id, err=str(exc)[:200])
+
+    return {"url": sign_url(RENDERINGS_BUCKET, path, 3600), "cached": False}
 
 
 @router.get("/{lead_id}/timeline")

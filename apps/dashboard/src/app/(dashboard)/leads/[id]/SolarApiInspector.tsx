@@ -27,6 +27,7 @@ import { deriveSolarMetrics, MONTH_NAMES_IT } from '@/lib/solar-derivations';
 
 import { BentoCard } from '@/components/ui/bento-card';
 import { RegenerateRenderingButton } from './RegenerateRenderingButton';
+import { SolarLayoutLink } from './SolarLayoutLink';
 
 // Plain-€ formatter — locale-aware thousands separator, no decimals
 // for round numbers (kWh / install cost / savings).
@@ -39,6 +40,9 @@ const fmtEur = (n: number) =>
 
 interface Props {
   lead: LeadDetailRow;
+  /** Show the "real Solar API layout" action. Gated upstream on engagement
+   *  (≥ tiepido) so the one-time overlay generation is bounded to warm leads. */
+  showSolarLayout?: boolean;
 }
 
 interface SolarPanelEntry {
@@ -79,7 +83,7 @@ function azimuthToCompass(deg: number): string {
   return 'NW';
 }
 
-export function SolarApiInspector({ lead }: Props) {
+export function SolarApiInspector({ lead, showSolarLayout = false }: Props) {
   const roof = lead.roofs;
   const raw = (roof?.raw_data ?? null) as BuildingInsightsRaw | null;
   const potential = raw?.solarPotential;
@@ -151,10 +155,15 @@ export function SolarApiInspector({ lead }: Props) {
             l&apos;email — se sono sballati, lo è anche la proposta.
           </p>
         </div>
-        <RegenerateRenderingButton
+        <div className="flex flex-col items-end gap-2">
+          {showSolarLayout && panels.length > 0 ? (
+            <SolarLayoutLink leadId={lead.id} />
+          ) : null}
+          <RegenerateRenderingButton
             leadId={lead.id}
             regenCount={lead.rendering_regen_count ?? 0}
           />
+        </div>
       </div>
 
       {/* Top-line numbers — same set used by AI paint prompt. */}
