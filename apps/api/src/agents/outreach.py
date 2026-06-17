@@ -693,7 +693,7 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
                 tenant_id=payload.tenant_id,
                 lead_id=payload.lead_id,
             )
-            if nb_result is not None and not nb_result.sendable:
+            if nb_result is not None and not nb_result.result.sendable:
                 log.info(
                     "outreach.neverbounce_rejected",
                     lead_id=payload.lead_id,
