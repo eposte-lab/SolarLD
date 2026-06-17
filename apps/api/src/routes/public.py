@@ -291,6 +291,70 @@ class AppointmentRequest(BaseModel):
     notes: str | None = Field(default=None, max_length=1000)
 
 
+# Public proposal-resend guard: the appointment form is unauthenticated, so a
+# burst cap per slug bounds any abuse of the "leave your email → get the
+# proposal" path. Per-slug is the right axis (each lead = one cold target, the
+# slug URL is itself unguessable); 3/hour covers the honest case (resend to a
+# second address, a retry) while making the endpoint useless as a spam relay.
+_PROPOSAL_RESEND_RATE_PER_HOUR = 3
+_PROPOSAL_RESEND_RATE_KEY_TTL = 60 * 60 + 60  # 1h + 1m grace
+
+
+async def _proposal_resend_rate_allows(slug: str) -> bool:
+    """Cap public-triggered proposal resends at 3/hour per slug. Fail-open."""
+    try:
+        r = get_redis()
+        key = f"proposal:resend:{slug}:{datetime.now(UTC):%Y%m%d%H}"
+        pipe = r.pipeline()
+        pipe.incr(key, 1)
+        pipe.expire(key, _PROPOSAL_RESEND_RATE_KEY_TTL)
+        results = await pipe.execute()
+        return int(results[0]) <= _PROPOSAL_RESEND_RATE_PER_HOUR
+    except Exception as exc:  # noqa: BLE001
+        # Fail open — the slug is unguessable, so the blast radius of a redis
+        # hiccup is one prospect's own dossier link, not the open internet.
+        log.warning("proposal_resend.rate_check_failed", err=str(exc))
+        return True
+
+
+async def _resend_proposal_to_email(*, tenant_id: str, lead_id: str, slug: str, email: str) -> bool:
+    """Re-send the EXACT outreach proposal to a prospect-provided email.
+
+    Mirrors the operator's authenticated ``/leads/{id}/resend-to-address``
+    (``recipient_override`` + ``force``): same template, plant data and
+    rendering as the daily outreach, just routed to the address the visitor
+    typed in the popup. ``force`` bypasses the send-window (deliberate
+    prospect action), but the blacklist / existing-PV / GDPR gates inside
+    ``OutreachAgent`` still apply — a suppressed lead never sends. Rate-limited
+    per slug. Returns ``True`` if a job was enqueued.
+    """
+    if not await _proposal_resend_rate_allows(slug):
+        log.info("appointment.proposal_resend_rate_limited", tenant_id=tenant_id, lead_id=lead_id)
+        return False
+    import hashlib
+
+    override_tag = hashlib.sha256(email.encode()).hexdigest()[:10]
+    ts = int(datetime.now(tz=UTC).timestamp())
+    await enqueue(
+        "outreach_task",
+        {
+            "tenant_id": tenant_id,
+            "lead_id": lead_id,
+            "channel": "email",
+            "force": True,
+            "recipient_override": email,
+        },
+        job_id=f"outreach_appt_resend:{tenant_id}:{lead_id}:{override_tag}:{ts}",
+    )
+    log.info(
+        "appointment.proposal_resent",
+        tenant_id=tenant_id,
+        lead_id=lead_id,
+        override_domain=email.split("@", 1)[1] if "@" in email else "?",
+    )
+    return True
+
+
 @router.post("/lead/{slug}/appointment", status_code=status.HTTP_202_ACCEPTED)
 async def request_appointment(slug: str, payload: AppointmentRequest) -> dict[str, object]:
     """Lead submits the in-portal appointment form.
@@ -409,6 +473,27 @@ async def request_appointment(slug: str, payload: AppointmentRequest) -> dict[st
     except Exception as exc:  # noqa: BLE001
         log.warning("appointment.recompute_failed", lead_id=lead["id"], err=str(exc)[:200])
 
+    # Se il prospect ha lasciato un'email, il sistema le re-invia SUBITO la
+    # stessa identica proposta (stesso meccanismo del resend-to-address
+    # dell'operatore). Mai per i lead soppressi (la guardia + i gate
+    # dell'OutreachAgent lo garantiscono). Fail-open: un errore qui non blocca
+    # il 202.
+    resend_email = (payload.email or "").strip().lower() or None
+    proposal_resent_to: str | None = None
+    if resend_email and lead.get("pipeline_status") != LeadStatus.BLACKLISTED.value:
+        try:
+            if await _resend_proposal_to_email(
+                tenant_id=tenant_id,
+                lead_id=lead["id"],
+                slug=slug,
+                email=resend_email,
+            ):
+                proposal_resent_to = resend_email
+        except Exception as exc:  # noqa: BLE001 — never block the 202
+            log.warning(
+                "appointment.proposal_resend_failed", lead_id=lead["id"], err=str(exc)[:200]
+            )
+
     event_payload = {
         "slug": slug,
         "contact_name": payload.contact_name,
@@ -416,6 +501,7 @@ async def request_appointment(slug: str, payload: AppointmentRequest) -> dict[st
         "email": payload.email,
         "preferred_time": payload.preferred_time,
         "notes": payload.notes,
+        "proposal_resent_to_email": proposal_resent_to,
     }
     _emit_public_event(
         sb,
@@ -425,6 +511,18 @@ async def request_appointment(slug: str, payload: AppointmentRequest) -> dict[st
         payload=event_payload,
     )
 
+    # Evento dedicato per la cronologia/activity-log: il re-invio della
+    # proposta a un indirizzo lasciato dal prospect è un fatto a sé,
+    # tracciato distintamente dalla richiesta di contatto.
+    if proposal_resent_to:
+        _emit_public_event(
+            sb,
+            event_type="lead.proposal_resent_to_email",
+            tenant_id=tenant_id,
+            lead_id=lead["id"],
+            payload={"slug": slug, "email": proposal_resent_to, "trigger": "appointment_form"},
+        )
+
     # Notifica email al tenant (contact_email, dall'inbox verificato,
     # reply-to = email del prospect) + webhook CRM. Entrambi fail-open.
     await notify_tenant_contact_request(
@@ -433,6 +531,7 @@ async def request_appointment(slug: str, payload: AppointmentRequest) -> dict[st
         tenant_data=tenant_data,
         payload=payload_dict,
         dossier_url=dossier_url,
+        proposal_resent_to=proposal_resent_to,
     )
 
     webhook_url: str | None = tenant_data.get("appointment_webhook_url")
@@ -999,6 +1098,9 @@ _ALLOWED_EVENT_KINDS: frozenset[str] = frozenset(
         "portal.contact_view",  # opened the contact form (follow-up CTA landing)
         "portal.contact_started",  # typed the first character into the form
         "portal.contact_abandoned",  # typed but left without submitting (partial data + consent in metadata)
+        "portal.exit_intent_shown",  # exit-intent popup surfaced
+        "portal.exit_intent_dismissed",  # exit-intent popup closed without converting
+        "portal.exit_intent_submitted",  # exit-intent mini-form sent
     }
 )
 
@@ -1038,6 +1140,10 @@ class PortalTrackEvent(BaseModel):
         "portal.contact_view",
         "portal.contact_started",
         "portal.contact_abandoned",
+        # Exit-intent popup
+        "portal.exit_intent_shown",
+        "portal.exit_intent_dismissed",
+        "portal.exit_intent_submitted",
     ]
     metadata: dict[str, Any] = Field(default_factory=dict)
     elapsed_ms: int | None = Field(default=None, ge=0, le=24 * 60 * 60 * 1000)

@@ -87,8 +87,15 @@ def build_contact_request_email(
     payload: dict[str, Any],
     dossier_url: str | None,
     business_name: str | None,
+    proposal_resent_to: str | None = None,
 ) -> tuple[str, str, str]:
-    """Build ``(subject, html, text)`` for the tenant contact-request email."""
+    """Build ``(subject, html, text)`` for the tenant contact-request email.
+
+    ``proposal_resent_to`` — when the prospect left an email in the form, the
+    system automatically re-sent the EXACT outreach proposal to that address.
+    We surface a prominent callout so the operator knows the offer is already
+    in the prospect's inbox (and to which address) before they follow up.
+    """
     biz = business_name or "la vostra azienda"
     name = payload.get("contact_name") or "Un contatto"
 
@@ -104,6 +111,17 @@ def build_contact_request_email(
     if payload.get("notes"):
         rows.append(f"<b>Note:</b> {payload['notes']}")
     details = "<br>".join(rows) or "(nessun dettaglio fornito)"
+
+    resent_callout = (
+        f'<div style="margin:12px 0 0 0;background:#ecfdf5;border:1px solid #16a34a;'
+        f'border-radius:8px;padding:12px 14px;color:#166534;font-size:13px;line-height:1.5;">'
+        f"✅ <b>Proposta inviata automaticamente</b> anche a "
+        f'<a href="mailto:{proposal_resent_to}" style="color:#166534;font-weight:700;">'
+        f"{proposal_resent_to}</a> su richiesta del cliente "
+        f"(stessa identica offerta del dossier).</div>"
+        if proposal_resent_to
+        else ""
+    )
 
     link = (
         f'<p style="margin:16px 0 0 0;"><a href="{dossier_url}" '
@@ -122,12 +140,19 @@ def build_contact_request_email(
         f"Nuova richiesta di contatto dal dossier</p>"
         f'<p style="margin:0 0 12px 0;">{intro}</p>'
         f'<div style="background:#f5f7fa;border-radius:8px;padding:14px 16px;">{details}</div>'
+        f"{resent_callout}"
         f"{link}"
         f'<p style="margin:16px 0 0 0;font-size:12px;color:#8a9099;">{footer}</p></div>'
     )
     text = (
         "Nuova richiesta di contatto dal dossier.\n\n"
         + "\n".join(r.replace("<b>", "").replace("</b>", "") for r in rows)
+        + (
+            f"\n\n✅ Proposta inviata automaticamente anche a {proposal_resent_to} "
+            "su richiesta del cliente (stessa offerta del dossier)."
+            if proposal_resent_to
+            else ""
+        )
         + (f"\n\nDossier: {dossier_url}" if dossier_url else "")
     )
     return subject, html, text
@@ -145,11 +170,15 @@ async def notify_tenant_contact_request(
     tenant_data: dict[str, Any],
     payload: dict[str, Any],
     dossier_url: str | None,
+    proposal_resent_to: str | None = None,
 ) -> None:
     """Email the tenant (``contact_email``) about a new contact request.
 
     From the tenant's active verified inbox; Reply-To = prospect email
     so the installer answers the lead in one click. Fail-open.
+
+    ``proposal_resent_to`` flows through to the email body so the operator
+    sees that the proposal was already auto-sent to the prospect's address.
     """
     to_email = (tenant_data.get("contact_email") or "").strip()
     if not to_email:
@@ -160,7 +189,7 @@ async def notify_tenant_contact_request(
             log.warning("appointment.email_no_inbox", tenant_id=tenant_id)
             return
         subject, html, text = build_contact_request_email(
-            payload, dossier_url, tenant_data.get("business_name")
+            payload, dossier_url, tenant_data.get("business_name"), proposal_resent_to
         )
         await send_email(
             SendEmailInput(

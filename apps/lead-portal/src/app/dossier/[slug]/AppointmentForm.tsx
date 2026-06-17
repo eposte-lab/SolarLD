@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { API_URL } from '@/lib/api';
+import { submitAppointment } from '@/lib/appointment';
 import { postPortalEvent } from '@/lib/tracking';
 
 type Status = 'idle' | 'submitting' | 'success' | 'error';
@@ -128,28 +128,19 @@ export function AppointmentForm({
     postPortalEvent(slug, 'portal.appointment_click');
 
     try {
-      const res = await fetch(
-        `${API_URL}/v1/public/lead/${encodeURIComponent(slug)}/appointment`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        },
-      );
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text || `HTTP ${res.status}`);
-      }
+      await submitAppointment(slug, body);
       submittedRef.current = true;
       dirtyRef.current = false;
+      // The visitor just converted here — suppress the exit-intent popup for
+      // the rest of the session (pipeline_status only refreshes on reload, so
+      // cover the in-session case with the same flag the modal reads).
+      try {
+        window.sessionStorage.setItem('solarLead.exitIntent.closed', '1');
+      } catch {
+        /* private-mode Safari — non-critical */
+      }
       setStatus('success');
       form.reset();
-
-      // Fire the conversion pixel (stage=booked) in the background.
-      void fetch(
-        `${API_URL}/v1/public/lead/${encodeURIComponent(slug)}/pixel?stage=booked`,
-        { keepalive: true },
-      ).catch(() => { /* silent — pixel is non-critical */ });
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : 'Errore inatteso.');
       setStatus('error');
