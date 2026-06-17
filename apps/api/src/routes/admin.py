@@ -1230,6 +1230,121 @@ async def trial_lead_activity(ctx: CurrentUser, lead_id: str) -> TrialLeadActivi
     return TrialLeadActivityResponse(lead_id=lead_id, events=events, portal_events=portal)
 
 
+class TenantActivityItem(BaseModel):
+    occurred_at: str | None = None
+    event_type: str
+    event_source: str | None = None
+    lead_id: str | None = None
+    business_name: str | None = None
+    rendering_image_url: str | None = None
+    payload: dict[str, Any] | None = None
+
+
+class TenantActivityLogResponse(BaseModel):
+    items: list[TenantActivityItem]
+    total: int
+
+
+@router.get("/tenants/{tenant_id}/activity-log", response_model=TenantActivityLogResponse)
+async def tenant_activity_log(
+    ctx: CurrentUser,
+    tenant_id: str,
+    lead_id: str | None = Query(default=None, description="Filter to a single lead"),
+    event_type: str | None = Query(
+        default=None,
+        description="Comma-separated event_type filter (e.g. lead.outreach_sent,lead.email_clicked).",
+    ),
+    since: str | None = Query(
+        default=None, description="ISO timestamp lower bound (occurred_at >=)."
+    ),
+    limit: int = Query(default=200, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
+) -> TenantActivityLogResponse:
+    """Detailed, read-only chronology of everything that happened for a tenant.
+
+    Replaces the old approval queue with full transparency: every lead event
+    (outreach sent/failed, rendered, opened/clicked, portal visit, WhatsApp,
+    appointment, reply, bolletta, …) in time order, enriched with the lead's
+    business name and render image so the operator can review the visual
+    analysis inline. Super-admin only; service-role read (RLS bypass).
+    """
+    _require_super_admin(ctx)
+    sb = get_service_client()
+
+    q = (
+        sb.table("events")
+        .select("event_type, event_source, occurred_at, payload, lead_id", count="exact")
+        .eq("tenant_id", tenant_id)
+    )
+    if lead_id:
+        q = q.eq("lead_id", lead_id)
+    if event_type:
+        types = [t.strip() for t in event_type.split(",") if t.strip()]
+        if types:
+            q = q.in_("event_type", types)
+    if since:
+        q = q.gte("occurred_at", since)
+    q = q.order("occurred_at", desc=True).limit(limit).offset(offset)
+
+    try:
+        res = q.execute()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("admin.tenant_activity_log_failed", tenant_id=tenant_id, err=str(exc)[:200])
+        return TenantActivityLogResponse(items=[], total=0)
+
+    rows = res.data or []
+    total = res.count if res.count is not None else len(rows)
+
+    # Batch-enrich lead-scoped events with business name + render image (one
+    # query, not N) so the operator sees the visual analysis inline.
+    lead_ids = sorted({r["lead_id"] for r in rows if r.get("lead_id")})
+    enrich: dict[str, dict[str, Any]] = {}
+    if lead_ids:
+        try:
+            lr = (
+                sb.table("leads")
+                .select("id, rendering_image_url, subjects(business_name)")
+                .in_("id", lead_ids)
+                .execute()
+            )
+            for ld in lr.data or []:
+                subj = ld.get("subjects")
+                enrich[ld["id"]] = {
+                    "business_name": subj.get("business_name") if isinstance(subj, dict) else None,
+                    "rendering_image_url": ld.get("rendering_image_url"),
+                }
+        except Exception as exc:  # noqa: BLE001
+            log.warning(
+                "admin.tenant_activity_log_enrich_failed", tenant_id=tenant_id, err=str(exc)[:200]
+            )
+
+    items: list[TenantActivityItem] = []
+    for r in rows:
+        lid = r.get("lead_id")
+        meta = enrich.get(lid) if lid else None
+        payload = r.get("payload")
+        items.append(
+            TenantActivityItem(
+                occurred_at=r.get("occurred_at"),
+                event_type=r.get("event_type") or "?",
+                event_source=r.get("event_source"),
+                lead_id=lid,
+                business_name=(meta or {}).get("business_name"),
+                rendering_image_url=(meta or {}).get("rendering_image_url"),
+                payload=payload if isinstance(payload, dict) else None,
+            )
+        )
+
+    log.info(
+        "admin.tenant_activity_log",
+        tenant_id=tenant_id,
+        returned=len(items),
+        total=total,
+        super_admin=ctx.user_id,
+    )
+    return TenantActivityLogResponse(items=items, total=total)
+
+
 async def _run_daily_send_bg(tenant_id: str, actor: str | None) -> None:
     """Background worker for the on-demand 'Avvia invii ora' button.
 
