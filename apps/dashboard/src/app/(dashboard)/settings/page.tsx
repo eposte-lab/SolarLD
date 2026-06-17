@@ -47,6 +47,7 @@ import type {
 } from '@/types/db';
 import { GradientButton } from '@/components/ui/gradient-button';
 import { FollowupSettings } from '@/components/settings/followup-settings';
+import { RealisticSizingBackfillCard } from '@/components/settings/realistic-sizing-backfill-card';
 
 const MODULE_META: Record<
   ModuleKey,
@@ -126,6 +127,8 @@ export default async function SettingsPage() {
       {ctx.role === 'super_admin' && <TrialModerationCard />}
 
       {ctx.role === 'super_admin' && <DevToolsCard />}
+
+      {ctx.role === 'super_admin' && <RealisticSizingBackfillCard />}
     </div>
   );
 }

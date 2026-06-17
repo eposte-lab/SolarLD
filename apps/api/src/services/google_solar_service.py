@@ -202,7 +202,7 @@ def _parse_building_insights(data: dict[str, Any]) -> RoofInsight:
     admin_area = data.get("administrativeArea")
     locality = data.get("locality")
 
-    return RoofInsight(
+    insight = RoofInsight(
         lat=float(center.get("latitude", 0.0) or 0.0),
         lng=float(center.get("longitude", 0.0) or 0.0),
         area_sqm=round(total_area, 2),
@@ -222,6 +222,14 @@ def _parse_building_insights(data: dict[str, Any]) -> RoofInsight:
         panel_width_m=panel_width_m,
         panel_height_m=panel_height_m,
     )
+    # Trim Google's optimistic MAX array to the realistic installable roof so
+    # the layout AND the quoted kWp/kWh stay honest. `raw` keeps the full
+    # payload (the layout view / delineation tool read panel positions from it);
+    # only the headline sizing is reduced. Local import breaks the import cycle
+    # (roof_sizing needs our RoofInsight/SolarPanel); fail-open within.
+    from .roof_sizing import apply_realistic_sizing
+
+    return apply_realistic_sizing(insight)
 
 
 def _mock_roof_insight(lat: float, lng: float) -> RoofInsight:

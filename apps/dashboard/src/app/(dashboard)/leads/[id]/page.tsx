@@ -75,6 +75,7 @@ import { ResendToAddressButton } from './ResendToAddressButton';
 import { SendOutreachButton } from './SendOutreachButton';
 import { SendTestOutreachForm } from './SendTestOutreachForm';
 import { SolarApiInspector } from './SolarApiInspector';
+import { RoofDelineationTool } from './RoofDelineationTool';
 
 export const dynamic = 'force-dynamic';
 
@@ -1398,6 +1399,48 @@ export default async function LeadDetailPage({ params }: PageProps) {
           />
         </div>
       </CollapsibleCard>
+
+      {/* ─── Delineazione tetto (preventivo mirato, solo lead caldi) ─────────
+          L'operatore traccia l'area reale del tetto sulla mappa satellitare;
+          il sistema tiene solo i pannelli Solar dentro il poligono e ricalcola
+          kWp/ROI. Gated sui lead caldi (engagement ≥ 60) — è il preventivo di
+          precisione, più pesante della vista layout. */}
+      {(() => {
+        const rawData = lead.roofs?.raw_data as
+          | {
+              solar?: { solarPotential?: { solarPanels?: unknown[] } };
+              solarPotential?: { solarPanels?: unknown[] };
+            }
+          | null
+          | undefined;
+        const pot = rawData?.solar?.solarPotential ?? rawData?.solarPotential;
+        const rawPanels = (pot?.solarPanels ?? []) as Array<{
+          center?: { latitude?: number; longitude?: number };
+        }>;
+        const panels = rawPanels
+          .map((p) => ({ lat: Number(p?.center?.latitude), lng: Number(p?.center?.longitude) }))
+          .filter(
+            (p) => Number.isFinite(p.lat) && Number.isFinite(p.lng) && (p.lat !== 0 || p.lng !== 0),
+          );
+        const isHot =
+          lead.engagement_score_updated_at != null && (lead.engagement_score ?? 0) >= 60;
+        if (!isHot || panels.length === 0) return null;
+        const cLat = panels.reduce((s, p) => s + p.lat, 0) / panels.length;
+        const cLng = panels.reduce((s, p) => s + p.lng, 0) / panels.length;
+        return (
+          <CollapsibleCard label="Preventivo mirato" title="Delineazione tetto" defaultOpen={false}>
+            <div className="pt-1">
+              <RoofDelineationTool
+                leadId={lead.id}
+                lat={cLat}
+                lng={cLng}
+                panels={panels}
+                currentKwp={lead.roofs?.estimated_kwp ?? null}
+              />
+            </div>
+          </CollapsibleCard>
+        );
+      })()}
 
       {/* ─── Storico eventi ───────────────────────────────────────────── */}
       <CollapsibleCard
