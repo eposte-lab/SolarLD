@@ -692,6 +692,7 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
                     tenant_row=tenant_row,
                     subject=subject,
                     failure_reason="no_mx_record",
+                    route_to_phone=True,
                 )
 
         # ------------------------------------------------------------------
@@ -2017,8 +2018,15 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
         tenant_row: dict[str, Any],
         subject: dict[str, Any],
         failure_reason: str,
+        route_to_phone: bool = False,
     ) -> OutreachOutput:
-        """Insert a campaigns row with status=failed for dashboard visibility."""
+        """Insert a campaigns row with status=failed for dashboard visibility.
+
+        ``route_to_phone``: when the email is undeliverable (e.g. a no-MX dead
+        domain / junk address) but the lead may still be reachable by phone,
+        move it to the call queue (``to_call``) instead of leaving a dead
+        'Fallito' email row that no one acts on.
+        """
         sb = get_service_client()
         now_iso = datetime.now(UTC).isoformat()
         subject_type = subject.get("type") or SubjectType.UNKNOWN.value
@@ -2035,6 +2043,18 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
         }
         res = sb.table("outreach_sends").insert(failure_insert).execute()
         campaign_id = res.data[0]["id"] if res.data else None
+
+        if route_to_phone:
+            try:
+                sb.table("leads").update({"pipeline_status": LeadStatus.TO_CALL.value}).eq(
+                    "id", payload.lead_id
+                ).execute()
+            except Exception as exc:  # noqa: BLE001
+                log.warning(
+                    "outreach.route_to_phone_failed",
+                    lead_id=payload.lead_id,
+                    err=str(exc)[:200],
+                )
 
         await self._emit_event(
             event_type="lead.outreach_failed",
