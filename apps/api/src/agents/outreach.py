@@ -124,6 +124,15 @@ class OutreachInput(BaseModel):
             "on (lead_id, sequence_step) via campaigns."
         ),
     )
+    bypass_window: bool = Field(
+        default=False,
+        description=(
+            "Bypass ONLY the Mon-Fri send-window gate — the operator's "
+            "'Avvia invii ora' button. Unlike force, this does NOT bypass the "
+            "already-sent dedupe (an already-contacted lead is never re-sent) "
+            "nor the GDPR/branding gates. Use this, not force, for manual sends."
+        ),
+    )
     sequence_step: int = Field(
         default=1,
         ge=1,
@@ -542,7 +551,12 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
         send_override_active = bool(payload.recipient_override) or bool(
             (tenant_row.get("test_recipient_override") or "").strip()
         )
-        if not payload.force and not send_override_active and not is_within_send_window():
+        if (
+            not payload.force
+            and not payload.bypass_window
+            and not send_override_active
+            and not is_within_send_window()
+        ):
             log.info(
                 "outreach.outside_send_window",
                 lead_id=payload.lead_id,

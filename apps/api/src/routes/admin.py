@@ -1287,14 +1287,15 @@ async def _run_daily_send_bg(tenant_id: str, actor: str | None) -> None:
             )
             await enqueue(
                 "outreach_task",
-                # force=True: this is the operator's explicit "send now" button.
-                # It must bypass the Mon-Fri 08-12/14-18 send-window gate
-                # (otherwise a click during the 12-14 lunch break or after hours
-                # silently skips every lead). The tenant is fully onboarded
-                # (legal + business_name present), so the GDPR/branding gates
-                # that force also bypasses are satisfied anyway. Idempotency is
-                # safe: warehouse_pick only dequeues not-yet-sent ready leads.
-                {"tenant_id": tenant_id, "lead_id": lid, "channel": "email", "force": True},
+                # bypass_window (NOT force): the operator's "send now" button must
+                # bypass the Mon-Fri 08-12/14-18 window (a click at lunch / after
+                # hours would otherwise skip every lead) — but it must STILL honour
+                # the already-sent dedupe and the GDPR/branding gates. force would
+                # bypass those too and could re-send an already-contacted lead that
+                # erroneously sat in ready_to_send (observed: Palazzo Caracciolo got
+                # a duplicate). warehouse_pick normally only dequeues not-yet-sent
+                # leads, but bypass_window is the belt-and-braces guarantee.
+                {"tenant_id": tenant_id, "lead_id": lid, "channel": "email", "bypass_window": True},
                 job_id=f"outreach:{tenant_id}:{lid}:email",
                 defer_until=outreach_at,
             )
