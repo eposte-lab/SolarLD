@@ -25,14 +25,14 @@ type Sample = {
   yearly_savings_eur: number | null;
 };
 type Preview = {
-  roofs_considered: number;
+  total_target: number;
+  sampled: number;
   avg_kwp_old: number | null;
   avg_kwp_new: number | null;
   avg_pct_drop: number | null;
-  skipped: number;
   samples: Sample[];
 };
-type ApplyResult = { roofs_changed: number; leads_updated: number; skipped: number };
+type ApplyResult = { started: boolean; queued: number };
 
 type State =
   | { kind: 'idle' }
@@ -107,7 +107,10 @@ export function RealisticSizingBackfillCard() {
       {(state.kind === 'preview' || state.kind === 'applying') && (
         <div className="mt-5 space-y-4">
           <div className="flex flex-wrap items-end gap-x-8 gap-y-3 rounded-xl bg-surface-container-low p-4">
-            <Stat label="Lead considerati" value={String(state.data.roofs_considered)} />
+            <Stat
+              label="Campione"
+              value={`${state.data.sampled} / ${state.data.total_target}`}
+            />
             <Stat
               label="kWp medio"
               value={`${state.data.avg_kwp_old ?? '—'} → ${state.data.avg_kwp_new ?? '—'}`}
@@ -180,10 +183,8 @@ export function RealisticSizingBackfillCard() {
         <div className="mt-5 inline-flex items-start gap-2 rounded-xl bg-success-container px-4 py-3 text-sm text-on-success-container">
           <Check size={16} strokeWidth={2.5} className="mt-0.5 shrink-0" aria-hidden />
           <span>
-            Fatto: <strong>{state.result.roofs_changed}</strong> tetti ricalcolati,{' '}
-            <strong>{state.result.leads_updated}</strong> lead aggiornati
-            {state.result.skipped ? ` · ${state.result.skipped} saltati` : ''}. I dossier
-            riflettono i nuovi numeri.
+            Avviato: <strong>{state.result.queued}</strong> tetti in ricalcolo in background.
+            I numeri si aggiornano da soli tra poco — ricarica la pagina lead tra ~1 minuto.
           </span>
         </div>
       )}

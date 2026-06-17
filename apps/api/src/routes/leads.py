@@ -8,7 +8,7 @@ import re
 from datetime import UTC, datetime
 from typing import Any, Literal
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Query
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -2046,36 +2046,121 @@ async def backfill_derivations(
     }
 
 
-@router.post("/backfill-realistic-sizing")
-async def backfill_realistic_sizing(
-    ctx: CurrentUser,
-    target: Literal["ready_to_send", "all"] = Query(default="ready_to_send"),
-    dry_run: bool = Query(default=True),
-    limit: int = Query(default=500, ge=1, le=2000),
-) -> dict[str, object]:
-    """Recompute this tenant's stored sizing under the realistic-sizing trim.
-
-    For each target roof: re-parse the stored ``raw_data`` (which now runs the
-    trim in ``_parse_building_insights`` — drop slivers / keep the main roof
-    planes) and recompute ``estimated_kwp`` / ``estimated_yearly_kwh`` +
-    ``compute_full_derivations`` + the ``leads.roi_data`` summary. Pure Python —
-    NO Solar API / Replicate / spend. The marketing render is untouched (the AI
-    paints freely; only the numbers + the deterministic layout view change).
-
-    ``dry_run`` (default True) computes + reports the before/after delta WITHOUT
-    writing — run it first to review the drop, then ``dry_run=false`` to apply.
-    ``target=ready_to_send`` (default) does the about-to-send leads first.
-
-    Cost assumptions mirror the L4 write + the derivations backfill
-    (subject_type=b2b, tenant defaults); the ONLY intended change is the sizing.
-    """
+def _sizing_for_roof(roof: dict[str, Any]) -> tuple[float, float, dict[str, Any] | None] | None:
+    """Re-parse a roof's stored raw_data (the trim runs in the parser) →
+    (new_kwp, new_kwh, derivations). None when there's no usable Solar payload.
+    Pure + no I/O — shared by the dry-run preview and the background apply."""
     from ..services.google_solar_service import _parse_building_insight_payload
     from ..services.roi_service import compute_full_derivations
 
+    raw = roof.get("raw_data") or {}
+    payload = (raw.get("solar") if isinstance(raw, dict) else None) or raw
+    if not isinstance(payload, dict) or "solarPotential" not in payload:
+        return None
+    try:
+        insight = _parse_building_insight_payload(payload)
+    except Exception:  # noqa: BLE001
+        return None
+    if not insight.panels:
+        return None
+    try:
+        derivations = compute_full_derivations(
+            estimated_kwp=insight.estimated_kwp,
+            estimated_yearly_kwh=insight.estimated_yearly_kwh,
+            roof_area_sqm=insight.area_sqm,
+            panel_count=len(insight.panels),
+            panel_capacity_w=insight.panel_capacity_w,
+            panel_width_m=insight.panel_width_m,
+            panel_height_m=insight.panel_height_m,
+            subject_type="b2b",
+            tenant_cost_assumptions=None,
+        )
+    except Exception:  # noqa: BLE001
+        return None
+    return insight.estimated_kwp, insight.estimated_yearly_kwh, derivations
+
+
+def _run_sizing_backfill(
+    tenant_id: str, roof_ids: list[str], leads_by_roof: dict[str, list[dict[str, Any]]]
+) -> None:
+    """Background worker: apply the realistic-sizing recompute to every target
+    roof in small chunks (bounded memory, no request timeout). Idempotent —
+    re-running yields the same trimmed numbers."""
+    sb = get_service_client()
+    changed = 0
+    for i in range(0, len(roof_ids), 20):
+        batch = roof_ids[i : i + 20]
+        roofs = (
+            sb.table("roofs")
+            .select("id, area_sqm, estimated_kwp, estimated_yearly_kwh, raw_data")
+            .in_("id", batch)
+            .execute()
+            .data
+            or []
+        )
+        for roof in roofs:
+            result = _sizing_for_roof(roof)
+            if result is None or result[2] is None:
+                continue
+            new_kwp, new_kwh, derivations = result
+            try:
+                sb.table("roofs").update(
+                    {
+                        "estimated_kwp": new_kwp,
+                        "estimated_yearly_kwh": new_kwh,
+                        "derivations": derivations,
+                    }
+                ).eq("id", roof["id"]).execute()
+                changed += 1
+            except Exception as exc:  # noqa: BLE001
+                log.warning(
+                    "backfill_sizing.roof_update_failed", roof_id=roof["id"], err=str(exc)[:200]
+                )
+                continue
+            roi_summary = {
+                "estimated_kwp": derivations.get("estimated_kwp"),
+                "annual_savings_eur": derivations.get("yearly_savings_eur"),
+                "payback_years": derivations.get("payback_years"),
+                "co2_saved_kg": derivations.get("co2_kg_per_year"),
+            }
+            for lead in leads_by_roof.get(roof["id"], []):
+                try:
+                    merged = {**(lead.get("roi_data") or {}), **roi_summary}
+                    sb.table("leads").update({"roi_data": merged}).eq("id", lead["id"]).execute()
+                except Exception as exc:  # noqa: BLE001
+                    log.warning(
+                        "backfill_sizing.lead_update_failed", lead_id=lead["id"], err=str(exc)[:200]
+                    )
+    log.info("backfill_sizing.background_done", tenant_id=tenant_id, roofs_changed=changed)
+
+
+@router.post("/backfill-realistic-sizing")
+async def backfill_realistic_sizing(
+    ctx: CurrentUser,
+    background: BackgroundTasks,
+    target: Literal["ready_to_send", "all"] = Query(default="ready_to_send"),
+    dry_run: bool = Query(default=True),
+    sample: int = Query(default=40, ge=1, le=200),
+) -> dict[str, object]:
+    """Recompute this tenant's stored sizing under the realistic-sizing trim.
+
+    Re-parses each target roof's stored ``raw_data`` (the trim runs in the
+    parser — keep the main roof planes), recomputes ``estimated_kwp`` /
+    ``estimated_yearly_kwh`` + ``compute_full_derivations`` + the
+    ``leads.roi_data`` summary. Pure Python — NO Solar/Replicate spend; the AI
+    marketing render is untouched.
+
+    ``dry_run`` (default True) previews the average drop on a SAMPLE of the
+    target roofs (fast; the % is an average so a sample is representative) and
+    writes NOTHING. ``dry_run=false`` hands the full recompute to a BACKGROUND
+    task and returns immediately — writing ~2 rows per lead over hundreds of
+    leads would otherwise blow the request timeout. ``target=ready_to_send``
+    (default) does the about-to-send leads first. Idempotent.
+    """
     tenant_id = require_tenant(ctx)
     sb = get_service_client()
 
-    # 1) Resolve target roofs via their leads.
+    # Resolve target roofs via their leads (light query — no raw_data here).
     lead_q = (
         sb.table("leads")
         .select("id, roof_id, pipeline_status, roi_data")
@@ -2083,72 +2168,53 @@ async def backfill_realistic_sizing(
         .not_("roof_id", "is", None)
     )
     if target == "ready_to_send":
-        # 'ready_to_send' is a real pipeline_status value in the DB but is not a
-        # member of the LeadStatus enum — use the literal.
+        # 'ready_to_send' is a real pipeline_status value but not a LeadStatus member.
         lead_q = lead_q.eq("pipeline_status", "ready_to_send")
-    leads = lead_q.limit(limit).execute().data or []
+    leads = lead_q.limit(2000).execute().data or []
     leads_by_roof: dict[str, list[dict[str, Any]]] = {}
     for lead in leads:
         leads_by_roof.setdefault(lead["roof_id"], []).append(lead)
     roof_ids = list(leads_by_roof.keys())
     if not roof_ids:
-        return {"ok": True, "dry_run": dry_run, "roofs": 0, "note": "no target roofs"}
+        return {"ok": True, "dry_run": dry_run, "total_target": 0, "note": "no target roofs"}
 
-    roofs = (
+    # Apply → background task (chunked), return at once to avoid the timeout.
+    if not dry_run:
+        background.add_task(_run_sizing_backfill, tenant_id, roof_ids, leads_by_roof)
+        await audit_log(
+            tenant_id,
+            "roofs.realistic_sizing_backfill_started",
+            actor_user_id=ctx.sub,
+            target_table="roofs",
+            target_id=target,
+            diff={"queued": len(roof_ids)},
+        )
+        return {"ok": True, "dry_run": False, "started": True, "queued": len(roof_ids)}
+
+    # Dry-run preview: process only a SAMPLE (fetching every roof's full raw_data
+    # at once is what made the preview time out).
+    sample_roofs = (
         sb.table("roofs")
-        .select("id, area_sqm, estimated_kwp, estimated_yearly_kwh, raw_data")
-        .in_("id", roof_ids)
+        .select("id, estimated_kwp, area_sqm, estimated_yearly_kwh, raw_data")
+        .in_("id", roof_ids[:sample])
         .execute()
         .data
         or []
     )
-
-    roofs_changed = 0
-    leads_updated = 0
-    skipped = 0
-    sum_kwp_old = 0.0
-    sum_kwp_new = 0.0
+    processed = 0
+    sum_old = 0.0
+    sum_new = 0.0
     samples: list[dict[str, Any]] = []
-
-    for roof in roofs:
-        raw = roof.get("raw_data") or {}
-        payload = (raw.get("solar") if isinstance(raw, dict) else None) or raw
-        if not isinstance(payload, dict) or "solarPotential" not in payload:
-            skipped += 1
+    for roof in sample_roofs:
+        result = _sizing_for_roof(roof)
+        if result is None:
             continue
-        try:
-            insight = _parse_building_insight_payload(payload)  # trim applied here
-        except Exception as exc:  # noqa: BLE001
-            log.warning("backfill_sizing.parse_failed", roof_id=roof["id"], err=str(exc)[:200])
-            skipped += 1
-            continue
-        if not insight.panels:
-            skipped += 1
-            continue
-
-        new_kwp = insight.estimated_kwp
-        new_kwh = insight.estimated_yearly_kwh
+        new_kwp, _new_kwh, derivations = result
         old_kwp = float(roof.get("estimated_kwp") or 0.0)
-        try:
-            derivations = compute_full_derivations(
-                estimated_kwp=new_kwp,
-                estimated_yearly_kwh=new_kwh,
-                roof_area_sqm=insight.area_sqm,
-                panel_count=len(insight.panels),
-                panel_capacity_w=insight.panel_capacity_w,
-                panel_width_m=insight.panel_width_m,
-                panel_height_m=insight.panel_height_m,
-                subject_type="b2b",
-                tenant_cost_assumptions=None,
-            )
-        except Exception as exc:  # noqa: BLE001
-            log.warning("backfill_sizing.compute_failed", roof_id=roof["id"], err=str(exc)[:200])
-            skipped += 1
-            continue
-
-        sum_kwp_old += old_kwp
-        sum_kwp_new += new_kwp
-        if len(samples) < 25:
+        processed += 1
+        sum_old += old_kwp
+        sum_new += new_kwp
+        if len(samples) < 12:
             samples.append(
                 {
                     "roof_id": roof["id"],
@@ -2157,67 +2223,14 @@ async def backfill_realistic_sizing(
                     "yearly_savings_eur": (derivations or {}).get("yearly_savings_eur"),
                 }
             )
-
-        if dry_run or derivations is None:
-            continue
-
-        # Apply: write the trimmed sizing + fresh derivations on the roof, and
-        # the 4-field summary on each linked lead (merge to preserve other keys).
-        try:
-            sb.table("roofs").update(
-                {
-                    "estimated_kwp": new_kwp,
-                    "estimated_yearly_kwh": new_kwh,
-                    "derivations": derivations,
-                }
-            ).eq("id", roof["id"]).execute()
-            roofs_changed += 1
-        except Exception as exc:  # noqa: BLE001
-            log.warning(
-                "backfill_sizing.roof_update_failed", roof_id=roof["id"], err=str(exc)[:200]
-            )
-            continue
-
-        roi_summary = {
-            "estimated_kwp": derivations.get("estimated_kwp"),
-            "annual_savings_eur": derivations.get("yearly_savings_eur"),
-            "payback_years": derivations.get("payback_years"),
-            "co2_saved_kg": derivations.get("co2_kg_per_year"),
-        }
-        for lead in leads_by_roof.get(roof["id"], []):
-            try:
-                merged = {**(lead.get("roi_data") or {}), **roi_summary}
-                sb.table("leads").update({"roi_data": merged}).eq("id", lead["id"]).execute()
-                leads_updated += 1
-            except Exception as exc:  # noqa: BLE001
-                log.warning(
-                    "backfill_sizing.lead_update_failed", lead_id=lead["id"], err=str(exc)[:200]
-                )
-
-    if not dry_run:
-        await audit_log(
-            tenant_id,
-            "roofs.realistic_sizing_backfilled",
-            actor_user_id=ctx.sub,
-            target_table="roofs",
-            target_id=target,
-            diff={"target": target, "roofs_changed": roofs_changed, "leads_updated": leads_updated},
-        )
-
-    n = max(1, int(sum_kwp_old > 0) + len(samples))  # avoid div-by-zero in report
     return {
         "ok": True,
-        "dry_run": dry_run,
-        "target": target,
-        "roofs_considered": len(roofs),
-        "roofs_changed": roofs_changed,
-        "leads_updated": leads_updated,
-        "skipped": skipped,
-        "avg_kwp_old": round(sum_kwp_old / n, 1) if sum_kwp_old else None,
-        "avg_kwp_new": round(sum_kwp_new / n, 1) if sum_kwp_new else None,
-        "avg_pct_drop": (
-            round(100.0 * (sum_kwp_old - sum_kwp_new) / sum_kwp_old, 1) if sum_kwp_old > 0 else None
-        ),
+        "dry_run": True,
+        "total_target": len(roof_ids),
+        "sampled": processed,
+        "avg_kwp_old": round(sum_old / processed, 1) if processed else None,
+        "avg_kwp_new": round(sum_new / processed, 1) if processed else None,
+        "avg_pct_drop": (round(100.0 * (sum_old - sum_new) / sum_old, 1) if sum_old > 0 else None),
         "samples": samples,
     }
 
