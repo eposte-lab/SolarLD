@@ -19,6 +19,7 @@
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 
+import { TenantActivityLog } from '@/components/admin/tenant-activity-log';
 import { TrialModerationPanel } from '@/components/admin/trial-moderation-panel';
 import { getCurrentTenantContext } from '@/lib/data/tenant';
 
@@ -61,6 +62,8 @@ export default async function TrialModerationPage({
           Tutto questo è invisibile al tenant.
         </p>
       </header>
+
+      <TenantActivityLog tenantId={tenantId} />
 
       <TrialModerationPanel initialTenantId={tenantId} />
     </div>
