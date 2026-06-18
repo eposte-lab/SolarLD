@@ -63,6 +63,18 @@ _OUTREACH_DEFER_SECONDS = 120
 # to free up. With N inboxes the fleet still sends ~N per spacing window.
 _OUTREACH_SPACING_SECONDS = 190
 
+# --- Stranded-pick rescue (2026-06-18 incident) ---------------------------
+# When the worker dies mid-batch (OOM/crash), the deferred outreach_tasks for
+# already-`picked` leads never run and the leads sit in `picked` indefinitely
+# — `warehouse_unstick_picked` only recycles them to the warehouse after 6h
+# and only when the 2×/day orchestrator next runs, so same-day sends are lost.
+# `rescue_stranded_picked` re-fires the SAME picked lead's outreach directly,
+# on a short cron, so a stranded lead recovers within minutes. Idempotent: the
+# OutreachAgent's already-sent guard makes a double-fire a no-op.
+_RESCUE_MIN_AGE_MINUTES = 8  # past the normal 120s defer + per-lead stagger
+_RESCUE_MAX_LEADS = 200  # per-tick bound — keep the cron cheap
+_RESCUE_SPACING_SECONDS = _OUTREACH_SPACING_SECONDS  # same anti-collision stagger
+
 
 # ----------------------------------------------------------------------
 # Top-level entry — called by the cron registration in workers.cron
@@ -268,6 +280,92 @@ def _count_picked_today(sb: Any, tenant_id: str) -> int:
     except Exception as exc:  # noqa: BLE001 — telemetry/count must not block the pick
         log.warning("daily_pipeline.picked_today_count_failed", tenant_id=tenant_id, err=str(exc))
         return 0
+
+
+async def rescue_stranded_picked() -> dict[str, Any]:
+    """Re-fire outreach for leads stranded in ``picked``.
+
+    A lead lands here when the worker died (OOM/crash) after the pick but
+    before its deferred ``outreach_task`` ran — the job is gone and nothing
+    re-issues it (``warehouse_unstick_picked`` only recycles >6h crashes back
+    to the warehouse at the 2×/day orchestrator cadence, so the same-day send
+    is lost). This scans for picks older than ``_RESCUE_MIN_AGE_MINUTES`` that
+    have a render but no send yet, and re-enqueues a fresh ``outreach_task``
+    each — staggered per tenant by ``_RESCUE_SPACING_SECONDS`` so the inboxes
+    don't collide on the 180s floor.
+
+    Guards:
+      * ``rendering_image_url`` must be present — the render-readiness gate
+        would hard-skip otherwise, so a render-less lead can't send anyway
+        (its render is blocked upstream, e.g. Solar API billing). Skipping
+        them keeps the cron from churning on permanently-blocked leads.
+      * ``outreach_sent_at`` must be NULL — a lead that already sent but
+        mis-transitioned would be re-skipped by the agent's dedup; excluding
+        it keeps the rescue from looping on it.
+      * Re-uses the daily pipeline's OWN job_id ``outreach:{tenant}:{lead}:email``
+        — NOT a distinct ``rescue:`` id. This is deliberate: arq dedups on the
+        id, so if the lead's original deferred outreach is still pending (e.g.
+        today's batch, scheduled hours out) the rescue enqueue is a harmless
+        no-op and the original fires once. The rescue only actually re-issues
+        once the original job's result has expired (keep_result = 1h) — i.e.
+        the genuinely-abandoned crashes. That makes a double real-email
+        impossible by construction (no second live job for the same lead),
+        rather than relying on the agent's TOCTOU already-sent read.
+
+    Idempotent and safe across tenants: the OutreachAgent re-checks every
+    gate (window, blacklist, opt-out, caps, kill-switch), so a rescue for a
+    blocked/paused tenant simply skips.
+    """
+    sb = get_service_client()
+    cutoff = (datetime.now(UTC) - timedelta(minutes=_RESCUE_MIN_AGE_MINUTES)).isoformat()
+    try:
+        res = (
+            sb.table("leads")
+            .select("id, tenant_id")
+            .eq("pipeline_status", "picked")
+            .is_("outreach_sent_at", "null")
+            .not_.is_("rendering_image_url", "null")
+            .lt("picked_at", cutoff)
+            .order("picked_at", desc=False)  # FIFO — oldest stranded first
+            .limit(_RESCUE_MAX_LEADS)
+            .execute()
+        )
+    except Exception as exc:  # noqa: BLE001 — a rescue miss must never raise
+        log.error("rescue_stranded_picked.query_failed", err=str(exc))
+        return {"ok": False, "error": str(exc)}
+
+    rows = res.data or []
+    if not rows:
+        return {"ok": True, "rescued": 0}
+
+    base_at = datetime.now(UTC) + timedelta(seconds=_OUTREACH_DEFER_SECONDS)
+    per_tenant_idx: dict[str, int] = {}
+    rescued = 0
+    for row in rows:
+        lead_id = row.get("id")
+        tenant_id = row.get("tenant_id")
+        if not lead_id or not tenant_id:
+            continue
+        idx = per_tenant_idx.get(tenant_id, 0)
+        per_tenant_idx[tenant_id] = idx + 1
+        outreach_at = base_at + timedelta(seconds=idx * _RESCUE_SPACING_SECONDS)
+        # Same job_id as the daily pipeline's outreach enqueue → arq dedups
+        # against a still-pending original, so the rescue can never create a
+        # second live send for the same lead (no double-email).
+        await enqueue(
+            "outreach_task",
+            {"tenant_id": tenant_id, "lead_id": lead_id, "channel": "email"},
+            job_id=f"outreach:{tenant_id}:{lead_id}:email",
+            defer_until=outreach_at,
+        )
+        rescued += 1
+
+    log.info(
+        "rescue_stranded_picked.done",
+        rescued=rescued,
+        tenants=len(per_tenant_idx),
+    )
+    return {"ok": True, "rescued": rescued, "tenants": len(per_tenant_idx)}
 
 
 # ----------------------------------------------------------------------
