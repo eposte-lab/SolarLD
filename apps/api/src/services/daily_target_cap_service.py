@@ -189,6 +189,30 @@ async def check_and_reserve(
         return DailyTargetCapDecision("allowed", 0, cap, str(tenant_id))
 
 
+async def release(tenant_id: str) -> None:
+    """Release one previously-reserved daily slot (DECR, floored at 0).
+
+    The cap counts reservations, and ``check_and_reserve`` runs BEFORE the
+    deliverability rate-limit / inbox-claim gates. So a lead that reserves a
+    slot and then gets rate-limited (and re-enqueued by the OutreachAgent)
+    used to leave its reservation stuck — and each retry re-reserved. A
+    handful of throttled leads thus exhausted the daily cap while far fewer
+    actually shipped (2026-06-18: cap showed 50 used, 20 really sent). The
+    OutreachAgent now calls this when a reserved send does NOT go out, so the
+    counter tracks real sends. Best-effort: a Redis error just logs (the key
+    self-corrects at the daily TTL reset)."""
+    if not tenant_id:
+        return
+    key = redis_key_for(str(tenant_id))
+    try:
+        r = get_redis()
+        val = await r.decr(key)
+        if val < 0:
+            await r.set(key, 0)
+    except Exception as exc:  # noqa: BLE001 — a release miss must never break a send
+        log.warning("daily_target_cap.release_failed", tenant_id=str(tenant_id), err=str(exc))
+
+
 # ---------------------------------------------------------------------------
 # Per-campaign fair-share cap (Phase 3a — generic_outreach round-robin)
 # ---------------------------------------------------------------------------
@@ -274,6 +298,22 @@ async def check_and_reserve_campaign(
             err=str(exc),
         )
         return DailyTargetCapDecision("allowed", 0, sub_cap, tenant_id)
+
+
+async def release_campaign(tenant_id: str, list_id: str) -> None:
+    """Release a previously-reserved per-campaign sub-cap slot (see ``release``)."""
+    if not tenant_id or not list_id:
+        return
+    key = campaign_redis_key_for(str(tenant_id), str(list_id))
+    try:
+        r = get_redis()
+        val = await r.decr(key)
+        if val < 0:
+            await r.set(key, 0)
+    except Exception as exc:  # noqa: BLE001 — a release miss must never break a send
+        log.warning(
+            "daily_target_cap.release_campaign_failed", tenant_id=str(tenant_id), err=str(exc)
+        )
 
 
 # ---------------------------------------------------------------------------

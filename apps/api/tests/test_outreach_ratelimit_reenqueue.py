@@ -154,3 +154,31 @@ async def test_daily_cap_unpicks_to_ready(monkeypatch: Any) -> None:
     assert any(
         t == "leads" and p.get("pipeline_status") == "ready_to_send" for (t, p) in store["updates"]
     )
+
+
+async def test_release_cap_reservations_routes_daily_and_campaign(monkeypatch: Any) -> None:
+    """The cap-release helper gives back daily/campaign slots so the cap counts
+    real sends, not reservations + retries (2026-06-18 inflation bug)."""
+    calls: list[tuple] = []
+
+    async def _rel(tenant_id: str) -> None:
+        calls.append(("daily", tenant_id))
+
+    async def _rel_camp(tenant_id: str, list_id: str) -> None:
+        calls.append(("campaign", tenant_id, list_id))
+
+    monkeypatch.setattr(outreach.daily_target_cap_service, "release", _rel)
+    monkeypatch.setattr(outreach.daily_target_cap_service, "release_campaign", _rel_camp)
+    agent = OutreachAgent()
+
+    await agent._release_cap_reservations(tenant_id="t", daily=True, campaign_list=None)
+    assert calls == [("daily", "t")]
+
+    calls.clear()
+    await agent._release_cap_reservations(tenant_id="t", daily=True, campaign_list="L1")
+    assert calls == [("daily", "t"), ("campaign", "t", "L1")]
+
+    calls.clear()
+    # Follow-ups (not first-touch) reserved nothing → release nothing.
+    await agent._release_cap_reservations(tenant_id="t", daily=False, campaign_list=None)
+    assert calls == []

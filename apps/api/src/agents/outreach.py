@@ -894,6 +894,13 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
                     },
                 )
 
+        # Reservations we now HOLD. If a downstream gate (rate-limit /
+        # inbox-blocked) skips the send, these are released so the cap counts
+        # real sends, not reservations + retries (2026-06-18 cap-inflation bug).
+        reserved_campaign_list: str | None = (
+            effective_list_id if (is_first_touch and effective_list_id) else None
+        )
+
         # ------------------------------------------------------------------
         # 8) Deliverability rate-limit — domain-level hourly cap
         #
@@ -919,6 +926,15 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
                 used=quota.used,
                 limit=quota.limit,
                 verdict=quota.verdict,
+            )
+            # Give back the daily/campaign cap slots we reserved above — this
+            # send isn't going out now, and the retry will re-reserve. Without
+            # this the cap counted reservations + retries, exhausting at 50
+            # while only ~20 actually shipped (2026-06-18).
+            await self._release_cap_reservations(
+                tenant_id=payload.tenant_id,
+                daily=is_first_touch,
+                campaign_list=reserved_campaign_list,
             )
             # TRANSIENT cap — the per-inbox 180s floor / domain hourly / warm-up
             # ramp all clear within the day. Re-enqueue deferred instead of
@@ -1002,6 +1018,12 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
                 "outreach.inbox_cap_all_blocked",
                 lead_id=payload.lead_id,
                 tenant_id=payload.tenant_id,
+            )
+            # Release the reserved cap slot — the send didn't go out.
+            await self._release_cap_reservations(
+                tenant_id=payload.tenant_id,
+                daily=is_first_touch,
+                campaign_list=reserved_campaign_list,
             )
             return await self._record_skip(
                 payload=payload,
@@ -2095,6 +2117,17 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
     # ------------------------------------------------------------------
     # Failure / skip recorders
     # ------------------------------------------------------------------
+
+    async def _release_cap_reservations(
+        self, *, tenant_id: str, daily: bool, campaign_list: str | None
+    ) -> None:
+        """Give back daily/campaign cap slots reserved earlier when the send
+        does NOT go out (rate-limited / inbox-blocked → re-enqueued), so the
+        cap counts real sends instead of reservations + retries."""
+        if daily:
+            await daily_target_cap_service.release(tenant_id)
+        if campaign_list:
+            await daily_target_cap_service.release_campaign(tenant_id, campaign_list)
 
     async def _reenqueue_after_ratelimit(
         self,

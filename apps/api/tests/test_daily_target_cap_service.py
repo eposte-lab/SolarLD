@@ -88,6 +88,11 @@ class FakeRedis:
             raise RuntimeError("redis down")
         self.ttls[key] = ttl
 
+    async def set(self, key: str, value: int) -> None:
+        if self.fail:
+            raise RuntimeError("redis down")
+        self.store[key] = int(value)
+
     async def get(self, key: str) -> str | None:
         if self.fail:
             raise RuntimeError("redis down")
@@ -233,3 +238,42 @@ async def test_peek_redis_down_fails_open(fake_redis: FakeRedis) -> None:
     # Same fail-open philosophy — UI shows 0/250 rather than crashing.
     assert decision.used == 0
     assert decision.verdict == "allowed"
+
+
+# ---------------------------------------------------------------------------
+# release / release_campaign — give back a reserved slot when a send doesn't go
+# out (rate-limited / inbox-blocked) so the cap counts real sends, not retries
+# (2026-06-18 cap-inflation bug).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_release_frees_a_reserved_slot(fake_redis: FakeRedis) -> None:
+    tenant = {"id": "tenant-1", "daily_target_send_cap": 2}
+    await svc.check_and_reserve(tenant)
+    await svc.check_and_reserve(tenant)
+    assert (await svc.check_and_reserve(tenant)).allowed is False  # at cap
+    # A reserved lead was rate-limited and re-enqueued → release its slot.
+    await svc.release("tenant-1")
+    assert (await svc.check_and_reserve(tenant)).allowed is True  # slot reusable
+
+
+@pytest.mark.asyncio
+async def test_release_floors_at_zero(fake_redis: FakeRedis) -> None:
+    await svc.release("tenant-1")  # nothing reserved yet
+    assert int(await fake_redis.get(svc.redis_key_for("tenant-1")) or 0) == 0
+
+
+@pytest.mark.asyncio
+async def test_release_empty_tenant_is_noop(fake_redis: FakeRedis) -> None:
+    await svc.release("")  # must not raise
+
+
+@pytest.mark.asyncio
+async def test_release_campaign_decrements(fake_redis: FakeRedis) -> None:
+    tenant = {"id": "t", "daily_target_send_cap": 10}
+    await svc.check_and_reserve_campaign(tenant, list_id="L1", n_active_campaigns=1)
+    key = svc.campaign_redis_key_for("t", "L1")
+    assert fake_redis.store[key] == 1
+    await svc.release_campaign("t", "L1")
+    assert fake_redis.store[key] == 0
