@@ -13,11 +13,20 @@ freeze drops from "until a human notices" to roughly the threshold.
 
 os._exit is deliberate: a wedged loop can't shut down gracefully, and any
 half-sent email is covered by the OutreachAgent's already-sent dedup.
+
+GIL caveat (2026-06-18, second incident): the daemon thread still needs the GIL
+to run its Python ``os._exit``. A sync call that *holds* the GIL — a regex over
+a multi-hundred-MB scraped body — starves it, so the kill fired ~70 minutes
+late instead of at the 180s threshold. The heartbeat therefore also re-arms
+``faulthandler.dump_traceback_later(..., exit=True)`` on every beat: that timer
+runs in a C thread that does NOT need the GIL, so it fires on schedule even
+during a GIL-held wedge. Two independent kill paths; whichever trips first wins.
 """
 
 from __future__ import annotations
 
 import asyncio
+import faulthandler
 import os
 import threading
 import time
@@ -47,9 +56,19 @@ def should_exit(stale_seconds: float, threshold_seconds: float) -> bool:
     return threshold_seconds > 0 and stale_seconds > threshold_seconds
 
 
-async def _heartbeat_loop(interval: float) -> None:
+async def _heartbeat_loop(interval: float, watchdog_threshold: float | None = None) -> None:
     while True:
         _beat()
+        # GIL-PROOF kill. The daemon thread below force-exits a wedged loop —
+        # but only if it can acquire the GIL to run `os._exit`. A sync call that
+        # holds the GIL (e.g. a regex over a huge scraped body, 2026-06-18)
+        # starves it: the kill fired ~70min late instead of at the 180s
+        # threshold. `faulthandler`'s timer runs in a C thread that does NOT
+        # need the GIL, so it fires on schedule even then. Re-arming it on every
+        # beat keeps pushing the deadline forward; a wedged loop stops re-arming
+        # and faulthandler dumps tracebacks + _exit()s after the threshold.
+        if watchdog_threshold and watchdog_threshold > 0:
+            faulthandler.dump_traceback_later(watchdog_threshold, exit=True)
         await asyncio.sleep(interval)
 
 
@@ -81,7 +100,7 @@ def start_watchdog(*, threshold_seconds: float, interval_seconds: float = 5.0) -
         return False
     _started = True
     _beat()
-    asyncio.create_task(_heartbeat_loop(interval_seconds))
+    asyncio.create_task(_heartbeat_loop(interval_seconds, threshold_seconds))
     threading.Thread(
         target=_watch,
         kwargs={"threshold": threshold_seconds, "check_interval": min(10.0, threshold_seconds / 3)},

@@ -92,3 +92,34 @@ async def test_missing_status_is_treated_as_active(monkeypatch: Any) -> None:
     await worker_main.hunter_funnel_v3_task({}, {"tenant_id": "t", "scan_job_id": "s1"})
 
     assert called["run_funnel"] is True
+
+
+async def test_arq_retry_skips_heavy_consume(monkeypatch: Any) -> None:
+    """A re-queued attempt (job_try>1) of the heavy consume bails to a no-op.
+
+    Crash-loop guard for the 2026-06-18 afternoon incident: the L2 consume
+    wedged the event loop, the watchdog force-restarted the container, and arq
+    re-ran the SAME heavy job on every boot (try=2..5 in the logs) — re-wedging
+    the worker each time. Unlike the scan-job bail above, this covers the
+    ``scan_job_id=null`` daily-refill path, which has no scan-job row to check.
+    """
+    called = _patch(monkeypatch, {"province_codes": []})
+
+    out = await worker_main.hunter_funnel_v3_task(
+        {"job_try": 2},
+        {"tenant_id": "t"},  # refill path: no scan_job_id
+    )
+
+    assert out == {"ok": True, "skipped": True, "reason": "retry_skipped_try2"}
+    # The retry must NOT re-run the heavy consume that wedged the first attempt.
+    assert called["run_funnel"] is False
+    assert called["tenant_config"] is False
+
+
+async def test_first_attempt_runs_consume(monkeypatch: Any) -> None:
+    # job_try=1 (the normal first run) proceeds into the funnel.
+    called = _patch(monkeypatch, {"province_codes": []})
+
+    await worker_main.hunter_funnel_v3_task({"job_try": 1}, {"tenant_id": "t"})
+
+    assert called["run_funnel"] is True

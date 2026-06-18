@@ -241,17 +241,60 @@ class ScrapedSite:
     error: str | None = None
 
 
+# Hard ceiling on the bytes we pull from any one page. `httpx`'s timeout caps
+# the *time* to fetch, not the *size* of the body: a site that streams a huge
+# page (or a download mislabelled `text/html`) would return a multi-hundred-MB
+# string that we then feed to the synchronous regex extractors below — which run
+# ON the event-loop thread and hold the GIL while they chew through it. On
+# 2026-06-18 one such body froze the worker for ~70 minutes: no sends, and even
+# the watchdog couldn't fire (its kill needs the GIL). A 2 MB cap keeps the regex
+# input small enough that extraction is always milliseconds, so it can never
+# wedge the loop. 2 MB is generous — real Italian SME pages are 50-500 KB.
+_MAX_HTML_BYTES = 2_000_000
+
+
+async def _read_capped(resp: httpx.Response) -> str:
+    """Read at most ``_MAX_HTML_BYTES`` of a streaming response, then decode.
+
+    A body larger than the cap is truncated mid-stream — we never buffer the
+    whole thing. Decoding falls back to UTF-8 (errors replaced) when the
+    declared charset is missing or bogus.
+    """
+    chunks: list[bytes] = []
+    total = 0
+    async for chunk in resp.aiter_bytes():
+        chunks.append(chunk)
+        total += len(chunk)
+        if total >= _MAX_HTML_BYTES:
+            break
+    raw = b"".join(chunks)[:_MAX_HTML_BYTES]
+    encoding = resp.encoding or "utf-8"
+    try:
+        return raw.decode(encoding, errors="replace")
+    except (LookupError, UnicodeDecodeError):
+        return raw.decode("utf-8", errors="replace")
+
+
 async def _fetch_html(url: str, *, client: httpx.AsyncClient, timeout: float = 8.0) -> str | None:
     try:
-        resp = await client.get(url, timeout=timeout, follow_redirects=True)
+        async with client.stream("GET", url, timeout=timeout, follow_redirects=True) as resp:
+            if resp.status_code >= 400:
+                return None
+            if "text/html" not in (resp.headers.get("content-type") or ""):
+                return None
+            # Bail before reading a single byte when the server *declares* an
+            # oversize body — saves bandwidth and CPU on obvious downloads.
+            declared = resp.headers.get("content-length")
+            if declared is not None:
+                try:
+                    if int(declared) > _MAX_HTML_BYTES:
+                        return None
+                except ValueError:
+                    pass
+            return await _read_capped(resp)
     except (httpx.HTTPError, httpx.TimeoutException) as exc:
         log.debug("web_scraper.fetch_error", url=url, err=type(exc).__name__)
         return None
-    if resp.status_code >= 400:
-        return None
-    if "text/html" not in (resp.headers.get("content-type") or ""):
-        return None
-    return resp.text
 
 
 def _extract_emails_from_html(html: str) -> list[str]:
@@ -664,12 +707,14 @@ async def scrape_pagine_bianche(
 
     try:
         try:
-            resp = await client.get(url, follow_redirects=True)
+            async with client.stream("GET", url, follow_redirects=True) as resp:
+                if resp.status_code >= 400:
+                    return PagineBiancheRecord()
+                # Same GIL-safety cap as _fetch_html: never feed an unbounded
+                # body to the synchronous phone regex (2026-06-18 wedge).
+                html = await _read_capped(resp)
         except (httpx.HTTPError, httpx.TimeoutException):
             return PagineBiancheRecord()
-        if resp.status_code >= 400:
-            return PagineBiancheRecord()
-        html = resp.text or ""
         phone = _extract_phone_from_html(html)
         return PagineBiancheRecord(found=bool(phone), phone=phone)
     finally:

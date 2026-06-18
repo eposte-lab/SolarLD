@@ -180,3 +180,53 @@ async def test_infer_email_returns_none_for_blank_domain(monkeypatch) -> None:
     monkeypatch.setattr(ws, "_has_mx_record", lambda d, timeout=3.0: True)
     assert await ws.infer_email_from_domain("") is None
     assert await ws.infer_email_from_domain("notadomain") is None
+
+
+# ---------------------------------------------------------------------------
+# Body-size cap — GIL-safety against a huge scraped page (2026-06-18 wedge)
+# ---------------------------------------------------------------------------
+
+
+class _FakeStreamResponse:
+    """Minimal httpx.Response stand-in for _read_capped (no network)."""
+
+    def __init__(self, chunks: list[bytes], *, encoding: str | None = "utf-8") -> None:
+        self._chunks = chunks
+        self.encoding = encoding
+
+    async def aiter_bytes(self):
+        for c in self._chunks:
+            yield c
+
+
+async def test_read_capped_truncates_oversize_body() -> None:
+    # A body far over the cap is truncated — we never buffer the whole thing,
+    # so the synchronous regex extractor downstream can never run long enough
+    # to wedge the event loop.
+    huge = b"a" * (ws._MAX_HTML_BYTES + 5_000_000)
+    resp = _FakeStreamResponse([huge])
+    out = await ws._read_capped(resp)
+    assert len(out) == ws._MAX_HTML_BYTES
+
+
+async def test_read_capped_stops_reading_at_cap_across_chunks() -> None:
+    chunk = b"x" * 500_000
+    n_chunks = (ws._MAX_HTML_BYTES // len(chunk)) + 20  # way past the cap
+    resp = _FakeStreamResponse([chunk] * n_chunks)
+    out = await ws._read_capped(resp)
+    assert len(out) == ws._MAX_HTML_BYTES
+
+
+async def test_read_capped_returns_small_body_intact() -> None:
+    body = b"<html>info@azienda.it</html>"
+    resp = _FakeStreamResponse([body])
+    out = await ws._read_capped(resp)
+    assert out == "<html>info@azienda.it</html>"
+    assert "info@azienda.it" in out
+
+
+async def test_read_capped_falls_back_to_utf8_on_bad_encoding() -> None:
+    resp = _FakeStreamResponse(["caffè".encode()], encoding="not-a-real-charset")
+    out = await ws._read_capped(resp)
+    # Must not raise; decodes via the utf-8 fallback.
+    assert "caff" in out
