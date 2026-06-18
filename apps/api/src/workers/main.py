@@ -535,19 +535,37 @@ async def hunter_funnel_v3_task(_ctx: dict[str, Any], payload: dict[str, Any]) -
 
     # Territory of the scan job — scopes the funnel to its province so a
     # tenant's scan jobs on different territories stay isolated.
+    #
+    # Also a hard guard (2026-06-18 incident): an operator-archived / exhausted
+    # scan job whose ``hunter_funnel_v3_task`` retries are still sitting in the
+    # arq queue would otherwise re-run the heavy ``run_funnel_v3`` consume on
+    # every worker boot — which can wedge the single event loop and starve the
+    # time-sensitive sends. If the job is no longer ACTIVE, bail immediately so
+    # those stale retries become fast no-ops instead of dragging the worker
+    # down. Active states mirror the dispatcher's pick filter.
+    _ACTIVE_SCAN_STATES = {"pending", "in_progress", "paused_daily_cap"}
     scan_province_codes: list[str] = []
     if scan_job_id:
         try:
             _job = (
                 get_service_client()
                 .table("scan_jobs")
-                .select("province_codes")
+                .select("province_codes, status")
                 .eq("id", scan_job_id)
                 .limit(1)
                 .maybe_single()
                 .execute()
             )
             _jd = (_job.data or {}) if _job else {}
+            _status = _jd.get("status")
+            if _status is not None and _status not in _ACTIVE_SCAN_STATES:
+                log.error(
+                    "hunter_funnel_v3_task.skip_inactive_scan_job",
+                    tenant_id=tenant_id,
+                    scan_job_id=scan_job_id,
+                    status=_status,
+                )
+                return {"ok": True, "skipped": True, "reason": f"scan_job_{_status}"}
             scan_province_codes = list(_jd.get("province_codes") or [])
         except Exception:  # noqa: BLE001
             pass
