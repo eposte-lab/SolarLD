@@ -21,6 +21,7 @@ import { DemoModeBanner } from '@/components/demo-mode-banner';
 import { GradientButton } from '@/components/ui/gradient-button';
 import { KpiChipCard } from '@/components/ui/kpi-chip-card';
 import { ContattiTable } from '@/components/contatti/contatti-table';
+import { SearchBox } from '@/components/ui/search-box';
 import {
   CONTATTI_PAGE_SIZE,
   getContattiSummary,
@@ -38,6 +39,7 @@ type Search = Promise<{
   scartati?: string;
   premium?: string;
   pronti?: string;
+  q?: string;
 }>;
 
 export default async function ContattiPage({
@@ -54,6 +56,7 @@ export default async function ContattiPage({
   // "Solo pronti all'invio": show only contacts that will actually go out on
   // the next send pass (ready_to_send + render presente).
   const readyOnly = sp.pronti === '1';
+  const search = (sp.q ?? '').trim();
 
   // Default filter: only candidates that passed Solar API AND were promoted
   // to a `leads` row (the post-L6 "perfect" contacts). When the operator
@@ -72,7 +75,7 @@ export default async function ContattiPage({
   const [ctx, summary, { rows, total }] = await Promise.all([
     getCurrentTenantContext(),
     getContattiSummary(),
-    listContatti({ page, filter }),
+    listContatti({ page, filter, search }),
   ]);
   if (!ctx) redirect('/login');
 
@@ -85,6 +88,7 @@ export default async function ContattiPage({
     if (includeScartati) params.set('scartati', '1');
     if (premiumOnly) params.set('premium', '1');
     if (readyOnly) params.set('pronti', '1');
+    if (search) params.set('q', search);
     for (const [k, v] of Object.entries(overrides)) {
       if (v === undefined || v === '') params.delete(k);
       else params.set(k, v);
@@ -109,9 +113,12 @@ export default async function ContattiPage({
             Contatti
           </h1>
         </div>
-        <GradientButton href="/territorio" size="sm" variant="secondary">
-          + Territorio
-        </GradientButton>
+        <div className="flex items-center gap-3">
+          <SearchBox placeholder="Cerca azienda, P.IVA, comune…" />
+          <GradientButton href="/territorio" size="sm" variant="secondary">
+            + Territorio
+          </GradientButton>
+        </div>
       </header>
 
       {/* KPI strip — qualitative aggregates over the qualified set.

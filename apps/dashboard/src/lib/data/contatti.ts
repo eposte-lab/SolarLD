@@ -135,10 +135,29 @@ export interface ContattiFilter {
   ready_to_send_only?: boolean;
 }
 
+/**
+ * Build a PostgREST `.or()` clause for a free-text search across the candidate
+ * columns that hold a real company identity (name / VAT / city). Strips the
+ * characters that would break the comma-separated or-syntax, and uses `*` as
+ * the ilike wildcard. Returns null for an empty/blanked term.
+ */
+function buildContattiSearchOr(term: string): string | null {
+  const clean = term
+    .trim()
+    .replace(/[,()*:%\\]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!clean) return null;
+  const pat = `*${clean}*`;
+  return `business_name.ilike.${pat},vat_number.ilike.${pat},hq_city.ilike.${pat}`;
+}
+
 /** Paginated list of scan_candidates. */
 export async function listContatti(opts: {
   page?: number;
   filter?: ContattiFilter;
+  /** Free-text query — matches company name, VAT, or city (ilike). */
+  search?: string;
 } = {}): Promise<ContattoListResult> {
   const page = Math.max(1, opts.page ?? 1);
   const from = (page - 1) * CONTATTI_PAGE_SIZE;
@@ -148,6 +167,9 @@ export async function listContatti(opts: {
   let q = sb
     .from('scan_candidates')
     .select(LIST_COLUMNS, { count: 'exact' });
+
+  const searchOr = opts.search ? buildContattiSearchOr(opts.search) : null;
+  if (searchOr) q = q.or(searchOr);
 
   if (opts.filter?.stage != null) q = q.eq('stage', opts.filter.stage);
   if (opts.filter?.territory_id) q = q.eq('territory_id', opts.filter.territory_id);

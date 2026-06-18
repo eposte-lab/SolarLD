@@ -26,6 +26,7 @@ import { CollapsibleFilters } from '@/components/ui/collapsible-filters';
 import { GradientButton } from '@/components/ui/gradient-button';
 import { KpiChipCard } from '@/components/ui/kpi-chip-card';
 import { InviiTable } from '@/components/invii/invii-table';
+import { SearchBox } from '@/components/ui/search-box';
 import { isPremiumSource } from '@/components/premium-email-field';
 import { ExportCsvButton } from '@/components/invii/export-csv-button';
 import {
@@ -44,6 +45,7 @@ type Search = Promise<{
   status?: string;
   tab?: string;
   premium?: string;
+  q?: string;
 }>;
 
 const CHANNEL_OPTIONS = [
@@ -117,13 +119,17 @@ export default async function InviiPage({
   const statusFilter = sp.status || '';
   const premiumFilter = sp.premium === '1';
   const activeTab = sp.tab === 'rimandati' ? 'rimandati' : 'storico';
+  const searchRaw = (sp.q ?? '').trim();
+  const search = searchRaw.toLowerCase();
 
   const ctx = await getCurrentTenantContext();
   if (!ctx) redirect('/login');
 
   const [stats, allCampaigns, deferred] = await Promise.all([
     getCampaignDeliveryStats(),
-    listCampaigns(PAGE_SIZE * page), // simple over-fetch for now; works fine up to ~5k rows
+    // Over-fetch for client-side filtering. When searching, widen the window
+    // so the query covers the whole send history, not just the current page.
+    listCampaigns(search ? 5000 : PAGE_SIZE * page),
     getDeferredToday(),
   ]);
 
@@ -133,6 +139,14 @@ export default async function InviiPage({
     if (statusFilter && c.status !== statusFilter) return false;
     if (premiumFilter && !isPremiumSource(c.leads?.subjects?.decision_maker_email_source))
       return false;
+    if (search) {
+      const s = c.leads?.subjects;
+      const hay = [s?.business_name, s?.decision_maker_name, s?.decision_maker_email]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      if (!hay.includes(search)) return false;
+    }
     return true;
   });
 
@@ -145,6 +159,7 @@ export default async function InviiPage({
     if (channelFilter) params.set('channel', channelFilter);
     if (statusFilter) params.set('status', statusFilter);
     if (premiumFilter) params.set('premium', '1');
+    if (searchRaw) params.set('q', searchRaw);
     if (page > 1) params.set('page', String(page));
     for (const [k, v] of Object.entries(overrides)) {
       if (v === undefined || v === '') params.delete(k);
@@ -170,7 +185,10 @@ export default async function InviiPage({
             Invii
           </h1>
         </div>
-        <ExportCsvButton />
+        <div className="flex items-center gap-3">
+          <SearchBox placeholder="Cerca azienda, referente…" />
+          <ExportCsvButton />
+        </div>
       </header>
 
       {/* Tab bar */}
