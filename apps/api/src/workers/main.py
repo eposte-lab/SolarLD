@@ -48,6 +48,7 @@ from .cron import (
     send_time_rollup_cron,
     sla_first_touch_cron,
     smartlead_warmup_sync_cron,
+    stranded_picked_rescue_cron,
     warehouse_cleanup_cron,
     weekly_cluster_refresh_cron,
     weekly_digest_cron,
@@ -779,6 +780,18 @@ class WorkerSettings:
         # is 13:30 Rome — both land inside the 14-18 window only in summer;
         # revisit alongside the morning run if the trial runs past late October.)
         cron(daily_pipeline_afternoon_cron, hour=12, minute=30, run_at_startup=False),
+        # Stranded-pick rescue (2026-06-18 incident): re-fire outreach for leads
+        # the worker abandoned in `picked` after an OOM/crash. Every 20 min
+        # INSIDE the send windows (06-10 + 12-16 UTC ≈ 08-12 + 14-18 Rome, CEST)
+        # so a same-day stranded lead recovers in minutes instead of waiting for
+        # the next orchestrator pass. Cheap: one indexed query + bounded fan-out,
+        # idempotent via the OutreachAgent's already-sent dedup.
+        cron(
+            stranded_picked_rescue_cron,
+            hour={6, 7, 8, 9, 12, 13, 14, 15},
+            minute={5, 25, 45},
+            run_at_startup=False,
+        ),
         cron(send_time_rollup_cron, hour=3, minute=45, run_at_startup=False),
         cron(engagement_rollup_cron, hour=4, minute=0, run_at_startup=False),
         # Task 14: sync Smartlead warm-up health scores before the morning
@@ -814,6 +827,11 @@ class WorkerSettings:
     redis_settings.conn_timeout = 15
     redis_settings.conn_retries = 5
     redis_settings.conn_retry_delay = 1
-    max_jobs = 10
+    # Concurrency cap — config-driven (default 4). At the old hardcoded 10 a
+    # morning creative burst loaded ~10 multi-MB Google raw_data blobs at once
+    # and the worker was OOM-killed mid-burst on the small Railway instance,
+    # then crash-looped on the same backlog with the deferred outreach_tasks
+    # never running (2026-06-18 zero-send incident). See settings.worker_max_jobs.
+    max_jobs = settings.worker_max_jobs
     job_timeout = 600
     keep_result = 3600

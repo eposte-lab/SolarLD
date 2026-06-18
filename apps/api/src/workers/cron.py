@@ -470,6 +470,25 @@ async def daily_pipeline_afternoon_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, "pass": "afternoon", **{k: v for k, v in result.items() if k != "details"}}
 
 
+async def stranded_picked_rescue_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
+    """Re-fire outreach for leads stranded in ``picked`` (worker-death recovery).
+
+    Runs every 20 min INSIDE the send windows. When the worker dies mid-batch
+    (OOM/crash, 2026-06-18 incident) the deferred outreach_tasks for already-
+    picked leads never run and the sends are silently lost; this re-issues them
+    directly so a stranded lead recovers within minutes instead of waiting for
+    the next day's orchestrator. See
+    ``daily_pipeline_orchestrator.rescue_stranded_picked`` for the mechanism
+    and idempotency guarantees.
+    """
+    from ..services.daily_pipeline_orchestrator import rescue_stranded_picked
+
+    result = await rescue_stranded_picked()
+    if result.get("rescued"):
+        log.info("cron.stranded_picked_rescue.done", **result)
+    return {"ok": True, **result}
+
+
 async def scan_jobs_dispatcher_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
     """Dispatcher per la coda scan_jobs (PR #refactor).
 

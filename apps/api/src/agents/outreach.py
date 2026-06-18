@@ -54,7 +54,7 @@ import base64
 import io
 import random as _random
 import re
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 import httpx
@@ -67,6 +67,7 @@ from pydantic import BaseModel, Field
 
 from ..core.config import settings
 from ..core.logging import get_logger
+from ..core.queue import enqueue
 from ..core.supabase_client import get_service_client
 from ..core.tier import Capability, TierGateError, can_tenant_use, require_capability
 from ..models.enums import CampaignStatus, LeadStatus, OutreachChannel, SubjectType
@@ -143,6 +144,19 @@ class OutreachInput(BaseModel):
             "by the follow-up cron, 4 = breakup email at d+14 "
             "(conversational template only). 5..9 = Sprint 10 engagement-"
             "based scenarios (paired with engagement_scenario)."
+        ),
+    )
+    # Transient-skip retry counter. When a send is skipped for a rate-limit
+    # (per-inbox / domain hourly / warm-up), the agent re-enqueues itself
+    # deferred and bumps this. Bounded by ``settings.outreach_retry_max`` so a
+    # lead that can never clear the cap stops looping instead of stranding in
+    # ``picked`` forever (the recurring "zombie" leads). 0 = first attempt.
+    retry: int = Field(
+        default=0,
+        ge=0,
+        description=(
+            "Internal retry count for transient rate-limit re-enqueues. Not set "
+            "by callers — the OutreachAgent increments it when it defers itself."
         ),
     )
     # Sprint 10 — engagement-based follow-up.
@@ -752,10 +766,16 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
                     used=cap_decision.used,
                     limit=cap_decision.limit,
                 )
+                # DAILY ceiling — won't clear until tomorrow, so a same-day
+                # retry is pointless. Un-pick back to the warehouse so the
+                # lead is re-eligible on the next day's pick instead of
+                # stranding in ``picked`` (literal, not LeadStatus — there is
+                # no READY_TO_SEND enum member).
                 return await self._record_skip(
                     payload=payload,
                     lead=lead,
                     reason="daily_target_cap_reached",
+                    pipeline_status="ready_to_send",
                     event_type="lead.outreach_ratelimited",
                     event_extra={
                         "cap": cap_decision.limit,
@@ -802,10 +822,13 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
                     limit=campaign_decision.limit,
                     n_active=n_active,
                 )
+                # Per-campaign daily share — same daily nature as the global
+                # cap: un-pick rather than strand.
                 return await self._record_skip(
                     payload=payload,
                     lead=lead,
                     reason="campaign_sub_cap_reached",
+                    pipeline_status="ready_to_send",
                     event_type="lead.outreach_ratelimited",
                     event_extra={
                         "cap": campaign_decision.limit,
@@ -840,11 +863,14 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
                 limit=quota.limit,
                 verdict=quota.verdict,
             )
-            return await self._record_skip(
+            # TRANSIENT cap — the per-inbox 180s floor / domain hourly / warm-up
+            # ramp all clear within the day. Re-enqueue deferred instead of
+            # leaving the lead stranded in ``picked`` (the recurring zombie
+            # bug, 2026-06-18): a backlog draining at once collides here and
+            # every loser used to be abandoned.
+            return await self._reenqueue_after_ratelimit(
                 payload=payload,
-                lead=lead,
                 reason=f"rate_limited_{quota.window}",
-                event_type="lead.outreach_ratelimited",
                 event_extra={
                     "domain": quota.domain,
                     "window": quota.window,
@@ -1975,6 +2001,76 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
     # ------------------------------------------------------------------
     # Failure / skip recorders
     # ------------------------------------------------------------------
+
+    async def _reenqueue_after_ratelimit(
+        self,
+        *,
+        payload: OutreachInput,
+        reason: str,
+        event_extra: dict[str, Any] | None = None,
+    ) -> OutreachOutput:
+        """Transient rate-limit skip → re-enqueue deferred, don't strand.
+
+        The per-inbox 180s floor and the domain hourly / warm-up caps are
+        TRANSIENT. Before this, a rate-limited send called ``_record_skip``
+        which left the lead in ``picked`` with no live job and no retry — so a
+        backlog of overdue sends draining at once (every loser past the floor)
+        was abandoned permanently (the recurring "zombie picked" leads,
+        2026-06-18 incident). Instead we re-enqueue a fresh ``outreach_task``
+        ``outreach_retry_delay_seconds`` out, up to ``outreach_retry_max``
+        times, so the lead rides out the window and still goes today. A unique
+        ``:rN`` job_id avoids arq's dedup; the agent's own already-sent guard
+        makes a double-fire harmless if the original deferred job also runs.
+        """
+        await self._emit_event(
+            event_type="lead.outreach_ratelimited",
+            payload={"lead_id": payload.lead_id, "reason": reason, **(event_extra or {})},
+            tenant_id=payload.tenant_id,
+            lead_id=payload.lead_id,
+        )
+        if payload.retry >= settings.outreach_retry_max:
+            log.warning(
+                "outreach.retry_budget_exhausted",
+                lead_id=payload.lead_id,
+                tenant_id=payload.tenant_id,
+                reason=reason,
+                retry=payload.retry,
+            )
+            return OutreachOutput(
+                lead_id=payload.lead_id,
+                status=CampaignStatus.CANCELLED.value,
+                skipped=True,
+                reason=f"{reason}_retry_exhausted",
+            )
+        next_retry = payload.retry + 1
+        defer_until = datetime.now(UTC) + timedelta(
+            seconds=settings.outreach_retry_delay_seconds
+        )
+        next_payload = payload.model_dump(mode="json")
+        next_payload["retry"] = next_retry
+        await enqueue(
+            "outreach_task",
+            next_payload,
+            job_id=(
+                f"outreach:{payload.tenant_id}:{payload.lead_id}:"
+                f"{payload.channel.value}:r{next_retry}"
+            ),
+            defer_until=defer_until,
+        )
+        log.info(
+            "outreach.reenqueued_after_ratelimit",
+            lead_id=payload.lead_id,
+            tenant_id=payload.tenant_id,
+            reason=reason,
+            retry=next_retry,
+            defer_seconds=settings.outreach_retry_delay_seconds,
+        )
+        return OutreachOutput(
+            lead_id=payload.lead_id,
+            status=CampaignStatus.PENDING.value,
+            skipped=True,
+            reason=f"{reason}_retry_scheduled",
+        )
 
     async def _record_skip(
         self,

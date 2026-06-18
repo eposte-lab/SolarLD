@@ -93,6 +93,26 @@ class Settings(BaseSettings):
     # still wanted.
     creative_skip_replicate: bool = False
 
+    # ---- Worker / send-pipeline resilience ----
+    # arq concurrency cap. The worker runs on a small Railway instance; at the
+    # old hardcoded 10 a morning creative burst loaded ~10 multi-MB Google
+    # ``raw_data`` blobs at once and the process was OOM-killed mid-burst,
+    # restarted, re-drained the same backlog, and died again — leaving the
+    # deferred outreach_tasks unprocessed and the daily sends at zero
+    # (2026-06-18 incident). A lower cap trades a little throughput for a worker
+    # that survives the burst. Raise via WORKER_MAX_JOBS once the instance is
+    # bigger.
+    worker_max_jobs: int = 4
+    # When an outreach send is skipped for a TRANSIENT reason (per-inbox /
+    # domain rate-limit), the lead used to be left in ``picked`` forever with
+    # no retry — a backlog of overdue sends draining at once collided on the
+    # 180s inter-send floor and every loser was stranded (the recurring
+    # "zombie picked" leads). Instead we re-enqueue the outreach_task deferred
+    # by ``outreach_retry_delay_seconds``, up to ``outreach_retry_max`` times,
+    # so it rides out the rate window and still goes today.
+    outreach_retry_max: int = 12
+    outreach_retry_delay_seconds: int = 300
+
     # ---- Remotion sidecar (apps/video-renderer) ----
     video_renderer_url: str = "http://localhost:4000"
 
