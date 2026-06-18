@@ -713,8 +713,19 @@ async def crm_webhook_task(_ctx: dict[str, Any], payload: dict[str, Any]) -> dic
     )
 
 
+async def _worker_startup(_ctx: dict[str, Any]) -> None:
+    """arq on_startup hook — arm the event-loop watchdog so a future
+    sync-blocking wedge auto-restarts the container instead of freezing
+    silently (2026-06-18 incident)."""
+    from ..services.worker_watchdog import start_watchdog
+
+    start_watchdog(threshold_seconds=settings.worker_watchdog_timeout_seconds)
+
+
 class WorkerSettings:
     """arq WorkerSettings class."""
+
+    on_startup = _worker_startup
 
     functions = [
         hunter_task,
