@@ -103,6 +103,13 @@ class Settings(BaseSettings):
     # that survives the burst. Raise via WORKER_MAX_JOBS once the instance is
     # bigger.
     worker_max_jobs: int = 4
+    # Event-loop watchdog: if a single sync-blocking job wedges the worker's
+    # event loop (the 2026-06-18 silent freeze — no crash, so Railway never
+    # restarted it, and sends stopped until noticed), a daemon thread that the
+    # wedged loop can't block force-exits the process after this many seconds
+    # of no heartbeat, so the container restarts and the stranded-pick rescue
+    # cron re-fires the sends. 0 disables it.
+    worker_watchdog_timeout_seconds: int = 180
     # When an outreach send is skipped for a TRANSIENT reason (per-inbox /
     # domain rate-limit), the lead used to be left in ``picked`` forever with
     # no retry — a backlog of overdue sends draining at once collided on the

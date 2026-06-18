@@ -713,8 +713,19 @@ async def crm_webhook_task(_ctx: dict[str, Any], payload: dict[str, Any]) -> dic
     )
 
 
+async def _worker_startup(_ctx: dict[str, Any]) -> None:
+    """arq on_startup hook — arm the event-loop watchdog so a future
+    sync-blocking wedge auto-restarts the container instead of freezing
+    silently (2026-06-18 incident)."""
+    from ..services.worker_watchdog import start_watchdog
+
+    start_watchdog(threshold_seconds=settings.worker_watchdog_timeout_seconds)
+
+
 class WorkerSettings:
     """arq WorkerSettings class."""
+
+    on_startup = _worker_startup
 
     functions = [
         hunter_task,
@@ -785,13 +796,16 @@ class WorkerSettings:
         # tenant-wide è stato rimosso perché ignorava cap, scoping e
         # cursore, consumando il backlog oltre il cap dello scan job.
         cron(scan_jobs_dispatcher_cron, minute=5, run_at_startup=False),
-        # 06:30 UTC = 08:30 Europe/Rome (CEST). Must land INSIDE the
-        # outreach send-window (08:00-12:00 Rome): the orchestrator defers
-        # each send by ~120s+ after pick, so running at the old 05:30 UTC
-        # (07:30 Rome) fired the morning batch before 08:00 and every lead
-        # was skipped with outside_send_window. (DST note: in winter/CET this
-        # is 07:30 Rome — revisit if the trial runs past late October.)
-        cron(daily_pipeline_cron, hour=6, minute=30, run_at_startup=False),
+        # 06:00 UTC = 08:00 Europe/Rome (CEST) — start of the morning send
+        # window, sharp (operator request 2026-06-18). The orchestrator defers
+        # the first send ~120s after pick, so the batch starts ~08:02, INSIDE
+        # the 08:00-12:00 Rome window; with the parallel 2-inbox fan-out the
+        # 50/day cap clears in ~75 min. Running earlier (e.g. 05:30 UTC =
+        # 07:30 Rome) fired before 08:00 and every lead was skipped
+        # outside_send_window. (DST note: in winter/CET 06:00 UTC is 07:00
+        # Rome — BEFORE the window; revisit if the trial runs past late
+        # October, the 12:30-UTC afternoon catch-up is the winter safety net.)
+        cron(daily_pipeline_cron, hour=6, minute=0, run_at_startup=False),
         # Afternoon catch-up: 12:30 UTC = 14:30 Rome (CEST). Cap-aware, so it's
         # a no-op when the morning already shipped the full daily cap; it only
         # tops up after a morning under-delivery. (DST note: in winter/CET this
@@ -813,8 +827,9 @@ class WorkerSettings:
         cron(send_time_rollup_cron, hour=3, minute=45, run_at_startup=False),
         cron(engagement_rollup_cron, hour=4, minute=0, run_at_startup=False),
         # Task 14: sync Smartlead warm-up health scores before the morning
-        # outreach run so inbox_service.pick_and_claim has fresh caps.
-        cron(smartlead_warmup_sync_cron, hour=6, minute=0, run_at_startup=False),
+        # outreach run so inbox_service.pick_and_claim has fresh caps. Moved to
+        # 05:45 UTC to stay ahead of the 06:00-UTC daily pipeline (08:00 Rome).
+        cron(smartlead_warmup_sync_cron, hour=5, minute=45, run_at_startup=False),
         # Imminence Predictor: must run AFTER engagement_rollup (04:00)
         # so engagement_score is fresh, and BEFORE follow_up (07:30) so
         # the dashboard shows up-to-date predictions for the morning.

@@ -55,6 +55,30 @@ from .send_window_service import is_inbox_human_delay_ok
 
 log = get_logger(__name__)
 
+
+async def count_active_inboxes(sb: Any, tenant_id: str) -> int:
+    """How many active inboxes the tenant can send from.
+
+    Used to size the daily fan-out's per-lead spacing: with N inboxes the
+    round-robin selector can ship ~N sends per ``MIN_INTER_SEND_SECONDS``
+    window, so the stagger can be tightened to ``floor / N`` and the two
+    inboxes go in parallel. Returns at least 1 (never divides by zero) and
+    fails safe to 1 on any read error.
+    """
+    try:
+        res = (
+            sb.table("tenant_inboxes")
+            .select("id", count="exact")
+            .eq("tenant_id", tenant_id)
+            .eq("active", True)
+            .execute()
+        )
+        return max(1, int(res.count or 0))
+    except Exception as exc:  # noqa: BLE001 — spacing is a heuristic, never block the pick
+        log.warning("inbox.count_active_failed", tenant_id=tenant_id, err=str(exc))
+        return 1
+
+
 # Pause durations by error type.
 PAUSE_HOURS_5XX = 4
 PAUSE_HOURS_429 = 2
