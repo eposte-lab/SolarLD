@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from typing import Any
 
 from src.services import worker_watchdog as wd
 
@@ -38,6 +39,39 @@ async def test_heartbeat_loop_keeps_beat_fresh() -> None:
         assert wd.seconds_since_beat() < 1.0  # fresh again
     finally:
         task.cancel()
+
+
+async def test_heartbeat_rearms_faulthandler_when_threshold_set(monkeypatch: Any) -> None:
+    # The GIL-proof path: every beat must re-arm faulthandler's C-level timer
+    # so a GIL-holding wedge still gets killed on schedule (2026-06-18).
+    armed: list[tuple[float, bool]] = []
+
+    def _fake_later(timeout: float, *, exit: bool = False) -> None:
+        armed.append((timeout, exit))
+
+    monkeypatch.setattr(wd.faulthandler, "dump_traceback_later", _fake_later)
+    task = asyncio.create_task(wd._heartbeat_loop(0.01, watchdog_threshold=180.0))
+    try:
+        await asyncio.sleep(0.05)
+    finally:
+        task.cancel()
+    assert armed, "faulthandler timer was never armed"
+    assert all(t == 180.0 and ex is True for (t, ex) in armed)
+
+
+async def test_heartbeat_does_not_arm_faulthandler_without_threshold(monkeypatch: Any) -> None:
+    # No threshold (e.g. the existing single-arg test path) → never arm the
+    # process-killing timer, so unit tests can run the loop safely.
+    armed: list[Any] = []
+    monkeypatch.setattr(
+        wd.faulthandler, "dump_traceback_later", lambda *a, **k: armed.append((a, k))
+    )
+    task = asyncio.create_task(wd._heartbeat_loop(0.01))
+    try:
+        await asyncio.sleep(0.03)
+    finally:
+        task.cancel()
+    assert armed == []
 
 
 def test_start_watchdog_disabled_with_zero_threshold() -> None:

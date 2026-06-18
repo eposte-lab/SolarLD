@@ -530,6 +530,28 @@ async def hunter_funnel_v3_task(_ctx: dict[str, Any], payload: dict[str, Any]) -
         scan_job_id=scan_job_id,
         max_l1_candidates=payload.get("max_l1_candidates"),
     )
+
+    # Crash-loop guard (2026-06-18 incident). This is the heaviest job on the
+    # worker — a full L2-L6 consume of up to 2000 candidates. If a previous
+    # attempt was killed mid-flight (e.g. the watchdog force-restarted the
+    # container because *this* consume wedged the event loop), arq re-queues it
+    # automatically (default max_tries=5). Re-running the whole consume on every
+    # boot re-wedges the worker and starves the time-sensitive sends — exactly
+    # the afternoon crash-loop we saw (try=2..5 in the logs). A retry means the
+    # first attempt already failed hard, so bail to a fast no-op: the dispatcher
+    # / daily-refill crons re-enqueue a fresh (job_try=1) job at their normal
+    # times, with a clean worker. Covers the `scan_job_id=null` refill path that
+    # the #375 inactive-scan-job bail did not.
+    job_try = int(_ctx.get("job_try") or 1)
+    if job_try > 1:
+        log.error(
+            "hunter_funnel_v3_task.skip_retry",
+            tenant_id=tenant_id,
+            scan_job_id=scan_job_id,
+            job_try=job_try,
+        )
+        return {"ok": True, "skipped": True, "reason": f"retry_skipped_try{job_try}"}
+
     summary: dict[str, Any] = {}
     crash_exc: Exception | None = None
 
