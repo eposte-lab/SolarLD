@@ -113,13 +113,9 @@ async def test_ratelimit_reenqueues_deferred(monkeypatch: Any) -> None:
 async def test_ratelimit_retry_budget_exhausted(monkeypatch: Any) -> None:
     store = _store()
     agent = _agent(monkeypatch, store)
-    payload = OutreachInput(
-        tenant_id="t", lead_id="L1", retry=settings.outreach_retry_max
-    )
+    payload = OutreachInput(tenant_id="t", lead_id="L1", retry=settings.outreach_retry_max)
 
-    out = await agent._reenqueue_after_ratelimit(
-        payload=payload, reason="rate_limited_hour"
-    )
+    out = await agent._reenqueue_after_ratelimit(payload=payload, reason="rate_limited_hour")
 
     assert out.skipped is True
     assert out.reason == "rate_limited_hour_retry_exhausted"
@@ -132,9 +128,7 @@ async def test_retry_counter_increments_across_attempts(monkeypatch: Any) -> Non
     agent = _agent(monkeypatch, store)
     payload = OutreachInput(tenant_id="t", lead_id="L1", retry=3)
 
-    out = await agent._reenqueue_after_ratelimit(
-        payload=payload, reason="rate_limited_warmup"
-    )
+    out = await agent._reenqueue_after_ratelimit(payload=payload, reason="rate_limited_warmup")
 
     assert out.reason == "rate_limited_warmup_retry_scheduled"
     job = store["enqueues"][0]
@@ -158,6 +152,5 @@ async def test_daily_cap_unpicks_to_ready(monkeypatch: Any) -> None:
 
     assert out.skipped is True
     assert any(
-        t == "leads" and p.get("pipeline_status") == "ready_to_send"
-        for (t, p) in store["updates"]
+        t == "leads" and p.get("pipeline_status") == "ready_to_send" for (t, p) in store["updates"]
     )

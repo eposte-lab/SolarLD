@@ -2043,9 +2043,7 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
                 reason=f"{reason}_retry_exhausted",
             )
         next_retry = payload.retry + 1
-        defer_until = datetime.now(UTC) + timedelta(
-            seconds=settings.outreach_retry_delay_seconds
-        )
+        defer_until = datetime.now(UTC) + timedelta(seconds=settings.outreach_retry_delay_seconds)
         next_payload = payload.model_dump(mode="json")
         next_payload["retry"] = next_retry
         await enqueue(
