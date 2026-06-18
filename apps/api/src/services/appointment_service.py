@@ -27,6 +27,7 @@ from typing import Any
 
 import httpx
 
+from ..core.config import settings
 from ..core.logging import get_logger
 from .resend_service import SendEmailInput, send_email
 
@@ -174,8 +175,13 @@ async def notify_tenant_contact_request(
 ) -> None:
     """Email the tenant (``contact_email``) about a new contact request.
 
-    From the tenant's active verified inbox; Reply-To = prospect email
-    so the installer answers the lead in one click. Fail-open.
+    From the platform's transactional sender (``settings.notification_from_email``)
+    with the tenant's business name as the display name — NOT the tenant's
+    warm-up outreach inbox. The latter caused "501 invalid sender domain"
+    bounces whenever the operator's mailbox sat on the same root domain as the
+    outreach subdomain (info@totaltrade.it rejecting commerciale.totaltrade.it
+    as a spoof, 2026-06-18). Reply-To = prospect email so the installer answers
+    the lead in one click. Fail-open.
 
     ``proposal_resent_to`` flows through to the email body so the operator
     sees that the proposal was already auto-sent to the prospect's address.
@@ -184,10 +190,16 @@ async def notify_tenant_contact_request(
     if not to_email:
         return
     try:
-        from_addr = _active_inbox_from_address(sb, tenant_id)
-        if not from_addr:
-            log.warning("appointment.email_no_inbox", tenant_id=tenant_id)
+        base_from = (settings.notification_from_email or "").strip()
+        # Defensive fallback: if the platform sender isn't configured, fall back
+        # to the tenant inbox (legacy behaviour) rather than dropping the alert.
+        if not base_from:
+            base_from = _active_inbox_from_address(sb, tenant_id) or ""
+        if not base_from:
+            log.warning("appointment.email_no_sender", tenant_id=tenant_id)
             return
+        biz = (tenant_data.get("business_name") or "").strip()
+        from_addr = f"{biz} <{base_from}>" if biz and "<" not in base_from else base_from
         subject, html, text = build_contact_request_email(
             payload, dossier_url, tenant_data.get("business_name"), proposal_resent_to
         )

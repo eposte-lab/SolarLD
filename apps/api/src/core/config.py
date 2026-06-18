@@ -126,6 +126,17 @@ class Settings(BaseSettings):
     # B2B leads (2026-06-18). Flip to False to restore the strict "verified
     # only" behaviour if the warming domain's bounce rate climbs.
     outreach_send_to_unknown_email: bool = True
+    # FROM address for INTERNAL operator notifications (e.g. the "new contact
+    # request" email to tenants.contact_email). These must NOT go through the
+    # tenant's warm-up outreach inbox: when the operator's own mailbox is on the
+    # same root domain as the outreach subdomain (info@totaltrade.it vs
+    # commerciale@commerciale.totaltrade.it), the receiving server (Aruba)
+    # rejects it as a spoof — "501 invalid sender domain" (2026-06-18). Routing
+    # them through the platform's own verified transactional domain fixes
+    # deliverability AND keeps non-cold mail off the warm-up reputation. The
+    # tenant's business name is prepended as the display name; reply-to stays
+    # the prospect. Must be a Resend-verified domain.
+    notification_from_email: str = "notifiche@agenda-pro.it"
 
     # ---- Remotion sidecar (apps/video-renderer) ----
     video_renderer_url: str = "http://localhost:4000"
