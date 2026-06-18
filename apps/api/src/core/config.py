@@ -112,6 +112,13 @@ class Settings(BaseSettings):
     # so it rides out the rate window and still goes today.
     outreach_retry_max: int = 12
     outreach_retry_delay_seconds: int = 300
+    # Send to NeverBounce "unknown" results too (block only confirmed
+    # invalid/disposable). "unknown" is what NeverBounce returns for catch-all
+    # domains it can't probe — usually a reachable mailbox the L6 waterfall
+    # already found on the company site, so skipping it threw away ~2/3 of the
+    # B2B leads (2026-06-18). Flip to False to restore the strict "verified
+    # only" behaviour if the warming domain's bounce rate climbs.
+    outreach_send_to_unknown_email: bool = True
 
     # ---- Remotion sidecar (apps/video-renderer) ----
     video_renderer_url: str = "http://localhost:4000"

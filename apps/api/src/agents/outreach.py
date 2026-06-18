@@ -77,6 +77,7 @@ from ..services.content_validator import ValidationResult, validate_email_conten
 from ..services.dialog360_service import WA_COST_PER_MESSAGE_CENTS
 from ..services.email_providers import get_provider
 from ..services.email_providers.base import ProviderError, SendResult
+from ..services.email_quality import is_placeholder_email, is_role_mailbox
 from ..services.email_template_service import (
     OutreachContext,
     default_subject_for,
@@ -679,6 +680,51 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
             )
 
         # ------------------------------------------------------------------
+        # 5f) Contact-quality gates (2026-06-18) — cheap checks BEFORE the
+        #     MX/NeverBounce network calls. The scraped recipient must be a
+        #     real, unique, non-role mailbox:
+        #       * placeholder/junk (a@a.it, tua@email.it) → route to phone:
+        #         the business may be real but this address isn't;
+        #       * role/HQ inbox (dpo@, privacy@, servizioclienti@…) → blacklist:
+        #         it's a national-chain mailbox, never a buyable contact;
+        #       * an address ALREADY contacted on another lead (a chain's
+        #         central mailbox shared across stores) → blacklist the
+        #         duplicate so we never pitch the same inbox twice.
+        #     Operator test/override sends bypass all three.
+        # ------------------------------------------------------------------
+        if not payload.recipient_override and not tenant_test_recipient:
+            if is_placeholder_email(recipient):
+                log.info("outreach.placeholder_email", lead_id=payload.lead_id, email=recipient)
+                return await self._record_failure(
+                    payload=payload,
+                    lead=lead,
+                    tenant_row=tenant_row,
+                    subject=subject,
+                    failure_reason="placeholder_email",
+                    route_to_phone=True,
+                )
+            if is_role_mailbox(recipient):
+                log.info("outreach.role_mailbox", lead_id=payload.lead_id, email=recipient)
+                return await self._record_skip(
+                    payload=payload,
+                    lead=lead,
+                    reason="role_mailbox",
+                    pipeline_status=LeadStatus.BLACKLISTED.value,
+                    event_type="lead.outreach_skipped",
+                )
+            if await self._email_already_contacted(
+                sb, payload.tenant_id, recipient, payload.lead_id
+            ):
+                log.info("outreach.duplicate_email", lead_id=payload.lead_id, email=recipient)
+                return await self._record_skip(
+                    payload=payload,
+                    lead=lead,
+                    reason="duplicate_email",
+                    pipeline_status=LeadStatus.BLACKLISTED.value,
+                    event_type="lead.outreach_skipped",
+                )
+
+        # ------------------------------------------------------------------
         # 6a) MX deliverability gate (replaces the dead `verified` flag)
         #     Only applied to REAL resolved recipients — operator test
         #     overrides bypass it. A scraped address on a domain with no MX
@@ -722,20 +768,31 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
                 tenant_id=payload.tenant_id,
                 lead_id=payload.lead_id,
             )
-            if nb_result is not None and not nb_result.result.sendable:
-                log.info(
-                    "outreach.neverbounce_rejected",
-                    lead_id=payload.lead_id,
-                    email=recipient,
-                    result=nb_result.result.value,
-                )
-                return await self._record_failure(
-                    payload=payload,
-                    lead=lead,
-                    tenant_row=tenant_row,
-                    subject=subject,
-                    failure_reason=f"neverbounce_{nb_result.result.value}",
-                )
+            if nb_result is not None:
+                _nb = nb_result.result.value
+                # Block only CONFIRMED-bad addresses (invalid / disposable).
+                # "unknown" is what NeverBounce returns for catch-all domains it
+                # can't probe — usually a reachable mailbox the L6 waterfall
+                # already found on the company site, so blocking it threw away
+                # ~2/3 of the B2B leads (2026-06-18). Set
+                # outreach_send_to_unknown_email=False to restore strict mode.
+                _blocked = _nb in {"invalid", "disposable"}
+                if not settings.outreach_send_to_unknown_email:
+                    _blocked = _blocked or not nb_result.result.sendable
+                if _blocked:
+                    log.info(
+                        "outreach.neverbounce_rejected",
+                        lead_id=payload.lead_id,
+                        email=recipient,
+                        result=_nb,
+                    )
+                    return await self._record_failure(
+                        payload=payload,
+                        lead=lead,
+                        tenant_row=tenant_row,
+                        subject=subject,
+                        failure_reason=f"neverbounce_{_nb}",
+                    )
 
         # ------------------------------------------------------------------
         # 7b) Tenant-level daily "in-target" cap (Sprint 2)
@@ -1997,6 +2054,43 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
             )
 
         return out
+
+    async def _email_already_contacted(
+        self, sb: Any, tenant_id: str, recipient: str, lead_id: str
+    ) -> bool:
+        """True if another lead for this tenant already SENT to ``recipient``.
+
+        Dedup safety net for chains whose stores share one central mailbox
+        (e.g. ``info@pro7.it`` on four locations): pitch that inbox at most
+        once. Subjects hold the email (one subject per lead), so siblings are
+        matched by the same address. Best-effort — a query error fails OPEN
+        (never block a real send on a dedup miss).
+        """
+        try:
+            subs = (
+                sb.table("subjects")
+                .select("id")
+                .eq("tenant_id", tenant_id)
+                .ilike("decision_maker_email", recipient)
+                .execute()
+            )
+            sub_ids = [r["id"] for r in (subs.data or []) if r.get("id")]
+            if len(sub_ids) <= 1:
+                return False
+            res = (
+                sb.table("leads")
+                .select("id")
+                .eq("tenant_id", tenant_id)
+                .in_("subject_id", sub_ids)
+                .neq("id", lead_id)
+                .not_.is_("outreach_sent_at", "null")
+                .limit(1)
+                .execute()
+            )
+            return bool(res.data)
+        except Exception as exc:  # noqa: BLE001 — never block a send on a dedup miss
+            log.warning("outreach.dedup_check_failed", lead_id=lead_id, err=str(exc))
+            return False
 
     # ------------------------------------------------------------------
     # Failure / skip recorders
