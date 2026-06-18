@@ -42,6 +42,7 @@ from typing import Any
 from ..core.logging import get_logger
 from ..core.queue import enqueue
 from ..core.supabase_client import get_service_client
+from . import inbox_service
 from .warehouse_alerts_service import (
     emit_atoka_failure_alert,
     emit_warehouse_state_alerts,
@@ -54,14 +55,31 @@ log = get_logger(__name__)
 # so the render (Solar API + image) lands before the email is composed.
 _OUTREACH_DEFER_SECONDS = 120
 
-# Per-lead spacing for the deferred outreach_task fan-out. CRITICAL: the
+# Per-INBOX spacing for the deferred outreach_task fan-out. CRITICAL: the
 # InboxSelector enforces a 180 s human-delay cooldown per inbox
 # (``MIN_INTER_SEND_SECONDS``). If every picked lead is deferred to the SAME
 # instant, only one send per inbox can claim a slot — the rest hit
-# ``all_inboxes_blocked`` and get skipped to the next day. So we stagger the
-# outreach enqueues by slightly more than the cooldown, giving each inbox time
-# to free up. With N inboxes the fleet still sends ~N per spacing window.
+# ``all_inboxes_blocked`` and get skipped. So we stagger the enqueues by
+# slightly more than the cooldown so each inbox frees up in time. This is the
+# floor PER INBOX; the ACTUAL stagger is divided by the number of active
+# inboxes (``_outreach_spacing_for``) so N inboxes send in parallel — with 2
+# inboxes the fleet ships ~2 per window and the 50/day cap clears in ~75 min.
 _OUTREACH_SPACING_SECONDS = 190
+# Never go below this even with many inboxes — keeps a human-ish cadence and
+# leaves headroom under provider burst limits.
+_OUTREACH_MIN_SPACING_SECONDS = 60
+
+
+def _outreach_spacing_for(n_inboxes: int) -> int:
+    """Per-lead stagger given the count of active inboxes (round-robin).
+
+    ``_OUTREACH_SPACING_SECONDS`` is the per-inbox cooldown; with N inboxes the
+    fleet can send N in parallel, so the global stagger is that floor / N,
+    clamped to ``_OUTREACH_MIN_SPACING_SECONDS``.
+    """
+    n = max(1, n_inboxes)
+    return max(_OUTREACH_MIN_SPACING_SECONDS, -(-_OUTREACH_SPACING_SECONDS // n))
+
 
 # --- Stranded-pick rescue (2026-06-18 incident) ---------------------------
 # When the worker dies mid-batch (OOM/crash), the deferred outreach_tasks for
@@ -185,7 +203,7 @@ async def process_tenant_daily_send(tenant: dict[str, Any]) -> dict[str, Any]:
 
     # Cap-aware pick (atomic FIFO). ``daily_send_cap`` is a DAILY ceiling on
     # how many leads we consume, NOT a per-run quota. This orchestrator runs
-    # twice a day — the 08:30 morning primary and the 14:30 afternoon
+    # twice a day — the 08:00 morning primary and the 14:30 afternoon
     # catch-up — so the second pass must only TOP UP to the cap, never pick a
     # fresh full batch on top of the first (which would silently double the
     # day's volume and burn domain reputation). Count what was already picked
@@ -201,9 +219,22 @@ async def process_tenant_daily_send(tenant: dict[str, Any]) -> dict[str, Any]:
     # ``_OUTREACH_DEFER_SECONDS`` so the render lands first (OutreachAgent
     # still sends a text-only email gracefully if the render isn't ready).
     # Deterministic job_ids make double-fires idempotent.
+    #
+    # The per-lead stagger is divided across the tenant's active inboxes so
+    # they send in PARALLEL (2 inboxes → ~90s apart → the daily cap clears in
+    # roughly half the time) while each inbox still respects its 180s floor.
+    n_inboxes = await inbox_service.count_active_inboxes(sb, tenant_id)
+    spacing = _outreach_spacing_for(n_inboxes)
+    log.info(
+        "daily_pipeline.outreach_fanout",
+        tenant_id=tenant_id,
+        picked=len(picked_ids),
+        active_inboxes=n_inboxes,
+        spacing_seconds=spacing,
+    )
     base_at = datetime.now(UTC) + timedelta(seconds=_OUTREACH_DEFER_SECONDS)
     for idx, lid in enumerate(picked_ids):
-        outreach_at = base_at + timedelta(seconds=idx * _OUTREACH_SPACING_SECONDS)
+        outreach_at = base_at + timedelta(seconds=idx * spacing)
         await enqueue(
             "creative_task",
             {"tenant_id": tenant_id, "lead_id": lid, "trigger": "warehouse_pick"},
