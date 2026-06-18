@@ -167,26 +167,45 @@ async def process_tenant_daily_send(tenant: dict[str, Any]) -> dict[str, Any]:
     # Read warehouse depth via the dashboard-facing view. Cheaper than
     # COUNT(*) every time and uses the same source-of-truth as the UI,
     # so an admin watching the widget sees what the orchestrator saw.
-    health = (
-        sb.table("warehouse_health")
-        .select("ready_to_send_count, expiring_within_3d, runway_days, needs_refill")
-        .eq("tenant_id", tenant_id)
-        .limit(1)
-        .execute()
-    )
-    h = (health.data or [{}])[0]
-    ready_count = int(h.get("ready_to_send_count") or 0)
-    expiring_3d = int(h.get("expiring_within_3d") or 0)
-    needs_refill = bool(h.get("needs_refill") or policy.needs_refill(ready_count))
+    #
+    # CRITICAL: this whole block is PURELY informational — it decides
+    # whether to ALSO kick a refill and populates the in-app bell. It must
+    # NEVER prevent today's pick. Before, an unguarded `warehouse_health`
+    # read or `emit_warehouse_state_alerts` write that raised here bubbled
+    # up to `run_daily_orchestrator`, which caught it per-tenant and
+    # SKIPPED the tenant entirely → the pick below never ran → zero sends,
+    # silently, every morning (observed 2026-06-16/17: 150 ready_to_send,
+    # 0 picked, 2 days no outreach). Telemetry failures are now swallowed
+    # so the send path always executes.
+    ready_count = 0
+    needs_refill = False
+    try:
+        health = (
+            sb.table("warehouse_health")
+            .select("ready_to_send_count, expiring_within_3d, runway_days, needs_refill")
+            .eq("tenant_id", tenant_id)
+            .limit(1)
+            .execute()
+        )
+        h = (health.data or [{}])[0]
+        ready_count = int(h.get("ready_to_send_count") or 0)
+        expiring_3d = int(h.get("expiring_within_3d") or 0)
+        needs_refill = bool(h.get("needs_refill") or policy.needs_refill(ready_count))
 
-    # Tenant-facing alerts (in-app bell). Dedup handled by the alerts
-    # service so this is safe to call every tick.
-    await emit_warehouse_state_alerts(
-        tenant_id=tenant_id,
-        ready_count=ready_count,
-        min_size=policy.warehouse_min_size,
-        expiring_within_3d=expiring_3d,
-    )
+        # Tenant-facing alerts (in-app bell). Dedup handled by the alerts
+        # service so this is safe to call every tick.
+        await emit_warehouse_state_alerts(
+            tenant_id=tenant_id,
+            ready_count=ready_count,
+            min_size=policy.warehouse_min_size,
+            expiring_within_3d=expiring_3d,
+        )
+    except Exception as exc:  # noqa: BLE001 — telemetry must never block the pick
+        log.warning(
+            "daily_pipeline.telemetry_failed",
+            tenant_id=tenant_id,
+            err=str(exc),
+        )
 
     refill_outcome: dict[str, Any] | None = None
     if needs_refill:
@@ -198,7 +217,16 @@ async def process_tenant_daily_send(tenant: dict[str, Any]) -> dict[str, Any]:
                 tenant_id=tenant_id,
                 err=str(exc),
             )
-            await emit_atoka_failure_alert(tenant_id=tenant_id, err=str(exc))
+            # Alert emission is best-effort — a failure here must not skip
+            # the pick below (same class of bug as the telemetry block above).
+            try:
+                await emit_atoka_failure_alert(tenant_id=tenant_id, err=str(exc))
+            except Exception as alert_exc:  # noqa: BLE001
+                log.warning(
+                    "daily_pipeline.atoka_alert_failed",
+                    tenant_id=tenant_id,
+                    err=str(alert_exc),
+                )
             refill_outcome = {"status": "failed", "error": str(exc)}
 
     # Cap-aware pick (atomic FIFO). ``daily_send_cap`` is a DAILY ceiling on
