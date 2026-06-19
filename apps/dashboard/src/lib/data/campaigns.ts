@@ -68,6 +68,12 @@ export interface CampaignDeliveryStats {
   click_rate: number;    // 0-1  clicked / delivered (lead-level)
 }
 
+/** ISO timestamp `days` ago — the lower bound of an analysis window.
+ *  A rolling window (now − N·24h), which is what "ultimi N giorni" means. */
+function sinceIsoFromDays(days: number): string {
+  return new Date(Date.now() - days * 86_400_000).toISOString();
+}
+
 /** Concrete columns we read — keeps the select tight + aligned with types. */
 const CAMPAIGN_COLUMNS = `
   id, lead_id, tenant_id, channel, sequence_step, status,
@@ -96,13 +102,19 @@ const CAMPAIGN_WITH_LEAD_COLUMNS = `
  */
 export async function listCampaigns(
   limit = 50,
+  opts: { sinceDays?: number | null } = {},
 ): Promise<CampaignWithLeadEngagement[]> {
   const supabase = await createSupabaseServerClient();
-  const { data, error } = await supabase
+  let q = supabase
     .from('outreach_sends')
     .select(CAMPAIGN_WITH_LEAD_COLUMNS)
     .order('created_at', { ascending: false })
     .limit(limit);
+  // Optional analysis window — restrict to sends in the last N days.
+  if (opts.sinceDays && opts.sinceDays > 0) {
+    q = q.gte('created_at', sinceIsoFromDays(opts.sinceDays));
+  }
+  const { data, error } = await q;
   if (error) throw new Error(`listCampaigns: ${error.message}`);
   let rows = (data ?? []) as unknown as CampaignWithLeadEngagement[];
   // Moderation freeze: an un-promoted contatto's send view stays frozen at the
@@ -132,13 +144,24 @@ export async function listCampaigns(
  *   consistent with how analytics_funnel in migration 0016 counts
  *   the same stages.
  */
-export async function getCampaignDeliveryStats(): Promise<CampaignDeliveryStats> {
+export async function getCampaignDeliveryStats(
+  opts: { sinceDays?: number | null } = {},
+): Promise<CampaignDeliveryStats> {
   const supabase = await createSupabaseServerClient();
 
+  // Optional analysis window. We scope the SEND-level numbers (total /
+  // delivered / failed) to sends created in the window; opened/clicked are
+  // then intersected with exactly this window's leads (leadsWithCampaign),
+  // so the rates describe the cohort emailed in the period.
+  let campaignsQ = supabase
+    .from('outreach_sends')
+    .select('status, lead_id, sequence_step, leads:leads(operator_released_at)');
+  if (opts.sinceDays && opts.sinceDays > 0) {
+    campaignsQ = campaignsQ.gte('created_at', sinceIsoFromDays(opts.sinceDays));
+  }
+
   const [campaignsRes, engagementRes, moderated] = await Promise.all([
-    supabase
-      .from('outreach_sends')
-      .select('status, lead_id, sequence_step, leads:leads(operator_released_at)'),
+    campaignsQ,
     // RLS scopes `leads` to the current tenant → we only see our rows.
     supabase
       .from('leads')
