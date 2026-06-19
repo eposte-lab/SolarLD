@@ -606,6 +606,22 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
                 tenant_id=payload.tenant_id,
                 has_image=bool(lead.get("rendering_image_url")),
             )
+            # A first-touch lead reaches this gate in ``picked``. A bare skip
+            # left it STRANDED there forever when the render never landed
+            # (2026-06-19: Google Solar billing 403 → ~22 leads sat dead in
+            # ``picked``, clogging the pick and stalling the day's sends — the
+            # gate's "re-picked next cycle" only works if it is first released).
+            # Un-pick back to the warehouse so the next cycle re-picks it once
+            # the render lands. Follow-ups (not in ``picked``) keep a plain
+            # skip — never rewrite a contacted lead's status.
+            if lead.get("pipeline_status") == "picked":
+                return await self._record_skip(
+                    payload=payload,
+                    lead=lead,
+                    reason="render_not_ready",
+                    pipeline_status="ready_to_send",
+                    event_type="lead.outreach_skipped",
+                )
             return OutreachOutput(
                 lead_id=payload.lead_id,
                 skipped=True,
@@ -629,6 +645,17 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
                 lead_id=payload.lead_id,
                 tenant_id=payload.tenant_id,
             )
+            # Same strand bug as the render gate above: a first-touch lead waits
+            # in ``picked`` for the ROI derivations to land. Un-pick it rather
+            # than stranding it; follow-ups keep a plain skip.
+            if lead.get("pipeline_status") == "picked":
+                return await self._record_skip(
+                    payload=payload,
+                    lead=lead,
+                    reason="offer_incomplete",
+                    pipeline_status="ready_to_send",
+                    event_type="lead.outreach_skipped",
+                )
             return OutreachOutput(
                 lead_id=payload.lead_id,
                 skipped=True,
