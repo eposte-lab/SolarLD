@@ -85,6 +85,26 @@ async def creative_task(_ctx: dict[str, Any], payload: dict[str, Any]) -> dict[s
     return out.model_dump()
 
 
+async def repaint_task(_ctx: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
+    """Re-paint the panels on a lead's STORED aerial — no Google Solar call.
+
+    Powers the dashboard's second "Ridipingi pannelli" button: works even when
+    Solar billing is 403 and is cheap (one Replicate paint). Falls back to a
+    no-op result when there's no stored aerial to paint on.
+    """
+    from ..services.repaint_service import RepaintError, repaint_rendering
+
+    try:
+        return await repaint_rendering(tenant_id=payload["tenant_id"], lead_id=payload["lead_id"])
+    except RepaintError as exc:
+        log.warning(
+            "repaint_task.skipped",
+            lead_id=payload.get("lead_id"),
+            reason=str(exc),
+        )
+        return {"ok": False, "lead_id": payload.get("lead_id"), "reason": str(exc)}
+
+
 async def outreach_task(_ctx: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
     out = await OutreachAgent().run(OutreachInput(**payload))
     return out.model_dump()
@@ -754,6 +774,7 @@ class WorkerSettings:
         email_extraction_task,
         scoring_task,
         creative_task,
+        repaint_task,
         outreach_task,
         tracking_task,
         compliance_task,
