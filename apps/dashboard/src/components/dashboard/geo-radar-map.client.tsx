@@ -16,15 +16,19 @@ import 'mapbox-gl/dist/mapbox-gl.css';
 import { useEffect, useRef, useState } from 'react';
 
 import type { GeoLeadPin, ProvinceAggregate } from '@/lib/data/geo-analytics';
+import { engagementTier } from '@/lib/data/engagement-shared';
 import { getCentroid } from './italy-provinces';
 
 // ── colour helpers ────────────────────────────────────────────────────────────
 
 // Liquid Glass palette: green single-accent + warning amber + dim grey.
-const COLOR_MINT = '#22C55E';
+const COLOR_MINT = '#22C55E'; // firmato / won
 const COLOR_MINT_DIM = '#16A34A';
-const COLOR_WARNING = '#F4A45C';
+const COLOR_WARNING = '#F4A45C'; // hot
 const COLOR_DIM = '#8A9499';
+const COLOR_CONVO = '#3B82F6'; // in conversazione (dialogo attivo)
+const COLOR_INTERESTED = '#14B8A6'; // interessato (engaged, non ancora hot)
+const COLOR_LOST = '#6B7280'; // perso (closed_lost)
 
 function dominantColor(agg: ProvinceAggregate): string {
   if (agg.won > 0) return COLOR_MINT;
@@ -33,26 +37,28 @@ function dominantColor(agg: ProvinceAggregate): string {
   return COLOR_DIM;
 }
 
-/** Per-lead marker colour by funnel status / tier. */
-function pinColor(pin: GeoLeadPin): string {
-  if (pin.pipeline_status === 'closed_won') return COLOR_MINT;
-  if (pin.pipeline_status === 'appointment') return COLOR_MINT_DIM;
-  if (pin.score_tier === 'hot') return COLOR_WARNING;
-  return COLOR_DIM;
+export interface LeadPinState {
+  key: string;
+  label: string;
+  color: string;
 }
 
-const STATUS_LABEL: Record<string, string> = {
-  ready_to_send: 'Pronto',
-  sent: 'Inviato',
-  delivered: 'Consegnato',
-  opened: 'Letto',
-  clicked: 'Cliccato',
-  engaged: 'Engaged',
-  to_call: 'Da chiamare',
-  whatsapp: 'WhatsApp',
-  appointment: 'Appuntamento',
-  closed_won: 'Firmato',
-};
+/**
+ * The lead's ENGAGEMENT-funnel state — what the operator actually wants on the
+ * map. Priority = most-advanced stage wins. "Hot" keys off the behavioural
+ * ``engagement_score`` (≥60, mirrors engagementTier), NOT the static discovery
+ * ``score_tier`` (the old, misleading rule that mislabelled the legend).
+ */
+function pinState(pin: GeoLeadPin): LeadPinState {
+  const st = pin.pipeline_status;
+  if (st === 'closed_won') return { key: 'firmato', label: 'Firmato', color: COLOR_MINT };
+  if (st === 'closed_lost') return { key: 'perso', label: 'Perso', color: COLOR_LOST };
+  if (st === 'whatsapp' || st === 'appointment')
+    return { key: 'conversazione', label: 'In conversazione', color: COLOR_CONVO };
+  if (engagementTier(pin.engagement_score) === 'hot')
+    return { key: 'hot', label: 'Hot', color: COLOR_WARNING };
+  return { key: 'interessato', label: 'Interessato', color: COLOR_INTERESTED };
+}
 
 function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) =>
@@ -163,16 +169,20 @@ export function GeoRadarMapClient({
     // ── Preferred: one precise marker per active lead (rooftop lat/lng) ──
     if (pins && pins.length > 0) {
       for (const pin of pins) {
-        const color = pinColor(pin);
+        const state = pinState(pin);
         const el = document.createElement('div');
         el.className = 'geo-marker';
         el.style.cssText = `
-          width: 11px; height: 11px; border-radius: 50%;
-          background-color: ${color};
+          width: 12px; height: 12px; border-radius: 50%;
+          background-color: ${state.color};
           border: 1.5px solid rgba(255,255,255,0.85);
           box-shadow: 0 0 0 1px rgba(0,0,0,0.30);
           cursor: pointer;
         `;
+        el.setAttribute('role', 'button');
+        el.setAttribute('tabindex', '0');
+        el.setAttribute('aria-label', `${pin.business_name || pin.comune || 'Lead'} — ${state.label}`);
+        el.title = `${pin.business_name || pin.comune || 'Lead'} · ${state.label}`;
         const marker = new mapboxgl.Marker({ element: el, anchor: 'center' })
           .setLngLat([pin.lng, pin.lat])
           .addTo(mapRef.current!);
@@ -181,19 +191,31 @@ export function GeoRadarMapClient({
           const label = pin.business_name || pin.comune || 'Lead';
           const meta = [
             pin.comune ? escapeHtml(pin.comune) : null,
-            STATUS_LABEL[pin.pipeline_status] ?? pin.pipeline_status,
-            `score ${pin.score}`,
+            `engagement ${pin.engagement_score}/100`,
           ]
             .filter(Boolean)
             .join(' · ');
+          const dot = `<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background-color:${state.color};margin-right:6px;vertical-align:middle"></span>`;
           const content = `
             <div style="font-family:'Plus Jakarta Sans',sans-serif;font-size:12px;line-height:1.5">
-              <div style="font-weight:700;font-size:13px;margin-bottom:4px;letter-spacing:-0.01em">${escapeHtml(label)}</div>
+              <div style="font-weight:700;font-size:13px;margin-bottom:5px;letter-spacing:-0.01em">${escapeHtml(label)}</div>
+              <div style="color:#ECEFF0;font-weight:600;margin-bottom:3px">${dot}${state.label}</div>
               <div style="color:#8A9499">${meta}</div>
+              <div style="color:#8A9499;margin-top:6px;font-size:11px;font-weight:600">Clicca per aprire la scheda →</div>
             </div>`;
           popup.setLngLat([pin.lng, pin.lat]).setHTML(content).addTo(mapRef.current!);
         });
         el.addEventListener('mouseleave', () => popup.remove());
+        // Click / Enter → open the full lead sheet in a new tab (keeps the map).
+        const openLead = () =>
+          window.open(`/leads/${pin.id}`, '_blank', 'noopener,noreferrer');
+        el.addEventListener('click', openLead);
+        el.addEventListener('keydown', (ev) => {
+          if (ev.key === 'Enter' || ev.key === ' ') {
+            ev.preventDefault();
+            openLead();
+          }
+        });
         markersRef.current.push(marker);
       }
       return;

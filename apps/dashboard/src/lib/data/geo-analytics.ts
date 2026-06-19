@@ -32,6 +32,9 @@ export interface GeoLeadPin {
   pipeline_status: LeadStatus;
   score_tier: LeadScoreTier;
   score: number;
+  /** Behavioural engagement 0–100 (portal/clicks) — drives the pin's heat
+   *  state (hot ≥ 60), NOT the static discovery `score_tier`. */
+  engagement_score: number;
   outreach_opened_at: string | null;
   outreach_clicked_at: string | null;
   created_at: string;
@@ -123,7 +126,7 @@ export async function getGeoLeads(): Promise<{
   let query = supabase
     .from('leads')
     .select(
-      `id, pipeline_status, score_tier, score,
+      `id, pipeline_status, score_tier, score, engagement_score,
        outreach_opened_at, outreach_clicked_at, outreach_sent_at,
        operator_released_at, created_at,
        roofs:roofs(lat, lng, provincia, comune),
@@ -143,6 +146,7 @@ export async function getGeoLeads(): Promise<{
     pipeline_status: LeadStatus;
     score_tier: LeadScoreTier;
     score: number;
+    engagement_score: number | null;
     outreach_opened_at: string | null;
     outreach_clicked_at: string | null;
     outreach_sent_at: string | null;
@@ -184,6 +188,9 @@ export async function getGeoLeads(): Promise<{
         // reacted). Only the activity signals below are withheld.
         score_tier: r.score_tier,
         score: r.score,
+        // Engagement is an activity signal → withhold (0) on a frozen
+        // un-promoted contatto, like opens/clicks below.
+        engagement_score: frozen ? 0 : (r.engagement_score ?? 0),
         outreach_opened_at: frozen ? null : r.outreach_opened_at,
         outreach_clicked_at: frozen ? null : r.outreach_clicked_at,
         created_at: r.created_at,
