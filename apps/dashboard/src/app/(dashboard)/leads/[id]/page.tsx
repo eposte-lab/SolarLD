@@ -67,6 +67,7 @@ import {
 
 import { LeadFeedbackPicker } from './LeadFeedbackPicker';
 import { RegenerateRenderingButton } from './RegenerateRenderingButton';
+import { RepaintRenderingButton } from './RepaintRenderingButton';
 import {
   PremiumEmailField,
   isPremiumSource,
@@ -600,6 +601,11 @@ export default async function LeadDetailPage({ params }: PageProps) {
             leadId={lead.id}
             regenCount={lead.rendering_regen_count ?? 0}
           />
+              <RepaintRenderingButton
+                leadId={lead.id}
+                regenCount={lead.rendering_regen_count ?? 0}
+                hasRender={Boolean(lead.rendering_image_url)}
+              />
               {publicLeadLink &&
                 (portalVisitBlocked ? (
                   <PortalVisitBlocked
@@ -809,10 +815,17 @@ export default async function LeadDetailPage({ params }: PageProps) {
               Ultimo tentativo: {humanReadableSkipReason(lead.creative_skipped_reason)}
             </p>
           )}
-          <RegenerateRenderingButton
-            leadId={lead.id}
-            regenCount={lead.rendering_regen_count ?? 0}
-          />
+          <div className="flex flex-wrap items-center gap-3">
+            <RegenerateRenderingButton
+              leadId={lead.id}
+              regenCount={lead.rendering_regen_count ?? 0}
+            />
+            <RepaintRenderingButton
+              leadId={lead.id}
+              regenCount={lead.rendering_regen_count ?? 0}
+              hasRender={Boolean(lead.rendering_image_url)}
+            />
+          </div>
         </section>
       )}
 

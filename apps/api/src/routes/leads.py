@@ -766,6 +766,68 @@ async def regen_rendering(
     }
 
 
+@router.post("/{lead_id}/repaint-rendering")
+async def repaint_rendering_endpoint(ctx: CurrentUser, lead_id: str) -> dict[str, object]:
+    """Re-paint the panels on the lead's STORED aerial — NO Google Solar call.
+
+    The second render button. Unlike ``/regenerate-rendering`` (which re-derives
+    everything from the Solar API and so silently no-ops while billing is 403),
+    this reuses the bare ``before.png`` already in Storage + the panel geometry
+    in ``roofs.derivations`` and re-runs only the nano-banana paint. So it works
+    even with Solar billing down, and is cheap (one Replicate call). Requires an
+    existing render to repaint on.
+    """
+    tenant_id = require_tenant(ctx)
+    sb = get_service_client()
+    res_q = (
+        sb.table("leads")
+        .select("id, rendering_image_url, rendering_regen_count")
+        .eq("id", lead_id)
+        .eq("tenant_id", tenant_id)
+        .limit(1)
+    )
+    # Moderation gate — hidden lead 404s for a moderated tenant.
+    res_q = apply_released_filter(res_q, sb, tenant_id)
+    res = res_q.execute()
+    if not res.data:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    if not res.data[0].get("rendering_image_url"):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Nessun render esistente da ridipingere. Usa prima "
+                "'Rigenera rendering' (richiede Google Solar)."
+            ),
+        )
+
+    # Share the per-lead regen cap so total Replicate spend stays bounded.
+    regen_count = int(res.data[0].get("rendering_regen_count") or 0)
+    if regen_count >= MAX_RENDERING_REGENERATIONS:
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                f"Limite di rigenerazioni del rendering raggiunto per "
+                f"questo lead ({MAX_RENDERING_REGENERATIONS})."
+            ),
+        )
+    new_count = regen_count + 1
+    sb.table("leads").update({"rendering_regen_count": new_count}).eq("id", lead_id).execute()
+
+    job_ms = int(datetime.now(UTC).timestamp() * 1000)
+    job = await enqueue(
+        "repaint_task",
+        {"tenant_id": tenant_id, "lead_id": lead_id},
+        job_id=f"repaint:{tenant_id}:{lead_id}:{job_ms}",
+    )
+    return {
+        "ok": True,
+        "lead_id": lead_id,
+        "regen_count": new_count,
+        "regen_remaining": MAX_RENDERING_REGENERATIONS - new_count,
+        **job,
+    }
+
+
 @router.post("/{lead_id}/rescore")
 async def rescore_lead(ctx: CurrentUser, lead_id: str) -> dict[str, object]:
     """Re-run the Scoring Agent for a single lead.
