@@ -53,9 +53,14 @@ export function RepaintRenderingButton({ leadId, regenCount, hasRender }: Props)
       setState({
         kind: 'success',
         message:
-          'Ridipintura in coda. Ridisegna solo i pannelli sull’aerea già salvata (niente Google Solar). Aggiorna la pagina tra circa 30 secondi.',
+          'Ridipintura in coda. Ridisegna solo i pannelli sull’aerea già salvata (niente Google Solar). Il nuovo render compare tra circa 2-3 minuti — la pagina si aggiorna da sola.',
       });
-      setTimeout(() => router.refresh(), 30000);
+      // nano-banana takes ~2 min: refresh only once it's plausibly done (a 30s
+      // refresh would cache the OLD image under the new ?v= key — see the
+      // post-upload cache-bust in repaint_service). Two attempts cover the
+      // spread of paint durations.
+      setTimeout(() => router.refresh(), 130000);
+      setTimeout(() => router.refresh(), 190000);
     } catch (err) {
       const msg =
         err instanceof ApiError

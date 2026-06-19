@@ -51,7 +51,7 @@ async def repaint_rendering(*, tenant_id: str, lead_id: str) -> dict[str, Any]:
 
     lead_res = (
         sb.table("leads")
-        .select("id, roof_id")
+        .select("id, roof_id, rendering_regen_count")
         .eq("id", lead_id)
         .eq("tenant_id", tenant_id)
         .limit(1)
@@ -60,6 +60,7 @@ async def repaint_rendering(*, tenant_id: str, lead_id: str) -> dict[str, Any]:
     if not lead_res.data:
         raise RepaintError("lead_not_found")
     roof_id = lead_res.data[0].get("roof_id")
+    regen_count = int(lead_res.data[0].get("rendering_regen_count") or 0)
 
     derivations: dict[str, Any] = {}
     if roof_id:
@@ -121,7 +122,14 @@ async def repaint_rendering(*, tenant_id: str, lead_id: str) -> dict[str, Any]:
         data=after_bytes,
         content_type="image/png",
     )
-    sb.table("leads").update({"rendering_image_url": after_url}).eq("id", lead_id).execute()
+    # Bump the cache-bust counter HERE — only now that the new after.png is
+    # actually on disk. The dashboard busts the image with ``?v={count}``; if we
+    # let the endpoint bump it at click-time (as it does), a premature refresh
+    # caches the OLD image under the NEW key and the repaint "never shows".
+    # Bumping post-upload yields a fresh key that no early refresh has poisoned.
+    sb.table("leads").update(
+        {"rendering_image_url": after_url, "rendering_regen_count": regen_count + 1}
+    ).eq("id", lead_id).execute()
 
     log.info(
         "repaint.done",
