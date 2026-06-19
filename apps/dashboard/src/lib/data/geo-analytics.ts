@@ -15,6 +15,7 @@
 import 'server-only';
 
 import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { ENGAGEMENT_OR } from '@/lib/data/leads';
 import { freezePipelineStatus } from '@/lib/data/moderation-freeze';
 import { isModeratedTenant } from '@/lib/data/tenant';
 import type { LeadScoreTier, LeadStatus } from '@/types/db';
@@ -103,11 +104,23 @@ export async function getGeoLeads(): Promise<{
   aggregates: ProvinceAggregate[];
 }> {
   const supabase = await createSupabaseServerClient();
-  // Solo LEAD ATTIVI: si escludono i contatti non lavorati ('new') e gli
-  // stati terminali/negativi (blacklisted, closed_lost). E si richiede la
-  // posizione PRECISA del tetto (roofs.lat/lng) per pinnarli sul punto
-  // reale, non sul centroide provincia.
-  const { data, error } = await supabase
+  // Solo LEAD ATTIVI / SERI — esattamente la stessa popolazione della
+  // sezione "Lead Attivi" (/leads → listLeads). NON i semplici contattati:
+  // un lead in `sent`/`opened`/`ready_to_send`/`picked` è ancora un
+  // contatto, non un lead serio, e affollerebbe la mappa di centinaia di
+  // punti (es. TT: ~427 punti vs 16 lead veri). Due gate, identici a
+  // listLeads():
+  //   1. engagement gate (ENGAGEMENT_OR) — almeno un'azione concreta
+  //      (click / sessione portale / risposta / WhatsApp / engaged…);
+  //   2. moderation gate — su tenant moderato conta solo i contatti
+  //      PROMOSSI (operator_released_at IS NOT NULL).
+  // L'export di ENGAGEMENT_OR da leads.ts tiene mappa e lista in lockstep:
+  // il numero "Lead" della card combacia sempre con la sezione Lead Attivi.
+  // Si richiede inoltre la posizione PRECISA del tetto (roofs.lat/lng) per
+  // pinnare sul punto reale, non sul centroide provincia.
+  const moderated = await isModeratedTenant();
+
+  let query = supabase
     .from('leads')
     .select(
       `id, pipeline_status, score_tier, score,
@@ -116,7 +129,10 @@ export async function getGeoLeads(): Promise<{
        roofs:roofs(lat, lng, provincia, comune),
        subjects:subjects(business_name)`,
     )
-    .not('pipeline_status', 'in', '("blacklisted","closed_lost","new")')
+    .or(ENGAGEMENT_OR);
+  if (moderated) query = query.not('operator_released_at', 'is', null);
+
+  const { data, error } = await query
     .order('score', { ascending: false })
     .limit(500);
 
@@ -142,11 +158,11 @@ export async function getGeoLeads(): Promise<{
   };
 
   const rows = (data ?? []) as unknown as RawRow[];
-  // Moderation freeze: for an un-promoted contatto (operator_released_at
-  // IS NULL) on a moderated tenant, withhold every engagement-derived
-  // signal — opens/clicks, the reaction pipeline status, and the 'hot'
-  // tier — so the map + province hot-zone counts can't leak who engaged.
-  const moderated = await isModeratedTenant();
+  // Moderation freeze (defensive): on a moderated tenant the query above
+  // already keeps only PROMOTED leads (operator_released_at IS NOT NULL),
+  // so nothing here is actually frozen anymore — but we keep the per-row
+  // guard so an un-promoted row could never leak engagement signals if the
+  // gate ever changes. `moderated` is resolved once, before the query.
 
   const pins: GeoLeadPin[] = rows
     .filter((r) => r.roofs?.lat != null && r.roofs?.lng != null)

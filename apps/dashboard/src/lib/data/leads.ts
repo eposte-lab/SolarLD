@@ -147,7 +147,7 @@ const ENGAGED_PIPELINE_STATUSES = [
   'closed_lost',
 ] as const;
 
-const ENGAGEMENT_OR = [
+export const ENGAGEMENT_OR = [
   'outreach_clicked_at.not.is.null',
   'dashboard_visited_at.not.is.null',
   'whatsapp_initiated_at.not.is.null',
