@@ -77,10 +77,11 @@ export async function GeoRadarMap({ className }: GeoRadarMapProps) {
       {totalLeads > 0 && (
         <div className="mb-3 flex flex-wrap gap-3">
           {[
-            { color: '#22C55E', label: 'Firmato' },
-            { color: '#16A34A', label: 'Appuntamento' },
+            { color: '#14B8A6', label: 'Interessato' },
             { color: '#F4A45C', label: 'Hot' },
-            { color: '#8A9499', label: 'Inviato' },
+            { color: '#3B82F6', label: 'In conversazione' },
+            { color: '#22C55E', label: 'Firmato' },
+            { color: '#6B7280', label: 'Perso' },
           ].map(({ color, label }) => (
             <span key={label} className="flex items-center gap-1.5 text-[10px] text-on-surface-variant">
               <span
