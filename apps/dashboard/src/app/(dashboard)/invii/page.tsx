@@ -46,7 +46,16 @@ type Search = Promise<{
   tab?: string;
   premium?: string;
   q?: string;
+  range?: string;
 }>;
+
+// Analysis window presets for the "Periodo" selector. '' = all-time (default).
+const RANGE_OPTIONS: { value: string; label: string; days: number | null }[] = [
+  { value: '7', label: '7 giorni', days: 7 },
+  { value: '30', label: '30 giorni', days: 30 },
+  { value: '90', label: '90 giorni', days: 90 },
+  { value: '', label: 'Tutto', days: null },
+];
 
 const CHANNEL_OPTIONS = [
   { value: '', label: 'Tutti i canali' },
@@ -121,15 +130,19 @@ export default async function InviiPage({
   const activeTab = sp.tab === 'rimandati' ? 'rimandati' : 'storico';
   const searchRaw = (sp.q ?? '').trim();
   const search = searchRaw.toLowerCase();
+  const activeRange =
+    RANGE_OPTIONS.find((r) => r.value === (sp.range ?? '')) ?? RANGE_OPTIONS[3]!;
+  const rangeDays = activeRange.days;
 
   const ctx = await getCurrentTenantContext();
   if (!ctx) redirect('/login');
 
   const [stats, allCampaigns, deferred] = await Promise.all([
-    getCampaignDeliveryStats(),
+    // KPI strip — scoped to the selected analysis window (default: all-time).
+    getCampaignDeliveryStats({ sinceDays: rangeDays }),
     // Over-fetch for client-side filtering. When searching, widen the window
     // so the query covers the whole send history, not just the current page.
-    listCampaigns(search ? 5000 : PAGE_SIZE * page),
+    listCampaigns(search ? 5000 : PAGE_SIZE * page, { sinceDays: rangeDays }),
     getDeferredToday(),
   ]);
 
@@ -160,6 +173,7 @@ export default async function InviiPage({
     if (statusFilter) params.set('status', statusFilter);
     if (premiumFilter) params.set('premium', '1');
     if (searchRaw) params.set('q', searchRaw);
+    if (activeRange.value) params.set('range', activeRange.value);
     if (page > 1) params.set('page', String(page));
     for (const [k, v] of Object.entries(overrides)) {
       if (v === undefined || v === '') params.delete(k);
@@ -179,7 +193,8 @@ export default async function InviiPage({
       <header className="flex items-end justify-between gap-4">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
-            Outreach · {formatNumber(stats.total)} invii totali
+            Outreach · {formatNumber(stats.total)} invii
+            {rangeDays ? ` · ultimi ${rangeDays} giorni` : ' totali'}
           </p>
           <h1 className="font-headline text-2xl font-bold tracking-tighter md:text-4xl">
             Invii
@@ -286,6 +301,26 @@ export default async function InviiPage({
 
       {/* ── Tab: Storico invii ───────────────────────────────────────────── */}
       {activeTab === 'storico' && <>
+
+      {/* Periodo di analisi — scopes the KPI strip + the table below to a
+          rolling window so the operator can read "in N giorni quanti invii,
+          che open rate". Default = Tutto (all-time). */}
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-[10px] font-semibold uppercase tracking-widest text-on-surface-variant">
+          Periodo
+        </span>
+        <div className="flex flex-wrap gap-1.5">
+          {RANGE_OPTIONS.map((opt) => (
+            <FilterChip
+              key={opt.value || 'all-range'}
+              active={activeRange.value === opt.value}
+              href={queryFor({ range: opt.value || undefined, page: undefined })}
+            >
+              {opt.label}
+            </FilterChip>
+          ))}
+        </div>
+      </div>
 
       {/* KPI strip */}
       <BentoGrid cols={5}>
