@@ -143,6 +143,12 @@ async def repaint_rendering(*, tenant_id: str, lead_id: str) -> dict[str, Any]:
             "rendering_gif_cdn_url": None,
             "rendering_video_url": None,
             "rendering_video_cdn_url": None,
+            # The repaint just produced a good static image, so any stale
+            # creative failure reason (e.g. an earlier Solar 403 from a full
+            # "Rigenera") is no longer true. Clear it — otherwise the lead page
+            # shows a misleading "Video non generato · Google non ha restituito
+            # l'immagine aerea" chip (it fires on no-video + a set skip reason).
+            "creative_skipped_reason": None,
         }
     ).eq("id", lead_id).execute()
 
