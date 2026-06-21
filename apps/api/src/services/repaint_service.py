@@ -128,7 +128,22 @@ async def repaint_rendering(*, tenant_id: str, lead_id: str) -> dict[str, Any]:
     # caches the OLD image under the NEW key and the repaint "never shows".
     # Bumping post-upload yields a fresh key that no early refresh has poisoned.
     sb.table("leads").update(
-        {"rendering_image_url": after_url, "rendering_regen_count": regen_count + 1}
+        {
+            "rendering_image_url": after_url,
+            "rendering_regen_count": regen_count + 1,
+            # The repaint only refreshes the STATIC after.png. The old GIF/MP4
+            # were baked from the PREVIOUS render, and the dashboard hero, the
+            # outreach email and the public dossier all prefer video → gif →
+            # image — so without this they would keep showing the stale (wrong)
+            # animation and the repaint would be invisible everywhere except the
+            # raw file. Null the stale video/gif so every surface falls back to
+            # the freshly-painted static image. A full "Rigenera" rebuilds the
+            # animation later (it needs Solar + the video sidecar).
+            "rendering_gif_url": None,
+            "rendering_gif_cdn_url": None,
+            "rendering_video_url": None,
+            "rendering_video_cdn_url": None,
+        }
     ).eq("id", lead_id).execute()
 
     log.info(

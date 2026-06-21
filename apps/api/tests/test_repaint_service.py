@@ -136,10 +136,19 @@ async def test_repaint_reuses_aerial_and_updates_render(monkeypatch: Any) -> Non
     assert out["panel_count"] == 42
     # Re-painted via Replicate, and the lead's render URL was updated.
     assert store["painted"] is True
+    lead_updates = [p for (t, p) in store["updates"] if t == "leads"]
     assert any(
-        t == "leads" and p.get("rendering_image_url") == "https://store.example/after.png"
-        for (t, p) in store["updates"]
+        p.get("rendering_image_url") == "https://store.example/after.png" for p in lead_updates
     )
+    # The stale GIF/MP4 (baked from the previous render) must be nulled so the
+    # dashboard / email / dossier fall back to the fresh static image, not the
+    # old animation. And the cache-bust counter bumps AFTER the upload.
+    final = next(p for p in lead_updates if "rendering_image_url" in p)
+    assert final["rendering_gif_url"] is None
+    assert final["rendering_gif_cdn_url"] is None
+    assert final["rendering_video_url"] is None
+    assert final["rendering_video_cdn_url"] is None
+    assert final["rendering_regen_count"] == 1
 
 
 async def test_repaint_raises_when_no_stored_aerial(monkeypatch: Any) -> None:
