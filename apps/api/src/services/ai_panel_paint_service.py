@@ -74,22 +74,12 @@ def build_paint_prompt(*, panel_count: int, kwp: float | None = None) -> str:
       roof. Otherwise the model "improves" cars, parking lines, the
       surrounding context — and the before→after crossfade looks like
       two different photos.
-    * Flat industrial / warehouse roofs come out perfect every time; the
-      model only "reinvents" the building on COMPLEX pitched roofs (houses,
-      villas, apartment blocks) — it tries to reconstruct the 3D shape and
-      redraws it. The "2D overlay, not a 3D re-render" framing + the
-      "GEOMETRY is FINAL" guard target exactly that failure mode (operator
-      feedback 2026-06-19). It REDUCES the drift; a generative model can't
-      guarantee zero (the deterministic mask-composite would, if ever needed).
     """
     count = f"~{panel_count} " if panel_count > 0 else ""
     scale = f" forming a roughly {kwp:.0f} kWp array" if kwp and kwp > 0 else ""
     return (
-        "TASK: this is a real top-down aerial PHOTOGRAPH — treat it as a "
-        "LOCKED background you may NOT redraw. Your only job is to OVERLAY "
-        "photorealistic solar panels onto the main central building's roof, "
-        "like placing flat stickers on the photo. This is a 2D overlay, NOT a "
-        "3D re-render: do not interpret, reconstruct or redraw the scene. Do "
+        "TASK: in this top-down aerial photo, add photorealistic solar "
+        "panels on top of the main central building's rooftop. Do "
         "nothing else.\n\n"
         # ── Rule 1: PIXEL PRESERVATION (everything, not just roof) ──
         "RULE 1 — PRESERVE EVERY PIXEL EXCEPT WHERE A PANEL COVERS IT. "
@@ -104,15 +94,8 @@ def build_paint_prompt(*, panel_count: int, kwp: float | None = None) -> str:
         "introduce roof tiles or coverings the input doesn't show. "
         "Keep the roof's pitch, slope direction, ridgelines, tile "
         "pattern and colour EXACTLY as shown — never flatten a pitched "
-        "roof, never recolour, re-tile or re-texture it. The building's "
-        "GEOMETRY is FINAL: its footprint, outline, the number and shape "
-        "of roof planes, every ridgeline, hip, valley, edge, dormer and "
-        "irregularity stay EXACTLY as photographed — do NOT redraw, "
-        "reshape, simplify, regularise or straighten any of it. Large flat "
-        "industrial / warehouse roofs are easy; the complex pitched, "
-        "multi-plane roofs of houses, villas and apartment buildings are "
-        "where re-invention creeps in — keep THOSE pixel-faithful. Panels "
-        "sit ON TOP of the existing roof; the roof itself is unchanged. "
+        "roof, never recolour, re-tile or re-texture it. Panels sit ON "
+        "TOP of the existing roof; the roof itself is unchanged. "
         "Treat the input as a fixed background. The ONLY permitted "
         "change is adding panels.\n\n"
         # ── Rule 2: SCALE (panels are SMALL) ────────────────────────
