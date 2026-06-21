@@ -149,6 +149,9 @@ async def test_repaint_reuses_aerial_and_updates_render(monkeypatch: Any) -> Non
     assert final["rendering_video_url"] is None
     assert final["rendering_video_cdn_url"] is None
     assert final["rendering_regen_count"] == 1
+    # A successful repaint clears any stale creative failure reason so the lead
+    # page stops showing the misleading "Video non generato" chip.
+    assert final["creative_skipped_reason"] is None
 
 
 async def test_repaint_raises_when_no_stored_aerial(monkeypatch: Any) -> None:
