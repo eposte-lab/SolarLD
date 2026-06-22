@@ -369,6 +369,9 @@ export interface LeadListRow {
    *  hands off to the operator. The chip on the row reads this to show
    *  "notifica inviata X fa" in the tooltip. */
   hot_lead_alerted_at: string | null;
+  /** Set when the prospect requests an appointment from the dossier — the
+   *  hottest inbound signal. Feeds `latestTouchAt()` ("Ultimo tocco"). */
+  appointment_requested_at: string | null;
 }
 
 /** Full detail row — same as list + renderings + roi_data. */
