@@ -53,14 +53,14 @@ export function RepaintRenderingButton({ leadId, regenCount, hasRender }: Props)
       setState({
         kind: 'success',
         message:
-          'Ridipintura in coda. Ridisegna solo i pannelli sull’aerea già salvata (niente Google Solar). Il nuovo render compare tra circa 2-3 minuti — la pagina si aggiorna da sola.',
+          'In coda. Ricostruisce foto + video (animazione) dall’aerea già salvata, senza Google Solar. Compare tra circa 3-4 minuti — la pagina si aggiorna da sola.',
       });
-      // nano-banana takes ~2 min: refresh only once it's plausibly done (a 30s
-      // refresh would cache the OLD image under the new ?v= key — see the
-      // post-upload cache-bust in repaint_service). Two attempts cover the
-      // spread of paint durations.
-      setTimeout(() => router.refresh(), 130000);
-      setTimeout(() => router.refresh(), 190000);
+      // Paint (~30s) + Kling transition video (~1.5-3 min): refresh only once
+      // it's plausibly done. An early refresh would cache the OLD media under
+      // the new ?v= key (see the post-upload cache-bust in repaint_service).
+      // Two attempts cover the spread of render durations.
+      setTimeout(() => router.refresh(), 200000);
+      setTimeout(() => router.refresh(), 330000);
     } catch (err) {
       const msg =
         err instanceof ApiError

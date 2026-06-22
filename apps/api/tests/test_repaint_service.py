@@ -7,6 +7,7 @@ and is cheap. These tests mock the paint/storage/HTTP so no network is touched.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any
 
 import httpx
@@ -90,7 +91,9 @@ def _fake_httpx(resp: _FakeResp) -> Any:
     return _Client
 
 
-def _wire(monkeypatch: Any, *, rows: dict, store: dict, before_ok: bool = True) -> None:
+def _wire(
+    monkeypatch: Any, *, rows: dict, store: dict, before_ok: bool = True, video_ok: bool = True
+) -> None:
     monkeypatch.setattr(repaint_service, "get_service_client", lambda: _Sb(rows, store))
     monkeypatch.setattr(
         repaint_service.httpx, "AsyncClient", _fake_httpx(_FakeResp(b"AERIAL", before_ok))
@@ -107,6 +110,18 @@ def _wire(monkeypatch: Any, *, rows: dict, store: dict, before_ok: bool = True) 
     monkeypatch.setattr(
         repaint_service, "upload_bytes", lambda **_k: "https://store.example/after.png"
     )
+
+    async def _video(_inp: Any) -> Any:
+        if not video_ok:
+            raise RuntimeError("sidecar down")
+        store["video"] = True
+        return SimpleNamespace(
+            mp4_url="https://store.example/transition.mp4",
+            gif_url="https://store.example/transition.gif",
+            duration_ms=5000,
+        )
+
+    monkeypatch.setattr(repaint_service, "render_transition", _video)
 
 
 def _rows() -> dict[str, list]:
@@ -133,25 +148,41 @@ async def test_repaint_reuses_aerial_and_updates_render(monkeypatch: Any) -> Non
 
     assert out["ok"] is True
     assert out["after_url"] == "https://store.example/after.png"
+    assert out["video_url"] == "https://store.example/transition.mp4"
     assert out["panel_count"] == 42
-    # Re-painted via Replicate, and the lead's render URL was updated.
+    # Re-painted via Replicate AND rebuilt the transition video via the sidecar.
     assert store["painted"] is True
+    assert store.get("video") is True
     lead_updates = [p for (t, p) in store["updates"] if t == "leads"]
-    assert any(
-        p.get("rendering_image_url") == "https://store.example/after.png" for p in lead_updates
-    )
-    # The stale GIF/MP4 (baked from the previous render) must be nulled so the
-    # dashboard / email / dossier fall back to the fresh static image, not the
-    # old animation. And the cache-bust counter bumps AFTER the upload.
     final = next(p for p in lead_updates if "rendering_image_url" in p)
-    assert final["rendering_gif_url"] is None
-    assert final["rendering_gif_cdn_url"] is None
-    assert final["rendering_video_url"] is None
+    assert final["rendering_image_url"] == "https://store.example/after.png"
+    # The FRESH transition replaces the stale animation everywhere; the old CDN
+    # copies are nulled so the fresh Supabase URLs win (consumers prefer cdn).
+    assert final["rendering_video_url"] == "https://store.example/transition.mp4"
+    assert final["rendering_gif_url"] == "https://store.example/transition.gif"
     assert final["rendering_video_cdn_url"] is None
+    assert final["rendering_gif_cdn_url"] is None
+    # Cache-bust bumps AFTER the upload; the stale failure reason is cleared.
     assert final["rendering_regen_count"] == 1
-    # A successful repaint clears any stale creative failure reason so the lead
-    # page stops showing the misleading "Video non generato" chip.
     assert final["creative_skipped_reason"] is None
+
+
+async def test_repaint_video_failure_keeps_static(monkeypatch: Any) -> None:
+    """A sidecar failure must NOT strand the repaint: the new static is still
+    saved, the stale animation is nulled (so the fresh image shows), and the
+    failure reason is recorded for the lead-page chip."""
+    store: dict[str, Any] = {"updates": []}
+    _wire(monkeypatch, rows=_rows(), store=store, video_ok=False)
+
+    out = await repaint_rendering(tenant_id="T1", lead_id="L1")
+
+    assert out["ok"] is True
+    assert out["video_url"] is None
+    final = next(p for (t, p) in store["updates"] if t == "leads" and "rendering_image_url" in p)
+    assert final["rendering_image_url"] == "https://store.example/after.png"
+    assert final["rendering_video_url"] is None
+    assert final["rendering_gif_url"] is None
+    assert final["creative_skipped_reason"] == "remotion_error"
 
 
 async def test_repaint_raises_when_no_stored_aerial(monkeypatch: Any) -> None:
