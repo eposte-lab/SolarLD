@@ -33,6 +33,7 @@ from ..services.prospect_list_outreach import launch_outreach_for_list
 from ..services.prospect_list_validation import validate_prospect_list
 from ..services.tenant_config_service import get_for_tenant as get_tenant_config
 from .cron import (
+    active_lead_notify_cron,
     cluster_ab_evaluation_cron,
     daily_digest_cron,
     daily_pipeline_afternoon_cron,
@@ -888,6 +889,15 @@ class WorkerSettings:
         # Sprint 10: engagement-based follow-up scenarios.
         cron(engagement_followup_cron, hour=8, minute=15, run_at_startup=False),
         cron(sla_first_touch_cron, hour=8, minute=30, run_at_startup=False),
+        # Near-real-time: every 15 min, email the tenant one message per lead
+        # that just ENTERED "lead attivi" (opt-in per tenant via settings).
+        # Cheap: one partial-indexed query per opted-in tenant; no-op when none
+        # are enabled. One-per-lead + idempotent (leads.active_lead_notified_at).
+        cron(
+            active_lead_notify_cron,
+            minute={0, 15, 30, 45},
+            run_at_startup=False,
+        ),
         # Livello 2 Sprint 1: scan practice_deadlines for newly-overdue
         # rows once a day.  Runs after the morning outreach burst so
         # the bell isn't competing with delivery noise; UTC 09:00 ≈
