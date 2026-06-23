@@ -12,6 +12,7 @@ export function AppointmentForm({
   accentColor,
   privacyPolicyUrl,
   tenantName,
+  defaultPhone,
   trackContactView = false,
 }: {
   slug: string;
@@ -21,6 +22,13 @@ export function AppointmentForm({
   privacyPolicyUrl?: string | null;
   /** Titolare del trattamento — nominato nel testo del consenso. */
   tenantName: string;
+  /**
+   * Phone we already scraped for this lead — pre-fills the phone field so the
+   * prospect only confirms/corrects it. The NAME is the one thing scraping
+   * can't give us, so it's the only field they actually have to type. Null
+   * when we have no number on file → the field just starts empty.
+   */
+  defaultPhone?: string | null;
   /**
    * Fire ``portal.contact_view`` on mount. Set on the standalone
    * ``/contatto`` page (the follow-up CTA destination) so we can tell a
@@ -75,9 +83,6 @@ export function AppointmentForm({
       postPortalEvent(slug, 'portal.contact_abandoned', {
         contact_name: val('contact_name'),
         phone: val('phone'),
-        email: val('email'),
-        preferred_time: val('preferred_time'),
-        notes: val('notes'),
         gdpr_consent: Boolean(data.get('gdpr_consent')),
       });
     };
@@ -106,12 +111,12 @@ export function AppointmentForm({
       return;
     }
 
+    // We already have the email on file — the form no longer asks for it. The
+    // only fields are the name (what scraping can't give us) and the phone we
+    // pre-filled. Email/preferred_time/notes are left to the backend defaults.
     const body = {
       contact_name: String(data.get('contact_name') ?? '').trim(),
       phone: String(data.get('phone') ?? '').trim(),
-      email: String(data.get('email') ?? '').trim() || null,
-      preferred_time: String(data.get('preferred_time') ?? '').trim() || null,
-      notes: String(data.get('notes') ?? '').trim() || null,
     };
     if (!body.contact_name || !body.phone) {
       setErrorMsg('Nome e telefono sono obbligatori.');
@@ -153,7 +158,7 @@ export function AppointmentForm({
         className="mt-4 rounded-md p-4 text-sm"
         style={{ backgroundColor: `${brandColor}15`, color: brandColor }}
       >
-        Richiesta ricevuta! Vi ricontattiamo entro 48 ore.
+        Perfetto! Preparo il preventivo personalizzato e ti ricontatto entro 48 ore.
       </div>
     );
   }
@@ -163,39 +168,29 @@ export function AppointmentForm({
 
   return (
     <form ref={formRef} onSubmit={handleSubmit} onInput={handleInput} className="mt-4 space-y-3">
+      {/* The ask, reframed as a benefit: we already have the contact details
+          (email + phone) from the dossier — the ONE thing we're missing is who
+          to make the quote out to. That name is also exactly what we need for
+          a warm phone follow-up, so it's the single required field. */}
+      <p className="text-base font-semibold text-on-surface">
+        Preparo il preventivo personalizzato — a nome di chi lo intesto?
+      </p>
       <input
         name="contact_name"
-        placeholder="Nome e cognome"
+        placeholder="Nome e cognome del referente"
         required
+        autoFocus
         maxLength={120}
         className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none"
       />
+      {/* Phone pre-filled from what we scraped — they just confirm or fix it. */}
       <input
         name="phone"
         type="tel"
         placeholder="Telefono"
         required
         maxLength={40}
-        className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none"
-      />
-      <input
-        name="email"
-        type="email"
-        placeholder="Email (opzionale)"
-        maxLength={200}
-        className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none"
-      />
-      <input
-        name="preferred_time"
-        placeholder="Orario preferito (opzionale)"
-        maxLength={120}
-        className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none"
-      />
-      <textarea
-        name="notes"
-        placeholder="Note (opzionale)"
-        rows={2}
-        maxLength={1000}
+        defaultValue={defaultPhone ?? ''}
         className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none"
       />
 
@@ -232,7 +227,7 @@ export function AppointmentForm({
         className="w-full rounded-lg px-4 py-3.5 text-base font-bold uppercase tracking-wide text-white shadow-md transition-transform hover:scale-[1.02] disabled:opacity-60"
         style={{ backgroundColor: accent }}
       >
-        {status === 'submitting' ? 'Invio in corso…' : 'Contattaci subito →'}
+        {status === 'submitting' ? 'Invio in corso…' : 'Preparami il preventivo →'}
       </button>
     </form>
   );

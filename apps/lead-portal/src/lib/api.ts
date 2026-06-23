@@ -48,6 +48,10 @@ export type PublicLead = {
     type: 'b2b' | 'b2c' | 'unknown';
     business_name?: string | null;
     owner_first_name?: string | null;
+    /** The phone we already scraped — used to PRE-FILL the contact form so the
+     *  prospect only has to confirm/correct it (not type it). Their own,
+     *  usually public, business number. */
+    decision_maker_phone?: string | null;
   } | null;
   roofs: {
     address?: string | null;
