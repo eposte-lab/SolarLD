@@ -17,7 +17,7 @@
  * Puro CSS keyframes + RAF. Nessun video, nessuna libreria di animazione.
  */
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
   IconImmediateSaving,
@@ -94,10 +94,13 @@ function epcBarColor(idx: number): string {
  *  scroll/resize che rifà il check manualmente, così se l'observer
  *  non scatta lo scroll lo fa scattare al passaggio del trigger. */
 function useInViewOnce<T extends HTMLElement>(
-  opts: { threshold?: number; rootMargin?: string } = {},
-): [React.RefObject<T | null>, boolean] {
+  opts: { threshold?: number; rootMargin?: string; autoStartMs?: number } = {},
+): [React.RefObject<T | null>, boolean, () => void] {
   const ref = useRef<T>(null);
   const [inView, setInView] = useState(false);
+  // Manual override — wired to the "Scopri i tuoi numeri" button so the user
+  // can ALWAYS force the reveal, even if every visibility signal failed.
+  const forceStart = useCallback(() => setInView(true), []);
 
   useEffect(() => {
     const el = ref.current;
@@ -146,18 +149,29 @@ function useInViewOnce<T extends HTMLElement>(
         cleanup();
       }
     };
+    let autoTimer = 0;
     const cleanup = () => {
       obs.disconnect();
       window.removeEventListener('scroll', onScroll);
       window.removeEventListener('resize', onScroll);
+      window.clearTimeout(autoTimer);
     };
     window.addEventListener('scroll', onScroll, { passive: true });
     window.addEventListener('resize', onScroll, { passive: true });
 
-    return cleanup;
-  }, [inView, opts.threshold, opts.rootMargin]);
+    // (4) Paracadute ASSOLUTO: se dopo `autoStartMs` nessun segnale di
+    //     visibilità è scattato (in-app browser che droppano sia observer
+    //     sia scroll), parte COMUNQUE. Meglio una rivelazione un filo
+    //     anticipata che una sezione che resta invisibile/"rotta" per sempre.
+    autoTimer = window.setTimeout(() => {
+      setInView(true);
+      cleanup();
+    }, opts.autoStartMs ?? 4000);
 
-  return [ref, inView];
+    return cleanup;
+  }, [inView, opts.threshold, opts.rootMargin, opts.autoStartMs]);
+
+  return [ref, inView, forceStart];
 }
 
 /** Counter € animato. Parte solo quando `start` diventa true. */
@@ -321,8 +335,11 @@ export function EpcPropositionSection({
   // arrivato qui scrollando, non al primo pixel intercettato. Senza
   // questo ritardo le animazioni partono mentre l'utente è ancora sopra
   // e l'impatto sensibilizzante della "rivelazione" va perso.
-  const [ref, played] = useInViewOnce<HTMLElement>({
+  const [ref, played, revealNumbers] = useInViewOnce<HTMLElement>({
     rootMargin: '0px 0px -50% 0px',
+    // Paracadute: parte da sola ~4s dopo il mount anche se lo scroll non
+    // innesca mai (in-app browser). Vedi (4) in useInViewOnce.
+    autoStartMs: 4000,
   });
 
   const annualSavings = Math.max(0, yearlySavingsEur ?? 0);
@@ -335,9 +352,25 @@ export function EpcPropositionSection({
   return (
     <section
       ref={ref}
-      className={`mx-auto max-w-6xl px-6 py-8 ${played ? 'epc-playing' : ''}`}
+      className={`relative mx-auto max-w-6xl px-6 py-8 ${played ? 'epc-playing' : ''}`}
       aria-labelledby="epc-heading"
     >
+      {/* Fallback manuale: finché la motion non è partita, un pulsante
+          ben visibile la fa scattare al click. Sparisce appena parte
+          (per scroll, per il timer di auto-start, o per questo click). */}
+      {!played ? (
+        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center">
+          <button
+            type="button"
+            onClick={revealNumbers}
+            aria-label="Scopri i tuoi numeri"
+            className="pointer-events-auto rounded-full px-7 py-3.5 text-base font-bold text-white shadow-lg ring-1 ring-black/10 transition-transform hover:scale-105"
+            style={{ backgroundColor: brandColor }}
+          >
+            Scopri i tuoi numeri →
+          </button>
+        </div>
+      ) : null}
       <style>{`
         @keyframes epcFadeUp {
           from { opacity: 0; transform: translateY(16px); }
