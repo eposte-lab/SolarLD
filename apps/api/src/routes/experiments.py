@@ -303,17 +303,18 @@ async def experiment_stats(
             min_sample_met=False,
         )
 
-    variant_leads: dict[str, set[str]] = {"a": set(), "b": set()}
-    for c in campaigns:
-        v = c.get("experiment_variant")
-        lid = c.get("lead_id")
-        if v in variant_leads and lid:
-            variant_leads[v].add(lid)
-
     # ------------------------------------------------------------------
-    # 2) Fetch open/click signals from the leads rows
+    # 2) Fetch open/click signals from the leads rows. We pull signals for
+    #    every variant lead; the denominator (sent-only) filtering happens in
+    #    `_compute_variant_stats`, which drops failed sends.
     # ------------------------------------------------------------------
-    all_lead_ids = list(variant_leads["a"] | variant_leads["b"])
+    all_lead_ids = list(
+        {
+            c["lead_id"]
+            for c in campaigns
+            if c.get("lead_id") and c.get("experiment_variant") in ("a", "b")
+        }
+    )
     if all_lead_ids:
         leads_res = (
             sb.table("leads")
@@ -325,21 +326,7 @@ async def experiment_stats(
     else:
         lead_signals = {}
 
-    def _count(lead_ids: set[str], field: str) -> int:
-        return sum(1 for lid in lead_ids if lead_signals.get(lid, {}).get(field))
-
-    stats_map: dict[str, VariantStats] = {}
-    for v, lids in variant_leads.items():
-        sends = len(lids)
-        opens = _count(lids, "outreach_opened_at")
-        clicks = _count(lids, "outreach_clicked_at")
-        stats_map[v] = VariantStats(
-            sends=sends,
-            opens=opens,
-            clicks=clicks,
-            open_rate=round(opens / sends, 4) if sends else 0.0,
-            click_rate=round(clicks / sends, 4) if sends else 0.0,
-        )
+    stats_map = _compute_variant_stats(campaigns, lead_signals)
 
     a = stats_map.get("a", VariantStats(sends=0, opens=0, clicks=0, open_rate=0.0, click_rate=0.0))
     b = stats_map.get("b", VariantStats(sends=0, opens=0, clicks=0, open_rate=0.0, click_rate=0.0))
@@ -363,6 +350,51 @@ async def experiment_stats(
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+# A send only counts toward a variant's denominator if it actually went out.
+# 'failed' (and any queued/cancelled state) never reached the prospect, so it
+# cannot have been opened/clicked — including it would understate the rate.
+_SENT_OK = frozenset({"sent", "delivered"})
+
+
+def _compute_variant_stats(
+    campaigns: list[dict[str, Any]],
+    lead_signals: dict[str, dict[str, Any]],
+) -> dict[str, VariantStats]:
+    """Per-variant sends / opens / clicks + open & click rate.
+
+    The denominator (``sends``) is the count of DISTINCT leads whose send for
+    that variant actually went out (``status`` in :data:`_SENT_OK`). Failed
+    sends are excluded, so the rate describes only prospects that were really
+    emailed — never the raw send attempts. Opens/clicks come from the lead's
+    ``outreach_opened_at`` / ``outreach_clicked_at`` and, since they are scoped
+    to the same sent-only lead set, can never exceed ``sends``.
+    """
+    variant_leads: dict[str, set[str]] = {"a": set(), "b": set()}
+    for c in campaigns:
+        if c.get("status") not in _SENT_OK:
+            continue
+        v = c.get("experiment_variant")
+        lid = c.get("lead_id")
+        if v in variant_leads and lid:
+            variant_leads[v].add(lid)
+
+    def _count(lead_ids: set[str], field: str) -> int:
+        return sum(1 for lid in lead_ids if lead_signals.get(lid, {}).get(field))
+
+    out: dict[str, VariantStats] = {}
+    for v, lids in variant_leads.items():
+        sends = len(lids)
+        opens = _count(lids, "outreach_opened_at")
+        clicks = _count(lids, "outreach_clicked_at")
+        out[v] = VariantStats(
+            sends=sends,
+            opens=opens,
+            clicks=clicks,
+            open_rate=round(opens / sends, 4) if sends else 0.0,
+            click_rate=round(clicks / sends, 4) if sends else 0.0,
+        )
+    return out
 
 
 def _load_experiment(sb: Any, experiment_id: str, tenant_id: str) -> dict[str, Any]:
