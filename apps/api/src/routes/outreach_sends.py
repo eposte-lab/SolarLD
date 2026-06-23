@@ -22,6 +22,7 @@ from ..core.logging import get_logger
 from ..core.security import CurrentUser, require_tenant
 from ..core.supabase_client import get_service_client
 from ..services.appointment_service import is_tenant_moderated
+from ..services.audit_service import log_action
 
 router = APIRouter()
 log = get_logger(__name__)
@@ -212,6 +213,16 @@ async def export_outreach_sends_csv(ctx: CurrentUser) -> Response:
     buf.close()
     today = datetime.now(UTC).strftime("%Y%m%d")
     log.info("outreach_sends.export_csv", tenant_id=str(tenant_id), rows=len(rows))
+    # Persistent audit trail: who exported, when, how many rows — so the export
+    # is accountable across sessions/workstations (audit_log.actor_user_id is
+    # the operator's UID, independent of the machine). Fail-safe inside.
+    await log_action(
+        str(tenant_id),
+        "outreach.export_csv",
+        actor_user_id=ctx.user_id,
+        target_table="outreach_sends",
+        diff={"rows": len(rows)},
+    )
     return Response(
         content=content,
         media_type="text/csv; charset=utf-8",
