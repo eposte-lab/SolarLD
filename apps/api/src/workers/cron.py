@@ -1440,3 +1440,17 @@ async def practice_deadlines_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
         errors=summary.get("errors", 0),
     )
     return summary
+
+
+async def active_lead_notify_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
+    """Every 15 min: email the tenant one message per lead that JUST entered
+    the "lead attivi" set (engaged + operator_released_at).
+
+    One mail per lead, never batched, never repeated — idempotent via
+    ``leads.active_lead_notified_at`` (migration 0158). Opt-in + recipients
+    per tenant via ``tenants.settings['active_lead_notify']``. Delegated to a
+    pure-ish service so tests can exercise the email builder directly.
+    """
+    from ..services.active_lead_notify_service import run_active_lead_notify
+
+    return await run_active_lead_notify()
