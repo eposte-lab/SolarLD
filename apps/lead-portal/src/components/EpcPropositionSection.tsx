@@ -17,7 +17,7 @@
  * Puro CSS keyframes + RAF. Nessun video, nessuna libreria di animazione.
  */
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React from 'react';
 
 import {
   IconImmediateSaving,
@@ -75,145 +75,21 @@ function epcBarColor(idx: number): string {
   return idx < EPC_BRACKET_BARS ? '#5BE08A' : '#158A40';
 }
 
-/** Trigger one-shot: `inView` diventa true quando l'elemento entra nel
- *  viewport, poi l'observer si disconnette.
- *
- *  `rootMargin` permette di ritardare l'innesco: con
- *  `'0px 0px -50% 0px'` lo scatto avviene solo quando il bordo
- *  superiore della section ha raggiunto la metà del viewport — cioè
- *  quando l'utente è davvero arrivato sulla sezione, non al primo
- *  pixel intercettato dal fondo della pagina. Soluzione la motion
- *  EPC, che altrimenti partirebbe quando l'utente è ancora sulle
- *  sezioni sopra e perderebbe l'impatto.
- *
- *  Triplo paracadute contro i browser in-app che ogni tanto saltano
- *  l'IntersectionObserver con rootMargin negativi (Outlook iOS, certe
- *  versioni di WebView2): (1) check immediato sul bounding box al
- *  mount — copre il caso "atterra già scrollato alla sezione";
- *  (2) IntersectionObserver come strada primaria; (3) listener di
- *  scroll/resize che rifà il check manualmente, così se l'observer
- *  non scatta lo scroll lo fa scattare al passaggio del trigger. */
-function useInViewOnce<T extends HTMLElement>(
-  opts: { threshold?: number; rootMargin?: string; autoStartMs?: number } = {},
-): [React.RefObject<T | null>, boolean, () => void] {
-  const ref = useRef<T>(null);
-  const [inView, setInView] = useState(false);
-  // Manual override — wired to the "Scopri i tuoi numeri" button so the user
-  // can ALWAYS force the reveal, even if every visibility signal failed.
-  const forceStart = useCallback(() => setInView(true), []);
-
-  useEffect(() => {
-    const el = ref.current;
-    if (!el || inView) return;
-    if (typeof IntersectionObserver === 'undefined') {
-      setInView(true);
-      return;
-    }
-
-    // Replica manuale del rootMargin '-50% bottom': il top dell'elemento
-    // deve aver attraversato la linea metà-viewport.
-    const reachedTrigger = (): boolean => {
-      const rect = el.getBoundingClientRect();
-      const vh =
-        window.innerHeight || document.documentElement.clientHeight || 0;
-      if (vh <= 0) return false;
-      return rect.top <= vh * 0.5 && rect.bottom >= 0;
-    };
-
-    // (1) Check immediato — l'utente potrebbe atterrare già scrollato
-    //     alla sezione (deep link / scroll restoration).
-    if (reachedTrigger()) {
-      setInView(true);
-      return;
-    }
-
-    // (2) IntersectionObserver — strada primaria.
-    const obs = new IntersectionObserver(
-      (entries) => {
-        for (const e of entries) {
-          if (e.isIntersecting) {
-            setInView(true);
-            cleanup();
-          }
-        }
-      },
-      { threshold: opts.threshold ?? 0, rootMargin: opts.rootMargin },
-    );
-    obs.observe(el);
-
-    // (3) Scroll/resize listeners — backup per i browser in-app che
-    //     non firano l'observer in modo affidabile.
-    const onScroll = () => {
-      if (reachedTrigger()) {
-        setInView(true);
-        cleanup();
-      }
-    };
-    let autoTimer = 0;
-    const cleanup = () => {
-      obs.disconnect();
-      window.removeEventListener('scroll', onScroll);
-      window.removeEventListener('resize', onScroll);
-      window.clearTimeout(autoTimer);
-    };
-    window.addEventListener('scroll', onScroll, { passive: true });
-    window.addEventListener('resize', onScroll, { passive: true });
-
-    // (4) Paracadute ASSOLUTO: se dopo `autoStartMs` nessun segnale di
-    //     visibilità è scattato (in-app browser che droppano sia observer
-    //     sia scroll), parte COMUNQUE. Meglio una rivelazione un filo
-    //     anticipata che una sezione che resta invisibile/"rotta" per sempre.
-    autoTimer = window.setTimeout(() => {
-      setInView(true);
-      cleanup();
-    }, opts.autoStartMs ?? 4000);
-
-    return cleanup;
-  }, [inView, opts.threshold, opts.rootMargin, opts.autoStartMs]);
-
-  return [ref, inView, forceStart];
-}
-
-/** Counter € animato. Parte solo quando `start` diventa true. */
+/** Importo € STATICO. Niente count-up JS: il numero è sempre nel markup
+ *  server-rendered, così appare anche se l'hydration React fallisce (in-app
+ *  browser). La "rivelazione" la fa la CSS (fade-in del riquadro). */
 function AnimatedEuroCounter({
   target,
-  start,
-  duration = 1800,
-  delayMs = 0,
   className,
   style,
 }: {
   target: number;
-  start: boolean;
-  duration?: number;
-  delayMs?: number;
   className?: string;
   style?: React.CSSProperties;
 }) {
-  const [value, setValue] = useState(0);
-
-  useEffect(() => {
-    if (!start) return;
-    const startAt = performance.now() + delayMs;
-    let raf = 0;
-    const step = (now: number) => {
-      const elapsed = now - startAt;
-      if (elapsed < 0) {
-        raf = requestAnimationFrame(step);
-        return;
-      }
-      const t = Math.min(1, elapsed / duration);
-      const eased = 1 - Math.pow(1 - t, 3);
-      setValue(Math.round(target * eased));
-      if (t < 1) raf = requestAnimationFrame(step);
-    };
-    raf = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(raf);
-  }, [start, target, duration, delayMs]);
-
   return (
     <span className={className} style={style}>
-      € {value.toLocaleString('it-IT')}
+      € {target.toLocaleString('it-IT')}
     </span>
   );
 }
@@ -330,18 +206,11 @@ export function EpcPropositionSection({
   brandLogoUrl,
   yearlySavingsEur,
 }: Props) {
-  // Innesca la motion solo quando il bordo superiore della sezione ha
-  // raggiunto la metà del viewport — cioè quando l'utente è davvero
-  // arrivato qui scrollando, non al primo pixel intercettato. Senza
-  // questo ritardo le animazioni partono mentre l'utente è ancora sopra
-  // e l'impatto sensibilizzante della "rivelazione" va perso.
-  const [ref, played, revealNumbers] = useInViewOnce<HTMLElement>({
-    rootMargin: '0px 0px -50% 0px',
-    // Paracadute: parte da sola ~4s dopo il mount anche se lo scroll non
-    // innesca mai (in-app browser). Vedi (4) in useInViewOnce.
-    autoStartMs: 4000,
-  });
-
+  // La motion è PURO CSS e parte da sola al mount (la sezione ha sempre
+  // `epc-playing`). Nessun trigger JS, nessun IntersectionObserver: così la
+  // rivelazione (e i numeri) appare SEMPRE, anche quando l'hydration React
+  // non gira (in-app browser di certe app email) — era lì il bug del "non
+  // parte". I numeri sono statici nel markup, quindi visibili comunque.
   const annualSavings = Math.max(0, yearlySavingsEur ?? 0);
 
   const paybackYears =
@@ -351,26 +220,9 @@ export function EpcPropositionSection({
 
   return (
     <section
-      ref={ref}
-      className={`relative mx-auto max-w-6xl px-6 py-8 ${played ? 'epc-playing' : ''}`}
+      className="epc-playing mx-auto max-w-6xl px-6 py-8"
       aria-labelledby="epc-heading"
     >
-      {/* Fallback manuale: finché la motion non è partita, un pulsante
-          ben visibile la fa scattare al click. Sparisce appena parte
-          (per scroll, per il timer di auto-start, o per questo click). */}
-      {!played ? (
-        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center">
-          <button
-            type="button"
-            onClick={revealNumbers}
-            aria-label="Scopri i tuoi numeri"
-            className="pointer-events-auto rounded-full px-7 py-3.5 text-base font-bold text-white shadow-lg ring-1 ring-black/10 transition-transform hover:scale-105"
-            style={{ backgroundColor: brandColor }}
-          >
-            Scopri i tuoi numeri →
-          </button>
-        </div>
-      ) : null}
       <style>{`
         @keyframes epcFadeUp {
           from { opacity: 0; transform: translateY(16px); }
@@ -440,9 +292,6 @@ export function EpcPropositionSection({
           <div className="relative mt-2 inline-block">
             <AnimatedEuroCounter
               target={grossCapexEur}
-              start={played}
-              duration={1900}
-              delayMs={500}
               className="font-headline text-4xl font-bold tracking-tightest text-on-surface md:text-5xl"
             />
             <svg
@@ -650,9 +499,6 @@ export function EpcPropositionSection({
             >
               <AnimatedEuroCounter
                 target={grossCapexEur}
-                start={played}
-                duration={1500}
-                delayMs={8900}
                 style={{ color: brandColor }}
               />
             </p>
