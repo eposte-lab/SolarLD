@@ -43,6 +43,7 @@ from .cron import (
     engagement_rollup_cron,
     imminence_predictions_cron,
     practice_deadlines_cron,
+    render_retry_cron,
     reputation_digest_cron,
     retention_cron,
     scan_jobs_dispatcher_cron,
@@ -896,6 +897,15 @@ class WorkerSettings:
         cron(
             active_lead_notify_cron,
             minute={0, 15, 30, 45},
+            run_at_startup=False,
+        ),
+        # Self-healing: every 10 min re-enqueue renders stuck on a TRANSIENT
+        # failure (expired Solar key, flaky AI-paint, Remotion) with exponential
+        # backoff. Fixing the root cause (e.g. a new Solar key) makes stuck
+        # leads re-render hands-free. Bounded: PER_RUN_CAP + MAX_RENDER_RETRIES.
+        cron(
+            render_retry_cron,
+            minute={0, 10, 20, 30, 40, 50},
             run_at_startup=False,
         ),
         # Livello 2 Sprint 1: scan practice_deadlines for newly-overdue
