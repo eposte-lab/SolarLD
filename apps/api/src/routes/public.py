@@ -389,7 +389,10 @@ async def request_appointment(slug: str, payload: AppointmentRequest) -> dict[st
     from ..core.config import settings as _settings
 
     _portal_origin = (_settings.next_public_lead_portal_url or "").rstrip("/")
-    dossier_url = f"{_portal_origin}/dossier/{slug}" if _portal_origin else None
+    # This dossier link only ever reaches the TENANT (operator-notification email
+    # + CRM webhook), never the prospect. ?preview=1 makes the portal skip all
+    # trackers, so the team reviewing the lead doesn't pollute its engagement data.
+    dossier_url = f"{_portal_origin}/dossier/{slug}?preview=1" if _portal_origin else None
 
     # Tenant config for downstream notifications (CRM webhook + email).
     tenant_row = (

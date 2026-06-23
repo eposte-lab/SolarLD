@@ -36,9 +36,9 @@ def test_subject_names_the_business() -> None:
 
 def test_html_has_all_the_pieces() -> None:
     _, html = build_active_lead_email(_LEAD, PORTAL)
-    # Identity + dossier link
+    # Identity + dossier link — internal/team link MUST be no-track (?preview=1)
     assert "Hotel Vietri Coast" in html
-    assert f"{PORTAL}/dossier/U4AxelcGCG4EQZALOPwdzA" in html
+    assert f"{PORTAL}/dossier/U4AxelcGCG4EQZALOPwdzA?preview=1" in html
     # Status badge (appointment) + engagement + plant + saving
     assert "Appuntamento richiesto" in html
     assert "Engagement 100/100" in html

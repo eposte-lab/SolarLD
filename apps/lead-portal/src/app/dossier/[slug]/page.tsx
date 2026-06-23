@@ -15,7 +15,10 @@ import { ExitIntentModal } from './ExitIntentModal';
 import { PortalTracker } from './PortalTracker';
 import { VisitTracker } from './VisitTracker';
 
-type PageProps = { params: Promise<{ slug: string }> };
+type PageProps = {
+  params: Promise<{ slug: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+};
 
 /** Giorni dopo l'invio oltre i quali il link del dossier scade.
  *  Il dossier è pubblico (slug non indovinabile, noindex): la scadenza
@@ -57,8 +60,14 @@ export async function generateMetadata({
   };
 }
 
-export default async function LeadPage({ params }: PageProps) {
+export default async function LeadPage({ params, searchParams }: PageProps) {
   const { slug } = await params;
+  // Internal/team dossier links (the notification emails sent to the tenant —
+  // contact-request + "nuovo lead attivo") carry ?preview=1 so the team's own
+  // browsing never contaminates the LEAD's engagement tracking. When set, we
+  // mount no trackers: no visit, no portal events, no engagement bump.
+  const sp = await searchParams;
+  const isPreview = sp.preview === '1' || sp.preview === 'true';
   const result = await fetchPublicLead(slug);
   if (result.kind !== 'ok') {
     if (result.kind === 'not_found') notFound();
@@ -159,19 +168,25 @@ export default async function LeadPage({ params }: PageProps) {
 
   return (
     <main className="min-h-screen bg-surface text-on-surface">
-      <VisitTracker slug={slug} />
-      <PortalTracker slug={slug} />
-      <ExitIntentModal
-        slug={slug}
-        brandColor={brandColor}
-        accentColor={brandAccent}
-        tenantName={tenantName}
-        privacyPolicyUrl={tenant?.privacy_policy_url}
-        defaultPhone={lead.subjects?.decision_maker_phone}
-        alreadyConverted={['appointment', 'closed_won', 'closed_lost'].includes(
-          lead.pipeline_status,
-        )}
-      />
+      {/* Trackers OFF in preview mode (team links): no contamination of the
+          lead's engagement/portal data when info@ / the owner open the dossier. */}
+      {!isPreview ? (
+        <>
+          <VisitTracker slug={slug} />
+          <PortalTracker slug={slug} />
+          <ExitIntentModal
+            slug={slug}
+            brandColor={brandColor}
+            accentColor={brandAccent}
+            tenantName={tenantName}
+            privacyPolicyUrl={tenant?.privacy_policy_url}
+            defaultPhone={lead.subjects?.decision_maker_phone}
+            alreadyConverted={['appointment', 'closed_won', 'closed_lost'].includes(
+              lead.pipeline_status,
+            )}
+          />
+        </>
+      ) : null}
 
       {/* ============== Header ============== */}
       <header className="bg-surface-container">

@@ -128,7 +128,10 @@ def build_active_lead_email(lead: dict[str, Any], portal_origin: str) -> tuple[s
     label, color = _STATUS_LABEL.get(status, ("Lead attivo", "#16A34A"))
     eng = lead.get("engagement_score")
     slug = lead.get("public_slug")
-    url = f"{portal_origin}/dossier/{slug}" if portal_origin and slug else None
+    # ?preview=1 → the portal mounts no trackers, so the team opening this
+    # dossier from the notification email never contaminates the LEAD's own
+    # engagement/portal tracking.
+    url = f"{portal_origin}/dossier/{slug}?preview=1" if portal_origin and slug else None
 
     if lead.get("outreach_clicked_at"):
         activity = "Ha aperto e cliccato la proposta"
