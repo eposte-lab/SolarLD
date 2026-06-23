@@ -23,6 +23,11 @@ import { redirect } from 'next/navigation';
 
 import { BentoCard } from '@/components/ui/bento-card';
 import { getScanFunnel } from '@/lib/data/contatti';
+import {
+  deriveStatusFlags,
+  getOperationalStatus,
+  type StatusFlag,
+} from '@/lib/data/pipeline-status';
 import { getCurrentTenantContext } from '@/lib/data/tenant';
 import { cn, formatNumber, formatPercent } from '@/lib/utils';
 
@@ -48,6 +53,46 @@ function barWidth(num: number, max: number): string {
   return `${Math.max(2, Math.round((num / max) * 100))}%`;
 }
 
+function flagText(tone: StatusFlag['tone']): string {
+  switch (tone) {
+    case 'danger':
+      return 'text-red-400';
+    case 'warn':
+      return 'text-amber-400';
+    case 'info':
+      return 'text-sky-400';
+    default:
+      return 'text-emerald-400';
+  }
+}
+
+function OpStat({
+  label,
+  value,
+  hint,
+  emphasis = false,
+}: {
+  label: string;
+  value: number;
+  hint?: string;
+  emphasis?: boolean;
+}) {
+  return (
+    <div className="rounded-xl bg-surface-container-low p-3">
+      <p className="text-[11px] font-medium text-on-surface-variant">{label}</p>
+      <p
+        className={cn(
+          'mt-1 text-2xl font-bold tabular-nums',
+          emphasis ? 'text-red-400' : 'text-on-surface',
+        )}
+      >
+        {formatNumber(value)}
+      </p>
+      {hint ? <p className="text-[10px] text-on-surface-variant">{hint}</p> : null}
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
@@ -56,8 +101,9 @@ export default async function FunnelPage() {
   const ctx = await getCurrentTenantContext();
   if (!ctx) redirect('/login');
 
-  const funnel = await getScanFunnel();
+  const [funnel, ops] = await Promise.all([getScanFunnel(), getOperationalStatus()]);
   const { discovery: d, pipeline: p } = funnel;
+  const flags = deriveStatusFlags(ops);
 
   const maxDisc = d.l1 || 1;
   const maxPipe = p.leads_total || 1;
@@ -73,6 +119,53 @@ export default async function FunnelPage() {
           Funnel
         </h1>
       </header>
+
+      {/* Stato operativo — snapshot live: a colpo d'occhio "a che punto siamo",
+          senza dover chiedere a nessuno i numeri. */}
+      <BentoCard span="full">
+        <header className="mb-4">
+          <p className="text-[11px] font-semibold uppercase tracking-widest text-on-surface-variant">
+            A che punto siamo · adesso
+          </p>
+          <h2 className="font-headline text-2xl font-bold tracking-tighter">Stato operativo</h2>
+        </header>
+
+        <div className="mb-5 flex flex-wrap gap-2">
+          {flags.map((f, i) => (
+            <span
+              key={i}
+              className={cn(
+                'rounded-full bg-surface-container-high px-3 py-1 text-xs font-semibold',
+                flagText(f.tone),
+              )}
+            >
+              {f.text}
+            </span>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+          <OpStat
+            label="Render bloccati"
+            value={ops.renderStuck}
+            hint="retry auto/10 min"
+            emphasis={ops.renderStuck > 0}
+          />
+          <OpStat label="Render fatti" value={ops.renderDone} />
+          <OpStat
+            label="Pronti all'invio"
+            value={ops.warehouseReady}
+            hint={`${formatNumber(ops.sendableNow)} col render`}
+          />
+          <OpStat label="In invio ora" value={ops.picked} />
+          <OpStat
+            label="Inviati oggi"
+            value={ops.sentToday}
+            hint={ops.dailyCap ? `cap ${ops.dailyCap}` : undefined}
+          />
+          <OpStat label="Lead attivi" value={ops.active} />
+        </div>
+      </BentoCard>
 
       {/* Discovery block */}
       <BentoCard span="full">
