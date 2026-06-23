@@ -19,6 +19,9 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      // `server-only` throws on import outside an RSC bundle; no-op it in tests
+      // so pure helpers in server-guarded data modules stay unit-testable.
+      'server-only': path.resolve(__dirname, './vitest.server-only-stub.ts'),
     },
   },
 });
