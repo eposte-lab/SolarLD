@@ -1454,3 +1454,18 @@ async def active_lead_notify_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
     from ..services.active_lead_notify_service import run_active_lead_notify
 
     return await run_active_lead_notify()
+
+
+async def render_retry_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
+    """Every 10 min: re-enqueue renders stuck on a TRANSIENT failure.
+
+    A render that failed for a recoverable reason (expired Google Solar key,
+    flaky AI-paint, Remotion hiccup) used to sit with rendering_image_url NULL
+    forever. This retries it with exponential backoff, so the moment the issue
+    clears (e.g. a new Solar key is set) the stuck leads re-render on their own.
+    Permanent failures (no coords / low roof confidence / no building) are left
+    alone. Delegated to render_retry_service so the logic is unit-tested.
+    """
+    from ..services.render_retry_service import run_render_retry
+
+    return await run_render_retry()
