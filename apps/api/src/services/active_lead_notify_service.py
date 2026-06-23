@@ -112,9 +112,7 @@ def _fmt_last(ts: Any) -> str | None:
         return None
 
 
-def build_active_lead_email(
-    lead: dict[str, Any], portal_origin: str
-) -> tuple[str, str]:
+def build_active_lead_email(lead: dict[str, Any], portal_origin: str) -> tuple[str, str]:
     """Pure: build (subject, html) for a single newly-active lead."""
     subj = _one(lead.get("subjects"))
     roof = _one(lead.get("roofs"))
@@ -147,9 +145,7 @@ def build_active_lead_email(
     if kwp:
         meta_bits.append(f"Impianto stimato <b>{kwp} kWp</b>")
     if eur:
-        meta_bits.append(
-            f'Risparmio stimato <b style="color:#16A34A;">&euro; {eur}/anno</b>'
-        )
+        meta_bits.append(f'Risparmio stimato <b style="color:#16A34A;">&euro; {eur}/anno</b>')
     meta = " &nbsp;&bull;&nbsp; ".join(meta_bits)
 
     # --- contacts (omit a missing line) ---
@@ -174,7 +170,7 @@ def build_active_lead_email(
 
     button = (
         f'<a href="{url}" style="display:inline-block;background:#16A34A;color:#fff;'
-        f'font:700 14px/1 Arial,sans-serif;text-decoration:none;padding:11px 18px;'
+        f"font:700 14px/1 Arial,sans-serif;text-decoration:none;padding:11px 18px;"
         f'border-radius:8px;">Apri il dossier &rarr;</a>'
         if url
         else ""
@@ -283,14 +279,12 @@ async def run_active_lead_notify() -> dict[str, int]:
                     )
                 )
             except Exception:  # noqa: BLE001 — leave unstamped → retried next run
-                log.exception(
-                    "active_lead_notify.send_failed", lead_id=str(lead.get("id"))
-                )
+                log.exception("active_lead_notify.send_failed", lead_id=str(lead.get("id")))
                 continue
             # Stamp only AFTER a successful send (one-per-lead, never repeated).
-            sb.table("leads").update(
-                {"active_lead_notified_at": now.isoformat()}
-            ).eq("id", lead["id"]).execute()
+            sb.table("leads").update({"active_lead_notified_at": now.isoformat()}).eq(
+                "id", lead["id"]
+            ).execute()
             sent += 1
 
     log.info("cron.active_lead_notify.done", tenants=tenants_active, sent=sent)
