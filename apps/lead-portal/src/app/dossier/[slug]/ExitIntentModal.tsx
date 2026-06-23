@@ -41,6 +41,7 @@ export function ExitIntentModal({
   accentColor,
   tenantName,
   privacyPolicyUrl,
+  defaultPhone,
   alreadyConverted,
 }: {
   slug: string;
@@ -48,6 +49,9 @@ export function ExitIntentModal({
   accentColor?: string;
   tenantName: string;
   privacyPolicyUrl?: string | null;
+  /** Phone we already scraped — pre-fills the field so the prospect only
+   *  confirms it. Null when we have no number on file. */
+  defaultPhone?: string | null;
   alreadyConverted: boolean;
 }) {
   const accent = accentColor || brandColor;
@@ -268,6 +272,7 @@ export function ExitIntentModal({
                 placeholder="Telefono"
                 required
                 maxLength={40}
+                defaultValue={defaultPhone ?? ''}
                 className="w-full rounded-md border border-slate-300 px-3 py-2.5 text-sm focus:border-slate-500 focus:outline-none"
               />
               <input

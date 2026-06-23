@@ -66,7 +66,11 @@ async def get_public_lead(slug: str) -> dict[str, object]:
             "public_slug, score, score_tier, rendering_image_url, "
             "rendering_video_url, rendering_gif_url, roi_data, "
             "pipeline_status, outreach_sent_at, "
-            "tenant_id, subjects(type, business_name, owner_first_name), "
+            # decision_maker_phone is surfaced so the dossier's contact form can
+            # PRE-FILL the phone we already scraped (the prospect's own, usually
+            # public, business number) — they just confirm or correct it. Only
+            # the phone is exposed; the email stays server-side.
+            "tenant_id, subjects(type, business_name, owner_first_name, decision_maker_phone), "
             "roofs(address, cap, comune, provincia, area_sqm, "
             "estimated_kwp, estimated_yearly_kwh, derivations)"
         )

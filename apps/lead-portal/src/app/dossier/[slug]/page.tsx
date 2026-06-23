@@ -167,6 +167,7 @@ export default async function LeadPage({ params }: PageProps) {
         accentColor={brandAccent}
         tenantName={tenantName}
         privacyPolicyUrl={tenant?.privacy_policy_url}
+        defaultPhone={lead.subjects?.decision_maker_phone}
         alreadyConverted={['appointment', 'closed_won', 'closed_lost'].includes(
           lead.pipeline_status,
         )}
@@ -438,6 +439,7 @@ export default async function LeadPage({ params }: PageProps) {
             accentColor={brandAccent}
             privacyPolicyUrl={tenant?.privacy_policy_url}
             tenantName={tenantName}
+            defaultPhone={lead.subjects?.decision_maker_phone}
           />
         </div>
       </section>
