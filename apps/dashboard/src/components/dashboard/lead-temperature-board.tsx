@@ -21,6 +21,7 @@ import Link from 'next/link';
 import type { LeadListRow } from '@/types/db';
 import { useSortableData } from '@/hooks/use-sortable-data';
 import { SortableTh } from '@/components/ui/sortable-th';
+import { latestTouchAt } from '@/lib/data/last-touch';
 import { cn, relativeTime } from '@/lib/utils';
 
 // ── types ─────────────────────────────────────────────────────────────────────
@@ -69,13 +70,12 @@ function displayName(lead: LeadListRow): string {
   );
 }
 
+/** Most recent interaction on the lead (max over all touch timestamps), or
+ *  null if nothing has happened yet → the row renders "—". Unlike the leads
+ *  table this does NOT fall back to `created_at`: a lead we never touched has
+ *  no "last activity". See `latestTouchAt` for the max-vs-priority rationale. */
 function lastEvent(lead: LeadListRow): string | null {
-  return (
-    lead.dashboard_visited_at ||
-    lead.outreach_opened_at ||
-    lead.outreach_sent_at ||
-    null
-  );
+  return latestTouchAt(lead);
 }
 
 // ── Temperature chip ──────────────────────────────────────────────────────────

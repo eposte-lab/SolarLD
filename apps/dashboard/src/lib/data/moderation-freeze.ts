@@ -103,6 +103,7 @@ export function freezeModeratedLead<T extends LeadDetailRow>(lead: T): T {
     whatsapp_initiated_at: null,
     dashboard_visited_at: null,
     last_portal_event_at: null,
+    appointment_requested_at: null,
     portal_sessions: 0,
     portal_total_time_sec: 0,
     deepest_scroll_pct: 0,

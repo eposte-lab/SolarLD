@@ -32,6 +32,7 @@ import { SortableTh } from '@/components/ui/sortable-th';
 import { StatusChip } from '@/components/ui/status-chip';
 import { useSortableData } from '@/hooks/use-sortable-data';
 import { followUpState } from '@/lib/data/followup-state';
+import { latestTouchAt } from '@/lib/data/last-touch';
 import { cn, daysSince, relativeTime } from '@/lib/utils';
 import type { ImminencePrediction } from '@/lib/data/imminence';
 import type { LeadListRow } from '@/types/db';
@@ -57,13 +58,11 @@ function leadName(lead: LeadListRow): string {
   );
 }
 
+/** Most recent interaction (max over all touch timestamps), falling back to
+ *  the lead's creation time when nothing has happened yet. See
+ *  `latestTouchAt` for why this is a max and not a priority fallback. */
 function lastTouchOf(lead: LeadListRow): string {
-  return (
-    lead.dashboard_visited_at ||
-    lead.outreach_opened_at ||
-    lead.outreach_sent_at ||
-    lead.created_at
-  );
+  return latestTouchAt(lead) ?? lead.created_at;
 }
 
 const ACTION_LABEL: Record<string, string> = {
