@@ -189,6 +189,14 @@ def extract_best_email(
 
 
 _EMAIL_REGEX = re.compile(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}", re.IGNORECASE)
+# Email extraction is windowed around each '@' (see _extract_emails_from_html):
+# running _EMAIL_REGEX over a whole multi-MB body is O(N^2) on pathological
+# pages (a long run of local-part chars makes findall backtrack at every
+# offset), which wedged the worker's event loop for minutes and got it killed
+# by the watchdog. A bounded window per '@' keeps the work linear.
+_EMAIL_WINDOW_BEFORE = 128
+_EMAIL_WINDOW_AFTER = 256
+_EMAIL_MAX_ATS = 5_000
 _PEC_DOMAINS = (
     "pec.",
     "@pec.",
@@ -305,15 +313,30 @@ def _extract_emails_from_html(html: str) -> list[str]:
     real addresses).
     """
     seen: dict[str, None] = {}
-    for match in _EMAIL_REGEX.findall(html):
-        clean = match.strip().rstrip(".,;)")
-        if "." not in clean:
-            continue
-        domain = clean.split("@", 1)[-1].lower()
-        # Skip filename-looking matches.
-        if domain.endswith((".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp")):
-            continue
-        seen.setdefault(clean.lower())
+    n = len(html)
+    pos = 0
+    ats = 0
+    # An email only exists around an '@'. Scan a small window per '@' instead of
+    # the whole body — bounded work, no O(N^2) wedge on pathological pages.
+    while ats < _EMAIL_MAX_ATS:
+        at = html.find("@", pos)
+        if at == -1:
+            break
+        ats += 1
+        lo = at - _EMAIL_WINDOW_BEFORE if at > _EMAIL_WINDOW_BEFORE else 0
+        hi = min(n, at + _EMAIL_WINDOW_AFTER)
+        # finditer(pos, endpos) scans the window in place (no slice copy); the
+        # window is tiny so even worst-case regex backtracking is negligible.
+        for match in _EMAIL_REGEX.finditer(html, lo, hi):
+            clean = match.group(0).strip().rstrip(".,;)")
+            if "." not in clean:
+                continue
+            domain = clean.split("@", 1)[-1].lower()
+            # Skip filename-looking matches.
+            if domain.endswith((".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp")):
+                continue
+            seen.setdefault(clean.lower())
+        pos = at + 1
     return list(seen.keys())
 
 

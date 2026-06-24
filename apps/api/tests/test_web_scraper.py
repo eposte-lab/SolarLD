@@ -104,6 +104,22 @@ def test_extract_emails_from_html_drops_image_filenames() -> None:
     assert all(not e.endswith(".png") for e in emails)
 
 
+def test_extract_emails_from_html_pathological_no_wedge() -> None:
+    """Regression: a long run of local-part chars made _EMAIL_REGEX backtrack
+    O(N^2) over the whole body and wedged the worker's event loop for minutes
+    (faulthandler in _extract_emails_from_html). The windowed scan must stay
+    fast AND still find a real email buried in the page."""
+    import time
+
+    blob = "a.b-c+d_e%f" * 200_000  # ~2 MB of local-part chars, no '@'
+    html = f"<html><body>{blob} scrivici a vendite@acme.it {blob}</body></html>"
+    start = time.perf_counter()
+    emails = ws._extract_emails_from_html(html)
+    elapsed = time.perf_counter() - start
+    assert "vendite@acme.it" in emails
+    assert elapsed < 1.0, f"extraction took {elapsed:.2f}s — regex wedge regressed"
+
+
 def test_extract_phone_from_html_finds_italian_format() -> None:
     html = "Tel: +39 030 1234567 / 02 9876543"
     phone = ws._extract_phone_from_html(html)
