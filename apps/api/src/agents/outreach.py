@@ -861,7 +861,13 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
         # window check.
         # ------------------------------------------------------------------
         is_first_touch = payload.sequence_step == 1
-        if is_first_touch:
+        # ``force`` = a deliberate operator/manual send (dashboard re-send,
+        # change-address resend, demo test). It must fire IMMEDIATELY — bypass
+        # ALL daily/rate throttling below (daily cap, per-campaign sub-cap,
+        # domain hourly quota, per-inbox cap), not just the send-window gate
+        # above. The hard stops (blacklist / existing-PV / dedup-unless-force /
+        # GDPR / NeverBounce) already ran and still apply.
+        if is_first_touch and not payload.force:
             cap_decision = await daily_target_cap_service.check_and_reserve(tenant_row)
             if not cap_decision.allowed:
                 log.info(
@@ -898,7 +904,7 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
         #
         # sub_cap = floor(global_cap / N_active_generic_campaigns)
         # ------------------------------------------------------------------
-        if is_first_touch and effective_list_id:
+        if is_first_touch and effective_list_id and not payload.force:
             try:
                 active_res = (
                     sb.table("prospect_lists")
@@ -946,7 +952,9 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
         # inbox-blocked) skips the send, these are released so the cap counts
         # real sends, not reservations + retries (2026-06-18 cap-inflation bug).
         reserved_campaign_list: str | None = (
-            effective_list_id if (is_first_touch and effective_list_id) else None
+            effective_list_id
+            if (is_first_touch and effective_list_id and not payload.force)
+            else None
         )
 
         # ------------------------------------------------------------------
@@ -964,7 +972,7 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
         # cron re-evaluates candidates daily, so step-2/3 roll forward.
         # ------------------------------------------------------------------
         quota = await acquire_email_quota(tenant_row)
-        if not quota.allowed:
+        if not quota.allowed and not payload.force:
             log.info(
                 "outreach.rate_limited",
                 lead_id=payload.lead_id,
@@ -1060,8 +1068,10 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
             sb, payload.tenant_id
         )
 
-        if selected_inbox is None and has_multi_inbox:
-            # Tenant has inboxes but none available right now.
+        if selected_inbox is None and has_multi_inbox and not payload.force:
+            # Tenant has inboxes but none available right now. (A force send
+            # falls through to the legacy single-inbox From address instead of
+            # deferring, so an operator re-send always goes out immediately.)
             log.info(
                 "outreach.inbox_cap_all_blocked",
                 lead_id=payload.lead_id,
