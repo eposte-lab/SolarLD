@@ -877,8 +877,14 @@ async def send_outreach(
 ) -> dict[str, object]:
     """Enqueue an Outreach-Agent run for one lead (Sprint 6: email only).
 
-    Idempotent per lead+channel via the deterministic job_id, so
-    double-clicks on the dashboard collapse to a single worker run.
+    First send (force=False) is idempotent per lead+channel via a
+    deterministic job_id, so accidental double-clicks collapse to a single
+    worker run. A force=True re-send (the dashboard "Re-invia" button) is a
+    DELIBERATE resend and must NOT collapse: arq dedups on the job_id before
+    reading the payload, and with keep_result=1h a stable job_id silently
+    no-ops against the prior run's retained result (the send never happens,
+    no event). So when force we append a timestamp to make each click a fresh
+    job — the same trick send-test / resend-to-address already use.
     """
     tenant_id = require_tenant(ctx)
     sb = get_service_client()
@@ -888,6 +894,11 @@ async def send_outreach(
     res = res_q.execute()
     if not res.data:
         raise HTTPException(status_code=404, detail="Lead not found")
+    job_id = f"outreach:{tenant_id}:{lead_id}:{channel}"
+    if force:
+        # Per-click uniqueness (1s granularity): a genuine double-click in the
+        # same second still collapses; a real resend always enqueues.
+        job_id = f"{job_id}:{int(datetime.now(tz=UTC).timestamp())}"
     job = await enqueue(
         "outreach_task",
         {
@@ -896,7 +907,7 @@ async def send_outreach(
             "channel": channel,
             "force": force,
         },
-        job_id=f"outreach:{tenant_id}:{lead_id}:{channel}",
+        job_id=job_id,
     )
     return {"ok": True, "lead_id": lead_id, **job}
 
