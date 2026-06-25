@@ -235,8 +235,13 @@ _EXISTING_PV_SYSTEM = (
     "company's site. Judge whether photovoltaic (solar) panels are ALREADY "
     "installed ANYWHERE on the property — on the building's roof, on "
     "carport/parking canopies, or ground-mounted within the site. A property "
-    "that already went solar is not a prospect. Be conservative: answer true "
-    "only when you clearly see rows of dark rectangular PV modules."
+    "with ANY existing PV — even a SMALL or PARTIAL array of just a few modules, "
+    "covering only one section of the roof — has reduced energy need and is OUT "
+    "of target: flag it. Do NOT require full-roof coverage; a single visible "
+    "cluster of PV modules is enough. When a feature shows a panel-like grid of "
+    "modules but you are unsure whether it is PV, lean toward TRUE — pitching "
+    "solar to a roof that already has it is far worse than a false positive. "
+    "(But a plain uniform dark/membrane roof with NO module pattern is not PV.)"
 )
 
 _EXISTING_PV_PROMPT = """\
@@ -244,15 +249,18 @@ Look at the main property in the central area of this satellite tile (latitude
 {lat}, longitude {lng}) — the building together with its yard and car park.
 
 Does this property ALREADY have solar photovoltaic panels installed anywhere on
-site? Count PV regardless of where it sits:
-  - on the building ROOFTOP (look across the WHOLE roof — large warehouse roofs
-    may carry panels only on one section);
+site? Count PV regardless of where it sits AND regardless of how MUCH of the roof
+it covers — even a SMALL or PARTIAL array (just a handful of modules on one
+section) counts as YES:
+  - on the building ROOFTOP (scan the WHOLE roof — panels often cover only one
+    portion of it);
   - on CARPORT / parking canopies;
   - GROUND-MOUNTED within the property (in the yard or car park).
-PV appears as neat rows of uniform dark blue/black rectangular modules. Do NOT
-count: skylights, glass atriums, dark flat membrane roofs, HVAC units,
-greenhouses, pools, parked vehicles, or a large off-site solar farm clearly
-unrelated to this property.
+PV appears as a grid/rows of uniform dark blue/black rectangular modules; flag it
+even if it is just one small cluster. Do NOT count: skylights, glass atriums,
+sawtooth north-light roofs, plain uniform dark/membrane roofs (no module grid),
+HVAC units, greenhouses, pools, parked vehicles, or a large off-site solar farm
+clearly unrelated to this property.
 
 Respond with EXACTLY this JSON (no prose, no code fences):
 {{"has_existing_pv": boolean, "confidence": number, "notes": string}}

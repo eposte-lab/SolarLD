@@ -382,6 +382,25 @@ async def request_appointment(slug: str, payload: AppointmentRequest) -> dict[st
     if lead is None:
         raise HTTPException(status_code=404, detail="Lead not found")
 
+    # FAIL-CLOSED inbound truncation — a lead we EXCLUDED (blacklisted, or whose
+    # roof already has PV) is out of target: a form submission from it must NOT
+    # advance the lead, notify the operator, hold an inbound request, or fire the
+    # webhook. Accept the 202 silently (no error shown to the prospect) but do
+    # nothing downstream.
+    from ..services.pv_verification_service import lead_roof_sendable
+
+    _send_ok, _send_reason = lead_roof_sendable(sb, lead["id"])
+    if (
+        lead.get("pipeline_status") == LeadStatus.BLACKLISTED.value
+        or _send_reason == "has_existing_pv"
+    ):
+        log.info(
+            "appointment.truncated_out_of_target",
+            slug=slug,
+            reason=_send_reason or "blacklisted",
+        )
+        return {"ok": True, "status": "received"}
+
     tenant_id = lead["tenant_id"]
     payload_dict = payload.model_dump()
 
