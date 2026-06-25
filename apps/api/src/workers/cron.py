@@ -1484,3 +1484,54 @@ async def pv_reverify_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
     from ..services.pv_verification_service import run_pv_reverification
 
     return await run_pv_reverification()
+
+
+# Alert the platform admin BEFORE the shared NeverBounce account hits zero.
+# NeverBounce errors are swallowed at send time (fail-open), so a depleted
+# account silently lets un-validated emails go out → bounce spike → tanked
+# deliverability (observed 2026-06-25: 84 checks on the 24th, 0 on the 25th,
+# 18% bounce, lead engagement collapsed). Configurable recipient.
+NEVERBOUNCE_LOW_CREDITS_THRESHOLD = 200
+NEVERBOUNCE_ALERT_TO = "pianosmart.develop@gmail.com"
+
+
+async def neverbounce_credits_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
+    """Daily: poll the FREE NeverBounce account/info endpoint (no credit spent)
+    and email the platform admin when the balance is low, so it never again
+    runs dry unnoticed and silently degrades deliverability.
+    """
+    from ..services.neverbounce_service import get_account_credits
+
+    credits = await get_account_credits()
+    if credits is None:
+        log.warning("neverbounce_credits_cron.unreadable")
+        return {"checked": False}
+    if credits >= NEVERBOUNCE_LOW_CREDITS_THRESHOLD:
+        return {"checked": True, "credits": credits, "alert": False}
+
+    log.error(
+        "neverbounce_credits_cron.low",
+        credits=credits,
+        threshold=NEVERBOUNCE_LOW_CREDITS_THRESHOLD,
+    )
+    try:
+        from ..services.resend_service import SendEmailInput, send_email
+
+        await send_email(
+            SendEmailInput(
+                from_address="SolarLead <notifiche@agenda-pro.it>",
+                to=[NEVERBOUNCE_ALERT_TO],
+                subject=f"⚠️ NeverBounce: solo {credits} crediti rimasti — ricarica",
+                html=(
+                    "<p><strong>NeverBounce sta per esaurire i crediti.</strong></p>"
+                    f"<p>Saldo residuo: <strong>{credits}</strong> "
+                    f"(soglia di allerta {NEVERBOUNCE_LOW_CREDITS_THRESHOLD}).</p>"
+                    "<p>Quando arriva a 0, gli invii partono <strong>senza validazione</strong> "
+                    "→ indirizzi morti, bounce alti, reputazione danneggiata e crollo "
+                    "dei lead. Ricarica NeverBounce per mantenere il ritorno.</p>"
+                ),
+            )
+        )
+    except Exception as exc:  # noqa: BLE001 — alert is best-effort
+        log.warning("neverbounce_credits_cron.email_failed", err=str(exc)[:160])
+    return {"checked": True, "credits": credits, "alert": True}

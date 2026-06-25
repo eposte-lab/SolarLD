@@ -124,3 +124,34 @@ async def verify_email(
         disposable="disposable_email" in flags,
         raw=body,
     )
+
+
+async def get_account_credits(
+    *, client: httpx.AsyncClient | None = None, api_key: str | None = None
+) -> int | None:
+    """Remaining NeverBounce credits (free + paid).
+
+    Uses the FREE ``account/info`` endpoint — it does NOT consume a credit — so
+    a cron can poll it cheaply to alert BEFORE the balance hits zero and sends
+    start going out un-validated (which is what tanked deliverability when the
+    account silently ran dry). Returns ``None`` when it can't be read.
+    """
+    key = api_key or settings.neverbounce_api_key
+    if not key:
+        return None
+    owns_client = client is None
+    if client is None:
+        client = httpx.AsyncClient(timeout=15.0)
+    try:
+        resp = await client.get(f"{NEVERBOUNCE_BASE}/account/info", params={"key": key})
+        body = resp.json()
+    except Exception as exc:  # noqa: BLE001 — network / parse error → unknown
+        log.warning("neverbounce.account_info_failed", err=str(exc)[:160])
+        return None
+    finally:
+        if owns_client:
+            await client.aclose()
+    if body.get("status") != "success":
+        return None
+    ci = body.get("credits_info") or {}
+    return int(ci.get("free_credits_remaining") or 0) + int(ci.get("paid_credits_remaining") or 0)
