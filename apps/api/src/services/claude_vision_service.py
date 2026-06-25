@@ -23,6 +23,7 @@ then rejects; false negatives are fine (the point is simply skipped).
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 
 from anthropic import AsyncAnthropic
 from tenacity import retry, stop_after_attempt, wait_exponential
@@ -330,41 +331,80 @@ def _pv_zoom_for_area(area_sqm: float | None) -> int:
     return 19
 
 
-async def building_has_existing_pv(
-    lat: float, lng: float, *, area_sqm: float | None = None
-) -> bool | None:
-    """Whether the property at ``(lat, lng)`` already has PV (roof, carport, or
-    on-site ground array), via a Mapbox satellite tile + Claude vision.
+@dataclass(frozen=True)
+class ExistingPvVerdict:
+    """Tri-state existing-PV result for the FAIL-CLOSED gate.
 
-    ``area_sqm`` (the roof footprint) widens the tile for large sites so panels
-    aren't clipped. Returns ``True`` / ``False`` for a real verdict, or ``None``
-    when the check could NOT run (no Mapbox token, vision timeout, unparseable
-    answer). Callers that gate leads must FAIL OPEN — treat None and False alike
-    as "don't reject" — but a batch tool can count the Nones to tell "checked,
-    no PV" apart from "couldn't check at all".
+    ``checked`` is True only when vision returned a verdict we can TRUST, i.e. at
+    or above ``EXISTING_PV_MIN_CONFIDENCE``. When False the roof is UNVERIFIED
+    (vision didn't run, timed out, was unparseable, or was too unsure) and the
+    lead must be HELD — never marked ready_to_send, never emailed — until a
+    confident verdict is obtained.
+
+    Decision table:
+      checked=True,  has_pv=True   -> HAS PANELS   -> reject / blacklist
+      checked=True,  has_pv=False  -> VERIFIED CLEAN -> may proceed
+      checked=False                -> UNVERIFIED   -> hold + re-verify
+    """
+
+    checked: bool
+    has_pv: bool
+    confidence: float
+
+
+async def verify_existing_pv(
+    lat: float, lng: float, *, area_sqm: float | None = None
+) -> ExistingPvVerdict:
+    """Full existing-PV verdict via a Mapbox satellite tile + Claude vision.
+
+    Unlike :func:`building_has_existing_pv` (which collapses to a bool and is
+    meant for FAIL-OPEN callers), this returns the tri-state so the funnel can
+    FAIL CLOSED: only ``checked=True`` lets a lead proceed; a confident "no
+    panels" is VERIFIED CLEAN, a confident "panels" is rejected, and anything
+    else is UNVERIFIED and held.
     """
     zoom = _pv_zoom_for_area(area_sqm)
     try:
         url = mapbox_service.build_static_satellite_url(lat, lng, zoom=zoom, width=640, height=640)
     except Exception as exc:  # noqa: BLE001 — no token / build error
         log.warning("existing_pv.url_failed", err=str(exc)[:160])
-        return None
+        return ExistingPvVerdict(checked=False, has_pv=False, confidence=0.0)
     try:
         res = await detect_existing_pv(url, lat, lng)
     except Exception as exc:  # noqa: BLE001 — vision error
         log.warning("existing_pv.vision_failed", lat=lat, lng=lng, err=str(exc)[:160])
-        return None
+        return ExistingPvVerdict(checked=False, has_pv=False, confidence=0.0)
     if not res:
-        return None
-    has_pv = bool(res["has_existing_pv"]) and float(res["confidence"]) >= EXISTING_PV_MIN_CONFIDENCE
+        return ExistingPvVerdict(checked=False, has_pv=False, confidence=0.0)
+    confidence = float(res["confidence"])
+    checked = confidence >= EXISTING_PV_MIN_CONFIDENCE
+    has_pv = checked and bool(res["has_existing_pv"])
     log.info(
-        "existing_pv.checked",
+        "existing_pv.verified",
         lat=lat,
         lng=lng,
         zoom=zoom,
         area_sqm=area_sqm,
         has_existing_pv=res["has_existing_pv"],
-        confidence=res["confidence"],
-        acted=has_pv,
+        confidence=confidence,
+        checked=checked,
+        has_pv=has_pv,
     )
-    return has_pv
+    return ExistingPvVerdict(checked=checked, has_pv=has_pv, confidence=confidence)
+
+
+async def building_has_existing_pv(
+    lat: float, lng: float, *, area_sqm: float | None = None
+) -> bool | None:
+    """Whether the property at ``(lat, lng)`` already has PV — bool|None facade
+    over :func:`verify_existing_pv` for legacy FAIL-OPEN callers.
+
+    Returns ``True`` only on a confident panels verdict, ``None`` when we could
+    not confidently decide (no token, vision error, or below-confidence). Callers
+    that gate leads on this must FAIL OPEN (treat None as "don't reject"); the
+    funnel's fail-closed gate uses :func:`verify_existing_pv` instead.
+    """
+    verdict = await verify_existing_pv(lat, lng, area_sqm=area_sqm)
+    if not verdict.checked:
+        return None
+    return verdict.has_pv

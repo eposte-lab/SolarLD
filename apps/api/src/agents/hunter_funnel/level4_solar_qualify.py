@@ -20,6 +20,7 @@ L3, ~€10-12/cycle (vs €50-100 for the v2 BIC + Solar combo).
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
@@ -110,6 +111,7 @@ async def _persist_roof_and_link(
     insight: Any,  # google_solar_service.RoofInsight
     google_place_id: str,
     sunshine_hours: float | None = None,
+    pv_verdict: Any = None,  # claude_vision_service.ExistingPvVerdict | None
 ) -> UUID | None:
     """Insert a row into ``roofs`` and link from scan_candidates.roof_id.
 
@@ -172,6 +174,19 @@ async def _persist_roof_and_link(
         "cap": insight.postal_code,
         "status": "identified",
     }
+
+    # Existing-PV verification result (fail-closed gate). Persist ONLY a
+    # CONFIDENT verdict: a confident "no panels" stamps existing_pv_checked_at
+    # (→ VERIFIED CLEAN, sendable), while an UNVERIFIED scan (vision didn't run
+    # / low confidence) leaves these columns untouched — so a fresh roof keeps
+    # its schema defaults (has_existing_pv=false + checked_at=NULL = UNVERIFIED,
+    # which L6 holds out of ready_to_send), and a re-scan never wipes a real
+    # prior detection. A confident "panels" verdict never reaches here (rejected
+    # upstream in the L4 gate).
+    if pv_verdict is not None and getattr(pv_verdict, "checked", False):
+        row["has_existing_pv"] = bool(pv_verdict.has_pv)
+        row["existing_pv_confidence"] = float(pv_verdict.confidence)
+        row["existing_pv_checked_at"] = datetime.now(UTC).isoformat()
 
     # Snapshot ROI (kWp, savings, payback, capex, monthly curves) so the
     # dashboard, Creative Agent and preventivo PDF read from one source of
@@ -390,17 +405,18 @@ async def run_level4_solar_qualify(
             )
             continue
 
-        # 3.5) Existing-PV gate — reject roofs that ALREADY went solar
-        # (rooftop, carport, or ground-mounted on-site). The v3 funnel replaced
-        # the v2 level4_solar_gate but DROPPED this check, so capannoni that
-        # already have panels were being accepted and pitched solar. Runs only
-        # on threshold-accepted candidates (so the ~0.5c vision call is spent
-        # only on roofs we'd otherwise keep) and FAILS OPEN inside
-        # building_has_existing_pv (None/error → keep), so a vision hiccup
-        # never drops a good lead. Mirrors level4_solar_gate._gate_one.
-        from ...services.claude_vision_service import building_has_existing_pv
+        # 3.5) Existing-PV gate — FAIL-CLOSED. Reject roofs that ALREADY went
+        # solar (rooftop, carport, or ground-mounted on-site). Runs only on
+        # threshold-accepted candidates (so the ~0.5c vision call is spent only
+        # on roofs we'd otherwise keep). Unlike the old fail-OPEN check, an
+        # UN-confident verdict (vision down / low confidence) does NOT silently
+        # accept: the roof is persisted UNVERIFIED (existing_pv_checked_at=NULL)
+        # and L6 holds it out of ready_to_send + queues re-verification, so a
+        # paneled roof we couldn't confirm (e.g. Hotel Olimpico) is never pitched.
+        from ...services.claude_vision_service import verify_existing_pv
 
-        if await building_has_existing_pv(rec.lat, rec.lng, area_sqm=insight.area_sqm):
+        pv = await verify_existing_pv(rec.lat, rec.lng, area_sqm=insight.area_sqm)
+        if pv.checked and pv.has_pv:
             out.append(
                 SolarQualified(
                     record=qc.record,
@@ -434,7 +450,8 @@ async def run_level4_solar_qualify(
             )
             continue
 
-        # 4) Accept — persist roof + link + solar columns on scan_candidates
+        # 4) Accept — persist roof + link + solar columns + the PV verdict.
+        # pv.checked=False ⇒ roof stored UNVERIFIED → held by L6 until re-checked.
         roof_id = await _persist_roof_and_link(
             sb,
             tenant_id=ctx.tenant_id,
@@ -443,6 +460,7 @@ async def run_level4_solar_qualify(
             insight=insight,
             google_place_id=place_id,
             sunshine_hours=sunshine,
+            pv_verdict=pv,
         )
         out.append(
             SolarQualified(

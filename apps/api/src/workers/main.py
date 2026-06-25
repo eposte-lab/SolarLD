@@ -43,6 +43,7 @@ from .cron import (
     engagement_rollup_cron,
     imminence_predictions_cron,
     practice_deadlines_cron,
+    pv_reverify_cron,
     render_retry_cron,
     reputation_digest_cron,
     retention_cron,
@@ -906,6 +907,16 @@ class WorkerSettings:
         cron(
             render_retry_cron,
             minute={0, 10, 20, 30, 40, 50},
+            run_at_startup=False,
+        ),
+        # Recovery half of the fail-closed existing-PV gate: every 20 min
+        # re-verify leads held in 'pending_pv_check' — release the verified-clean
+        # to ready_to_send, blacklist confirmed-panels, escalate the persistently
+        # ambiguous to operator review. Without this, held leads would never
+        # recover. Bounded by PER_RUN_CAP; offset from render_retry's minutes.
+        cron(
+            pv_reverify_cron,
+            minute={5, 25, 45},
             run_at_startup=False,
         ),
         # Livello 2 Sprint 1: scan practice_deadlines for newly-overdue

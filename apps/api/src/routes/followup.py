@@ -323,7 +323,14 @@ async def _send_followup(
     """Internal helper: send a drafted follow-up email via Resend."""
     from datetime import datetime
 
+    from ..services.pv_verification_service import lead_roof_sendable
     from ..services.resend_service import SendEmailInput, send_email
+
+    # Fail-closed existing-PV gate — covers operator-drafted follow-ups too:
+    # never email a roof that has, or couldn't be confirmed free of, panels.
+    ok, reason = lead_roof_sendable(sb, lead_id)
+    if not ok:
+        raise ValueError(f"existing-PV gate blocked send (roof {reason})")
 
     subj = lead.get("subjects") or {}
     if isinstance(subj, list):

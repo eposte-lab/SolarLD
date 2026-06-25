@@ -1469,3 +1469,18 @@ async def render_retry_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
     from ..services.render_retry_service import run_render_retry
 
     return await run_render_retry()
+
+
+async def pv_reverify_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
+    """Every 20 min: re-verify existing-PV-held leads (``pending_pv_check``).
+
+    The fail-closed gate parks any lead whose roof couldn't be CONFIDENTLY
+    verified panel-free. This re-runs satellite vision and resolves each:
+    release the verified-clean to ready_to_send, blacklist confirmed-panels, and
+    escalate the persistently-ambiguous to operator review — so held leads never
+    get stuck and nothing unverified ever sends. Bounded by PER_RUN_CAP.
+    Delegated to pv_verification_service so the logic is unit-tested.
+    """
+    from ..services.pv_verification_service import run_pv_reverification
+
+    return await run_pv_reverification()
