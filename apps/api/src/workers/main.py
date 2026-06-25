@@ -42,6 +42,7 @@ from .cron import (
     engagement_followup_cron,
     engagement_rollup_cron,
     imminence_predictions_cron,
+    neverbounce_credits_cron,
     practice_deadlines_cron,
     pv_reverify_cron,
     render_retry_cron,
@@ -875,6 +876,9 @@ class WorkerSettings:
         # Task 14: sync Smartlead warm-up health scores before the morning
         # outreach run so inbox_service.pick_and_claim has fresh caps. Moved to
         # 05:45 UTC to stay ahead of the 06:00-UTC daily pipeline (08:00 Rome).
+        # Alert if NeverBounce credits are low — runs BEFORE the 06:00 morning
+        # send so the operator can recharge before any un-validated blast.
+        cron(neverbounce_credits_cron, hour=5, minute=30, run_at_startup=False),
         cron(smartlead_warmup_sync_cron, hour=5, minute=45, run_at_startup=False),
         # Imminence Predictor: must run AFTER engagement_rollup (04:00)
         # so engagement_score is fresh, and BEFORE follow_up (07:30) so
