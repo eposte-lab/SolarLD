@@ -13,10 +13,12 @@ function Stat({ label, value, sub }: { label: string; value: string; sub?: strin
 }
 
 /**
- * Side-by-side comparison the tenant owner can read at a glance: sends that went
- * through the contact-qualification pipeline (NeverBounce validation + premium
- * contact) vs the un-validated "legacy" sends — and the lift in dossier-visit
- * rate the qualification delivers.
+ * Side-by-side comparison the tenant owner can read at a glance: sends whose
+ * address went through the pre-send contact-verification step vs the un-verified
+ * "legacy" sends — and the lift in dossier-visit rate that verification delivers.
+ *
+ * IMPORTANT: this is owner-facing copy. Keep it generic — never surface the
+ * internal vendor/tool names (NeverBounce, premium finder, …) in the UI.
  */
 export function QualificationReportPanel({ report }: { report: QualificationReport }) {
   const { qualified, legacy, lift } = report;
@@ -39,7 +41,7 @@ export function QualificationReportPanel({ report }: { report: QualificationRepo
             <span className="rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
               Qualificato
             </span>
-            <span className="text-xs text-gray-600">NeverBounce + contatto premium</span>
+            <span className="text-xs text-gray-600">Indirizzo verificato</span>
           </div>
           <div className="grid grid-cols-3 gap-3">
             <Stat label="Invii" value={String(qualified.sent)} />
@@ -53,7 +55,7 @@ export function QualificationReportPanel({ report }: { report: QualificationRepo
             <span className="rounded-full bg-gray-400 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
               Vecchio flusso
             </span>
-            <span className="text-xs text-gray-600">senza validazione</span>
+            <span className="text-xs text-gray-600">Senza verifica</span>
           </div>
           <div className="grid grid-cols-3 gap-3">
             <Stat label="Invii" value={String(legacy.sent)} />
@@ -64,10 +66,9 @@ export function QualificationReportPanel({ report }: { report: QualificationRepo
       </div>
 
       <p className="mt-3 text-xs text-gray-500">
-        Confronto degli invii con e senza il sistema di qualifica del contatto (validazione
-        NeverBounce + ricerca del referente). Un invio è «qualificato» quando l&apos;indirizzo è
-        passato dalla validazione; «vecchio flusso» include gli invii non validati (incluso quando i
-        crediti NeverBounce si sono esauriti).
+        Confronto tra invii con e senza verifica preventiva dell&apos;indirizzo. Un invio è
+        «qualificato» quando l&apos;indirizzo è stato verificato prima dell&apos;invio; «vecchio
+        flusso» include gli invii partiti senza verifica.
       </p>
     </section>
   );

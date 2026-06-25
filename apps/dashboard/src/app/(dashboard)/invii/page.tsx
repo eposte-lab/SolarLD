@@ -37,6 +37,7 @@ import { getCurrentTenantContext } from '@/lib/data/tenant';
 import { getQualificationReport } from '@/lib/data/qualification-report';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
 import { QualificationReportPanel } from './QualificationReportPanel';
+import { AutoRefresh } from './AutoRefresh';
 import { cn, formatNumber, formatPercent, relativeTime } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
@@ -193,6 +194,8 @@ export default async function InviiPage({
 
   return (
     <div className="space-y-4">
+      {/* Mantiene i numeri di questa pagina aggiornati in tempo reale (soft refresh). */}
+      <AutoRefresh seconds={60} />
       {/* Header */}
       <header className="flex items-end justify-between gap-4">
         <div>
