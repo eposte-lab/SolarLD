@@ -1645,6 +1645,21 @@ async def send_draft(
         raise HTTPException(status_code=404, detail="Lead not found")
     lead = lead_res.data[0]
 
+    # Fail-closed existing-PV gate — operator-drafted sends must also never
+    # email a roof with (or not yet confirmed free of) panels.
+    from ..services.pv_verification_service import lead_roof_sendable
+
+    _pv_ok, _pv_reason = lead_roof_sendable(sb, lead_id)
+    if not _pv_ok:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Tetto con pannelli già installati o non ancora verificato: "
+                "non inviabile finché la verifica pannelli non dà esito "
+                "'nessun pannello'."
+            ),
+        )
+
     tenant_res = (
         sb.table("tenants")
         .select(

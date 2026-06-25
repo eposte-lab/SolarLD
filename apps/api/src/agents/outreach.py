@@ -377,6 +377,27 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
             )
 
         # ------------------------------------------------------------------
+        # 2b') Existing-PV UNVERIFIED hard stop — FAIL-CLOSED. A roof we could
+        # NOT confidently confirm is panel-free (existing_pv_checked_at IS NULL)
+        # must never be pitched solar. Unlike has_existing_pv we don't
+        # blacklist — it may verify clean later — we park it in
+        # 'pending_pv_check' and queue re-verification. Defense-in-depth: the
+        # funnel already holds these at L6, but this also catches warehouse
+        # leads that predate the gate and any path that reached ready_to_send
+        # without a verdict. Hard stop regardless of ``force``.
+        # ------------------------------------------------------------------
+        if not roof.get("existing_pv_checked_at"):
+            from ..services.pv_verification_service import enqueue_pv_reverification
+
+            enqueue_pv_reverification(sb, payload.tenant_id, lead["id"])
+            return await self._record_skip(
+                payload=payload,
+                lead=lead,
+                reason="pv_unverified",
+                pipeline_status="pending_pv_check",
+            )
+
+        # ------------------------------------------------------------------
         # 2c) National-chain GENERIC mailbox hard stop — info@conad.it /
         # info@supersigma.com is the corporate HQ catch-all (futile + duplicate
         # across stores). A per-store / named address on a chain domain

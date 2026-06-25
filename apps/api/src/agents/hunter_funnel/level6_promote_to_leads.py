@@ -130,6 +130,46 @@ def _pii_hash(business_name: str, place_id: str) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
+def _roof_pv_verified_clean(sb: Any, roof_id: str) -> bool:
+    """True only when the roof has a CONFIDENT "no existing PV" verdict.
+
+    Verified-clean = ``existing_pv_checked_at IS NOT NULL AND has_existing_pv =
+    false``. Anything else (never checked, or vision wasn't confident) is
+    UNVERIFIED and must be held. Fails CLOSED: a lookup error returns False.
+    """
+    try:
+        res = (
+            sb.table("roofs")
+            .select("has_existing_pv, existing_pv_checked_at")
+            .eq("id", roof_id)
+            .limit(1)
+            .execute()
+        )
+        row = (res.data or [{}])[0]
+        return bool(row.get("existing_pv_checked_at")) and not row.get("has_existing_pv")
+    except Exception as exc:  # noqa: BLE001 — fail closed on lookup error
+        log.warning("level6_promote.pv_lookup_failed", roof_id=roof_id, err=str(exc)[:160])
+        return False
+
+
+def _enqueue_pv_reverification(sb: Any, tenant_id: str, lead_id: str) -> None:
+    """Park a lead in ``reverification_queue`` for an existing-PV re-check.
+
+    Idempotent on (tenant_id, lead_id). The pv-reverify cron picks
+    ``reason='pv_unverified'`` rows, re-runs vision, and releases (clean) /
+    blacklists (panels) / escalates to operator review.
+    """
+    try:
+        sb.table("reverification_queue").upsert(
+            {"tenant_id": tenant_id, "lead_id": lead_id, "reason": "pv_unverified"},
+            on_conflict="tenant_id,lead_id",
+        ).execute()
+    except Exception as exc:  # noqa: BLE001 — best-effort; the cron also scans pending_pv_check directly
+        log.warning(
+            "level6_promote.pv_reverify_enqueue_failed", lead_id=lead_id, err=str(exc)[:160]
+        )
+
+
 async def run_level6_promote_to_leads(
     ctx: FunnelV3Context,
     scored: list[ScoredV3Candidate],
@@ -283,6 +323,15 @@ async def run_level6_promote_to_leads(
                 skipped += 1
                 continue
 
+            # Existing-PV gate (FAIL-CLOSED): a lead is promoted to ready_to_send
+            # ONLY when its roof is VERIFIED CLEAN (a confident vision verdict
+            # said "no panels"). An UNVERIFIED roof (existing_pv_checked_at IS
+            # NULL — vision didn't run or wasn't confident) is held as
+            # 'pending_pv_check' and queued for re-verification, so we never
+            # pitch solar to a roof we couldn't confirm is panel-free. (A
+            # confident "has panels" roof is rejected at L4 and never reaches L6.)
+            pv_clean = _roof_pv_verified_clean(sb, roof_id)
+
             place_blob = (sc.get("enrichment") or {}).get("places") or {}
             scraped = sc.get("scraped_data") or {}
             contact = sc.get("contact_extraction") or {}
@@ -416,7 +465,9 @@ async def run_level6_promote_to_leads(
                 # production rendering + outreach chain. The customer-facing
                 # demo is protected from real sends by `tenants.outreach_blocked`
                 # (migration 0115), not by leaving the lead stuck in 'new'.
-                "pipeline_status": "ready_to_send",
+                # FAIL-CLOSED: an unverified roof is held as 'pending_pv_check'
+                # (not ready, not sent) until re-verification confirms it clean.
+                "pipeline_status": "ready_to_send" if pv_clean else "pending_pv_check",
                 # leads.source CHECK only allows
                 # {cta_click, email_reply, whatsapp_reply, b2c_meta_ads, b2c_post_engagement}
                 # or NULL. Proactively-discovered leads (this funnel) have no
@@ -428,6 +479,13 @@ async def run_level6_promote_to_leads(
             }
             lead_ins = sb.table("leads").insert(lead_payload).execute()
             new_lead_id = (lead_ins.data or [{}])[0].get("id")
+
+            # FAIL-CLOSED hold: an unverified roof's lead was parked in
+            # 'pending_pv_check' above — queue it so the pv-reverification cron
+            # re-runs vision and releases it (clean) or rejects it (panels). It
+            # never sits sendable while unverified.
+            if new_lead_id and not pv_clean:
+                _enqueue_pv_reverification(sb, ctx.tenant_id, new_lead_id)
 
             # Pre-render at promotion. A lead is promoted to `ready_to_send`
             # WITHOUT an image; rendering used to happen only at the daily
