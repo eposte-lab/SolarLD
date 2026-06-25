@@ -34,7 +34,9 @@ import {
   listCampaigns,
 } from '@/lib/data/campaigns';
 import { getCurrentTenantContext } from '@/lib/data/tenant';
+import { getQualificationReport } from '@/lib/data/qualification-report';
 import { createSupabaseServerClient } from '@/lib/supabase/server';
+import { QualificationReportPanel } from './QualificationReportPanel';
 import { cn, formatNumber, formatPercent, relativeTime } from '@/lib/utils';
 
 export const dynamic = 'force-dynamic';
@@ -137,13 +139,15 @@ export default async function InviiPage({
   const ctx = await getCurrentTenantContext();
   if (!ctx) redirect('/login');
 
-  const [stats, allCampaigns, deferred] = await Promise.all([
+  const [stats, allCampaigns, deferred, qualReport] = await Promise.all([
     // KPI strip — scoped to the selected analysis window (default: all-time).
     getCampaignDeliveryStats({ sinceDays: rangeDays }),
     // Over-fetch for client-side filtering. When searching, widen the window
     // so the query covers the whole send history, not just the current page.
     listCampaigns(search ? 5000 : PAGE_SIZE * page, { sinceDays: rangeDays }),
     getDeferredToday(),
+    // Qualified-vs-legacy send comparison (all-time, RLS-scoped via RPC).
+    getQualificationReport(),
   ]);
 
   // Apply client-side filters (avoids a new DB function for now)
@@ -301,6 +305,10 @@ export default async function InviiPage({
 
       {/* ── Tab: Storico invii ───────────────────────────────────────────── */}
       {activeTab === 'storico' && <>
+
+      {/* Qualified-vs-legacy send comparison — shows the lift the contact
+          qualification (NeverBounce + premium) delivers. All-time. */}
+      <QualificationReportPanel report={qualReport} />
 
       {/* Periodo di analisi — scopes the KPI strip + the table below to a
           rolling window so the operator can read "in N giorni quanti invii,
