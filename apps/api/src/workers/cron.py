@@ -1486,6 +1486,22 @@ async def pv_reverify_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
     return await run_pv_reverification()
 
 
+async def contact_prevalidate_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
+    """Every ~30 min: NeverBounce-validate the sendable backlog's contacts.
+
+    A lead can reach the warehouse (ready_to_send/picked/rendered) without ever
+    being contact-validated. The send-time gate would catch a dead address, but
+    only after burning a daily-cap slot on it. This pre-validates the backlog so
+    the warehouse only ever holds contactable addresses. Same policy as the send
+    gate: only invalid/disposable are excluded (→ blacklisted); unknown stays
+    sendable (fail-open). Bounded by PER_RUN_CAP; delegated to
+    contact_prevalidation_service so the logic is unit-tested.
+    """
+    from ..services.contact_prevalidation_service import run_contact_prevalidation
+
+    return await run_contact_prevalidation()
+
+
 # Alert the platform admin BEFORE the shared NeverBounce account hits zero.
 # NeverBounce errors are swallowed at send time (fail-open), so a depleted
 # account silently lets un-validated emails go out → bounce spike → tanked
