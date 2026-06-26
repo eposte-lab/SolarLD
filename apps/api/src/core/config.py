@@ -110,6 +110,22 @@ class Settings(BaseSettings):
     # of no heartbeat, so the container restarts and the stranded-pick rescue
     # cron re-fires the sends. 0 disables it.
     worker_watchdog_timeout_seconds: int = 180
+    # Funnel-stall hardening (2026-06-26). The watchdog above only sees a GIL/sync
+    # wedge — it is BLIND to a coroutine parked on an unbounded ``await``. On
+    # 2026-06-26 the L4 existing-PV vision call had no explicit client timeout
+    # (Anthropic SDK default read=600s, pool=600s), so ONE hung request stalled the
+    # whole sequential L4 batch and froze consumption for ~3h while crons kept
+    # firing. An explicit per-request timeout caps that single call so the batch
+    # keeps moving; the run itself stays bounded by arq job_timeout=600 (sized for
+    # the 120-candidate batch — do NOT add a tighter whole-run timeout or normal
+    # batches get cut and re-looped), and funnel_stall_recovery re-enqueues if
+    # consumption stalls anyway.
+    vision_request_timeout_seconds: int = 30  # per Anthropic vision request
+    # Recovery cron: if work is available (active scan job + consumable un-processed
+    # candidates) but nothing has been consumed in this long, re-enqueue the funnel.
+    # ALERT + RE-ENQUEUE only — never a process bail, to avoid the 2026-06-18
+    # restart-loop.
+    funnel_stall_seconds: int = 1800
     # When an outreach send is skipped for a TRANSIENT reason (per-inbox /
     # domain rate-limit), the lead used to be left in ``picked`` forever with
     # no retry — a backlog of overdue sends draining at once collided on the

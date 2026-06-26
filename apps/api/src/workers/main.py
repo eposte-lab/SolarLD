@@ -42,8 +42,10 @@ from .cron import (
     deliverability_hourly_cron,
     engagement_followup_cron,
     engagement_rollup_cron,
+    funnel_stall_recovery_cron,
     imminence_predictions_cron,
     neverbounce_credits_cron,
+    orphan_candidate_cleanup_cron,
     practice_deadlines_cron,
     pv_reverify_cron,
     render_retry_cron,
@@ -933,6 +935,20 @@ class WorkerSettings:
             minute={10, 40},
             run_at_startup=False,
         ),
+        # Funnel-stall recovery: every 30 min during work hours (UTC 06-15 ≈ 08-17
+        # Rome) re-enqueue the funnel for any tenant whose consumption stalled
+        # (active scan job + un-processed candidates, nothing consumed in
+        # funnel_stall_seconds). Catches the await-stall the event-loop watchdog is
+        # blind to (2026-06-26 freeze); ALERT + RE-ENQUEUE only. Offset from :05.
+        cron(
+            funnel_stall_recovery_cron,
+            hour={6, 7, 8, 9, 10, 11, 12, 13, 14, 15},
+            minute={20, 50},
+            run_at_startup=False,
+        ),
+        # Daily: mark long-stale un-processed scan_candidates as processed so dead
+        # old-scan rows stop pinning the backlog above the discovery-skip threshold.
+        cron(orphan_candidate_cleanup_cron, hour=4, minute=10, run_at_startup=False),
         # Livello 2 Sprint 1: scan practice_deadlines for newly-overdue
         # rows once a day.  Runs after the morning outreach burst so
         # the bell isn't competing with delivery noise; UTC 09:00 ≈

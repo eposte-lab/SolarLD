@@ -1502,6 +1502,29 @@ async def contact_prevalidate_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
     return await run_contact_prevalidation()
 
 
+async def funnel_stall_recovery_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
+    """Every ~15 min in work hours: re-enqueue the funnel for any tenant whose
+    candidate consumption has STALLED (active scan job + un-processed candidates but
+    nothing consumed in funnel_stall_seconds). worker_watchdog only sees a GIL/sync
+    wedge — it is blind to a coroutine parked on an unbounded await (the 2026-06-26
+    L4 vision hang), which keeps the loop beating while consumption is dead. This is
+    the DB-level liveness signal. ALERT + RE-ENQUEUE only — never a process bail, so
+    it can't crash-loop the container. Delegated to funnel_stall_service.
+    """
+    from ..services.funnel_stall_service import run_funnel_stall_recovery
+
+    return await run_funnel_stall_recovery()
+
+
+async def orphan_candidate_cleanup_cron(_ctx: dict[str, Any]) -> dict[str, Any]:
+    """Daily: mark long-stale un-processed scan_candidates as processed so dead
+    old-scan rows (e.g. the 189 stuck since 06-17) stop pinning the backlog above the
+    discovery-skip threshold and silently suppressing L1 discovery."""
+    from ..services.funnel_stall_service import run_orphan_candidate_cleanup
+
+    return await run_orphan_candidate_cleanup()
+
+
 # Alert the platform admin BEFORE the shared NeverBounce account hits zero.
 # NeverBounce errors are swallowed at send time (fail-open), so a depleted
 # account silently lets un-validated emails go out → bounce spike → tanked
