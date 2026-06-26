@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 
+import httpx
 from anthropic import AsyncAnthropic
 from tenacity import retry, stop_after_attempt, wait_exponential
 
@@ -86,7 +87,20 @@ def _get_client() -> AsyncAnthropic:
     if _client is None:
         if not settings.anthropic_api_key:
             raise RuntimeError("ANTHROPIC_API_KEY not configured")
-        _client = AsyncAnthropic(api_key=settings.anthropic_api_key)
+        _client = AsyncAnthropic(
+            api_key=settings.anthropic_api_key,
+            # Explicit per-request timeout. The SDK default (read=600s, pool=600s)
+            # let a single hung vision call await for minutes and stall the whole
+            # sequential L4 batch (2026-06-26 funnel freeze). max_retries=0 so
+            # tenacity is the single retry layer, not stacked on SDK retries.
+            timeout=httpx.Timeout(
+                connect=5.0,
+                read=settings.vision_request_timeout_seconds,
+                write=settings.vision_request_timeout_seconds,
+                pool=20.0,
+            ),
+            max_retries=0,
+        )
     return _client
 
 
