@@ -35,6 +35,7 @@ from ..services.tenant_config_service import get_for_tenant as get_tenant_config
 from .cron import (
     active_lead_notify_cron,
     cluster_ab_evaluation_cron,
+    contact_prevalidate_cron,
     daily_digest_cron,
     daily_pipeline_afternoon_cron,
     daily_pipeline_cron,
@@ -921,6 +922,15 @@ class WorkerSettings:
         cron(
             pv_reverify_cron,
             minute={5, 25, 45},
+            run_at_startup=False,
+        ),
+        # Pre-validate the sendable backlog's contacts (NeverBounce) every 30 min
+        # so dead addresses are removed BEFORE the send burns a daily-cap slot on
+        # them. Same policy as the send gate (only invalid/disposable excluded).
+        # Offset from pv_reverify's minutes. Bounded by PER_RUN_CAP.
+        cron(
+            contact_prevalidate_cron,
+            minute={10, 40},
             run_at_startup=False,
         ),
         # Livello 2 Sprint 1: scan practice_deadlines for newly-overdue
