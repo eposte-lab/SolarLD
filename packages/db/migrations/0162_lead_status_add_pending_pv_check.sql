@@ -1,0 +1,18 @@
+-- 0162: add the 'pending_pv_check' hold status to the lead_status enum.
+--
+-- #405's fail-closed existing-PV gate writes pipeline_status='pending_pv_check'
+-- in three places — the L6 promote hold (level6_promote_to_leads), the outreach
+-- send-guard skip (outreach.py), and the pv-reverify cron's query
+-- (pv_verification_service) — on the assumption that pipeline_status is
+-- free-text. It is not: leads.pipeline_status is the ENUM `lead_status`, and
+-- 'pending_pv_check' was never added. So every such write/compare raised
+-- `invalid input value for enum lead_status`. Effect: the hold never parked an
+-- unverified lead and the recovery cron no-op'd (it errored before scanning).
+-- The fail-closed property still held by accident (the failing UPDATE just left
+-- the lead in its prior pre-ready state, so nothing un-verified reached
+-- ready_to_send) — but ambiguous roofs never got re-verified or released.
+--
+-- Add the value so the gate's hold + recovery work as designed. Idempotent;
+-- ADD VALUE only declares the label (not used in this migration) so it is safe
+-- inside the migration transaction on PG 12+.
+ALTER TYPE lead_status ADD VALUE IF NOT EXISTS 'pending_pv_check';
