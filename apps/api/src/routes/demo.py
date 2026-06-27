@@ -1367,6 +1367,7 @@ async def _run_creative_and_outreach_background(
                 channel=OutreachChannel.EMAIL,
                 sequence_step=1,
                 force=True,
+                operator_override=True,
                 inbox_id=inbox_id,
             )
         )
