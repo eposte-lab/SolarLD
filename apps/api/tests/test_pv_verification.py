@@ -102,6 +102,22 @@ async def test_verdict_vision_none_is_unverified(monkeypatch) -> None:
     assert v.checked is False
 
 
+def test_existing_pv_threshold_was_raised() -> None:
+    # Locked at the post-incident value: the vision confidently mis-read big
+    # commercial roofs as panelled and auto-blacklisted the best leads.
+    assert cvs.EXISTING_PV_MIN_CONFIDENCE >= 0.85
+
+
+@pytest.mark.asyncio
+async def test_mid_confidence_panels_now_held_not_acted(monkeypatch) -> None:
+    # 0.7 "has panels" was ACTED on under the old 0.6 threshold (→ blacklist);
+    # after raising to 0.85 it is NOT trusted → checked=False → held UNVERIFIED,
+    # never blacklisted.
+    _stub_detect(monkeypatch, {"has_existing_pv": True, "confidence": 0.7})
+    v = await cvs.verify_existing_pv(40.0, 14.0, area_sqm=500)
+    assert v.checked is False
+
+
 @pytest.mark.asyncio
 async def test_building_has_existing_pv_facade(monkeypatch) -> None:
     # Legacy bool|None facade: True only on a confident panels verdict, None
