@@ -247,34 +247,45 @@ def projection_to_insight(
 _EXISTING_PV_SYSTEM = (
     "You are a remote-sensing specialist inspecting Italian aerial imagery of a "
     "company's site. Judge whether photovoltaic (solar) panels are ALREADY "
-    "installed ANYWHERE on the property — on the building's roof, on "
-    "carport/parking canopies, or ground-mounted within the site. A property "
-    "with ANY existing PV — even a SMALL or PARTIAL array of just a few modules, "
-    "covering only one section of the roof — has reduced energy need and is OUT "
-    "of target: flag it. Do NOT require full-roof coverage; a single visible "
-    "cluster of PV modules is enough. When a feature shows a panel-like grid of "
-    "modules but you are unsure whether it is PV, lean toward TRUE — pitching "
-    "solar to a roof that already has it is far worse than a false positive. "
-    "(But a plain uniform dark/membrane roof with NO module pattern is not PV.)"
+    "installed on the property — on the building's roof, on carport/parking "
+    "canopies, or ground-mounted within the site. Flag TRUE only when you can "
+    "CLEARLY see actual PV: a regular grid or rows of uniform dark blue-black "
+    "rectangular modules with visible framing. When the feature is ambiguous — "
+    "it could be rooflights/skylights, membrane seams, metal roofing or HVAC — "
+    "default to FALSE with low confidence. Large commercial and industrial roofs "
+    "are our BEST prospects and their surfaces (skylight grids, white/grey "
+    "membrane, standing-seam metal) are routinely mistaken for panels; a false "
+    "positive wrongly discards a high-value lead, so do NOT flag unless the PV is "
+    "unmistakable. Calibrate confidence honestly: only go high when you are "
+    "genuinely sure it is PV."
 )
 
 _EXISTING_PV_PROMPT = """\
 Look at the main property in the central area of this satellite tile (latitude
 {lat}, longitude {lng}) — the building together with its yard and car park.
 
-Does this property ALREADY have solar photovoltaic panels installed anywhere on
-site? Count PV regardless of where it sits AND regardless of how MUCH of the roof
-it covers — even a SMALL or PARTIAL array (just a handful of modules on one
-section) counts as YES:
-  - on the building ROOFTOP (scan the WHOLE roof — panels often cover only one
+Does this property CLEARLY have solar photovoltaic panels installed on site?
+Answer YES only when you can plainly see PV: a regular grid or rows of uniform
+dark blue-black rectangular modules with visible framing, on:
+  - the building ROOFTOP (scan the whole roof — a real array may cover only one
     portion of it);
-  - on CARPORT / parking canopies;
-  - GROUND-MOUNTED within the property (in the yard or car park).
-PV appears as a grid/rows of uniform dark blue/black rectangular modules; flag it
-even if it is just one small cluster. Do NOT count: skylights, glass atriums,
-sawtooth north-light roofs, plain uniform dark/membrane roofs (no module grid),
-HVAC units, greenhouses, pools, parked vehicles, or a large off-site solar farm
-clearly unrelated to this property.
+  - CARPORT / parking canopies;
+  - GROUND-MOUNTED within the property.
+A small but UNMISTAKABLE real array still counts as YES.
+
+Do NOT flag these as PV — they are the common false positives on big commercial
+and industrial roofs, and when you see them the answer is NO:
+  - SKYLIGHTS / rooflights, often in a regular grid (clear/white/translucent
+    panes — NOT dark modules);
+  - white, grey or silver MEMBRANE / PVC / bitumen flat roofs, with or without
+    seams;
+  - STANDING-SEAM, corrugated or trapezoidal METAL roofing (parallel lines that
+    mimic module rows);
+  - SAWTOOTH / north-light roofs; glass atriums; HVAC units, ducts or chillers;
+  - SOLAR THERMAL collectors / water heaters (tubes or a tank — not PV);
+  - greenhouses, pools, parked vehicles, or an off-site solar farm not on this
+    property.
+When in doubt between PV and any of the above, answer NO and use low confidence.
 
 Respond with EXACTLY this JSON (no prose, no code fences):
 {{"has_existing_pv": boolean, "confidence": number, "notes": string}}
@@ -330,10 +341,14 @@ async def detect_existing_pv(
     }
 
 
-# Minimum vision confidence before we ACT on an existing-PV detection. Below
-# this we keep the lead (a false reject costs lead supply; we only drop the
-# clear cases like a roof fully tiled with panels).
-EXISTING_PV_MIN_CONFIDENCE = 0.6
+# Minimum vision confidence before we ACT on an existing-PV "has panels"
+# verdict. Raised 0.6 → 0.85 after the vision was found to CONFIDENTLY mis-read
+# large commercial/industrial roofs (skylight grids, white membrane,
+# standing-seam metal) as panels and auto-blacklist our best leads. Below this a
+# "has panels" verdict is NOT trusted → the lead is held UNVERIFIED
+# (pending_pv_check, re-verified later), never blacklisted. Favours lead supply:
+# only an unmistakable, high-confidence array drops a lead.
+EXISTING_PV_MIN_CONFIDENCE = 0.85
 
 
 def _pv_zoom_for_area(area_sqm: float | None) -> int:
