@@ -536,6 +536,7 @@ async def seed_test_candidate(
                     channel=OutreachChannel.EMAIL,
                     sequence_step=1,
                     force=True,
+                    operator_override=True,
                 )
             )
             if outreach_out.skipped:

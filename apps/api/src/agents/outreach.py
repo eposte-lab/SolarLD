@@ -135,6 +135,17 @@ class OutreachInput(BaseModel):
             "nor the GDPR/branding gates. Use this, not force, for manual sends."
         ),
     )
+    operator_override: bool = Field(
+        default=False,
+        description=(
+            "Operator manual send (dashboard 'Re-invia (force)', 'Reinvia a un "
+            "altro indirizzo', 'Invia test'). In addition to what `force` "
+            "bypasses, this bypasses the existing-PV gates so an "
+            "operator-initiated send goes out immediately regardless of "
+            "PV-verification state. Operator-only — NO cron/worker/public path "
+            "sets it, so the funnel and pv-reverify cron stay fail-closed on PV."
+        ),
+    )
     sequence_step: int = Field(
         default=1,
         ge=1,
@@ -361,14 +372,20 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
             )
 
         # ------------------------------------------------------------------
-        # 2b) Existing-PV hard stop — a roof that already has solar installed
-        # must NEVER be pitched solar, even if a render slipped through and an
-        # outreach_task was already queued. The v3 L4 gate now rejects these at
-        # discovery (level4_solar_qualify), but this is defense-in-depth for
-        # leads already in the warehouse that predate the gate (flagged by the
-        # /trial/recheck-existing-pv job) — so a panelled roof is never emailed.
+        # 2b) Existing-PV stops. A roof that already has — or might still have —
+        # solar must not be auto-pitched solar. The v3 L4 gate rejects these at
+        # discovery (level4_solar_qualify); the two checks below are
+        # defense-in-depth for warehouse leads that predate the gate or reached
+        # ready_to_send without a verdict.
+        #
+        # Operator override: a manual send from the dashboard
+        # ('Re-invia (force)', 'Reinvia a un altro indirizzo', 'Invia test')
+        # sets ``operator_override`` — an explicit, audited human action — and
+        # bypasses BOTH PV stops so the send goes out immediately. The flag is
+        # operator-only (no cron/worker/public exit-intent path sets it), so the
+        # automated funnel and the pv-reverify cron stay fully fail-closed.
         # ------------------------------------------------------------------
-        if roof.get("has_existing_pv"):
+        if roof.get("has_existing_pv") and not payload.operator_override:
             return await self._record_skip(
                 payload=payload,
                 lead=lead,
@@ -377,25 +394,25 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
             )
 
         # ------------------------------------------------------------------
-        # 2b') Existing-PV UNVERIFIED hard stop — FAIL-CLOSED. A roof we could
-        # NOT confidently confirm is panel-free (existing_pv_checked_at IS NULL)
-        # must never be pitched solar. Unlike has_existing_pv we don't
-        # blacklist — it may verify clean later — we park it in
-        # 'pending_pv_check' and queue re-verification. Defense-in-depth: the
-        # funnel already holds these at L6, but this also catches warehouse
-        # leads that predate the gate and any path that reached ready_to_send
-        # without a verdict. Hard stop regardless of ``force``.
+        # 2b') Existing-PV UNVERIFIED stop — FAIL-CLOSED for the automated path.
+        # A roof we could NOT confidently confirm is panel-free
+        # (existing_pv_checked_at IS NULL) is parked in 'pending_pv_check' and
+        # queued for re-verification — it may verify clean later. An operator
+        # override sends it now anyway (re-verification is still queued below).
         # ------------------------------------------------------------------
         if not roof.get("existing_pv_checked_at"):
             from ..services.pv_verification_service import enqueue_pv_reverification
 
+            # Always queue re-verification (hygiene); only BLOCK the automated
+            # path — an explicit operator override proceeds with the send.
             enqueue_pv_reverification(sb, payload.tenant_id, lead["id"])
-            return await self._record_skip(
-                payload=payload,
-                lead=lead,
-                reason="pv_unverified",
-                pipeline_status="pending_pv_check",
-            )
+            if not payload.operator_override:
+                return await self._record_skip(
+                    payload=payload,
+                    lead=lead,
+                    reason="pv_unverified",
+                    pipeline_status="pending_pv_check",
+                )
 
         # ------------------------------------------------------------------
         # 2c) National-chain GENERIC mailbox hard stop — info@conad.it /

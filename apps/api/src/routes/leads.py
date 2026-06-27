@@ -906,6 +906,9 @@ async def send_outreach(
             "lead_id": lead_id,
             "channel": channel,
             "force": force,
+            # A forced re-send is an explicit operator action → bypass the PV
+            # gate too. The initial, non-forced send stays fully gated.
+            "operator_override": force,
         },
         job_id=job_id,
     )
@@ -1010,6 +1013,7 @@ async def send_test_outreach(
             "lead_id": lead_id,
             "channel": "email",
             "force": True,
+            "operator_override": True,
             "recipient_override": override,
         },
         job_id=f"outreach_test:{tenant_id}:{lead_id}:{override_tag}:{ts}",
@@ -1100,8 +1104,9 @@ async def resend_outreach_to_address(
     # Same machinery as the daily outreach (identical template/data/rendering),
     # just a recipient override. Unique job_id per click so ARQ never dedupes a
     # fresh resend against a previous one. force=True bypasses the send-window
-    # (deliberate operator action); the blacklist / existing-PV / GDPR gates in
-    # OutreachAgent still apply.
+    # and operator_override=True bypasses the existing-PV gates (deliberate,
+    # audited operator action — sends immediately regardless of PV state); the
+    # blacklist / GDPR gates in OutreachAgent still apply.
     import hashlib
 
     override_tag = hashlib.sha256(override.encode()).hexdigest()[:10]
@@ -1113,6 +1118,7 @@ async def resend_outreach_to_address(
             "lead_id": lead_id,
             "channel": "email",
             "force": True,
+            "operator_override": True,
             "recipient_override": override,
             "subject_override": subject_override,
         },
