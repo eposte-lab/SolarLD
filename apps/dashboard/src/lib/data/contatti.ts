@@ -361,47 +361,59 @@ export async function getContattiSummary(): Promise<ContattiSummary> {
   // Compute the set of accepted candidate roofs that have been promoted
   // to a lead. Both KPI counts and aggregates filter by this set so the
   // strip never claims "0 convalidati" while the table renders rows.
-  const fetchPromotedAcceptedRows = async (): Promise<
-    Array<{
-      solar_kw_installable: number | null;
-      proxy_score_data: Record<string, unknown> | null;
-      contact_extraction: Record<string, unknown> | null;
-    }>
-  > => {
+  type AcceptedRow = {
+    solar_kw_installable: number | null;
+    proxy_score_data: Record<string, unknown> | null;
+    contact_extraction: Record<string, unknown> | null;
+  };
+  const fetchPromotedAcceptedRows = async (): Promise<AcceptedRow[]> => {
     // Exclude leads that are no longer valid contacts: blacklisted (e.g.
     // existing-PV detected on the roof) or closed. Counting them would keep
     // "Convalidati" inflated after we drop a lead — exactly what the operator
     // flagged ("KPI still 186 after blacklisting"). A valid contact is one
     // whose lead is still live.
     const EXCLUDED_STATUSES = new Set(['blacklisted', 'closed_lost', 'closed_won']);
-    const { data: leadRoofs } = await sb
-      .from('leads')
-      .select('roof_id, pipeline_status')
-      .not('roof_id', 'is', null);
-    const promotedRoofIds = (leadRoofs ?? [])
-      .filter(
-        (l) =>
-          !EXCLUDED_STATUSES.has(
-            String((l as { pipeline_status: string | null }).pipeline_status ?? ''),
-          ),
-      )
-      .map((l) => (l as { roof_id: string | null }).roof_id)
+
+    // Page through ALL leads with a roof. A grown tenant exceeds PostgREST's
+    // 1000-row default; without paging the promoted roofs past the first page
+    // are silently dropped and the KPIs under-count.
+    const PAGE = 1000;
+    const leadRoofs: Array<{ roof_id: string | null; pipeline_status: string | null }> = [];
+    for (let from = 0; ; from += PAGE) {
+      const { data, error } = await sb
+        .from('leads')
+        .select('roof_id, pipeline_status')
+        .not('roof_id', 'is', null)
+        .order('id', { ascending: true })
+        .range(from, from + PAGE - 1);
+      if (error || !data || data.length === 0) break;
+      leadRoofs.push(...(data as typeof leadRoofs));
+      if (data.length < PAGE) break;
+    }
+
+    const promotedRoofIds = leadRoofs
+      .filter((l) => !EXCLUDED_STATUSES.has(String(l.pipeline_status ?? '')))
+      .map((l) => l.roof_id)
       .filter((v): v is string => typeof v === 'string');
     if (promotedRoofIds.length === 0) return [];
 
-    // Mirror the table filter: solar_verdict='accepted' is sufficient,
-    // stage is intentionally unconstrained (see countVerdict above).
-    const { data, error } = await sb
-      .from('scan_candidates')
-      .select('solar_kw_installable, proxy_score_data, contact_extraction')
-      .eq('solar_verdict', 'accepted')
-      .in('roof_id', promotedRoofIds);
-    if (error || !data) return [];
-    return data as Array<{
-      solar_kw_installable: number | null;
-      proxy_score_data: Record<string, unknown> | null;
-      contact_extraction: Record<string, unknown> | null;
-    }>;
+    // Chunk the roof_id IN-filter: a single `.in()` with many hundreds of
+    // UUIDs overflows the PostgREST request URL and errors out — which made
+    // EVERY /contatti KPI read 0 once the tenant grew past a few hundred
+    // promoted leads. Query in bounded batches and merge.
+    const CHUNK = 120;
+    const rows: AcceptedRow[] = [];
+    for (let i = 0; i < promotedRoofIds.length; i += CHUNK) {
+      const batch = promotedRoofIds.slice(i, i + CHUNK);
+      const { data, error } = await sb
+        .from('scan_candidates')
+        .select('solar_kw_installable, proxy_score_data, contact_extraction')
+        .eq('solar_verdict', 'accepted')
+        .in('roof_id', batch);
+      if (error || !data) continue;
+      rows.push(...(data as AcceptedRow[]));
+    }
+    return rows;
   };
 
   // Single-pass aggregate over the promoted accepted rows — feeds the
