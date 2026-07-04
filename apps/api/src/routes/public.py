@@ -170,18 +170,14 @@ async def track_visit(slug: str) -> dict[str, str]:
     ``pipeline_status`` is also nudged forward to ``engaged`` when we
     were still at ``delivered``/``opened``/``clicked``.
 
-    Engagement back-fill (open/click). The only way to reach this page
-    is by clicking the dossier link in the outreach email, which in turn
-    means the email was opened. We deliberately keep Resend's open/click
-    tracking OFF (link-wrapping + tracking pixels hurt inbox placement on
-    cold outreach), so those two signals never arrive via webhook. When
-    the stronger downstream signal lands (a portal visit) we therefore
-    synthesize the implied ``opened`` + ``clicked`` timestamps and audit
-    events — but ONLY while they're still NULL, so a genuine webhook
-    value (if tracking is ever re-enabled) is never overwritten. This
-    keeps the lead timeline coherent: sent → delivered → opened →
-    clicked → portal visited, instead of a visit appearing out of
-    nowhere with no preceding email engagement.
+    Open/click are NO LONGER synthesized here. Resend open+click tracking
+    is now enabled at the domain level, so the genuine ``email.opened`` /
+    ``email.clicked`` webhooks are the single source of truth (recorded by
+    the tracking agent → ``outreach_opened_at`` / ``outreach_clicked_at``).
+    A portal visit records only the visit itself (``dashboard_visited_at``
+    + ``lead.portal_visited``), so "opened the email" and "visited the
+    dossier" stay DISTINCT signals — the whole point of re-enabling real
+    open tracking.
     """
     sb = get_service_client()
     lead = _load_lead_by_slug(sb, slug)
@@ -189,17 +185,10 @@ async def track_visit(slug: str) -> dict[str, str]:
         raise HTTPException(status_code=404, detail="Lead not found")
 
     first_visit = not lead.get("dashboard_visited_at")
-    # Infer the email signals only when missing — a real webhook wins.
-    inferred_opened = not lead.get("outreach_opened_at")
-    inferred_clicked = not lead.get("outreach_clicked_at")
 
     update: dict[str, Any] = {}
     if first_visit:
         update["dashboard_visited_at"] = "now()"
-    if inferred_opened:
-        update["outreach_opened_at"] = "now()"
-    if inferred_clicked:
-        update["outreach_clicked_at"] = "now()"
     # Visit is stronger engagement than 'clicked' — bump pipeline.
     if lead.get("pipeline_status") in {
         LeadStatus.SENT.value,
@@ -211,27 +200,6 @@ async def track_visit(slug: str) -> dict[str, str]:
 
     if update:
         sb.table("leads").update(update).eq("id", lead["id"]).execute()
-        # Emit the synthesized email events BEFORE the visit event so the
-        # timeline orders correctly (opened → clicked → visited). We reuse
-        # the exact ``lead.email_opened`` / ``lead.email_clicked`` types
-        # the webhook path emits, so the timeline UI renders them with no
-        # extra wiring; ``inferred_from`` flags them as portal-derived.
-        if inferred_opened:
-            _emit_public_event(
-                sb,
-                event_type="lead.email_opened",
-                tenant_id=lead["tenant_id"],
-                lead_id=lead["id"],
-                payload={"slug": slug, "inferred_from": "portal_visit"},
-            )
-        if inferred_clicked:
-            _emit_public_event(
-                sb,
-                event_type="lead.email_clicked",
-                tenant_id=lead["tenant_id"],
-                lead_id=lead["id"],
-                payload={"slug": slug, "inferred_from": "portal_visit"},
-            )
         if first_visit:
             _emit_public_event(
                 sb,
