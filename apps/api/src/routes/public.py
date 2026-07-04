@@ -241,6 +241,119 @@ async def track_whatsapp_click(slug: str) -> dict[str, str]:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Dossier survey widget — progressive "one question at a time" lead-capture
+# ---------------------------------------------------------------------------
+
+# Public survey submissions are unauthenticated (slug-gated). Cap per slug to
+# bound abuse — a genuine prospect completes the quiz once.
+_SURVEY_RATE_PER_HOUR = 5
+_SURVEY_RATE_KEY_TTL = 60 * 60 + 60  # 1h + 1m grace
+
+
+async def _survey_rate_allows(slug: str) -> bool:
+    """Cap public survey submissions per slug/hour. Fail-open (slug unguessable)."""
+    try:
+        r = get_redis()
+        key = f"survey:submit:{slug}:{datetime.now(UTC):%Y%m%d%H}"
+        pipe = r.pipeline()
+        pipe.incr(key, 1)
+        pipe.expire(key, _SURVEY_RATE_KEY_TTL)
+        results = await pipe.execute()
+        return int(results[0]) <= _SURVEY_RATE_PER_HOUR
+    except Exception as exc:  # noqa: BLE001
+        log.warning("survey.rate_check_failed", err=str(exc))
+        return True
+
+
+class SurveySubmission(BaseModel):
+    """Completed dossier survey — the engaging quiz that ends by asking for the
+    prospect's phone. ``answers`` maps each question id to the chosen answer."""
+
+    answers: dict[str, str] = Field(default_factory=dict)
+    phone: str | None = Field(default=None, max_length=40)
+
+
+@router.post("/lead/{slug}/survey/step")
+async def track_survey_step(slug: str, step: int = 0, total: int = 0) -> dict[str, str]:
+    """Fire-and-forget per-step tracking for the dossier survey widget.
+
+    Records how far a prospect gets through the quiz (survey_started → each
+    step → completed) so a drop-off point is visible in the lead timeline.
+    """
+    sb = get_service_client()
+    lead = _load_lead_by_slug(sb, slug)
+    if lead is None:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    _emit_public_event(
+        sb,
+        event_type="lead.survey_step",
+        tenant_id=lead["tenant_id"],
+        lead_id=lead["id"],
+        payload={"slug": slug, "step": step, "total": total},
+    )
+    return {"ok": "tracked"}
+
+
+@router.post("/lead/{slug}/survey")
+async def submit_survey(slug: str, body: SurveySubmission) -> dict[str, str]:
+    """Capture a completed dossier survey (progressive quiz) + the hot phone.
+
+    The survey replaces a flat contact form: a few curious questions the
+    prospect happily answers, ending by asking their phone. A self-provided
+    number is the HOTTEST contact we can get, so it's written to
+    ``subjects.decision_maker_phone`` (source='survey') — it beats any
+    scraped/Atoka number. Emits ``survey_completed`` + ``phone_captured`` and
+    bumps the lead to ``engaged`` (a completed survey is deep engagement).
+    Rate-limited per slug (public, unauthenticated endpoint).
+    """
+    if not await _survey_rate_allows(slug):
+        raise HTTPException(status_code=429, detail="Too many submissions")
+    sb = get_service_client()
+    lead = _load_lead_by_slug(sb, slug)
+    if lead is None:
+        raise HTTPException(status_code=404, detail="Lead not found")
+
+    phone = (body.phone or "").strip()
+    if phone:
+        # subject_id isn't on the slim slug-lookup — fetch it to write the
+        # prospect-provided phone (the hottest contact) onto the anagrafica.
+        sres = sb.table("leads").select("subject_id").eq("id", lead["id"]).limit(1).execute()
+        subject_id = (sres.data or [{}])[0].get("subject_id")
+        if subject_id:
+            sb.table("subjects").update(
+                {"decision_maker_phone": phone, "decision_maker_phone_source": "survey"}
+            ).eq("id", subject_id).execute()
+
+    # A completed survey is stronger engagement than a plain visit.
+    if lead.get("pipeline_status") in {
+        LeadStatus.SENT.value,
+        LeadStatus.DELIVERED.value,
+        LeadStatus.OPENED.value,
+        LeadStatus.CLICKED.value,
+    }:
+        sb.table("leads").update({"pipeline_status": LeadStatus.ENGAGED.value}).eq(
+            "id", lead["id"]
+        ).execute()
+
+    _emit_public_event(
+        sb,
+        event_type="lead.survey_completed",
+        tenant_id=lead["tenant_id"],
+        lead_id=lead["id"],
+        payload={"slug": slug, "answers": body.answers, "has_phone": bool(phone)},
+    )
+    if phone:
+        _emit_public_event(
+            sb,
+            event_type="lead.phone_captured",
+            tenant_id=lead["tenant_id"],
+            lead_id=lead["id"],
+            payload={"slug": slug, "source": "survey"},
+        )
+    return {"ok": "captured"}
+
+
 class AppointmentRequest(BaseModel):
     """Submission shape for the portal's "request a site visit" form.
 
