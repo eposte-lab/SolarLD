@@ -13,6 +13,7 @@ import { fetchPublicLead, leadHeroCopy } from '@/lib/api';
 import { AppointmentForm } from './AppointmentForm';
 import { ExitIntentModal } from './ExitIntentModal';
 import { PortalTracker } from './PortalTracker';
+import { SurveyModal } from './SurveyModal';
 import { VisitTracker } from './VisitTracker';
 
 type PageProps = {
@@ -175,6 +176,21 @@ export default async function LeadPage({ params, searchParams }: PageProps) {
           <VisitTracker slug={slug} />
           <PortalTracker slug={slug} />
           <ExitIntentModal
+            slug={slug}
+            brandColor={brandColor}
+            accentColor={brandAccent}
+            tenantName={tenantName}
+            privacyPolicyUrl={tenant?.privacy_policy_url}
+            defaultPhone={lead.subjects?.decision_maker_phone}
+            alreadyConverted={['appointment', 'closed_won', 'closed_lost'].includes(
+              lead.pipeline_status,
+            )}
+          />
+          {/* Survey widget auto-surfaces after the viewing delay (primary
+              capture). It shares the exit-intent session flags, so exactly one
+              popup ever fires: the survey if the visitor stays, the exit-intent
+              if they try to leave first. */}
+          <SurveyModal
             slug={slug}
             brandColor={brandColor}
             accentColor={brandAccent}

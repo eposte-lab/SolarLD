@@ -64,7 +64,12 @@ export type PortalEventKind =
   // when closed, submitted when the mini contact-form is sent.
   | 'portal.exit_intent_shown'
   | 'portal.exit_intent_dismissed'
-  | 'portal.exit_intent_submitted';
+  | 'portal.exit_intent_submitted'
+  // Dossier survey widget: the progressive quiz auto-surfaces after the
+  // viewing delay, tracks each step, and captures the hot phone at the end.
+  | 'portal.survey_shown'
+  | 'portal.survey_dismissed'
+  | 'portal.survey_submitted';
 
 const SESSION_STORAGE_KEY = 'solarLead.portal.session_id';
 
