@@ -9,9 +9,30 @@ from __future__ import annotations
 
 from src.services.openapi_company_service import (
     CompanyEnrichment,
+    is_target_province,
     parse_it_marketing,
+    parse_it_start,
     select_render_site,
 )
+
+# Real IT-start shape (data = LIST; registeredOffice.province is a plain string;
+# gps.coordinates is [lng, lat]).
+_IT_START = {
+    "data": [
+        {
+            "taxCode": "00767880016",
+            "vatCode": "00767880016",
+            "companyName": "3T - TRATTAMENTI TERMICI TORINO - S.R.L.",
+            "address": {
+                "registeredOffice": {
+                    "streetName": "VIA VAJONT 77", "town": "RIVOLI", "province": "TO",
+                    "zipCode": "10098", "gps": {"coordinates": [7.55672, 45.07899]},
+                }
+            },
+            "activityStatus": "ATTIVA",
+        }
+    ]
+}
 
 # Real IT-marketing shape (data = DICT).
 _IT_MARKETING = {
@@ -95,3 +116,22 @@ def test_parse_handles_missing_and_list_data() -> None:
     enr = parse_it_marketing(listy, "x")
     assert enr is not None
     assert enr.company_name == "ACME"
+
+
+def test_parse_it_start_geo() -> None:
+    geo = parse_it_start(_IT_START, "00767880016")
+    assert geo is not None
+    assert geo.province == "TO"
+    assert geo.town == "RIVOLI"
+    assert geo.lat == 45.07899  # [lng, lat] → lat is the 2nd coordinate
+    assert geo.lng == 7.55672
+    assert geo.activity_status == "ATTIVA"
+    assert parse_it_start(None, "x") is None
+
+
+def test_is_target_province_campania_filter() -> None:
+    assert is_target_province("NA") is True
+    assert is_target_province("na") is True  # case-insensitive
+    assert is_target_province("SA") is True
+    assert is_target_province("TO") is False  # 3T is in Piemonte → filtered out
+    assert is_target_province(None) is False

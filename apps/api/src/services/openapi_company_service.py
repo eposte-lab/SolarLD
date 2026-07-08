@@ -217,3 +217,62 @@ async def fetch_company_enrichment(
 ) -> CompanyEnrichment | None:
     """Fase 3 — full enrichment by P.IVA (contacts, pec, ateco, offices)."""
     return parse_it_marketing(await _get(f"/IT-marketing/{piva}", client=client), piva)
+
+
+# ---------------------------------------------------------------------------
+# Fase 1 — cheap geo lookup (IT-start) for the province cost-guard
+# ---------------------------------------------------------------------------
+
+# Campania provinces — the default energivori target. The geo pass runs on ALL
+# VATs (cheap IT-start) and keeps only these before the expensive IT-marketing
+# enrichment. Filter on the REGISTERED-office province (Fase 3 later refines to
+# the actual plant province).
+TARGET_PROVINCES = frozenset({"NA", "CE", "AV", "BN", "SA"})
+
+
+@dataclass(frozen=True)
+class CompanyGeo:
+    piva: str
+    company_name: str | None = None
+    province: str | None = None  # 2-letter registered-office province
+    town: str | None = None
+    lat: float | None = None
+    lng: float | None = None
+    activity_status: str | None = None
+
+
+def parse_it_start(payload: Any, piva: str) -> CompanyGeo | None:
+    """Map an IT-start response → geo (PURE). NB IT-start ``data`` is a LIST and
+    ``registeredOffice.province`` is a plain 2-letter string (not a dict)."""
+    rec = _first_record(payload)
+    if rec is None:
+        return None
+    ro = (rec.get("address") or {}).get("registeredOffice") or {}
+    prov = ro.get("province")
+    prov_code = prov.get("code") if isinstance(prov, dict) else prov
+    gps = (ro.get("gps") or {}).get("coordinates") or []
+    lng = float(gps[0]) if len(gps) >= 2 else None  # GeoJSON order: [lng, lat]
+    lat = float(gps[1]) if len(gps) >= 2 else None
+    prov_norm = (_s(prov_code) or "").upper() or None
+    return CompanyGeo(
+        piva=piva,
+        company_name=_s(rec.get("companyName")),
+        province=prov_norm,
+        town=_s(ro.get("town")),
+        lat=lat,
+        lng=lng,
+        activity_status=_s(rec.get("activityStatus")),
+    )
+
+
+def is_target_province(
+    province: str | None, targets: frozenset[str] = TARGET_PROVINCES
+) -> bool:
+    return bool(province) and province.upper() in targets
+
+
+async def fetch_company_geo(
+    piva: str, *, client: httpx.AsyncClient | None = None
+) -> CompanyGeo | None:
+    """Fase 1 — cheap geo lookup by P.IVA (province + coords) for the filter."""
+    return parse_it_start(await _get(f"/IT-start/{piva}", client=client), piva)
