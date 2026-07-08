@@ -70,7 +70,7 @@ export interface ProspectList {
   created_at: string;
   updated_at: string;
   // v3 lifecycle
-  source: 'atoka' | 'places' | null;
+  source: 'atoka' | 'places' | 'openapi_it' | null;
   validation_started_at: string | null;
   validation_completed_at: string | null;
   outreach_started_at: string | null;
