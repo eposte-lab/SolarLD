@@ -16,8 +16,16 @@ from src.services.energivori_ingest import (
 
 # The real header from "Energivori 2026".
 _HEADER = [
-    "N.", "P.IVA", "Codice Fiscale", "Ragione Sociale", "Settore (stima)",
-    "Priorita FV (stima)", "Classe", "TipoClasse", "Decorrenza", "Stato",
+    "N.",
+    "P.IVA",
+    "Codice Fiscale",
+    "Ragione Sociale",
+    "Settore (stima)",
+    "Priorita FV (stima)",
+    "Classe",
+    "TipoClasse",
+    "Decorrenza",
+    "Stato",
 ]
 
 
@@ -35,11 +43,30 @@ def test_normalize_piva_preserves_and_pads_leading_zeros() -> None:
 
 def test_parse_maps_columns_and_carries_metadata() -> None:
     rows = [
-        (1, "00767880016", "00767880016", "3T TRATTAMENTI TERMICI S.R.L.",
-         "Trattamenti superficiali / galvanica", "Molto alta", "VALR1",
-         "Elettro-intensita", "01/01/2026", "In istruttoria"),
-        (2, "00140850884", "00140850884", "AGRIPLAST SRL", "Plastica / gomma",
-         "Molto alta", "VALR1", "Elettro-intensita", "01/01/2026", "Confermata"),
+        (
+            1,
+            "00767880016",
+            "00767880016",
+            "3T TRATTAMENTI TERMICI S.R.L.",
+            "Trattamenti superficiali / galvanica",
+            "Molto alta",
+            "VALR1",
+            "Elettro-intensita",
+            "01/01/2026",
+            "In istruttoria",
+        ),
+        (
+            2,
+            "00140850884",
+            "00140850884",
+            "AGRIPLAST SRL",
+            "Plastica / gomma",
+            "Molto alta",
+            "VALR1",
+            "Elettro-intensita",
+            "01/01/2026",
+            "Confermata",
+        ),
     ]
     recs = parse_energivori_rows(_HEADER, rows)
     assert len(recs) == 2
