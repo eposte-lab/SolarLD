@@ -163,23 +163,38 @@ class RenderSite:
     reason: str
 
 
-def select_render_site(enr: CompanyEnrichment) -> RenderSite:
+def select_render_site(
+    enr: CompanyEnrichment, *, target_provinces: frozenset[str]
+) -> RenderSite:
     """Fase 4 — pick the PRODUCTIVE site for the render + a confidence.
 
-    A wrong roof is worse than no roof (it destroys the personalisation), so a
-    non-productive/ambiguous company yields ``low`` confidence → the existing
-    creative gate skips the render and queues manual review.
+    Prefers a plant IN the installer's service area (``target_provinces``): a
+    big energivoro often has warehouses/plants in several regions, and rendering
+    a Parma warehouse for a Campania campaign is worse than useless. So we pick,
+    in order: an in-region local unit → the in-region registered office →
+    (flagged ``low``) an out-of-region plant → (flagged ``low``) a
+    non-productive address. Low confidence → the existing creative gate skips
+    the render + queues manual review (a wrong roof destroys the personalisation).
     """
-    local_units = [o for o in enr.offices if o.is_local_unit and o.address_line]
-    registered = next((o for o in enr.offices if not o.is_local_unit and o.address_line), None)
+    def in_region(o: CompanyOffice) -> bool:
+        return o.province is not None and o.province.upper() in target_provinces
 
-    if enr.is_productive and local_units:
-        u = local_units[0]
-        return RenderSite(u.address_line, u.province, "high", "productive_local_unit")
-    if enr.is_productive and registered:
-        return RenderSite(registered.address_line, registered.province, "high", "productive_registered")
-    # Non-productive (office/holding) or no usable address → flag it.
-    fallback = registered or (local_units[0] if local_units else None)
+    units = [o for o in enr.offices if o.is_local_unit and o.address_line]
+    registered = next((o for o in enr.offices if not o.is_local_unit and o.address_line), None)
+    units_region = [o for o in units if in_region(o)]
+    reg_region = registered if (registered and in_region(registered)) else None
+
+    if enr.is_productive and units_region:
+        u = units_region[0]
+        return RenderSite(u.address_line, u.province, "high", "productive_local_unit_in_region")
+    if enr.is_productive and reg_region:
+        return RenderSite(reg_region.address_line, reg_region.province, "high", "productive_registered_in_region")
+    # Productive but the plant sits OUTSIDE the service area, or non-productive
+    # (office/holding), or no usable address → flag for manual review.
+    if enr.is_productive and (units or registered):
+        s = units[0] if units else registered
+        return RenderSite(s.address_line, s.province, "low", "productive_out_of_region")
+    fallback = registered or (units[0] if units else None)
     return RenderSite(
         fallback.address_line if fallback else None,
         fallback.province if fallback else enr.province,
