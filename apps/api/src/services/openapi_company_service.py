@@ -163,9 +163,7 @@ class RenderSite:
     reason: str
 
 
-def select_render_site(
-    enr: CompanyEnrichment, *, target_provinces: frozenset[str]
-) -> RenderSite:
+def select_render_site(enr: CompanyEnrichment, *, target_provinces: frozenset[str]) -> RenderSite:
     """Fase 4 — pick the PRODUCTIVE site for the render + a confidence.
 
     Prefers a plant IN the installer's service area (``target_provinces``): a
@@ -176,6 +174,7 @@ def select_render_site(
     non-productive address. Low confidence → the existing creative gate skips
     the render + queues manual review (a wrong roof destroys the personalisation).
     """
+
     def in_region(o: CompanyOffice) -> bool:
         return o.province is not None and o.province.upper() in target_provinces
 
@@ -188,7 +187,9 @@ def select_render_site(
         u = units_region[0]
         return RenderSite(u.address_line, u.province, "high", "productive_local_unit_in_region")
     if enr.is_productive and reg_region:
-        return RenderSite(reg_region.address_line, reg_region.province, "high", "productive_registered_in_region")
+        return RenderSite(
+            reg_region.address_line, reg_region.province, "high", "productive_registered_in_region"
+        )
     # Productive but the plant sits OUTSIDE the service area, or non-productive
     # (office/holding), or no usable address → flag for manual review.
     if enr.is_productive and (units or registered):
@@ -280,9 +281,7 @@ def parse_it_start(payload: Any, piva: str) -> CompanyGeo | None:
     )
 
 
-def is_target_province(
-    province: str | None, targets: frozenset[str] = TARGET_PROVINCES
-) -> bool:
+def is_target_province(province: str | None, targets: frozenset[str] = TARGET_PROVINCES) -> bool:
     return bool(province) and province.upper() in targets
 
 

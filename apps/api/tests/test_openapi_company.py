@@ -25,8 +25,11 @@ _IT_START = {
             "companyName": "3T - TRATTAMENTI TERMICI TORINO - S.R.L.",
             "address": {
                 "registeredOffice": {
-                    "streetName": "VIA VAJONT 77", "town": "RIVOLI", "province": "TO",
-                    "zipCode": "10098", "gps": {"coordinates": [7.55672, 45.07899]},
+                    "streetName": "VIA VAJONT 77",
+                    "town": "RIVOLI",
+                    "province": "TO",
+                    "zipCode": "10098",
+                    "gps": {"coordinates": [7.55672, 45.07899]},
                 }
             },
             "activityStatus": "ATTIVA",
@@ -54,14 +57,24 @@ _IT_MARKETING = {
         "employees": {"employee": 30, "employeeRange": {"code": "ER5"}},
         "allOffices": [
             {
-                "companyDetails": {"officeType": {"code": "SSL", "description": "registered office"}},
-                "address": {"zipCode": "10098", "province": {"code": "TO"},
-                            "streetName": "VIA VAJONT, 77", "town": "RIVOLI"},
+                "companyDetails": {
+                    "officeType": {"code": "SSL", "description": "registered office"}
+                },
+                "address": {
+                    "zipCode": "10098",
+                    "province": {"code": "TO"},
+                    "streetName": "VIA VAJONT, 77",
+                    "town": "RIVOLI",
+                },
             },
             {
                 "companyDetails": {"officeType": {"code": "UL", "description": "Local units"}},
-                "address": {"zipCode": "10098", "province": {"code": "TO"},
-                            "streetName": "VIA ALESSANDRIA, 5", "town": "RIVOLI"},
+                "address": {
+                    "zipCode": "10098",
+                    "province": {"code": "TO"},
+                    "streetName": "VIA ALESSANDRIA, 5",
+                    "town": "RIVOLI",
+                },
             },
         ],
     }

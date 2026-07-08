@@ -34,7 +34,7 @@ from .openapi_company_service import (
 log = get_logger(__name__)
 
 # OpenAPI.it pay-as-you-go unit costs (cents) — for the dry-run estimate.
-_COST_GEO_CENTS = 5     # IT-start (cheap, on ALL vats)
+_COST_GEO_CENTS = 5  # IT-start (cheap, on ALL vats)
 _COST_ENRICH_CENTS = 10  # IT-marketing (only the filtered subset)
 
 
@@ -72,8 +72,11 @@ class ImportSummary:
 
 
 def _to_prospect(
-    rec: EnergivoroRecord, province: str | None, town: str | None,
-    enr: CompanyEnrichment | None, site: RenderSite | None,
+    rec: EnergivoroRecord,
+    province: str | None,
+    town: str | None,
+    enr: CompanyEnrichment | None,
+    site: RenderSite | None,
 ) -> EnrichedProspect:
     return EnrichedProspect(
         piva=rec.piva,
@@ -115,9 +118,7 @@ async def enrich_record(
     return _to_prospect(rec, geo.province, geo.town, enr, site), cost
 
 
-async def run_import(
-    records: list[EnergivoroRecord], *, limit: int | None = None
-) -> ImportSummary:
+async def run_import(records: list[EnergivoroRecord], *, limit: int | None = None) -> ImportSummary:
     """Enrich a batch (Fasi 1-4). No DB writes — safe to dry-run + price."""
     batch = records[:limit] if limit else records
     s = ImportSummary(total=len(batch), prospects=[])
