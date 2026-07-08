@@ -13,6 +13,7 @@ from src.services.openapi_company_service import (
     parse_it_marketing,
     parse_it_stakeholders,
     parse_it_start,
+    provinces_for_regions,
     resolve_registro_decision_maker,
     select_render_site,
 )
@@ -234,6 +235,40 @@ def test_resolve_registro_excludes_auditors_only() -> None:
     }
     assert resolve_registro_decision_maker(parse_it_stakeholders(only_auditors, "x")) is None
     assert resolve_registro_decision_maker([]) is None
+
+
+def test_provinces_for_regions_centro_sud() -> None:
+    allr = [
+        "Lazio",
+        "Abruzzo",
+        "Molise",
+        "Campania",
+        "Puglia",
+        "Basilicata",
+        "Calabria",
+        "Sicilia",
+        "Sardegna",
+    ]
+    provs = provinces_for_regions(allr)
+    # a sample from several regions is present
+    for code in ("RM", "NA", "BA", "PZ", "RC", "PA", "CA", "CB", "AQ"):
+        assert code in provs
+    # no northern provinces leak in
+    for code in ("MI", "TO", "BO", "FI"):
+        assert code not in provs
+
+
+def test_provinces_for_regions_case_insensitive_and_unknown() -> None:
+    assert provinces_for_regions(["campania"]) == frozenset({"AV", "BN", "CE", "NA", "SA"})
+    assert provinces_for_regions(["Atlantide"]) == frozenset()  # unknown ignored
+
+
+def test_provinces_for_regions_exclude_roma() -> None:
+    with_roma = provinces_for_regions(["Lazio"])
+    without = provinces_for_regions(["Lazio"], include_roma=False)
+    assert "RM" in with_roma
+    assert "RM" not in without
+    assert without == with_roma - {"RM"}
 
 
 def test_is_target_province_campania_filter() -> None:

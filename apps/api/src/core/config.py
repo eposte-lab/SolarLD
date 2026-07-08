@@ -237,6 +237,22 @@ class Settings(BaseSettings):
     # ("{tenant} — analisi fotovoltaica…"), which leads with the sender name and
     # opens poorly. Falls back to the generic when neither is available.
     personalized_subject_enabled: bool = False
+    # ---- Energivori Delta 2 — geo Centro-Sud + contact gate ----
+    # Change A: service-area regions (Centro-Sud + Isole). The geo pass keeps
+    # only companies whose registered province falls in these regions.
+    energivori_regions: list[str] = [
+        "Lazio",
+        "Abruzzo",
+        "Molise",
+        "Campania",
+        "Puglia",
+        "Basilicata",
+        "Calabria",
+        "Sicilia",
+        "Sardegna",
+    ]
+    # Rome (RM) is huge + often out-of-area; flip False to exclude just RM.
+    energivori_include_roma: bool = True
     # OpenAPI.it (https://console.openapi.com) — pay-as-you-go REST
     # access to the Italian company registry. Used by the prospector
     # for sectors where Google Places returns the wrong category

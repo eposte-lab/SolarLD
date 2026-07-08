@@ -239,11 +239,44 @@ async def fetch_company_enrichment(
 # Fase 1 — cheap geo lookup (IT-start) for the province cost-guard
 # ---------------------------------------------------------------------------
 
-# Campania provinces — the default energivori target. The geo pass runs on ALL
-# VATs (cheap IT-start) and keeps only these before the expensive IT-marketing
-# enrichment. Filter on the REGISTERED-office province (Fase 3 later refines to
-# the actual plant province).
+# Campania provinces — the original energivori target (kept as a default for
+# callers/tests). The geo pass runs on ALL VATs (cheap IT-start) and keeps only
+# the target provinces before the expensive IT-marketing enrichment. Filter on
+# the REGISTERED-office province (Fase 3 later refines to the actual plant).
 TARGET_PROVINCES = frozenset({"NA", "CE", "AV", "BN", "SA"})
+
+# ISO 3166-2:IT province codes per region — the Centro-Sud + Isole service area
+# (Delta 2, Change A). Keys are the Italian region names (matched case-folded).
+REGION_PROVINCES: dict[str, frozenset[str]] = {
+    "Lazio": frozenset({"FR", "LT", "RI", "RM", "VT"}),
+    "Abruzzo": frozenset({"AQ", "CH", "PE", "TE"}),
+    "Molise": frozenset({"CB", "IS"}),
+    "Campania": frozenset({"AV", "BN", "CE", "NA", "SA"}),
+    "Puglia": frozenset({"BA", "BT", "BR", "FG", "LE", "TA"}),
+    "Basilicata": frozenset({"MT", "PZ"}),
+    "Calabria": frozenset({"CS", "CZ", "KR", "RC", "VV"}),
+    "Sicilia": frozenset({"AG", "CL", "CT", "EN", "ME", "PA", "RG", "SR", "TP"}),
+    "Sardegna": frozenset({"CA", "NU", "OR", "SS", "SU"}),
+}
+_REGION_BY_FOLD = {k.casefold(): k for k in REGION_PROVINCES}
+
+
+def provinces_for_regions(
+    regions: list[str] | tuple[str, ...], *, include_roma: bool = True
+) -> frozenset[str]:
+    """Expand region names → the set of their province codes (Change A).
+
+    Unknown region names are ignored (logged by the caller if needed). With
+    ``include_roma=False`` the RM province is dropped (Rome is a special, huge,
+    often-out-of-area market the operator may want to exclude)."""
+    out: set[str] = set()
+    for r in regions or ():
+        canon = _REGION_BY_FOLD.get((r or "").strip().casefold())
+        if canon:
+            out |= REGION_PROVINCES[canon]
+    if not include_roma:
+        out.discard("RM")
+    return frozenset(out)
 
 
 @dataclass(frozen=True)

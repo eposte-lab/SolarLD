@@ -19,6 +19,7 @@ from dataclasses import dataclass
 
 import httpx
 
+from ..core.config import settings
 from ..core.logging import get_logger
 from ..data.province_centroids import province_centroid
 from .energivori_ingest import EnergivoroRecord
@@ -31,8 +32,22 @@ from .openapi_company_service import (
     fetch_company_enrichment,
     fetch_company_geo,
     is_target_province,
+    provinces_for_regions,
     select_render_site,
 )
+
+
+def _target_provinces() -> frozenset[str]:
+    """The active service-area province set (Delta 2 Change A): the configured
+    Centro-Sud regions, minus RM when include_roma is off. Falls back to the
+    Campania default if the config resolves to nothing (mis-set regions)."""
+    return (
+        provinces_for_regions(
+            settings.energivori_regions, include_roma=settings.energivori_include_roma
+        )
+        or TARGET_PROVINCES
+    )
+
 
 log = get_logger(__name__)
 
@@ -108,16 +123,17 @@ async def enrich_record(
     ``None`` prospect means the cheap geo pass filtered it out (not in a target
     province) — only the geo cost was spent.
     """
+    targets = _target_provinces()
     geo = await fetch_company_geo(rec.piva, client=client)
     cost = _COST_GEO_CENTS
     if geo is None:
         return None, cost
-    if not is_target_province(geo.province):
+    if not is_target_province(geo.province, targets):
         return None, cost  # filtered out — no enrichment spend
 
     enr = await fetch_company_enrichment(rec.piva, client=client)
     cost += _COST_ENRICH_CENTS
-    site = select_render_site(enr, target_provinces=TARGET_PROVINCES) if enr else None
+    site = select_render_site(enr, target_provinces=targets) if enr else None
     return _to_prospect(rec, geo.province, geo.town, enr, site), cost
 
 
