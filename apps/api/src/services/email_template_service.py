@@ -405,10 +405,12 @@ def _personalized_step1_subject(
     the company; returns None when neither is available (→ generic default)."""
     name = (decision_maker_name or "").strip()
     company = (lead_business_name or "").strip()
+    # No apostrophes — keep the subject clean across every render path (a raw
+    # apostrophe gets HTML-escaped to &#39; when echoed through a Jinja template).
     if name and company:
-        return f"{name}, un'analisi fotovoltaica per {company}"
+        return f"{name}, analisi fotovoltaica per {company}"
     if name:
-        return f"{name}, un'analisi fotovoltaica per la vostra sede"
+        return f"{name}, analisi fotovoltaica per la vostra sede"
     if company:
         return f"{company} — analisi fotovoltaica sulla vostra sede"
     return None

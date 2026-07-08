@@ -259,8 +259,9 @@ def test_premium_subject_uses_decision_maker_and_company() -> None:
         lead_business_name="Campania Plastica",
         personalize=True,
     )
-    assert subj == "Dante Mele, un'analisi fotovoltaica per Campania Plastica"
+    assert subj == "Dante Mele, analisi fotovoltaica per Campania Plastica"
     assert "Total Trade" not in subj  # leads with the recipient, not the vendor
+    assert "'" not in subj  # no apostrophe → no &#39; when echoed through Jinja
 
 
 def test_premium_subject_falls_back_to_company_then_generic() -> None:
