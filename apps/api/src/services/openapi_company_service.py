@@ -290,3 +290,168 @@ async def fetch_company_geo(
 ) -> CompanyGeo | None:
     """Fase 1 — cheap geo lookup by P.IVA (province + coords) for the filter."""
     return parse_it_start(await _get(f"/IT-start/{piva}", client=client), piva)
+
+
+# ---------------------------------------------------------------------------
+# IT-stakeholders — the Registro Imprese decision-maker ("persona responsabile")
+# ---------------------------------------------------------------------------
+#
+# GET /IT-stakeholders/{piva} → data with a ``managers`` list; each manager:
+#   {isLegalRepresentative: bool, name, surname, taxCode,
+#    roles: [{role: {code, description}, roleStartDate}], gender, age, ...}
+# Confirmed live: role code AUN='Managing director' (amministratore unico),
+# PC='Procurator', SIE/PCS = auditors (sindaci) which are NOT decision-makers.
+# The legale rappresentante / amministratore is the buyer in the small family
+# SRLs that make up the energivori list — the registry has this name ~100% of
+# the time, so it becomes the PRIMARY anchor (LinkedIn/Hunter = confirmation).
+
+# Governing-role priority (higher = more decisional). Keyed on the OpenAPI role
+# code; unknown codes fall back to the description keywords below.
+_ROLE_PRIORITY: dict[str, int] = {
+    "AUN": 100,  # amministratore unico (Managing director)
+    "AD": 90,  # amministratore delegato
+    "PCC": 80,  # presidente CdA
+    "PRE": 80,  # presidente
+    "AMM": 70,  # amministratore / consigliere
+    "CO": 65,  # consigliere
+    "PC": 40,  # procuratore (has signing power, not a governing role)
+}
+_ROLE_LABEL_IT: dict[str, str] = {
+    "AUN": "Amministratore unico",
+    "AD": "Amministratore delegato",
+    "PCC": "Presidente CdA",
+    "PRE": "Presidente",
+    "AMM": "Amministratore",
+    "CO": "Consigliere",
+    "PC": "Procuratore",
+}
+# Control/auditor roles — NEVER the decision-maker (collegio sindacale, revisori).
+_AUDITOR_CODES = frozenset({"SIE", "SIS", "PCS", "REV", "RE", "PRS"})
+_AUDITOR_KEYWORDS = ("auditor", "sindac", "revisor", "collegio")
+
+
+@dataclass(frozen=True)
+class RegistroManager:
+    name: str | None
+    surname: str | None
+    tax_code: str | None
+    is_legal_rep: bool
+    roles: tuple[tuple[str | None, str | None], ...]  # (code, description) pairs
+
+
+@dataclass(frozen=True)
+class RegistroDecisionMaker:
+    full_name: str  # "Dante Mele" (title-cased)
+    first_name: str | None
+    last_name: str | None
+    role: str  # Italian label, e.g. "Amministratore unico"
+    role_code: str | None
+    confidence: str  # 'alta' | 'media'
+    is_legal_rep: bool
+
+
+def _is_auditor(code: str | None, desc: str | None) -> bool:
+    if code and code.upper() in _AUDITOR_CODES:
+        return True
+    d = (desc or "").lower()
+    return any(k in d for k in _AUDITOR_KEYWORDS)
+
+
+def _role_score(code: str | None, desc: str | None) -> int:
+    if code and code.upper() in _ROLE_PRIORITY:
+        return _ROLE_PRIORITY[code.upper()]
+    d = (desc or "").lower()
+    if "managing director" in d:
+        return 100
+    if "chief executive" in d or d == "ceo":
+        return 90
+    if "chairman" in d or "president" in d:  # auditors already filtered out
+        return 80
+    if "director" in d or "administrator" in d or "amministrat" in d:
+        return 70
+    if "procurator" in d or "attorney" in d or "representative" in d:
+        return 40
+    return 50  # unknown governing role
+
+
+def _role_label(code: str | None, desc: str | None) -> str:
+    if code and code.upper() in _ROLE_LABEL_IT:
+        return _ROLE_LABEL_IT[code.upper()]
+    return (desc or "").strip() or "Rappresentante"
+
+
+def _person_name(name: str | None, surname: str | None) -> str:
+    parts = [p.strip().title() for p in (name, surname) if p and p.strip()]
+    return " ".join(parts)
+
+
+def parse_it_stakeholders(payload: Any, piva: str) -> list[RegistroManager]:
+    """Map an IT-stakeholders response → the managers (PURE). Empty on missing."""
+    rec = _first_record(payload)
+    if rec is None:
+        return []
+    out: list[RegistroManager] = []
+    for m in rec.get("managers") or []:
+        if not isinstance(m, dict):
+            continue
+        roles: list[tuple[str | None, str | None]] = []
+        for r in m.get("roles") or []:
+            role = (r or {}).get("role") or {}
+            roles.append((_s(role.get("code")), _s(role.get("description"))))
+        out.append(
+            RegistroManager(
+                name=_s(m.get("name")),
+                surname=_s(m.get("surname")),
+                tax_code=_s(m.get("taxCode")),
+                is_legal_rep=bool(m.get("isLegalRepresentative")),
+                roles=tuple(roles),
+            )
+        )
+    return out
+
+
+def resolve_registro_decision_maker(
+    managers: list[RegistroManager],
+) -> RegistroDecisionMaker | None:
+    """Fase 1 (Modifica 1) — pick the decision-maker from the registry (PURE).
+
+    Excludes auditors (collegio sindacale/revisori); ranks the rest by governing
+    role (amministratore unico > delegato > presidente CdA > … > procuratore),
+    boosting the flagged legale rappresentante. Returns None when the registry
+    has only auditors / no usable person.
+    """
+    best: RegistroManager | None = None
+    best_key: tuple[int, int] | None = None
+    best_role: tuple[str | None, str | None] = (None, None)
+    for m in managers:
+        if not (m.name or m.surname):
+            continue
+        # the manager's best NON-auditor role
+        gov = [(c, d) for (c, d) in m.roles if not _is_auditor(c, d)]
+        if not gov and m.roles:
+            continue  # every role is an auditor role → not a decision-maker
+        code, desc = max(gov, key=lambda cd: _role_score(*cd)) if gov else (None, None)
+        score = _role_score(code, desc) + (25 if m.is_legal_rep else 0)
+        key = (score, 1 if m.is_legal_rep else 0)
+        if best_key is None or key > best_key:
+            best, best_key, best_role = m, key, (code, desc)
+    if best is None:
+        return None
+    code, desc = best_role
+    confidence = "alta" if (best.is_legal_rep or _role_score(code, desc) >= 90) else "media"
+    return RegistroDecisionMaker(
+        full_name=_person_name(best.name, best.surname),
+        first_name=(best.name or "").strip().title() or None,
+        last_name=(best.surname or "").strip().title() or None,
+        role=_role_label(code, desc),
+        role_code=code,
+        confidence=confidence,
+        is_legal_rep=best.is_legal_rep,
+    )
+
+
+async def fetch_company_stakeholders(
+    piva: str, *, client: httpx.AsyncClient | None = None
+) -> list[RegistroManager]:
+    """Fetch the Registro Imprese managers by P.IVA (IT-stakeholders)."""
+    return parse_it_stakeholders(await _get(f"/IT-stakeholders/{piva}", client=client), piva)

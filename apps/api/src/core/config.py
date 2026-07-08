@@ -217,6 +217,21 @@ class Settings(BaseSettings):
     domain_intel_ttl_days: int = 60
     per_run_budget_eur: float = 25.0
     contact_enrichment_concurrency: int = 3
+    # ---- "Persona responsabile" delta (0165) — reach the real decision-maker.
+    # All default OFF so the live funnel is unchanged until the operator opts in.
+    # Modifica 1: resolve the decision-maker from the Registro Imprese
+    # (OpenAPI IT-stakeholders) BEFORE the Hunter/website path (LinkedIn/Hunter
+    # become confirmation, never discard when absent).
+    decision_maker_registro_first: bool = False
+    # Modifica 2: build name-based email permutations + verify them in ONE
+    # NeverBounce batch, pick the best deliverable.
+    email_permutations_enabled: bool = False
+    # Modifica 2 sub-policy: if no permutation is 'valid' but the domain is
+    # accept-all/unknown, keep the most-probable one at medium confidence.
+    acceptall_as_medium_confidence: bool = True
+    # Modifica 3: when there is no personal email, fall back to the company PEC
+    # (OpenAPI IT-pec) with a sober tone before dropping to a phone-only task.
+    pec_fallback_enabled: bool = False
     # OpenAPI.it (https://console.openapi.com) — pay-as-you-go REST
     # access to the Italian company registry. Used by the prospector
     # for sectors where Google Places returns the wrong category
