@@ -239,3 +239,54 @@ def test_render_ends_with_single_trailing_newline_in_text() -> None:
     out = render_outreach_email(_ctx())
     assert out.text.endswith("\n")
     assert not out.text.endswith("\n\n\n")
+
+
+# --- Modifica 4: personalised (lead-led) cold subject --------------------------
+
+
+def test_premium_subject_generic_when_not_personalized() -> None:
+    # Default (flag off) → the vendor-led generic, unchanged.
+    subj = default_subject_for("b2b", "Total Trade", email_style="premium")
+    assert subj == "Total Trade — analisi fotovoltaica per la vostra sede"
+
+
+def test_premium_subject_uses_decision_maker_and_company() -> None:
+    subj = default_subject_for(
+        "b2b",
+        "Total Trade",
+        email_style="premium",
+        decision_maker_name="Dante Mele",
+        lead_business_name="Campania Plastica",
+        personalize=True,
+    )
+    assert subj == "Dante Mele, un'analisi fotovoltaica per Campania Plastica"
+    assert "Total Trade" not in subj  # leads with the recipient, not the vendor
+
+
+def test_premium_subject_falls_back_to_company_then_generic() -> None:
+    # name missing → company-led
+    company_only = default_subject_for(
+        "b2b",
+        "Total Trade",
+        email_style="premium",
+        lead_business_name="Campania Plastica",
+        personalize=True,
+    )
+    assert company_only == "Campania Plastica — analisi fotovoltaica sulla vostra sede"
+    # neither → the generic default (never a broken subject)
+    neither = default_subject_for("b2b", "Total Trade", email_style="premium", personalize=True)
+    assert neither == "Total Trade — analisi fotovoltaica per la vostra sede"
+
+
+def test_personalized_subject_is_step1_only() -> None:
+    # Follow-ups keep their stable thread subjects even with personalize on.
+    step2 = default_subject_for(
+        "b2b",
+        "Total Trade",
+        email_style="premium",
+        sequence_step=2,
+        decision_maker_name="Dante Mele",
+        lead_business_name="Campania Plastica",
+        personalize=True,
+    )
+    assert step2 == "Re: analisi fotovoltaica — i numeri chiave"
