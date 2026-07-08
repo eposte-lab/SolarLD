@@ -144,10 +144,15 @@ async def validate_prospect_list(*, tenant_id: str, list_id: str) -> ValidationR
         timeout=10.0,
         headers={"User-Agent": "solarlead-validate/1.0 (+https://solarlead.it)"},
     ) as client:
-        # Use a synthetic scan_id for these rows so they don't conflict
-        # with the daily cron's scan numbering. Same id reused across
-        # all items in the same list run.
-        scan_id = f"prospect:{list_id}"
+        # Group these rows under the list's own id as the scan_id (one per list
+        # run). scan_candidates.scan_id is a NOT-NULL UUID with no FK, so it must
+        # be a valid UUID — the old "prospect:{list_id}" string blew up the
+        # INSERT with "invalid input syntax for type uuid". list_id is a distinct
+        # UUID from prospect_lists so it never collides with a scan_jobs id.
+        # (Places lists never hit this: their scan_candidate already exists from
+        # the daily funnel and is reused; only newly-created ones — every
+        # energivori item, synthetic place_id — reach the INSERT.)
+        scan_id = list_id
 
         by_status: dict[str, int] = {}
         for row in rows:
@@ -306,12 +311,11 @@ async def _validate_one(
             "site_pec": scraped.site.pec,
             "site_phone": scraped.site.phone,
             "pagine_bianche_phone": scraped.pb.phone,
-            "opencorporates_vat": scraped.oc.vat_number,
+            "opencorporates_vat": scraped.oc.vat,
         }
-        all_emails = list(scraped.site.emails)
-        if scraped.pb.email and scraped.pb.email not in all_emails:
-            all_emails.append(scraped.pb.email)
-        best = extract_best_email(all_emails)
+        # Emails come from the website only — PagineBianche (scraped.pb) carries
+        # a phone, not an email (PagineBiancheRecord has no email field).
+        best = extract_best_email(list(scraped.site.emails))
         scraped_best_email = best.email if best else None
         scraped_best_phone = scraped.site.phone or scraped.pb.phone or phone_initial
 
