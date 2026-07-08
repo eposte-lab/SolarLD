@@ -59,6 +59,11 @@ from .decision_maker_name import (
 from .hunter_io_service import find_email, verify_email_hunter
 from .national_chains import is_national_chain
 from .neverbounce_service import NeverBounceError, verify_email
+from .openapi_company_service import (
+    RegistroDecisionMaker,
+    fetch_company_stakeholders,
+    resolve_registro_decision_maker,
+)
 from .web_scraper import _has_mx_record, is_non_business_domain
 
 log = get_logger(__name__)
@@ -195,14 +200,33 @@ def _mirror_to_subject(
     orders on). No-op under a dry run — never change the outreach recipient."""
     if _dry_run.get():
         return
+    payload: dict[str, Any] = {
+        "decision_maker_email": email,
+        "decision_maker_role": role,
+        "decision_maker_email_source": "premium_finder",
+        "decision_maker_email_fallback": fallback,
+        "decision_maker_email_verified": True,
+    }
+    # Never NULL an already-resolved name (e.g. the registro name) with a
+    # role-only win (STEP 3 passes name=None): only overwrite when we have one.
+    if name:
+        payload["decision_maker_name"] = name
+    sb.table("subjects").update(payload).eq("id", subject_id).execute()
+
+
+def _mirror_registro_name(sb: Any, subject_id: str, dm: RegistroDecisionMaker) -> None:
+    """Persist the Registro Imprese decision-maker NAME (not an email) so the
+    greeting + call-by-name view have the real person even when no email is
+    found. Leaves the email fields untouched (recipient unchanged). No-op under
+    a dry run."""
+    if _dry_run.get():
+        return
     sb.table("subjects").update(
         {
-            "decision_maker_email": email,
-            "decision_maker_name": name,
-            "decision_maker_role": role,
-            "decision_maker_email_source": "premium_finder",
-            "decision_maker_email_fallback": fallback,
-            "decision_maker_email_verified": True,
+            "decision_maker_name": dm.full_name,
+            "decision_maker_role": dm.role,
+            "decision_maker_source": "registro",
+            "decision_maker_confidence": dm.confidence,
         }
     ).eq("id", subject_id).execute()
 
@@ -589,7 +613,10 @@ async def _resolve_best_contact(
     subject_id = lead.data.get("subject_id")
     subj = (
         sb.table("subjects")
-        .select("id, decision_maker_email, decision_maker_email_source")
+        .select(
+            "id, decision_maker_email, decision_maker_email_source, "
+            "vat_number, decision_maker_source, decision_maker_name"
+        )
         .eq("id", subject_id)
         .limit(1)
         .maybe_single()
@@ -655,70 +682,101 @@ async def _resolve_best_contact(
     cost = 0
     verifications = 0
 
-    # --- STEP 1: Hunter-first (also caches pattern/accept_all → domain_intel) -
-    upgrade, reason = await _attempt_upgrade(
-        company_domain=domain,
-        current_email=current_email,
-        tenant_id=tenant_id,
-        lead_id=lead_id,
-        client=client,
-    )
-    if reason in _STEP1_CHARGED_REASONS:
-        cost += _HUNTER_CREDITS_PER_LOOKUP
-        verifications += 1
-    if upgrade is not None:
-        _mirror_to_subject(
-            sb,
-            subject_id,
-            email=upgrade.email,
-            name=upgrade.name,
-            role=upgrade.role,
-            fallback=upgrade.fallback_email,
-        )
-        return _finish(
-            sb,
-            lead_id=lead_id,
-            tenant_id=tenant_id,
-            outcome=ContactOutcome(
-                status="done",
-                email=upgrade.email,
-                name=upgrade.name,
-                role=upgrade.role,
-                kind="decision_maker",
-                verified=True,
-                cost_cents=cost,
-                reason="step1_hunter",
-            ),
-            best_email=upgrade.email,
-        )
-    if reason == "already_personal":  # current email is already a named person
-        return _finish(
-            sb,
-            lead_id=lead_id,
-            tenant_id=tenant_id,
-            outcome=ContactOutcome(
-                status="done",
-                email=current_email,
-                kind="decision_maker",
-                reason="already_personal",
-                cost_cents=cost,
-            ),
-            best_email=current_email,
-        )
-    if reason in {"no_api_key", "budget_exhausted", "budget_check_failed"}:
-        return _finish(
-            sb,
-            lead_id=lead_id,
-            tenant_id=tenant_id,
-            outcome=ContactOutcome(status="needs_manual", reason=reason, cost_cents=cost),
-            best_email=current_email,
-        )
+    # --- Registro-first (Modifica 1, flag-gated) -----------------------------
+    # In the small family SRLs the Registro Imprese amministratore/legale
+    # rappresentante IS the buyer, and the registry has that name ~100% of the
+    # time. Anchor on it: persist the NAME (even with no email — the greeting +
+    # call-by-name view need it) and drive the email search off THAT person,
+    # rather than letting Hunter surface a different (or no) person. Needs the
+    # subject's P.IVA; absent it (e.g. Places leads) this is skipped and the
+    # existing Hunter-first path runs unchanged.
+    registro_name: tuple[str, str] | None = None
+    vat = (subj.data.get("vat_number") or "").strip()
+    if settings.decision_maker_registro_first and vat:
+        if subj.data.get("decision_maker_source") == "registro" and not force:
+            parts = (subj.data.get("decision_maker_name") or "").split()
+            if len(parts) >= 2:  # reuse the persisted name — no re-fetch/re-pay
+                registro_name = (parts[0], " ".join(parts[1:]))
+        else:
+            try:
+                managers = await fetch_company_stakeholders(vat, client=client)
+            except Exception as exc:  # noqa: BLE001 — registry is best-effort
+                log.warning("waterfall.registro_failed", err=type(exc).__name__)
+                managers = []
+            dm = resolve_registro_decision_maker(managers)
+            if dm and dm.first_name and dm.last_name:
+                _mirror_registro_name(sb, subject_id, dm)
+                registro_name = (dm.first_name, dm.last_name)
+    if registro_name is not None:
+        name_hint = registro_name  # the registered person drives the email search
 
     # The domain catch-all is probed at most ONCE across STEP 2 + STEP 3
     # (memoized here, including the undecided 'unknown' verdict).
     catch_state = _CatchAll()
 
-    # --- STEP 2: name discovery + pattern-guess ------------------------------
+    # --- STEP 1: Hunter-first (also caches pattern/accept_all → domain_intel) -
+    # Skipped when the registry already gave us the person: Hunter would surface
+    # a DIFFERENT name; go straight to searching the registered person's email.
+    if registro_name is None:
+        upgrade, reason = await _attempt_upgrade(
+            company_domain=domain,
+            current_email=current_email,
+            tenant_id=tenant_id,
+            lead_id=lead_id,
+            client=client,
+        )
+        if reason in _STEP1_CHARGED_REASONS:
+            cost += _HUNTER_CREDITS_PER_LOOKUP
+            verifications += 1
+        if upgrade is not None:
+            _mirror_to_subject(
+                sb,
+                subject_id,
+                email=upgrade.email,
+                name=upgrade.name,
+                role=upgrade.role,
+                fallback=upgrade.fallback_email,
+            )
+            return _finish(
+                sb,
+                lead_id=lead_id,
+                tenant_id=tenant_id,
+                outcome=ContactOutcome(
+                    status="done",
+                    email=upgrade.email,
+                    name=upgrade.name,
+                    role=upgrade.role,
+                    kind="decision_maker",
+                    verified=True,
+                    cost_cents=cost,
+                    reason="step1_hunter",
+                ),
+                best_email=upgrade.email,
+            )
+        if reason == "already_personal":  # current email is already a named person
+            return _finish(
+                sb,
+                lead_id=lead_id,
+                tenant_id=tenant_id,
+                outcome=ContactOutcome(
+                    status="done",
+                    email=current_email,
+                    kind="decision_maker",
+                    reason="already_personal",
+                    cost_cents=cost,
+                ),
+                best_email=current_email,
+            )
+        if reason in {"no_api_key", "budget_exhausted", "budget_check_failed"}:
+            return _finish(
+                sb,
+                lead_id=lead_id,
+                tenant_id=tenant_id,
+                outcome=ContactOutcome(status="needs_manual", reason=reason, cost_cents=cost),
+                best_email=current_email,
+            )
+
+    # --- STEP 2: name discovery + pattern-guess (registro name_hint if present)
     step2_outcome, cost, verifications = await _step2_named_guess(
         sb=sb,
         tenant_id=tenant_id,
