@@ -85,14 +85,25 @@ def test_parse_it_marketing_maps_real_fields() -> None:
     assert sum(o.is_local_unit for o in enr.offices) == 1
 
 
-def test_select_render_site_prefers_productive_local_unit() -> None:
+def test_select_render_site_prefers_in_region_productive_unit() -> None:
     enr = parse_it_marketing(_IT_MARKETING, "00767880016")
     assert enr is not None
-    site = select_render_site(enr)
+    # Installer serves TO → the TO local unit is the plant to render.
+    site = select_render_site(enr, target_provinces=frozenset({"TO"}))
     assert site.confidence == "high"
-    assert site.reason == "productive_local_unit"
+    assert site.reason == "productive_local_unit_in_region"
     assert "VIA ALESSANDRIA" in (site.address_line or "")  # the UL, not the registered office
     assert site.province == "TO"
+
+
+def test_render_site_out_of_region_is_flagged() -> None:
+    # Same productive company, but the installer serves NA — the TO plant is
+    # out of the service area → low confidence, so the render gate skips it.
+    enr = parse_it_marketing(_IT_MARKETING, "00767880016")
+    assert enr is not None
+    site = select_render_site(enr, target_provinces=frozenset({"NA"}))
+    assert site.confidence == "low"
+    assert site.reason == "productive_out_of_region"
 
 
 def test_non_productive_company_is_low_confidence() -> None:
@@ -103,7 +114,7 @@ def test_non_productive_company_is_low_confidence() -> None:
         offices=parse_it_marketing(_IT_MARKETING, "x").offices,  # reuse addresses
     )
     assert enr.is_productive is False
-    site = select_render_site(enr)
+    site = select_render_site(enr, target_provinces=frozenset({"TO"}))
     assert site.confidence == "low"
     assert site.reason == "non_productive_ateco"
 
