@@ -268,7 +268,11 @@ export default function ListDetailPage({
   }
 
   const filter = (list.search_filter ?? {}) as Record<string, unknown>;
-  const isPlacesList = list.source === 'places';
+  // Lists whose items run the on-demand validate → outreach pipeline: Places
+  // and the OpenAPI energivori channel ('openapi_it'). Legacy 'atoka' lists use
+  // a different import flow and don't carry place coords, so they stay excluded.
+  const isValidatablePipeline =
+    list.source === 'places' || list.source === 'openapi_it';
   // Default 'solar_rooftop' for legacy lists where the column is null.
   const isGenericOutreach = list.campaign_type === 'generic_outreach';
 
@@ -314,8 +318,8 @@ export default function ListDetailPage({
         </div>
       </header>
 
-      {/* v3 actions panel — visible only for Places-based lists */}
-      {isPlacesList && (
+      {/* v3 actions panel — validate → outreach pipeline (Places + energivori) */}
+      {isValidatablePipeline && (
         <BentoCard variant="default" padding="default" span="full">
           <SectionEyebrow tone="dim">Pipeline on-demand</SectionEyebrow>
           <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-2">
