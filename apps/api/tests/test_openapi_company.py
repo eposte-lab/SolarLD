@@ -11,7 +11,9 @@ from src.services.openapi_company_service import (
     CompanyEnrichment,
     is_target_province,
     parse_it_marketing,
+    parse_it_stakeholders,
     parse_it_start,
+    resolve_registro_decision_maker,
     select_render_site,
 )
 
@@ -151,6 +153,87 @@ def test_parse_it_start_geo() -> None:
     assert geo.lng == 7.55672
     assert geo.activity_status == "ATTIVA"
     assert parse_it_start(None, "x") is None
+
+
+# Real IT-stakeholders shape (CAMPANIA PLASTICA, trimmed): the amministratore
+# unico (AUN) is the legale rappresentante; a procuratore (PC) and an auditor
+# (SIE, collegio sindacale) are also present and must NOT be picked.
+_IT_STAKEHOLDERS = {
+    "data": {
+        "managers": [
+            {
+                "isLegalRepresentative": True,
+                "name": "DANTE",
+                "surname": "MELE",
+                "taxCode": "MLEDNT57R05F616B",
+                "roles": [{"role": {"code": "AUN", "description": "Managing director"}}],
+            },
+            {
+                "isLegalRepresentative": True,
+                "name": "GUIDO",
+                "surname": "MELE",
+                "taxCode": "MLEGDU84L14L120S",
+                "roles": [
+                    {"role": {"code": "PC", "description": "Procurator/attorney/representative"}}
+                ],
+            },
+            {
+                "isLegalRepresentative": False,
+                "name": "GENNARO",
+                "surname": "BOTTONE",
+                "taxCode": "BTTGNR77P19G230K",
+                "roles": [{"role": {"code": "SIE", "description": "Permanent auditor"}}],
+            },
+        ]
+    }
+}
+
+
+def test_parse_it_stakeholders_maps_managers() -> None:
+    mgrs = parse_it_stakeholders(_IT_STAKEHOLDERS, "02334410657")
+    assert len(mgrs) == 3
+    assert mgrs[0].name == "DANTE"
+    assert mgrs[0].surname == "MELE"
+    assert mgrs[0].is_legal_rep is True
+    assert mgrs[0].roles == (("AUN", "Managing director"),)
+    assert parse_it_stakeholders(None, "x") == []
+
+
+def test_resolve_registro_picks_amministratore_unico() -> None:
+    dm = resolve_registro_decision_maker(parse_it_stakeholders(_IT_STAKEHOLDERS, "x"))
+    assert dm is not None
+    assert dm.full_name == "Dante Mele"  # title-cased
+    assert dm.first_name == "Dante"
+    assert dm.last_name == "Mele"
+    assert dm.role_code == "AUN"
+    assert dm.role == "Amministratore unico"
+    assert dm.confidence == "alta"  # legale rappresentante + top role
+    assert dm.is_legal_rep is True
+
+
+def test_resolve_registro_excludes_auditors_only() -> None:
+    only_auditors = {
+        "data": {
+            "managers": [
+                {
+                    "isLegalRepresentative": False,
+                    "name": "ANTONIO",
+                    "surname": "MANNA",
+                    "roles": [
+                        {"role": {"code": "PCS", "description": "Chairman of board of auditors"}}
+                    ],
+                },
+                {
+                    "isLegalRepresentative": False,
+                    "name": "DOMENICO",
+                    "surname": "MANNA",
+                    "roles": [{"role": {"code": "SIE", "description": "Permanent auditor"}}],
+                },
+            ]
+        }
+    }
+    assert resolve_registro_decision_maker(parse_it_stakeholders(only_auditors, "x")) is None
+    assert resolve_registro_decision_maker([]) is None
 
 
 def test_is_target_province_campania_filter() -> None:
