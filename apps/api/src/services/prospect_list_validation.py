@@ -72,6 +72,15 @@ class ValidationResult:
     by_status: dict[str, int]
 
 
+def _primary_send_email(openapi_email: str | None, scraped_email: str | None) -> str | None:
+    """Pick the send contact. For the energivori (openapi_it) channel the
+    verified OpenAPI company email is PRIMARY (operator decision) and the
+    scraped address is the fallback; every other channel passes
+    ``openapi_email=None`` so this returns the scraped email unchanged.
+    """
+    return openapi_email or scraped_email
+
+
 async def validate_prospect_list(*, tenant_id: str, list_id: str) -> ValidationResult:
     """Run v3 convalida (L2+L3+L4) on every pending item of a list.
 
@@ -86,7 +95,7 @@ async def validate_prospect_list(*, tenant_id: str, list_id: str) -> ValidationR
     # ── Read campaign_type to know whether to run L4 ─────────────────────
     list_meta = (
         sb.table("prospect_lists")
-        .select("campaign_type")
+        .select("campaign_type, source")
         .eq("id", list_id)
         .eq("tenant_id", tenant_id)
         .limit(1)
@@ -94,6 +103,7 @@ async def validate_prospect_list(*, tenant_id: str, list_id: str) -> ValidationR
         .execute()
     )
     campaign_type: str = (list_meta.data or {}).get("campaign_type") or "solar_rooftop"
+    source: str = (list_meta.data or {}).get("source") or "atoka"
 
     # ── Mark list as validating ──────────────────────────────────────────
     sb.table("prospect_lists").update({"validation_started_at": datetime.utcnow().isoformat()}).eq(
@@ -107,7 +117,7 @@ async def validate_prospect_list(*, tenant_id: str, list_id: str) -> ValidationR
             "id, google_place_id, legal_name, place_lat, place_lng, "
             "place_types, business_status, user_ratings_total, rating, "
             "website_domain, phone, scan_candidate_id, validation_status, "
-            "hq_address"
+            "hq_address, decision_maker_email"
         )
         .eq("tenant_id", tenant_id)
         .eq("list_id", list_id)
@@ -148,6 +158,7 @@ async def validate_prospect_list(*, tenant_id: str, list_id: str) -> ValidationR
                 scan_id=scan_id,
                 item=row,
                 campaign_type=campaign_type,
+                source=source,
             )
             by_status[verdict] = by_status.get(verdict, 0) + 1
 
@@ -179,6 +190,7 @@ async def _validate_one(
     scan_id: str,
     item: dict[str, Any],
     campaign_type: str = "solar_rooftop",
+    source: str = "atoka",
 ) -> str:
     """Process a single prospect_list_items row end-to-end.
 
@@ -199,6 +211,9 @@ async def _validate_one(
     address = item.get("hq_address")
     website = item.get("website_domain")
     phone_initial = item.get("phone")
+    # openapi_it (energivori) ships a verified company email up front; the
+    # operator chose it as the PRIMARY send contact (overrides the scrape).
+    openapi_email = item.get("decision_maker_email") if source == "openapi_it" else None
 
     if not place_id or lat is None or lng is None:
         sb.table("prospect_list_items").update(
@@ -282,6 +297,8 @@ async def _validate_one(
 
     scraped_data: dict[str, Any] = {}
     contact_extraction: dict[str, Any] = {}
+    scraped_best_email: str | None = None
+    scraped_best_phone: str | None = phone_initial
     if scraped is not None:
         scraped_data = {
             "website_url": scraped.site.url if scraped.site.url else None,
@@ -295,10 +312,15 @@ async def _validate_one(
         if scraped.pb.email and scraped.pb.email not in all_emails:
             all_emails.append(scraped.pb.email)
         best = extract_best_email(all_emails)
-        contact_extraction = {
-            "best_email": best.email if best else None,
-            "best_phone": scraped.site.phone or scraped.pb.phone or phone_initial,
-        }
+        scraped_best_email = best.email if best else None
+        scraped_best_phone = scraped.site.phone or scraped.pb.phone or phone_initial
+
+    # openapi_it email wins (operator: primary contact); scrape is the fallback.
+    # Other channels keep the scraped email only (openapi_email is None). Write
+    # contact_extraction even if scraping failed, so the OpenAPI email survives.
+    best_email = _primary_send_email(openapi_email, scraped_best_email)
+    if scraped is not None or best_email:
+        contact_extraction = {"best_email": best_email, "best_phone": scraped_best_phone}
         sb.table("scan_candidates").update(
             {
                 "stage": 2,

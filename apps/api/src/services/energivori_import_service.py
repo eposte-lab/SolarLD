@@ -194,8 +194,8 @@ def _to_item(p: EnrichedProspect, geo: ForwardGeocodeResult | None) -> dict:
         "hq_province": p.render_province or p.province,
         "website_domain": p.website,
         "phone": p.phone,
-        # Pre-supplied OpenAPI email — captured now; the validation path still
-        # re-discovers via scraping, so this is audit/forensics + a future switch.
+        # OpenAPI company email — the PRIMARY send contact for this channel
+        # (validation reads it for source='openapi_it', overriding the scrape).
         "decision_maker_email": p.email,
         "google_place_id": _synthetic_place_id(p.piva) if geo else None,
         "place_lat": lat,
