@@ -14,12 +14,15 @@ only on the filtered subset.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 
 import httpx
 
 from ..core.logging import get_logger
+from ..data.province_centroids import province_centroid
 from .energivori_ingest import EnergivoroRecord
+from .mapbox_service import ForwardGeocodeResult, MapboxError, forward_geocode
 from .openapi_company_service import (
     _TIMEOUT,
     TARGET_PROVINCES,
@@ -141,3 +144,113 @@ async def run_import(records: list[EnergivoroRecord], *, limit: int | None = Non
                 s.with_email += 1
             s.prospects.append(prospect)
     return s
+
+
+# ---------------------------------------------------------------------------
+# DB-write prep — geocode the render site + shape each prospect into a flat
+# prospect_list_items dict (consumed by prospector_service.create_prospect_list_
+# from_openapi). The validation backbone HARD-REQUIRES google_place_id +
+# place_lat + place_lng or it marks the item 'skipped', so we geocode here.
+# ---------------------------------------------------------------------------
+
+_GEOCODE_CONCURRENCY = 6  # matches the hunter funnel's Mapbox semaphore
+# Plant/HQ addresses from a VAT list are often comune-level → accept a slightly
+# looser relevance than the 0.75 default, but not so loose it maps to the wrong
+# building; the resolved relevance is stored per-item for downstream gating, and
+# we NEVER fall back to a province centroid as the stored coordinate.
+_GEOCODE_MIN_RELEVANCE = 0.6
+
+
+@dataclass
+class ItemPrepResult:
+    items: list[dict]  # flat prospect_list_items dicts (geocoded where possible)
+    geocoded: int  # items with a real coordinate + synthetic place_id
+    skipped_geocode: int  # items left coordinate-less (validator will skip them)
+
+
+def _synthetic_place_id(piva: str) -> str:
+    """A stable, collision-free stand-in for the Google place_id the validator
+    requires. Not a real Places id — flows into pii_hash / data_sources only."""
+    return f"energivori:{piva}"
+
+
+def _to_item(p: EnrichedProspect, geo: ForwardGeocodeResult | None) -> dict:
+    """Shape one enriched prospect into a flat prospect_list_items dict.
+
+    On a geocode hit: sets the required trio (google_place_id + place_lat/lng)
+    and stashes the geocode relevance for downstream gating. On a miss: leaves
+    all three NULL so the validator transparently marks the item 'skipped'
+    (never 0/0 — the skip guard checks ``is None``, not falsiness).
+    """
+    lat = geo.lat if geo else None
+    lng = geo.lng if geo else None
+    return {
+        "vat_number": p.piva,
+        "legal_name": p.ragione_sociale or "(Senza nome)",
+        "ateco_code": p.ateco_code,
+        "employees": p.employees,
+        "hq_address": p.render_address,
+        "hq_city": p.town,
+        "hq_province": p.render_province or p.province,
+        "website_domain": p.website,
+        "phone": p.phone,
+        # Pre-supplied OpenAPI email — captured now; the validation path still
+        # re-discovers via scraping, so this is audit/forensics + a future switch.
+        "decision_maker_email": p.email,
+        "google_place_id": _synthetic_place_id(p.piva) if geo else None,
+        "place_lat": lat,
+        "place_lng": lng,
+        "validation_status": "pending",
+        "atoka_payload": {
+            "channel": "openapi_it",
+            "settore_csea": p.settore_csea,
+            "pec": p.pec,
+            "render_confidence": p.render_confidence,
+            "render_reason": p.render_reason,
+            # low relevance ⇒ an approximate coordinate → gate/flag before render
+            "geocode_relevance": geo.relevance if geo else None,
+        },
+    }
+
+
+async def _geocode_one(
+    p: EnrichedProspect, *, client: httpx.AsyncClient, sem: asyncio.Semaphore
+) -> ForwardGeocodeResult | None:
+    addr = p.render_address
+    if not addr:
+        return None
+    prov = (p.render_province or p.province or "").upper()
+    proximity = province_centroid(prov)  # bias the search near the plant's province
+    async with sem:
+        try:
+            return await forward_geocode(
+                addr,
+                proximity=proximity,
+                min_relevance=_GEOCODE_MIN_RELEVANCE,
+                client=client,
+            )
+        except (MapboxError, httpx.HTTPError):
+            # A transient Mapbox/network failure must NOT abort the batch (the
+            # OpenAPI enrichment is already paid) → treat it as a per-item miss.
+            log.warning("energivori.geocode_error", piva=p.piva)
+            return None
+
+
+async def prepare_items(
+    prospects: list[EnrichedProspect], *, client: httpx.AsyncClient
+) -> ItemPrepResult:
+    """Geocode each prospect's render site + shape flat item dicts (PURE of DB).
+
+    Concurrency-bounded Mapbox geocoding; a miss (or any leaked error) yields a
+    coordinate-less item (kept for audit, will be 'skipped' downstream) rather
+    than aborting the run. Returns the items + counts.
+    """
+    sem = asyncio.Semaphore(_GEOCODE_CONCURRENCY)
+    results = await asyncio.gather(
+        *(_geocode_one(p, client=client, sem=sem) for p in prospects),
+        return_exceptions=True,  # belt-and-suspenders: one bad row never kills the batch
+    )
+    geos = [None if isinstance(r, BaseException) else r for r in results]
+    items = [_to_item(p, g) for p, g in zip(prospects, geos, strict=True)]
+    geocoded = sum(1 for g in geos if g is not None)
+    return ItemPrepResult(items=items, geocoded=geocoded, skipped_geocode=len(items) - geocoded)

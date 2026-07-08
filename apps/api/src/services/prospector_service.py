@@ -377,6 +377,91 @@ def create_places_list(
     return list_row
 
 
+# Columns copied verbatim from a prepared energivori item dict onto the row
+# (list_id + tenant_id are set by the writer; anything absent stays NULL).
+_OPENAPI_ITEM_COLUMNS = (
+    "vat_number",
+    "legal_name",
+    "ateco_code",
+    "employees",
+    "hq_address",
+    "hq_city",
+    "hq_province",
+    "website_domain",
+    "phone",
+    "decision_maker_email",
+    "google_place_id",
+    "place_lat",
+    "place_lng",
+    "validation_status",
+)
+
+
+def create_prospect_list_from_openapi(
+    tenant_id: str,
+    name: str,
+    items: list[dict[str, Any]],
+    *,
+    description: str | None = None,
+    search_filter: dict[str, Any] | None = None,
+    created_by: str | None = None,
+    campaign_type: str = "solar_rooftop",
+) -> dict[str, Any]:
+    """Persist an energivori (OpenAPI-by-P.IVA) prospect list.
+
+    ``items`` are flat dicts already prepared + GEOCODED by
+    ``energivori_import_service.prepare_items`` (vat_number, legal_name,
+    hq_address, google_place_id, place_lat/place_lng, decision_maker_email, …).
+    Mirrors :func:`create_places_list` but sets ``source='openapi_it'`` (needs
+    migration 0164) and dedups on ``vat_number`` (the real P.IVA) instead of a
+    Google place id. Rows land ``validation_status='pending'`` so the existing
+    convalida task validates + renders them via the same backbone.
+    """
+    sb = get_service_client()
+
+    list_payload = {
+        "tenant_id": tenant_id,
+        "name": name,
+        "description": description,
+        "search_filter": search_filter or {},
+        "item_count": len(items),
+        "created_by": created_by,
+        "source": "openapi_it",
+        "campaign_type": campaign_type,
+    }
+    inserted = sb.table("prospect_lists").insert(list_payload).execute()
+    if not inserted.data:
+        raise RuntimeError("prospect_lists insert returned no row")
+    list_row = inserted.data[0]
+    list_id = list_row["id"]
+
+    if items:
+        seen: set[str] = set()
+        rows: list[dict[str, Any]] = []
+        for it in items:
+            vat = it.get("vat_number")
+            if not vat or vat in seen:
+                continue
+            seen.add(vat)
+            row: dict[str, Any] = {"list_id": list_id, "tenant_id": tenant_id}
+            for col in _OPENAPI_ITEM_COLUMNS:
+                row[col] = it.get(col)
+            row["legal_name"] = it.get("legal_name") or "(Senza nome)"  # NOT NULL
+            row["validation_status"] = it.get("validation_status") or "pending"
+            row["atoka_payload"] = it.get("atoka_payload") or {}  # NOT NULL
+            rows.append(row)
+
+        if rows:
+            for chunk_start in range(0, len(rows), 500):
+                chunk = rows[chunk_start : chunk_start + 500]
+                sb.table("prospect_list_items").insert(chunk).execute()
+
+            sb.table("prospect_lists").update({"item_count": len(rows)}).eq("id", list_id).execute()
+            list_row["item_count"] = len(rows)
+
+    return list_row
+
+
 def list_lists(*, tenant_id: str, page: int = 1, page_size: int = 50) -> dict[str, Any]:
     """Index of saved lists for a tenant (most recent first)."""
     sb = get_service_client()

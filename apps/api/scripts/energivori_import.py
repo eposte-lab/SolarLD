@@ -32,11 +32,24 @@ load_dotenv(_ROOT / ".env", override=True)
 load_dotenv(_API_DIR / ".env", override=True)
 sys.path.insert(0, str(_API_DIR))
 
+import httpx  # noqa: E402
+
 from src.core.config import settings  # noqa: E402
-from src.services.energivori_import_service import run_import  # noqa: E402
+from src.services.energivori_import_service import (  # noqa: E402
+    prepare_items,
+    run_import,
+)
 from src.services.energivori_ingest import parse_energivori_xlsx  # noqa: E402
+from src.services.openapi_company_service import (  # noqa: E402
+    _TIMEOUT,
+    TARGET_PROVINCES,
+)
+from src.services.prospector_service import (  # noqa: E402
+    create_prospect_list_from_openapi,
+)
 
 _DEFAULT_FILE = Path.home() / "Downloads" / "Energivori_2026_Lead_SolarLead.xlsx"
+_TOTAL_TRADE = "df08df04-4c90-4613-b21e-80879fc958d1"
 
 
 def _eur(cents: int) -> str:
@@ -44,18 +57,56 @@ def _eur(cents: int) -> str:
 
 
 async def main() -> None:
-    ap = argparse.ArgumentParser(description="Energivori dry-run (no DB writes)")
+    ap = argparse.ArgumentParser(description="Energivori import (dry-run by default)")
     ap.add_argument("--file", type=Path, default=_DEFAULT_FILE, help="CSEA xlsx path")
     ap.add_argument("--sheet", default=None, help="worksheet name (default: first)")
     ap.add_argument("--limit", type=int, default=25, help="VATs to enrich (cost!)")
+    ap.add_argument(
+        "--apply",
+        action="store_true",
+        help="WRITE a prospect_list from the in-target prospects (geocodes + costs)",
+    )
+    ap.add_argument("--tenant", default=_TOTAL_TRADE, help="tenant_id for --apply")
+    ap.add_argument("--list-name", default=None, help="prospect_list name for --apply")
+    ap.add_argument(
+        "--force",
+        action="store_true",
+        help="with --apply: create even if a same-name openapi_it list already exists",
+    )
     args = ap.parse_args()
 
     if not (settings.openapi_it_token or "").strip():
         print("ERROR: OPENAPI_IT_TOKEN non impostato (root .env o env) — impossibile enrichire.")
         raise SystemExit(1)
+    if args.apply and not (settings.mapbox_access_token or "").strip():
+        print("ERROR: --apply richiede MAPBOX_ACCESS_TOKEN (geocodifica sede) — non impostato.")
+        raise SystemExit(1)
     if not args.file.exists():
         print(f"ERROR: file non trovato: {args.file}")
         raise SystemExit(1)
+
+    # Idempotency guard runs BEFORE the (paid) enrichment so a duplicate --apply
+    # never re-spends. A stable default name makes the same-name check meaningful.
+    list_name = args.list_name or "Energivori Campania (OpenAPI)"
+    if args.apply and not args.force:
+        from src.core.supabase_client import get_service_client
+
+        dup = (
+            get_service_client()
+            .table("prospect_lists")
+            .select("id")
+            .eq("tenant_id", args.tenant)
+            .eq("source", "openapi_it")
+            .eq("name", list_name)
+            .limit(1)
+            .execute()
+        )
+        if dup.data:
+            print(
+                f"ERROR: esiste già una lista openapi_it '{list_name}' "
+                f"(id={dup.data[0]['id']}). Usa --force o --list-name per crearne un'altra."
+            )
+            raise SystemExit(1)
 
     records = parse_energivori_xlsx(args.file.read_bytes(), sheet=args.sheet)
     total = len(records)
@@ -96,6 +147,31 @@ async def main() -> None:
             f"ateco={p.ateco_code or '—':>5} "
             f"render[{p.render_confidence:4}]={(p.render_address or '—')[:44]}  {contact}"
         )
+
+    if not args.apply:
+        print("\n(dry-run — nessuna scrittura. Aggiungi --apply per creare la lista.)")
+        return
+
+    # --- APPLY: geocode the render sites + write a prospect_list ------------
+    prospects = s.prospects or []
+    if not prospects:
+        print("\nNessun prospect in Campania da scrivere.")
+        return
+    print(f"\n=== APPLY: geocodifica {len(prospects)} sedi + scrittura lista… ===")
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+        prep = await prepare_items(prospects, client=client)
+    list_row = create_prospect_list_from_openapi(
+        args.tenant,
+        list_name,
+        prep.items,
+        description="Import energivori CSEA via OpenAPI.it",
+        search_filter={"channel": "openapi_it", "provinces": sorted(TARGET_PROVINCES)},
+    )
+    print(f"  lista creata       id={list_row['id']}  name={list_name!r}")
+    print(f"  item scritti       {list_row.get('item_count', len(prep.items))}")
+    print(f"  geocodificati      {prep.geocoded}  (con coordinate → validabili)")
+    print(f"  senza coordinate   {prep.skipped_geocode}  (saranno 'skipped' in convalida)")
+    print("\nProssimo passo: convalida la lista dalla dashboard /scoperta (o via task).")
 
 
 if __name__ == "__main__":
