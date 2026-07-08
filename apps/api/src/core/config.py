@@ -253,6 +253,14 @@ class Settings(BaseSettings):
     ]
     # Rome (RM) is huge + often out-of-area; flip False to exclude just RM.
     energivori_include_roma: bool = True
+    # Change B/D/E: the contact GATE runs the decision-maker + personal-email
+    # resolution BEFORE the costly roof(Google Solar)/render(Replicate). When ON,
+    # only companies that PASS the gate reach those steps; the rest are marked
+    # ``funnel_excluded_reason`` and dropped. Default OFF = current behaviour.
+    email_gate_enabled: bool = False
+    # Change D: a PEC is generic + marketing-to-PEC is border-line, so it does
+    # NOT satisfy the gate by default.
+    allow_pec_as_pass: bool = False
     # OpenAPI.it (https://console.openapi.com) — pay-as-you-go REST
     # access to the Italian company registry. Used by the prospector
     # for sectors where Google Places returns the wrong category

@@ -17,6 +17,7 @@ Docs: https://developers.neverbounce.com/v4.2/reference/single-check
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
@@ -124,6 +125,52 @@ async def verify_email(
         disposable="disposable_email" in flags,
         raw=body,
     )
+
+
+async def batch_verify(
+    emails: list[str],
+    *,
+    client: httpx.AsyncClient | None = None,
+    api_key: str | None = None,
+    concurrency: int = 5,
+) -> dict[str, EmailVerification]:
+    """Verify many emails at once → ``{email: EmailVerification}``.
+
+    Deduplicates the input and bounds concurrency to respect NeverBounce rate
+    limits; a per-email error becomes an ``UNKNOWN`` result rather than aborting
+    the batch. Concurrent single-checks under the hood — a drop-in for the
+    NeverBounce Jobs bulk API (create+poll, heavier for these small per-company
+    permutation sets); swap the internals later without changing callers.
+    """
+    uniq = list(dict.fromkeys(e for e in emails if e and "@" in e))
+    if not uniq:
+        return {}
+    owns_client = client is None
+    if client is None:
+        client = httpx.AsyncClient(timeout=15.0)
+    sem = asyncio.Semaphore(max(1, concurrency))
+
+    async def _one(email: str) -> tuple[str, EmailVerification]:
+        async with sem:
+            try:
+                return email, await verify_email(email, client=client, api_key=api_key)
+            except Exception as exc:  # noqa: BLE001 — one bad email must not kill the batch
+                log.warning("neverbounce.batch_item_failed", email=email, err=str(exc)[:120])
+                return email, EmailVerification(
+                    email=email,
+                    result=VerificationResult.UNKNOWN,
+                    role_address=False,
+                    free_email=False,
+                    disposable=False,
+                    raw={"error": str(exc)[:200]},
+                )
+
+    try:
+        results = await asyncio.gather(*(_one(e) for e in uniq))
+    finally:
+        if owns_client:
+            await client.aclose()
+    return dict(results)
 
 
 async def get_account_credits(
