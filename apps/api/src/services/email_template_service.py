@@ -397,6 +397,23 @@ def _strip_html_to_text(html: str, ctx: OutreachContext) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _personalized_step1_subject(
+    decision_maker_name: str | None, lead_business_name: str | None
+) -> str | None:
+    """A cold (step-1) subject that leads with the RECIPIENT, not the vendor —
+    the single biggest open-rate lever. Prefers the decision-maker name, then
+    the company; returns None when neither is available (→ generic default)."""
+    name = (decision_maker_name or "").strip()
+    company = (lead_business_name or "").strip()
+    if name and company:
+        return f"{name}, un'analisi fotovoltaica per {company}"
+    if name:
+        return f"{name}, un'analisi fotovoltaica per la vostra sede"
+    if company:
+        return f"{company} — analisi fotovoltaica sulla vostra sede"
+    return None
+
+
 def default_subject_for(
     subject_type: str,
     tenant_name: str,
@@ -404,12 +421,19 @@ def default_subject_for(
     sequence_step: int = 1,
     email_style: str = "visual_preventivo",
     sender_first_name: str | None = None,
+    decision_maker_name: str | None = None,
+    lead_business_name: str | None = None,
+    personalize: bool = False,
 ) -> str:
     """Sensible default subject line per template variant & sequence step.
 
     Conversational templates use shorter, first-person subjects that feel
     like a real human sent them — not a bulk mailer.
     Step 2/3/4 lines differ so Gmail doesn't collapse the thread.
+
+    When ``personalize`` is set (Modifica 4), the cold step-1 subject leads with
+    the decision-maker name / lead company instead of the generic vendor-led
+    line; every other step is unchanged (threads must stay stable).
     """
     st = (subject_type or "").lower()
 
@@ -418,6 +442,10 @@ def default_subject_for(
         # defaults as a sensible baseline; A/B copy_subject overrides these at
         # render time (the OutreachContext.copy_subject field takes precedence).
         if st == "b2b":
+            if personalize and sequence_step == 1:
+                personal = _personalized_step1_subject(decision_maker_name, lead_business_name)
+                if personal:
+                    return personal
             subjects_premium = {
                 1: f"{tenant_name} — analisi fotovoltaica per la vostra sede",
                 2: "Re: analisi fotovoltaica — i numeri chiave",

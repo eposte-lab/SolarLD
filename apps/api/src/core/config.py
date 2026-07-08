@@ -232,6 +232,11 @@ class Settings(BaseSettings):
     # Modifica 3: when there is no personal email, fall back to the company PEC
     # (OpenAPI IT-pec) with a sober tone before dropping to a phone-only task.
     pec_fallback_enabled: bool = False
+    # Modifica 4: personalise the cold (step-1) subject line with the decision-
+    # maker name / lead company instead of the generic vendor-led default
+    # ("{tenant} — analisi fotovoltaica…"), which leads with the sender name and
+    # opens poorly. Falls back to the generic when neither is available.
+    personalized_subject_enabled: bool = False
     # OpenAPI.it (https://console.openapi.com) — pay-as-you-go REST
     # access to the Italian company registry. Used by the prospector
     # for sectors where Google Places returns the wrong category

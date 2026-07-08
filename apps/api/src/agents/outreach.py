@@ -1197,6 +1197,11 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
             sequence_step=payload.sequence_step,
             email_style=email_style,
             sender_first_name=sender_first_name,
+            # Modifica 4: lead-led subject when the flag is on (uses the
+            # registro-resolved decision-maker name / the lead's company).
+            decision_maker_name=subject.get("decision_maker_name"),
+            lead_business_name=subject.get("business_name"),
+            personalize=settings.personalized_subject_enabled,
         )
 
         # Opener is an expensive Claude call — keep it for step 1 only.
