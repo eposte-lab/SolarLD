@@ -95,7 +95,7 @@ async def launch_outreach_for_list(
     target_status = "accepted" if only_accepted else None
     q = (
         sb.table("prospect_list_items")
-        .select("id, scan_candidate_id, validation_status, legal_name")
+        .select("id, scan_candidate_id, validation_status, legal_name, vat_number")
         .eq("tenant_id", tenant_id)
         .eq("list_id", list_id)
     )
@@ -135,6 +135,7 @@ async def launch_outreach_for_list(
                 candidate_id=candidate_id,
                 list_id=list_id,
                 email_template_id=email_template_id if is_generic else None,
+                item_vat=(item.get("vat_number") or None),
             )
         except Exception as exc:  # noqa: BLE001
             log.warning(
@@ -228,6 +229,7 @@ async def _promote_to_lead(
     candidate_id: str,
     list_id: str | None = None,
     email_template_id: str | None = None,
+    item_vat: str | None = None,
 ) -> str | None:
     """Promote one scan_candidate to subjects + leads. Idempotent.
 
@@ -296,6 +298,11 @@ async def _promote_to_lead(
             "roof_id": roof_id,
             "type": "b2b",
             "business_name": business_name,
+            # P.IVA — enables the registro-first decision-maker lookup
+            # (IT-stakeholders) in the contact waterfall. From the prospect_list
+            # item (energivori) or, failing that, the one L2 scraped from the
+            # site (OpenCorporates) so Places leads can use it too.
+            "vat_number": item_vat or scraped.get("opencorporates_vat"),
             "decision_maker_email": contact.get("best_email"),
             "decision_maker_email_verified": False,
             "decision_maker_phone": phone_value,
