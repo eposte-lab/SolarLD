@@ -171,6 +171,8 @@ async def main() -> None:
     print(f"  item scritti       {list_row.get('item_count', len(prep.items))}")
     print(f"  geocodificati      {prep.geocoded}  (con coordinate → validabili)")
     print(f"  senza coordinate   {prep.skipped_geocode}  (saranno 'skipped' in convalida)")
+    if prep.gate_dropped:
+        print(f"  scartati dal gate  {prep.gate_dropped}  (solo generica → niente roof/render)")
     print("\nProssimo passo: convalida la lista dalla dashboard /scoperta (o via task).")
 
 

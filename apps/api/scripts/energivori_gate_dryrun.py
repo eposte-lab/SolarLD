@@ -93,7 +93,11 @@ async def main() -> None:
                 continue
             managers = await fetch_company_stakeholders(rec.piva, client=client)
             gate = await resolve_contact_gate(
-                enr, managers, client=client, acceptall_as_medium=acceptall
+                email=enr.email,
+                website=enr.website,
+                managers=managers,
+                client=client,
+                acceptall_as_medium=acceptall,
             )
             statuses[gate.email_status] += 1
             if gate.decision_maker_source == "registro":

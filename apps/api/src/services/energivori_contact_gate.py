@@ -31,7 +31,6 @@ from .decision_maker_name import PersonName, it_permutations, render_pattern
 from .hunter_io_service import domain_search
 from .neverbounce_service import EmailVerification, VerificationResult, batch_verify
 from .openapi_company_service import (
-    CompanyEnrichment,
     RegistroManager,
     resolve_registro_decision_maker,
 )
@@ -54,13 +53,13 @@ class GateResult:
     candidates: list[str] = field(default_factory=list)
 
 
-def _domain_from(enr: CompanyEnrichment) -> str | None:
+def _domain_from(email: str | None, website: str | None) -> str | None:
     """Mail domain to build personal addresses on: the email's domain (that's
     where mail actually lives), else the website host."""
-    email = (enr.email or "").strip().lower()
-    if "@" in email:
-        return email.split("@", 1)[1] or None
-    site = (enr.website or "").strip().lower()
+    mail = (email or "").strip().lower()
+    if "@" in mail:
+        return mail.split("@", 1)[1] or None
+    site = (website or "").strip().lower()
     site = site.replace("https://", "").replace("http://", "").replace("www.", "")
     site = site.strip("/").split("/", 1)[0]
     return site or None
@@ -156,16 +155,20 @@ def evaluate_gate(
 
 
 async def resolve_contact_gate(
-    enr: CompanyEnrichment,
-    managers: list[RegistroManager],
     *,
+    email: str | None,
+    website: str | None,
+    managers: list[RegistroManager],
     client: httpx.AsyncClient,
     acceptall_as_medium: bool = True,
 ) -> GateResult:
     """Async orchestration: registro decision-maker → Hunter pattern → email
-    permutations → NeverBounce batch verify → gate decision (Changes C+D)."""
+    permutations → NeverBounce batch verify → gate decision (Changes C+D).
+
+    ``email``/``website`` supply the mail domain to build personal addresses on
+    (the company email's domain, else the website host)."""
     dm = resolve_registro_decision_maker(managers)
-    domain = _domain_from(enr)
+    domain = _domain_from(email, website)
     if dm is None or not dm.first_name or not dm.last_name:
         return evaluate_gate(
             decision_maker=None,
