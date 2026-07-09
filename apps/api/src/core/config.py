@@ -142,6 +142,12 @@ class Settings(BaseSettings):
     # B2B leads (2026-06-18). Flip to False to restore the strict "verified
     # only" behaviour if the warming domain's bounce rate climbs.
     outreach_send_to_unknown_email: bool = True
+    # Personal-decision-maker-only send policy. When True, a send whose recipient
+    # is a GENERIC/role mailbox (info@, contatti@, direzione@, …) or that has no
+    # resolved decision-maker NAME is NOT sent — the lead is parked as ``to_call``
+    # (kept in the DB, revisitable) instead of blasting a reception inbox. Default
+    # False = current behaviour (SME info@ is sent).
+    outreach_require_personal_email: bool = False
     # FROM address for INTERNAL operator notifications (e.g. the "new contact
     # request" email to tenants.contact_email). These must NOT go through the
     # tenant's warm-up outreach inbox: when the operator's own mailbox is on the

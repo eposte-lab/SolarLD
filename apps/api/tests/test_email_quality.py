@@ -4,7 +4,42 @@ from __future__ import annotations
 
 import pytest
 
-from src.services.email_quality import is_placeholder_email, is_role_mailbox
+from src.services.email_quality import (
+    is_generic_mailbox,
+    is_placeholder_email,
+    is_role_mailbox,
+)
+
+
+@pytest.mark.parametrize(
+    "email",
+    [
+        "info@azienda.it",  # info@ IS generic here (unlike is_role_mailbox)
+        "contatti@azienda.it",
+        "direzione@azienda.it",
+        "acquisti@azienda.it",
+        "amministrazione@azienda.it",
+        "commerciale@azienda.it",
+        "segreteria@hotel.it",
+        "%20info@mechotel.com",  # scraper cruft normalised
+        "dpo@x.it",  # existing role localparts still count
+    ],
+)
+def test_is_generic_mailbox_true(email: str) -> None:
+    assert is_generic_mailbox(email) is True
+
+
+@pytest.mark.parametrize(
+    "email",
+    [
+        "dante.mele@campaniaplastica.com",
+        "stefano.marotta@center.it",
+        "marconobis@caseificiocolonne.it",
+        "g.rossi@azienda.it",
+    ],
+)
+def test_is_generic_mailbox_false_for_personal(email: str) -> None:
+    assert is_generic_mailbox(email) is False
 
 
 @pytest.mark.parametrize(
