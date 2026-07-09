@@ -30,6 +30,7 @@ from .openapi_company_service import (
     _TIMEOUT,
     TARGET_PROVINCES,
     CompanyEnrichment,
+    OpenApiCreditExhausted,
     RenderSite,
     fetch_company_enrichment,
     fetch_company_geo,
@@ -301,6 +302,8 @@ async def _gate_one(p: EnrichedProspect, *, client: httpx.AsyncClient) -> GateRe
             client=client,
             acceptall_as_medium=settings.acceptall_as_medium_confidence,
         )
+    except OpenApiCreditExhausted:
+        raise  # account dry → abort the whole batch, do NOT write false DROPs
     except Exception as exc:  # noqa: BLE001 — a gate error must not abort the batch
         log.warning("energivori.gate_error", piva=p.piva, err=type(exc).__name__)
         return None
@@ -327,6 +330,11 @@ async def prepare_items(
         *(_one(p) for p in prospects),
         return_exceptions=True,  # belt-and-suspenders: one bad row never kills the batch
     )
+    # An OpenAPI credit exhaustion means EVERY gate would mis-read as "no data" →
+    # abort loud rather than write a batch of false DROPs.
+    for r in results:
+        if isinstance(r, OpenApiCreditExhausted):
+            raise r
     pairs: list[tuple[ForwardGeocodeResult | None, GateResult | None]] = [
         (None, None) if isinstance(r, BaseException) else r for r in results
     ]
