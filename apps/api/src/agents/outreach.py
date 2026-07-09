@@ -77,7 +77,11 @@ from ..services.content_validator import ValidationResult, validate_email_conten
 from ..services.dialog360_service import WA_COST_PER_MESSAGE_CENTS
 from ..services.email_providers import get_provider
 from ..services.email_providers.base import ProviderError, SendResult
-from ..services.email_quality import is_placeholder_email, is_role_mailbox
+from ..services.email_quality import (
+    is_generic_mailbox,
+    is_placeholder_email,
+    is_role_mailbox,
+)
 from ..services.email_template_service import (
     OutreachContext,
     default_subject_for,
@@ -758,6 +762,26 @@ class OutreachAgent(AgentBase[OutreachInput, OutreachOutput]):
         #     Operator test/override sends bypass all three.
         # ------------------------------------------------------------------
         if not payload.recipient_override and not tenant_test_recipient:
+            # Personal-decision-maker-only policy (opt-in): never blast a generic
+            # reception inbox. No decision-maker NAME or a generic mailbox
+            # (info@, contatti@, direzione@…) → park as `to_call` (kept, not
+            # blacklisted), so only leads with a real personal contact go out.
+            if settings.outreach_require_personal_email:
+                _dm_name = (subject.get("decision_maker_name") or "").strip()
+                if not _dm_name or is_generic_mailbox(recipient):
+                    log.info(
+                        "outreach.no_personal_contact",
+                        lead_id=payload.lead_id,
+                        email=recipient,
+                        has_name=bool(_dm_name),
+                    )
+                    return await self._record_skip(
+                        payload=payload,
+                        lead=lead,
+                        reason="no_personal_contact",
+                        pipeline_status=LeadStatus.TO_CALL.value,
+                        event_type="lead.outreach_skipped",
+                    )
             if is_placeholder_email(recipient):
                 log.info("outreach.placeholder_email", lead_id=payload.lead_id, email=recipient)
                 return await self._record_failure(

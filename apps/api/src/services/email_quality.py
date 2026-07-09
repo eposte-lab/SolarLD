@@ -54,10 +54,60 @@ _ROLE_LOCALPARTS: frozenset[str] = frozenset(
 )
 
 
+# Generic / departmental inboxes. For the "personal decision-maker only" send
+# policy these count as NOT personal — UNLIKE ``is_role_mailbox`` this INCLUDES
+# ``info@`` (and the reception/office mailboxes), which the SME-friendly default
+# keeps but the personal-only policy parks.
+_GENERIC_LOCALPARTS: frozenset[str] = _ROLE_LOCALPARTS | frozenset(
+    {
+        "info",
+        "contatti",
+        "contatto",
+        "amministrazione",
+        "commerciale",
+        "vendite",
+        "sales",
+        "ufficio",
+        "ufficiotecnico",
+        "segreteria",
+        "direzione",
+        "acquisti",
+        "ordini",
+        "ordine",
+        "staff",
+        "redazione",
+        "posta",
+        "mail",
+        "email",
+        "contact",
+        "hello",
+        "prenotazioni",
+        "booking",
+        "reception",
+        "clienti",
+        "assistenza",
+        "supporto",
+        "support",
+        "ufficiopersonale",
+        "personale",
+        "hr",
+    }
+)
+
+
 def _split(email: str) -> tuple[str, str]:
     e = (email or "").strip().lower()
     local, _, domain = e.partition("@")
     return local, domain
+
+
+def is_generic_mailbox(email: str) -> bool:
+    """True for a generic/departmental inbox (info@, contatti@, direzione@, …) —
+    NOT a personal decision-maker address. Stricter than ``is_role_mailbox``
+    (which keeps ``info@``): used by the personal-email-only send policy."""
+    local, _ = _split(email)
+    local = local.replace("%20", "").strip(" .-_")  # tidy scraper cruft (e.g. "%20info")
+    return local in _GENERIC_LOCALPARTS
 
 
 def is_placeholder_email(email: str) -> bool:
