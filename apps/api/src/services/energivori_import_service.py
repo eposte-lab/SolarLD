@@ -16,12 +16,14 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 import httpx
 
 from ..core.config import settings
 from ..core.logging import get_logger
 from ..data.province_centroids import province_centroid
+from .energivori_contact_gate import GateResult, resolve_contact_gate
 from .energivori_ingest import EnergivoroRecord
 from .mapbox_service import ForwardGeocodeResult, MapboxError, forward_geocode
 from .openapi_company_service import (
@@ -31,6 +33,7 @@ from .openapi_company_service import (
     RenderSite,
     fetch_company_enrichment,
     fetch_company_geo,
+    fetch_company_stakeholders,
     is_target_province,
     provinces_for_regions,
     select_render_site,
@@ -182,6 +185,7 @@ class ItemPrepResult:
     items: list[dict]  # flat prospect_list_items dicts (geocoded where possible)
     geocoded: int  # items with a real coordinate + synthetic place_id
     skipped_geocode: int  # items left coordinate-less (validator will skip them)
+    gate_dropped: int = 0  # items the contact gate DROPPED (won't validate/render)
 
 
 def _synthetic_place_id(piva: str) -> str:
@@ -190,17 +194,25 @@ def _synthetic_place_id(piva: str) -> str:
     return f"energivori:{piva}"
 
 
-def _to_item(p: EnrichedProspect, geo: ForwardGeocodeResult | None) -> dict:
+def _to_item(
+    p: EnrichedProspect, geo: ForwardGeocodeResult | None, gate: GateResult | None = None
+) -> dict:
     """Shape one enriched prospect into a flat prospect_list_items dict.
 
     On a geocode hit: sets the required trio (google_place_id + place_lat/lng)
     and stashes the geocode relevance for downstream gating. On a miss: leaves
     all three NULL so the validator transparently marks the item 'skipped'
     (never 0/0 — the skip guard checks ``is None``, not falsiness).
+
+    When a ``gate`` is present (email_gate_enabled, Delta 2): a PASS carries the
+    verified PERSONAL email as the send contact (overriding the generic OpenAPI
+    one) and validates normally; a DROP is marked ``funnel_excluded_reason`` +
+    ``validation_status='skipped'`` so it NEVER reaches the costly roof/render,
+    while keeping the registro name + outcome for the reusable retry queue.
     """
     lat = geo.lat if geo else None
     lng = geo.lng if geo else None
-    return {
+    item: dict = {
         "vat_number": p.piva,
         "legal_name": p.ragione_sociale or "(Senza nome)",
         "ateco_code": p.ateco_code,
@@ -213,10 +225,14 @@ def _to_item(p: EnrichedProspect, geo: ForwardGeocodeResult | None) -> dict:
         # OpenAPI company email — the PRIMARY send contact for this channel
         # (validation reads it for source='openapi_it', overriding the scrape).
         "decision_maker_email": p.email,
+        "decision_maker_name": None,
         "google_place_id": _synthetic_place_id(p.piva) if geo else None,
         "place_lat": lat,
         "place_lng": lng,
         "validation_status": "pending",
+        "funnel_excluded_reason": None,
+        "enriched_at": None,
+        "enrichment_outcome": None,
         "atoka_payload": {
             "channel": "openapi_it",
             "settore_csea": p.settore_csea,
@@ -227,46 +243,99 @@ def _to_item(p: EnrichedProspect, geo: ForwardGeocodeResult | None) -> dict:
             "geocode_relevance": geo.relevance if geo else None,
         },
     }
+    if gate is not None:
+        item["decision_maker_name"] = gate.decision_maker_name  # registro name (PASS or DROP)
+        item["enriched_at"] = datetime.now(tz=UTC).isoformat()
+        item["enrichment_outcome"] = {
+            "passed": gate.passed,
+            "email_status": gate.email_status,
+            "email_confidence": gate.email_confidence,
+            "email_source": gate.email_source,
+            "excluded_reason": gate.excluded_reason,
+            "decision_maker_source": gate.decision_maker_source,
+            "candidates": gate.candidates,
+        }
+        if gate.passed:
+            # the verified personal email becomes the send contact
+            item["decision_maker_email"] = gate.email
+        else:
+            # DROP — keep the generic email for audit, but never validate/render
+            item["funnel_excluded_reason"] = gate.excluded_reason
+            item["validation_status"] = "skipped"
+    return item
 
 
 async def _geocode_one(
-    p: EnrichedProspect, *, client: httpx.AsyncClient, sem: asyncio.Semaphore
+    p: EnrichedProspect, *, client: httpx.AsyncClient
 ) -> ForwardGeocodeResult | None:
     addr = p.render_address
     if not addr:
         return None
     prov = (p.render_province or p.province or "").upper()
     proximity = province_centroid(prov)  # bias the search near the plant's province
-    async with sem:
-        try:
-            return await forward_geocode(
-                addr,
-                proximity=proximity,
-                min_relevance=_GEOCODE_MIN_RELEVANCE,
-                client=client,
-            )
-        except (MapboxError, httpx.HTTPError):
-            # A transient Mapbox/network failure must NOT abort the batch (the
-            # OpenAPI enrichment is already paid) → treat it as a per-item miss.
-            log.warning("energivori.geocode_error", piva=p.piva)
-            return None
+    try:
+        return await forward_geocode(
+            addr,
+            proximity=proximity,
+            min_relevance=_GEOCODE_MIN_RELEVANCE,
+            client=client,
+        )
+    except (MapboxError, httpx.HTTPError):
+        # A transient Mapbox/network failure must NOT abort the batch (the
+        # OpenAPI enrichment is already paid) → treat it as a per-item miss.
+        log.warning("energivori.geocode_error", piva=p.piva)
+        return None
+
+
+async def _gate_one(p: EnrichedProspect, *, client: httpx.AsyncClient) -> GateResult | None:
+    """Run the contact GATE for one prospect (Delta 2) — None when the gate is
+    off. Fetches the registro managers + resolves the personal-email decision."""
+    if not settings.email_gate_enabled:
+        return None
+    try:
+        managers = await fetch_company_stakeholders(p.piva, client=client)
+        return await resolve_contact_gate(
+            email=p.email,
+            website=p.website,
+            managers=managers,
+            client=client,
+            acceptall_as_medium=settings.acceptall_as_medium_confidence,
+        )
+    except Exception as exc:  # noqa: BLE001 — a gate error must not abort the batch
+        log.warning("energivori.gate_error", piva=p.piva, err=type(exc).__name__)
+        return None
 
 
 async def prepare_items(
     prospects: list[EnrichedProspect], *, client: httpx.AsyncClient
 ) -> ItemPrepResult:
-    """Geocode each prospect's render site + shape flat item dicts (PURE of DB).
+    """Geocode + (Delta 2) GATE each prospect, then shape flat item dicts.
 
-    Concurrency-bounded Mapbox geocoding; a miss (or any leaked error) yields a
-    coordinate-less item (kept for audit, will be 'skipped' downstream) rather
-    than aborting the run. Returns the items + counts.
+    Concurrency-bounded; a miss/leaked error yields a coordinate-less item rather
+    than aborting the run. With email_gate_enabled, DROPs are marked + kept but
+    validation_status='skipped' so they never reach the costly roof/render.
     """
     sem = asyncio.Semaphore(_GEOCODE_CONCURRENCY)
+
+    async def _one(p: EnrichedProspect) -> tuple[ForwardGeocodeResult | None, GateResult | None]:
+        async with sem:
+            geo = await _geocode_one(p, client=client)
+            gate = await _gate_one(p, client=client)
+            return geo, gate
+
     results = await asyncio.gather(
-        *(_geocode_one(p, client=client, sem=sem) for p in prospects),
+        *(_one(p) for p in prospects),
         return_exceptions=True,  # belt-and-suspenders: one bad row never kills the batch
     )
-    geos = [None if isinstance(r, BaseException) else r for r in results]
-    items = [_to_item(p, g) for p, g in zip(prospects, geos, strict=True)]
-    geocoded = sum(1 for g in geos if g is not None)
-    return ItemPrepResult(items=items, geocoded=geocoded, skipped_geocode=len(items) - geocoded)
+    pairs: list[tuple[ForwardGeocodeResult | None, GateResult | None]] = [
+        (None, None) if isinstance(r, BaseException) else r for r in results
+    ]
+    items = [_to_item(p, geo, gate) for p, (geo, gate) in zip(prospects, pairs, strict=True)]
+    geocoded = sum(1 for geo, _ in pairs if geo is not None)
+    gate_dropped = sum(1 for _, gate in pairs if gate is not None and not gate.passed)
+    return ItemPrepResult(
+        items=items,
+        geocoded=geocoded,
+        skipped_geocode=len(items) - geocoded,
+        gate_dropped=gate_dropped,
+    )

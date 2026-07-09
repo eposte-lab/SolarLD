@@ -14,6 +14,7 @@ from types import SimpleNamespace
 import httpx
 
 from src.services import energivori_import_service as eis
+from src.services.energivori_contact_gate import GateResult
 from src.services.energivori_import_service import (
     EnrichedProspect,
     _to_item,
@@ -163,6 +164,41 @@ def test_prepare_items_geocodes_and_counts(monkeypatch) -> None:
     assert res.items[0]["place_lat"] == 41.0
     assert res.items[1]["google_place_id"] is None
     assert res.items[1]["place_lat"] is None
+
+
+def test_to_item_gate_pass_uses_personal_email() -> None:
+    gate = GateResult(
+        passed=True,
+        email="dante.mele@campaniaplastica.com",
+        email_status="valid",
+        email_confidence="alta",
+        email_source="verified",
+        decision_maker_name="Dante Mele",
+        decision_maker_source="registro",
+    )
+    item = _to_item(_prospect(), _geo(41.1, 14.8), gate)
+    assert item["decision_maker_email"] == "dante.mele@campaniaplastica.com"  # personal wins
+    assert item["decision_maker_name"] == "Dante Mele"
+    assert item["validation_status"] == "pending"  # proceeds to render
+    assert item["funnel_excluded_reason"] is None
+    assert item["enriched_at"] is not None
+    assert item["enrichment_outcome"]["passed"] is True
+
+
+def test_to_item_gate_drop_marks_skipped() -> None:
+    gate = GateResult(
+        passed=False,
+        excluded_reason="generic_email_only",
+        decision_maker_name="Dante Mele",
+        decision_maker_source="registro",
+    )
+    item = _to_item(_prospect(), _geo(41.1, 14.8), gate)
+    # kept for audit but never validated/rendered
+    assert item["validation_status"] == "skipped"
+    assert item["funnel_excluded_reason"] == "generic_email_only"
+    assert item["decision_maker_email"] == "info@campaniaplastica.com"  # generic kept for audit
+    assert item["decision_maker_name"] == "Dante Mele"  # registro name still captured
+    assert item["enrichment_outcome"]["passed"] is False
 
 
 def test_prepare_items_survives_geocoder_exception(monkeypatch) -> None:

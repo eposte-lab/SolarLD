@@ -390,10 +390,14 @@ _OPENAPI_ITEM_COLUMNS = (
     "website_domain",
     "phone",
     "decision_maker_email",
+    "decision_maker_name",
     "google_place_id",
     "place_lat",
     "place_lng",
     "validation_status",
+    "funnel_excluded_reason",
+    "enriched_at",
+    "enrichment_outcome",
 )
 
 
