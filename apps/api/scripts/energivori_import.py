@@ -43,6 +43,7 @@ from src.services.energivori_ingest import parse_energivori_xlsx  # noqa: E402
 from src.services.openapi_company_service import (  # noqa: E402
     _TIMEOUT,
     TARGET_PROVINCES,
+    OpenApiCreditExhausted,
 )
 from src.services.prospector_service import (  # noqa: E402
     create_prospect_list_from_openapi,
@@ -177,4 +178,11 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except OpenApiCreditExhausted:
+        print(
+            "\nERRORE: account OpenAPI a secco (402). Ricarica il credito su "
+            "console.openapi.com e riprova — nessuna lista scritta."
+        )
+        raise SystemExit(2) from None

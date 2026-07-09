@@ -34,6 +34,13 @@ log = get_logger(__name__)
 COMPANY_BASE_URL = "https://company.openapi.com"
 _TIMEOUT = httpx.Timeout(connect=5.0, read=45.0, write=10.0, pool=10.0)
 
+
+class OpenApiCreditExhausted(Exception):
+    """Raised on an OpenAPI 402 (account out of credit). A depletion must fail
+    LOUD — silently returning None makes the gate mis-read it as 'no decision-
+    maker' and write a whole batch of false DROPs (2026-07-09)."""
+
+
 # ATECO macro-class codes that denote a real production/manufacturing site (a
 # roof worth rendering): C = manufacturing, B = mining, D = energy, F = building
 # sites. Everything else (G retail, K finance, L real-estate, M studios…) is an
@@ -216,6 +223,11 @@ async def _get(path: str, *, client: httpx.AsyncClient | None) -> Any | None:
         resp = await client.get(
             f"{COMPANY_BASE_URL}{path}", headers={"Authorization": f"Bearer {token}"}
         )
+        if resp.status_code == 402:
+            # Account out of credit — fail loud so callers abort instead of
+            # writing a batch of false "no data" results.
+            log.error("openapi_company.credit_exhausted", path=path)
+            raise OpenApiCreditExhausted(path)
         if resp.status_code >= 400:
             log.warning("openapi_company.bad_response", path=path, status=resp.status_code)
             return None

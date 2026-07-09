@@ -7,8 +7,15 @@ are locked against the live shape.
 
 from __future__ import annotations
 
+import asyncio
+
+import httpx
+import pytest
+
 from src.services.openapi_company_service import (
     CompanyEnrichment,
+    OpenApiCreditExhausted,
+    _get,
     is_target_province,
     parse_it_marketing,
     parse_it_stakeholders,
@@ -269,6 +276,35 @@ def test_provinces_for_regions_exclude_roma() -> None:
     assert "RM" in with_roma
     assert "RM" not in without
     assert without == with_roma - {"RM"}
+
+
+def test_get_raises_on_402_credit_exhausted(monkeypatch) -> None:
+    # A 402 (account out of credit) must fail LOUD, not return None (which the
+    # gate would mis-read as "no data" and write false DROPs — 2026-07-09).
+    import src.services.openapi_company_service as mod
+
+    monkeypatch.setattr(mod.settings, "openapi_it_token", "tok", raising=False)
+    transport = httpx.MockTransport(lambda _req: httpx.Response(402, json={"success": False}))
+
+    async def run() -> None:
+        async with httpx.AsyncClient(transport=transport) as c:
+            await _get("/IT-stakeholders/123", client=c)
+
+    with pytest.raises(OpenApiCreditExhausted):
+        asyncio.run(run())
+
+
+def test_get_returns_none_on_other_4xx(monkeypatch) -> None:
+    import src.services.openapi_company_service as mod
+
+    monkeypatch.setattr(mod.settings, "openapi_it_token", "tok", raising=False)
+    transport = httpx.MockTransport(lambda _req: httpx.Response(404, json={}))
+
+    async def run() -> object:
+        async with httpx.AsyncClient(transport=transport) as c:
+            return await _get("/IT-start/123", client=c)
+
+    assert asyncio.run(run()) is None  # 404 → None (not raised)
 
 
 def test_is_target_province_campania_filter() -> None:
