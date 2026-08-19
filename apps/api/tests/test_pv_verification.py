@@ -10,6 +10,8 @@ The vision + Mapbox calls are monkeypatched so no network is touched.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 from src.services import claude_vision_service as cvs
@@ -116,6 +118,51 @@ async def test_mid_confidence_panels_now_held_not_acted(monkeypatch) -> None:
     _stub_detect(monkeypatch, {"has_existing_pv": True, "confidence": 0.7})
     v = await cvs.verify_existing_pv(40.0, 14.0, area_sqm=500)
     assert v.checked is False
+
+
+@pytest.mark.asyncio
+async def test_reverify_excludes_already_escalated_leads(monkeypatch) -> None:
+    """Regression (2026-08 token blowout): the candidate query MUST exclude
+    leads already escalated to a human (operator_review_status='held'), while
+    keeping never-escalated (NULL) ones. Without the exclusion the ~20 held
+    roofs monopolised every 20-min tick and got a fresh Claude vision call
+    each time, forever — never resolving, just burning tokens."""
+    from src.services import pv_verification_service as pv
+
+    seen: dict[str, object] = {}
+
+    class _Q:
+        def table(self, name):  # noqa: ANN001
+            return self
+
+        def select(self, *a, **k):  # noqa: ANN002, ANN003
+            return self
+
+        def eq(self, col, val):  # noqa: ANN001
+            seen.setdefault("eq", []).append((col, val))
+            return self
+
+        def or_(self, expr):  # noqa: ANN001
+            seen["or_"] = expr
+            return self
+
+        def order(self, *a, **k):  # noqa: ANN002, ANN003
+            return self
+
+        def limit(self, *a, **k):  # noqa: ANN002, ANN003
+            return self
+
+        def execute(self):
+            return SimpleNamespace(data=[])  # no leads → no vision calls
+
+    monkeypatch.setattr(pv, "get_service_client", lambda: _Q())
+
+    result = await pv.run_pv_reverification()
+
+    assert result["escalated"] == 0  # empty batch, nothing processed
+    or_expr = seen.get("or_", "")
+    assert "operator_review_status.neq.held" in or_expr  # 'held' excluded
+    assert "operator_review_status.is.null" in or_expr  # never-escalated eligible
 
 
 @pytest.mark.asyncio
