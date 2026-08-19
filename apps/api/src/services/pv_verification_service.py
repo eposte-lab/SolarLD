@@ -155,6 +155,15 @@ async def run_pv_reverification(*, limit: int = PER_RUN_CAP) -> dict[str, int]:
             "roofs(id, lat, lng, area_sqm, has_existing_pv, existing_pv_checked_at)"
         )
         .eq("pipeline_status", PENDING_PV_STATUS)
+        # Skip leads already escalated to a human. Re-running vision on a roof
+        # that vision already failed to settle never resolves it (only an
+        # operator can) — it just burns one vision call per lead per tick. With
+        # PER_RUN_CAP=20 and oldest-first ordering, the ~20 permanently-held
+        # roofs monopolised EVERY run, so the cron paid Claude ~1440×/day to
+        # re-look at the same stuck leads and starved the genuinely-new pending
+        # ones (the 2026-08 Anthropic-token blowout). NULL = never escalated →
+        # still eligible; only 'held' is excluded.
+        .or_("operator_review_status.is.null,operator_review_status.neq.held")
         .order("last_status_transition_at", desc=False)
         .limit(limit)
         .execute()
